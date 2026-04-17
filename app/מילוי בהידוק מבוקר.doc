@@ -1,0 +1,111 @@
+﻿
+      <html dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; }
+            h1 { margin-bottom: 20px; }
+            .meta { margin-bottom: 20px; line-height: 1.9; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #999; padding: 8px; text-align: right; vertical-align: top; }
+            th { background: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <h1>מילוי בהידוק מבוקר</h1>
+          <div class="meta">
+            <div><strong>תבנית:</strong> מילוי בהידוק מבוקר</div>
+            <div><strong>קוד טופס:</strong> מס נוהל</div>
+            <div><strong>קטגוריה:</strong> מילוי בהידוק מבוקר</div>
+            <div><strong>מיקום:</strong> </div>
+            <div><strong>תאריך:</strong> </div>
+            <div><strong>קבלן מבצע:</strong> </div>
+            <div><strong>הערות כלליות:</strong> </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>מספר</th>
+                <th>תיאור</th>
+                <th>אחראי</th>
+                <th>סטטוס</th>
+                <th>הערות</th>
+              </tr>
+            </thead>
+            <tbody>
+          <tr>
+            <td>1</td>
+            <td>בדיקת תוכיות לביצוע + מהדורה</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>2</td>
+            <td>ביצוע הבדיקות המקדימות התואמות לחומר</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>3</td>
+            <td>השלמת תהליך הבקרה לשכבה הקודמת</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>4</td>
+            <td>הכנת שכבה קודמת לפיזור שכבה מיועדת לבדיקה</td>
+            <td>מהנדס ביצוע / מנה&quot;ע</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>5</td>
+            <td>אישור מנהל העבודה על סיום ביצוע השכבה</td>
+            <td>מהנדס ביצוע / מנה&quot;ע</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>6</td>
+            <td>בקרה ויזואלית לשכבה</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>7</td>
+            <td>בדיקות דרגת הידוק ותכולת רטיבות</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>8</td>
+            <td>בביצוע מדידה של מפלסים ורוחב השכבה, שכבת שתית תחתון, כל שכבת מילוי חמישית, כל שכבה מסיימת</td>
+            <td>מודד</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>9</td>
+            <td>אישור סופי</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        </tbody>
+          </table>
+        </body>
+      </html>
+    

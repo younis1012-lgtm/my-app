@@ -1,0 +1,111 @@
+﻿
+      <html dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; }
+            h1 { margin-bottom: 20px; }
+            .meta { margin-bottom: 20px; line-height: 1.9; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #999; padding: 8px; text-align: right; vertical-align: top; }
+            th { background: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <h1>רשימת תיוג להדוק מילוי רגיל</h1>
+          <div class="meta">
+            <div><strong>תבנית:</strong> להדוק מילוי רגיל</div>
+            <div><strong>קוד טופס:</strong> מס נוהל</div>
+            <div><strong>קטגוריה:</strong> מילוי רגיל</div>
+            <div><strong>מיקום:</strong> </div>
+            <div><strong>תאריך:</strong> </div>
+            <div><strong>קבלן מבצע:</strong> </div>
+            <div><strong>הערות כלליות:</strong> </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>מספר</th>
+                <th>תיאור</th>
+                <th>אחראי</th>
+                <th>סטטוס</th>
+                <th>הערות</th>
+              </tr>
+            </thead>
+            <tbody>
+          <tr>
+            <td>1</td>
+            <td>עבודה עם תוכניות מעודכנת</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>2</td>
+            <td>סימון נקודות הדיקור ורום השכבה</td>
+            <td>מודד</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>3</td>
+            <td>אישור שכבה קודמת</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>4</td>
+            <td>בדיקה מוקדמת (מיון AASHTO מערכת צפיפות, רטיבות)</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>5</td>
+            <td>פיזור בעובי אחיד,הרטבה והידוק</td>
+            <td>מהנדס ביצוע / מנה&quot;ע</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>6</td>
+            <td>בקרה ויזואלית למרקם השכבה, משירויות,סגרגציה ואחידות ההידוק</td>
+            <td>מהנדס ביצוע / מנה&quot;ע</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>7</td>
+            <td>הזמנת בדיקת מעברי מכבש</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>8</td>
+            <td>איזון כל שכבה חמישית (רוחב וגובה)</td>
+            <td>מודד</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td>9</td>
+            <td>אישור השכבה</td>
+            <td>בקר איכות</td>
+            <td>לא נבדק</td>
+            <td></td>
+          </tr>
+        </tbody>
+          </table>
+        </body>
+      </html>
+    
