@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-
+import { supabase } from '../lib/supabaseClient';
 
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
@@ -23,11 +22,8 @@ type ChecklistItem = {
   responsible: string;
   status: 'לא נבדק' | 'תקין' | 'לא תקין';
   notes: string;
-
-  // חדש 👇
-  inspector: string;
-  executionDate: string;
 };
+
 type ChecklistRecord = {
   id: string;
   projectId: string;
@@ -230,8 +226,6 @@ const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
     responsible: item.responsible,
     status: 'לא נבדק' as const,
     notes: '',
-    inspector: '',
-    executionDate: '',
   }));
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -727,12 +721,9 @@ export default function Page() {
       date: record.date,
       contractor: record.contractor,
       notes: record.notes,
-  
-items: record.items.map((item) => ({
-  ...item,
-  inspector: item.inspector || '',
-  executionDate: item.executionDate || '',
-})),
+      items: record.items.map((item) => ({ ...item })),
+    });
+  };
 
   const deleteChecklist = async (id: string) => {
     setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
