@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
-type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary' | 'externalSystem';
+type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
 type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
 
 type Project = {
-  id: number;
+  id: string;
   name: string;
   description: string;
   manager: string;
@@ -16,7 +17,7 @@ type Project = {
 };
 
 type ChecklistItem = {
-  id: number;
+  id: string;
   description: string;
   responsible: string;
   status: 'לא נבדק' | 'תקין' | 'לא תקין';
@@ -24,8 +25,8 @@ type ChecklistItem = {
 };
 
 type ChecklistRecord = {
-  id: number;
-  projectId: number;
+  id: string;
+  projectId: string;
   templateKey: ChecklistTemplateKey;
   title: string;
   category: string;
@@ -38,8 +39,8 @@ type ChecklistRecord = {
 };
 
 type NonconformanceRecord = {
-  id: number;
-  projectId: number;
+  id: string;
+  projectId: string;
   title: string;
   location: string;
   date: string;
@@ -53,8 +54,8 @@ type NonconformanceRecord = {
 };
 
 type TrialSectionRecord = {
-  id: number;
-  projectId: number;
+  id: string;
+  projectId: string;
   title: string;
   location: string;
   date: string;
@@ -91,8 +92,8 @@ type MaterialPreliminary = {
 };
 
 type PreliminaryRecord = {
-  id: number;
-  projectId: number;
+  id: string;
+  projectId: string;
   subtype: PreliminaryTab;
   title: string;
   date: string;
@@ -105,20 +106,18 @@ type PreliminaryRecord = {
 
 type PersistedData = {
   projects: Project[];
-  currentProjectId: number | null;
+  currentProjectId: string | null;
   savedChecklists: ChecklistRecord[];
   savedNonconformances: NonconformanceRecord[];
   savedTrialSections: TrialSectionRecord[];
   savedPreliminary: PreliminaryRecord[];
 };
 
-const EXTERNAL_SYSTEM_URL = 'https://my-819ankelm-younis1012-4577s-projects.vercel.app/';
-
 const STORAGE_KEY = 'yk-quality-stage3-v2';
 
 const defaultProjects: Project[] = [
   {
-    id: 1,
+    id: '1',
     name: 'כביש 781',
     description: 'פרויקט תשתיות',
     manager: '',
@@ -222,14 +221,14 @@ const checklistTemplates: Record<
 
 const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
   checklistTemplates[templateKey].items.map((item, index) => ({
-    id: Date.now() + index,
+    id: `${Date.now()}-${index}`,
     description: item.description,
     responsible: item.responsible,
     status: 'לא נבדק' as const,
     notes: '',
   }));
 
-const emptyChecklistItem = (id: number): ChecklistItem => ({
+const emptyChecklistItem = (id: string): ChecklistItem => ({
   id,
   description: '',
   responsible: '',
@@ -320,7 +319,7 @@ export default function Page() {
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
 
   const [projects, setProjects] = useState<Project[]>(defaultProjects);
-  const [currentProjectId, setCurrentProjectId] = useState<number | null>(1);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>('1');
 
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
@@ -339,27 +338,160 @@ export default function Page() {
   const [savedPreliminary, setSavedPreliminary] = useState<PreliminaryRecord[]>([]);
 
   const [loaded, setLoaded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadFromCloudResults = (
+    projectsRows: any[] | null,
+    checklistRows: any[] | null,
+    nonconformanceRows: any[] | null,
+    trialRows: any[] | null,
+    preliminaryRows: any[] | null
+  ) => {
+    if (projectsRows?.length) {
+      const mappedProjects: Project[] = projectsRows.map((row) => ({
+        id: row.id,
+        name: row.name ?? '',
+        description: row.description ?? '',
+        manager: row.manager ?? '',
+        isActive: Boolean(row.is_active),
+        createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '',
+      }));
+      setProjects(mappedProjects);
+      const active = mappedProjects.find((item) => item.isActive) ?? mappedProjects[0] ?? null;
+      setCurrentProjectId(active?.id ?? null);
+    }
+
+    if (checklistRows) {
+      const mapped: ChecklistRecord[] = checklistRows.map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        templateKey: row.template_key,
+        title: row.title ?? '',
+        category: row.category ?? '',
+        location: row.location ?? '',
+        date: row.date ?? '',
+        contractor: row.contractor ?? '',
+        notes: row.notes ?? '',
+        items: Array.isArray(row.items) ? row.items : [],
+        savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
+      }));
+      setSavedChecklists(mapped);
+    }
+
+    if (nonconformanceRows) {
+      const mapped: NonconformanceRecord[] = nonconformanceRows.map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        title: row.title ?? '',
+        location: row.location ?? '',
+        date: row.date ?? '',
+        raisedBy: row.raised_by ?? '',
+        severity: row.severity ?? 'בינונית',
+        status: row.status ?? 'פתוח',
+        description: row.description ?? '',
+        actionRequired: row.action_required ?? '',
+        notes: row.notes ?? '',
+        savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
+      }));
+      setSavedNonconformances(mapped);
+    }
+
+    if (trialRows) {
+      const mapped: TrialSectionRecord[] = trialRows.map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        title: row.title ?? '',
+        location: row.location ?? '',
+        date: row.date ?? '',
+        spec: row.spec ?? '',
+        result: row.result ?? '',
+        approvedBy: row.approved_by ?? '',
+        status: row.status ?? 'טיוטה',
+        notes: row.notes ?? '',
+        savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
+      }));
+      setSavedTrialSections(mapped);
+    }
+
+    if (preliminaryRows) {
+      const mapped: PreliminaryRecord[] = preliminaryRows.map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        subtype: row.subtype,
+        title: row.title ?? '',
+        date: row.date ?? '',
+        status: row.status ?? 'טיוטה',
+        supplier: row.supplier ?? undefined,
+        subcontractor: row.subcontractor ?? undefined,
+        material: row.material ?? undefined,
+        savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
+      }));
+      setSavedPreliminary(mapped);
+    }
+  };
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      setLoaded(true);
-      return;
-    }
+    const loadAll = async () => {
+      if (!isSupabaseConfigured) {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          setLoaded(true);
+          return;
+        }
 
-    try {
-      const parsed = JSON.parse(raw) as PersistedData;
-      if (parsed.projects?.length) setProjects(parsed.projects);
-      if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
-      if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
-      if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
-      if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
-      if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
-    } catch (error) {
-      console.error('Failed to load saved data', error);
-    } finally {
-      setLoaded(true);
-    }
+        try {
+          const parsed = JSON.parse(raw) as PersistedData;
+          if (parsed.projects?.length) setProjects(parsed.projects);
+          if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
+          if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
+          if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
+          if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
+          if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
+        } catch (error) {
+          console.error('Failed to load local saved data', error);
+        } finally {
+          setLoaded(true);
+        }
+        return;
+      }
+
+      try {
+        const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes] = await Promise.all([
+          supabase.from('projects').select('*').order('created_at', { ascending: false }),
+          supabase.from('checklists').select('*').order('saved_at', { ascending: false }),
+          supabase.from('nonconformances').select('*').order('saved_at', { ascending: false }),
+          supabase.from('trial_sections').select('*').order('saved_at', { ascending: false }),
+          supabase.from('preliminary_records').select('*').order('saved_at', { ascending: false }),
+        ]);
+
+        const fatalErrors = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error].filter(
+          (item) => item && !String(item.message).includes('relation')
+        );
+        if (fatalErrors.length) throw fatalErrors[0];
+
+        loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
+      } catch (error) {
+        console.error('Failed to load Supabase data, falling back to localStorage', error);
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as PersistedData;
+            if (parsed.projects?.length) setProjects(parsed.projects);
+            if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
+            if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
+            if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
+            if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
+            if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
+          } catch (innerError) {
+            console.error('Failed to parse local fallback data', innerError);
+          }
+        }
+      } finally {
+        setLoaded(true);
+      }
+    };
+
+    loadAll();
   }, []);
 
   useEffect(() => {
@@ -376,6 +508,18 @@ export default function Page() {
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded]);
+
+  const refreshCloudData = async () => {
+    if (!isSupabaseConfigured) return;
+    const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes] = await Promise.all([
+      supabase.from('projects').select('*').order('created_at', { ascending: false }),
+      supabase.from('checklists').select('*').order('saved_at', { ascending: false }),
+      supabase.from('nonconformances').select('*').order('saved_at', { ascending: false }),
+      supabase.from('trial_sections').select('*').order('saved_at', { ascending: false }),
+      supabase.from('preliminary_records').select('*').order('saved_at', { ascending: false }),
+    ]);
+    loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
+  };
 
   const currentProject = useMemo(
     () => projects.find((project) => project.id === currentProjectId) ?? null,
@@ -402,13 +546,13 @@ export default function Page() {
     [savedPreliminary, currentProjectId]
   );
 
-  const addProject = () => {
+  const addProject = async () => {
     if (!newProjectName.trim()) {
       alert('יש להזין שם פרויקט');
       return;
     }
 
-    const id = Date.now();
+    const id = crypto.randomUUID();
     const project: Project = {
       id,
       name: newProjectName.trim(),
@@ -418,26 +562,41 @@ export default function Page() {
       createdAt: new Date().toLocaleString('he-IL'),
     };
 
-    setProjects((prev) => [...prev.map((item) => ({ ...item, isActive: false })), project]);
+    const nextProjects = [...projects.map((item) => ({ ...item, isActive: false })), project];
+    setProjects(nextProjects);
     setCurrentProjectId(id);
+    if (isSupabaseConfigured) {
+      await supabase.from('projects').insert({
+        id,
+        name: project.name,
+        description: project.description,
+        manager: project.manager,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      });
+      await supabase.from('projects').update({ is_active: false }).neq('id', id);
+      await refreshCloudData();
+    }
     setNewProjectName('');
     setNewProjectDescription('');
     setNewProjectManager('');
   };
 
-  const renameProject = (projectId: number) => {
+  const renameProject = async (projectId: string) => {
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
 
     const nextName = window.prompt('שם פרויקט חדש', project.name);
     if (!nextName || !nextName.trim()) return;
 
-    setProjects((prev) =>
-      prev.map((item) => (item.id === projectId ? { ...item, name: nextName.trim() } : item))
-    );
+    setProjects((prev) => prev.map((item) => (item.id === projectId ? { ...item, name: nextName.trim() } : item)));
+    if (isSupabaseConfigured) {
+      await supabase.from('projects').update({ name: nextName.trim() }).eq('id', projectId);
+      await refreshCloudData();
+    }
   };
 
-  const updateProjectMeta = (projectId: number) => {
+  const updateProjectMeta = async (projectId: string) => {
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
 
@@ -446,21 +605,24 @@ export default function Page() {
     const nextManager = window.prompt('מנהל פרויקט', project.manager ?? '');
     if (nextManager === null) return;
 
-    setProjects((prev) =>
-      prev.map((item) =>
-        item.id === projectId
-          ? { ...item, description: nextDescription.trim(), manager: nextManager.trim() }
-          : item
-      )
-    );
+    setProjects((prev) => prev.map((item) => item.id === projectId ? { ...item, description: nextDescription.trim(), manager: nextManager.trim() } : item));
+    if (isSupabaseConfigured) {
+      await supabase.from('projects').update({ description: nextDescription.trim(), manager: nextManager.trim() }).eq('id', projectId);
+      await refreshCloudData();
+    }
   };
 
-  const setActiveProject = (projectId: number) => {
+  const setActiveProject = async (projectId: string) => {
     setProjects((prev) => prev.map((item) => ({ ...item, isActive: item.id === projectId })));
     setCurrentProjectId(projectId);
+    if (isSupabaseConfigured) {
+      await supabase.from('projects').update({ is_active: false }).neq('id', projectId);
+      await supabase.from('projects').update({ is_active: true }).eq('id', projectId);
+      await refreshCloudData();
+    }
   };
 
-  const deleteProject = (projectId: number) => {
+  const deleteProject = async (projectId: string) => {
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
 
@@ -476,6 +638,16 @@ export default function Page() {
     setSavedNonconformances((prev) => prev.filter((item) => item.projectId !== projectId));
     setSavedTrialSections((prev) => prev.filter((item) => item.projectId !== projectId));
     setSavedPreliminary((prev) => prev.filter((item) => item.projectId !== projectId));
+    if (isSupabaseConfigured) {
+      await Promise.all([
+        supabase.from('projects').delete().eq('id', projectId),
+        supabase.from('checklists').delete().eq('project_id', projectId),
+        supabase.from('nonconformances').delete().eq('project_id', projectId),
+        supabase.from('trial_sections').delete().eq('project_id', projectId),
+        supabase.from('preliminary_records').delete().eq('project_id', projectId),
+      ]);
+      await refreshCloudData();
+    }
   };
 
   const resetChecklistForm = () => setChecklistForm(createDefaultChecklist());
@@ -500,18 +672,18 @@ export default function Page() {
   const addChecklistItem = () => {
     setChecklistForm((prev) => ({
       ...prev,
-      items: [...prev.items, emptyChecklistItem(Date.now())],
+      items: [...prev.items, emptyChecklistItem(crypto.randomUUID())],
     }));
   };
 
-  const removeChecklistItem = (id: number) => {
+  const removeChecklistItem = (id: string) => {
     setChecklistForm((prev) => ({
       ...prev,
       items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id),
     }));
   };
 
-  const saveChecklist = () => {
+  const saveChecklist = async () => {
     if (!currentProjectId) {
       alert('יש לבחור פרויקט');
       return;
@@ -522,13 +694,19 @@ export default function Page() {
     }
 
     const record: ChecklistRecord = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...checklistForm,
       savedAt: new Date().toLocaleString('he-IL'),
     };
 
     setSavedChecklists((prev) => [record, ...prev]);
+    if (isSupabaseConfigured) {
+      await supabase.from('checklists').insert({
+        id: record.id, project_id: record.projectId, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, saved_at: new Date().toISOString()
+      });
+      await refreshCloudData();
+    }
     resetChecklistForm();
     alert('רשימת התיוג נשמרה');
   };
@@ -547,11 +725,12 @@ export default function Page() {
     });
   };
 
-  const deleteChecklist = (id: number) => {
+  const deleteChecklist = async (id: string) => {
     setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
+    if (isSupabaseConfigured) { await supabase.from('checklists').delete().eq('id', id); await refreshCloudData(); }
   };
 
-  const saveNonconformance = () => {
+  const saveNonconformance = async () => {
     if (!currentProjectId) {
       alert('יש לבחור פרויקט');
       return;
@@ -562,13 +741,19 @@ export default function Page() {
     }
 
     const record: NonconformanceRecord = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...nonconformanceForm,
       savedAt: new Date().toLocaleString('he-IL'),
     };
 
     setSavedNonconformances((prev) => [record, ...prev]);
+    if (isSupabaseConfigured) {
+      await supabase.from('nonconformances').insert({
+        id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, raised_by: record.raisedBy, severity: record.severity, status: record.status, description: record.description, action_required: record.actionRequired, notes: record.notes, saved_at: new Date().toISOString()
+      });
+      await refreshCloudData();
+    }
     setNonconformanceForm(createDefaultNonconformance());
     alert('אי ההתאמה נשמרה');
   };
@@ -588,11 +773,12 @@ export default function Page() {
     });
   };
 
-  const deleteNonconformance = (id: number) => {
+  const deleteNonconformance = async (id: string) => {
     setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
+    if (isSupabaseConfigured) { await supabase.from('nonconformances').delete().eq('id', id); await refreshCloudData(); }
   };
 
-  const saveTrialSection = () => {
+  const saveTrialSection = async () => {
     if (!currentProjectId) {
       alert('יש לבחור פרויקט');
       return;
@@ -603,13 +789,19 @@ export default function Page() {
     }
 
     const record: TrialSectionRecord = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...trialSectionForm,
       savedAt: new Date().toLocaleString('he-IL'),
     };
 
     setSavedTrialSections((prev) => [record, ...prev]);
+    if (isSupabaseConfigured) {
+      await supabase.from('trial_sections').insert({
+        id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approved_by: record.approvedBy, status: record.status, notes: record.notes, saved_at: new Date().toISOString()
+      });
+      await refreshCloudData();
+    }
     setTrialSectionForm(createDefaultTrialSection());
     alert('קטע הניסוי נשמר');
   };
@@ -628,11 +820,12 @@ export default function Page() {
     });
   };
 
-  const deleteTrialSection = (id: number) => {
+  const deleteTrialSection = async (id: string) => {
     setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
+    if (isSupabaseConfigured) { await supabase.from('trial_sections').delete().eq('id', id); await refreshCloudData(); }
   };
 
-  const savePreliminary = (subtype: PreliminaryTab) => {
+  const savePreliminary = async (subtype: PreliminaryTab) => {
     if (!currentProjectId) {
       alert('יש לבחור פרויקט');
       return;
@@ -646,13 +839,19 @@ export default function Page() {
         : materialPreliminaryForm;
 
     const record: PreliminaryRecord = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...form,
       savedAt: new Date().toLocaleString('he-IL'),
     };
 
     setSavedPreliminary((prev) => [record, ...prev]);
+    if (isSupabaseConfigured) {
+      await supabase.from('preliminary_records').insert({
+        id: record.id, project_id: record.projectId, subtype: record.subtype, title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? null, subcontractor: record.subcontractor ?? null, material: record.material ?? null, saved_at: new Date().toISOString()
+      });
+      await refreshCloudData();
+    }
 
     if (subtype === 'suppliers') setSupplierPreliminaryForm(createDefaultPreliminary('suppliers'));
     if (subtype === 'subcontractors') setSubcontractorPreliminaryForm(createDefaultPreliminary('subcontractors'));
@@ -694,8 +893,9 @@ export default function Page() {
     }
   };
 
-  const deletePreliminary = (id: number) => {
+  const deletePreliminary = async (id: string) => {
     setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
+    if (isSupabaseConfigured) { await supabase.from('preliminary_records').delete().eq('id', id); await refreshCloudData(); }
   };
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? (
@@ -738,13 +938,6 @@ export default function Page() {
       description: 'טפסי בקרת איכות לפי תבניות עבודה',
       count: projectChecklists.length,
     },
-    {
-      key: 'externalSystem' as Section,
-      title: 'מערכת קיימת',
-      icon: '🌐',
-      description: 'פתיחת המערכת הישנה בתוך מסך פנימי',
-      count: 1,
-    },
   ];
 
   return (
@@ -770,7 +963,6 @@ export default function Page() {
         <NavButton label="אי תאמות" active={section === 'nonconformances'} onClick={() => setSection('nonconformances')} />
         <NavButton label="קטעי ניסוי" active={section === 'trialSections'} onClick={() => setSection('trialSections')} />
         <NavButton label="בקרה מקדימה" active={section === 'preliminary'} onClick={() => setSection('preliminary')} />
-        <NavButton label="מערכת קיימת" active={section === 'externalSystem'} onClick={() => setSection('externalSystem')} />
       </div>
 
       <div style={layoutStyle}>
@@ -802,34 +994,6 @@ export default function Page() {
                     <div style={homeModuleCountStyle}>רשומות: {module.count}</div>
                   </button>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {section === 'externalSystem' && (
-            <div>
-              <h2 style={sectionTitleStyle}>מערכת קיימת</h2>
-              <div style={heroBoxStyle}>
-                <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 8 }}>פתיחת המערכת הישנה בתוך המערכת החדשה</div>
-                <div style={{ color: '#475569', lineHeight: 1.7, marginBottom: 12 }}>
-                  אם האתר החיצוני חוסם הצגה בתוך iframe, השתמש בכפתור "פתח בחלון חדש".
-                </div>
-                <div style={buttonRowStyle}>
-                  <button style={secondaryButtonStyle} onClick={() => window.open(EXTERNAL_SYSTEM_URL, '_blank', 'noopener,noreferrer')}>
-                    פתח בחלון חדש
-                  </button>
-                  <button style={secondaryButtonStyle} onClick={() => setSection('home')}>
-                    חזרה לדף השער
-                  </button>
-                </div>
-              </div>
-
-              <div style={iframeShellStyle}>
-                <iframe
-                  src={EXTERNAL_SYSTEM_URL}
-                  title="מערכת קיימת"
-                  style={iframeStyle}
-                />
               </div>
             </div>
           )}
@@ -1633,22 +1797,6 @@ const homeModuleCountStyle: CSSProperties = {
   fontWeight: 700,
   color: '#0f172a',
   marginTop: 12,
-};
-
-const iframeShellStyle: CSSProperties = {
-  marginTop: 18,
-  border: '1px solid #dbe2ea',
-  borderRadius: 22,
-  overflow: 'hidden',
-  background: '#fff',
-  boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
-};
-
-const iframeStyle: CSSProperties = {
-  width: '100%',
-  height: '78vh',
-  border: 'none',
-  display: 'block',
 };
 
 const formGridStyle: CSSProperties = {
