@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
+
 
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
@@ -22,8 +23,11 @@ type ChecklistItem = {
   responsible: string;
   status: 'לא נבדק' | 'תקין' | 'לא תקין';
   notes: string;
-};
 
+  // חדש 👇
+  inspector: string;
+  executionDate: string;
+};
 type ChecklistRecord = {
   id: string;
   projectId: string;
@@ -226,6 +230,8 @@ const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
     responsible: item.responsible,
     status: 'לא נבדק' as const,
     notes: '',
+    inspector: '',
+    executionDate: '',
   }));
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -234,6 +240,8 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   responsible: '',
   status: 'לא נבדק',
   notes: '',
+  inspector: '',
+  executionDate: '',
 });
 
 const createDefaultChecklist = (
@@ -372,7 +380,13 @@ export default function Page() {
         date: row.date ?? '',
         contractor: row.contractor ?? '',
         notes: row.notes ?? '',
-        items: Array.isArray(row.items) ? row.items : [],
+        items: Array.isArray(row.items)
+          ? row.items.map((item: any) => ({
+              ...item,
+              inspector: item?.inspector ?? '',
+              executionDate: item?.executionDate ?? '',
+            }))
+          : [],
         savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
       }));
       setSavedChecklists(mapped);
@@ -721,7 +735,11 @@ export default function Page() {
       date: record.date,
       contractor: record.contractor,
       notes: record.notes,
-      items: record.items.map((item) => ({ ...item })),
+      items: record.items.map((item) => ({
+        ...item,
+        inspector: item.inspector || '',
+        executionDate: item.executionDate || '',
+      })),
     });
   };
 
@@ -1122,6 +1140,21 @@ export default function Page() {
                         </Field>
                         <Field label="הערות" full>
                           <input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} />
+                        </Field>
+                        <Field label="שם בודק / חתימה">
+                          <input
+                            value={item.inspector || ''}
+                            onChange={(e) => updateChecklistItem(item.id, 'inspector', e.target.value)}
+                            style={inputStyle}
+                          />
+                        </Field>
+                        <Field label="תאריך ביצוע">
+                          <input
+                            type="date"
+                            value={item.executionDate || ''}
+                            onChange={(e) => updateChecklistItem(item.id, 'executionDate', e.target.value)}
+                            style={inputStyle}
+                          />
                         </Field>
                       </div>
                       <button style={dangerButtonStyle} onClick={() => removeChecklistItem(item.id)}>
