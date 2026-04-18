@@ -6,7 +6,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
-type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction' | 'controlledCompaction' | 'signage' | 'paving' | 'steelGuardrails' | 'asphalt' | 'drainagePipes' | 'curbCasting' | 'catEyes' | 'siteConcrete' | 'jkWorks';
+type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
 
 type Project = {
   id: string;
@@ -23,11 +23,8 @@ type ChecklistItem = {
   responsible: string;
   status: 'לא נבדק' | 'תקין' | 'לא תקין';
   notes: string;
-
-  // חדש 👇
-  inspector: string;
-  executionDate: string;
 };
+
 type ChecklistRecord = {
   id: string;
   projectId: string;
@@ -144,69 +141,13 @@ const checklistTemplates: Record<
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
-  standardCompaction: {
-    label: 'הידוק רגיל',
-    title: 'רשימת תיוג לעבודות הידוק רגיל',
-    category: 'הידוק',
-    items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
-      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
-      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
-      { description: 'בדיקות מעברי מכבש', responsible: 'בקרת איכות' },
-      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
-    ],
-  },
-  controlledCompaction: {
-    label: 'הידוק מבוקר',
-    title: 'רשימת תיוג לעבודות הידוק מבוקר',
-    category: 'הידוק',
-    items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
-      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
-      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
-      { description: 'בדיקות דרגת הידוק ורטיבות', responsible: 'בקרת איכות' },
-      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
-    ],
-  },
-  aggregateDistribution: {
-    label: 'פיזור מצעים',
-    title: 'רשימת תיוג לעבודות פיזור מצעים',
-    category: 'מצעים',
-    items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'איתור בדיקות מקדימות לחומר המצע', responsible: 'בקרת איכות' },
-      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'פיזור שכבה חדשה אחידה ומפולסת', responsible: 'מנהל עבודה' },
-      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
-      { description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מפלסי השכבה כל שכבה שנייה ו/או בסוף השלב', responsible: 'מודד הקבלן' },
-      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מישוריות', responsible: 'בקרת איכות' },
-      { description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
-    ],
-  },
   guardrails: {
     label: 'עבודות מעקות',
     title: 'רשימת תיוג לעבודות מעקות',
     category: 'מעקות',
     items: [
       { description: 'אישור המעקה וסוגו', responsible: 'בקרת איכות' },
-      { description: 'אישור חומרים ובדיקות מוקדמות + אישור קבלן משנה', responsible: 'בקרת איכות' },
+      { description: 'אישור חומרים ובדיקות מוקדמות + אישור קבלן', responsible: 'בקרת איכות' },
       { description: 'סימון תוואי מעקה מתוכנן', responsible: 'מודד' },
       { description: 'בדיקת מרווח פעיל לפני התקנה', responsible: 'בקרת איכות' },
       { description: 'בדיקת תעודת משלוח', responsible: 'בקרת איכות' },
@@ -219,58 +160,24 @@ const checklistTemplates: Record<
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
-  steelGuardrails: {
-    label: 'מעקות פלדה',
-    title: 'רשימת תיוג לאספקה והרכבת מעקות פלדה',
-    category: 'מעקות פלדה',
+  aggregateDistribution: {
+    label: 'פיזור מצעים',
+    title: 'רשימת תיוג לעבודות פיזור מצעים',
+    category: 'פיזור מצעים',
     items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מהנדס בקרת איכות' },
-      { description: 'תעודות הסמכת רתכים', responsible: 'מהנדס בקרת איכות' },
-      { description: 'ביצוע בדיקות אולטרסוניות לאיכות ריתוכים', responsible: 'מעבדה' },
-      { description: 'אישור משלוח לגילוון', responsible: 'מהנדס בקרת איכות' },
-      { description: 'קבלת תעודות טיב ועובי גילוון מהמפעל המגלוון', responsible: 'מהנדס בקרת איכות' },
-      { description: 'ביצוע בדיקות עובי גילוון', responsible: 'מעבדה' },
-      { description: 'בדיקה ויזואלית לניקיון ברגי העיגון', responsible: 'מהנדס בקרת איכות' },
-      { description: 'אישור להרכבת מעקה', responsible: 'מהנדס בקרת איכות' },
-      { description: 'בדיקת אופן הרכבת המעקה', responsible: 'מהנדס בקרת איכות' },
-      { description: 'בדיקה ויזואלית לאיתור פגיעות ושפשופים של הגילוון', responsible: 'מהנדס בקרת איכות' },
-      { description: 'בדיקה ויזואלית של קו המעקה לאחר הרכבה', responsible: 'מהנדס בקרת איכות' },
-    ],
-  },
-  signage: {
-    label: 'תמרור ושילוט',
-    title: 'רשימת תיוג לעבודות תמרור ושילוט',
-    category: 'תמרור ושילוט',
-    items: [
-      { description: 'אישור שלב ביצוע קודם', responsible: 'בקרת איכות' },
-      { description: 'בדיקות מוקדמות', responsible: 'בקרת איכות' },
-      { description: 'סימון', responsible: 'מודד' },
-      { description: 'הכנת האלמנטים', responsible: 'מנהל עבודה' },
-      { description: 'הצבת השילוט והתמרור', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'מנהל עבודה' },
-      { description: 'בדיקות החזר אור', responsible: 'בקרת איכות' },
-      { description: 'AS-MADE', responsible: 'מודד' },
-      { description: 'אישור הקטע', responsible: 'בקרת איכות' },
-    ],
-  },
-  paving: {
-    label: 'ריצוף',
-    title: 'רשימת תיוג עבודות ריצוף',
-    category: 'ריצוף',
-    items: [
-      { description: 'האם קיימת סקיצה / תוכנית / הנחיות בכתב לביצוע העבודות', responsible: 'מנהל העבודה' },
-      { description: 'האם בוצע סיור וסימון מוקדם בנוכחות מנהל פרויקט', responsible: 'מנהל העבודה' },
-      { description: 'אישור בקרה מוקדמת לטיב החומרים', responsible: 'בקרת איכות' },
-      { description: 'בדיקת רום שתית', responsible: 'מנהל העבודה' },
-      { description: 'בדיקת הידוק ורום מצעים', responsible: 'מנהל העבודה' },
-      { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
-      { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
-      { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
-      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט לאבן שפה / אבן אי', responsible: 'מנהל העבודה' },
-      { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
-      { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
-      { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
-      { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור בדיקות מקדימות לחומר המצע', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'פיזור שכבה חדשה אחידה ומפולסת', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מישוריות', responsible: 'בקרת איכות' },
+      { description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
   curbstones: {
@@ -286,117 +193,28 @@ const checklistTemplates: Record<
       { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
       { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
       { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
-      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט לאבן שפה / אבן אי', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט', responsible: 'מנהל העבודה' },
       { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
       { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
       { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
       { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
     ],
   },
-  curbCasting: {
-    label: 'הנחת / יציקת אבן שפה',
-    title: 'רשימת תיוג להנחת / יציקת אבן שפה',
-    category: 'אבני שפה',
-    items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקר איכות' },
-      { description: 'בדיקה חזותית לשטח ולשלמות האבן טרם ההנחה', responsible: 'בקר איכות' },
-      { description: 'אישור מוקדם לספק האבן', responsible: 'בקר איכות' },
-      { description: 'סימון לביצוע', responsible: 'מודד' },
-      { description: 'הנחת בסיס מבטון לאבן (אבן טרומית בלבד)', responsible: 'מנהל עבודה' },
-      { description: 'הנחת / יציקת אבן שפה', responsible: 'מנהל עבודה' },
-      { description: 'ביצוע גב ופוגות כנדרש', responsible: 'מנהל עבודה' },
-      { description: 'בדיקת מפלסים ומיקום', responsible: 'מודד' },
-      { description: 'בדיקה חזותית בגמר העבודה', responsible: 'בקר איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
-    ],
-  },
-  catEyes: {
-    label: 'עיני חתול',
-    title: 'רשימת תיוג להתקנת עיני חתול',
-    category: 'בטיחות ותמרור',
-    items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מב"א' },
-      { description: 'בקרה מקדימה לחומרים ולציוד', responsible: 'מב"א' },
-      { description: 'סימון לביצוע', responsible: 'מודד הקבלן' },
-      { description: 'התקנת עיני חתול', responsible: 'מנהל עבודה' },
-      { description: 'בדיקה חזותית לאחר התקנה ובדיקה ידנית לחוזק ההדבקה', responsible: 'מב"א' },
-      { description: 'בדיקת AS MADE', responsible: 'מודד הקבלן' },
-      { description: 'בדיקת נראות', responsible: 'מעבדה' },
-      { description: 'אישור סופי', responsible: 'מב"א' },
-    ],
-  },
-  asphalt: {
-    label: 'אספלט',
-    title: 'רשימת תיוג לביצוע עבודות אספלט באתר',
-    category: 'אספלט',
-    items: [
-      { description: 'אישור בקרה מוקדמת בהתאם לטופס 51.04', responsible: 'בקרת איכות' },
-      { description: 'קיום אישור לשכבה קודמת', responsible: 'בקרת איכות' },
-      { description: 'אישור בקרה ויזואלית של השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'תקינות פינישר, כבלים, מרססת וציוד הידוק', responsible: 'בקרת איכות' },
-      { description: 'קיום רשימת תוכניות עבודה מעודכנות', responsible: 'בקרת איכות' },
-      { description: 'ביצוע בדיקות שוטפות – פרק 51.04', responsible: 'בקרת איכות' },
-      { description: 'בדיקת התאמת מפלס לדרישות המפרט', responsible: 'מודד מוסמך' },
-      { description: 'בדיקות גליות', responsible: 'בקרת איכות' },
-      { description: 'בדיקה ויזואלית וגמר', responsible: 'בקרת איכות' },
-    ],
-  },
-  drainagePipes: {
-    label: 'צנרת ניקוז',
-    title: 'רשימת תיוג להתקנת צנרת ניקוז',
-    category: 'צנרת ניקוז',
+  standardCompaction: {
+    label: 'הידוק רגיל',
+    title: 'רשימת תיוג לעבודות הידוק רגיל',
+    category: 'הידוק רגיל',
     items: [
       { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'סימון צירי החפירה ומיקום', responsible: 'מודד הקבלן' },
-      { description: 'חפירה והכנת תחתית החפירה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'אישור להנחת הצנרת', responsible: 'בקרת איכות' },
-      { description: 'התקנה והנחת צנרת בהתאם לדרישות', responsible: 'מנהל עבודה' },
-      { description: 'מדידת גבהים ושיפועים', responsible: 'מודד הקבלן' },
-      { description: 'הזמנת בדיקות לשלמות הקו (צילום)', responsible: 'בקרת איכות' },
-      { description: 'בדיקת אטימות וישרות הקו', responsible: 'בקרת איכות' },
-      { description: 'התקנת אביזרים', responsible: 'בקרת איכות' },
-      { description: 'עטיפת הצינור בחול', responsible: 'מנהל עבודה' },
-      { description: 'אישור לביצוע מילוי חוזר', responsible: 'בקרת איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
-    ],
-  },
-  siteConcrete: {
-    label: 'יציקות באתר',
-    title: 'רשימת תיוג ליציקות באתר',
-    category: 'בטון',
-    items: [
-      { description: 'שימוש בתוכניות מעודכנות', responsible: 'מב"א' },
-      { description: 'סימון מיקום ורשימת גבהים ליציקה', responsible: 'מודד' },
-      { description: 'יציקת בטון רזה (עפ"י דרישת התוכנית)', responsible: 'מנהל עבודה' },
-      { description: 'סידור הזיון, מיקום חפיות, גובה סטטי של החתך, עובי כיסוי נדרש', responsible: 'מנהל עבודה' },
-      { description: 'בדיקת זיון, חיפוש, הארקות, קיטום פינות, אביזרים נלווים, ניקיון כללי ואישור להרכבת תבניות', responsible: 'מב"א' },
-      { description: 'אישור ליציקה', responsible: 'מב"א' },
-      { description: 'פיקוח על יציקת הבטון (רצף, עובי וריטוט)', responsible: 'מב"א' },
-      { description: 'נטילת מדגמי בטון', responsible: 'מב"א' },
-      { description: 'טיפול בפני הבטון עם סיום היציקה למניעת סדיקה', responsible: 'מנהל עבודה' },
-      { description: 'תהליך אשפרה', responsible: 'מנהל עבודה' },
-      { description: 'בדיקת חזות הבטון', responsible: 'מב"א' },
-      { description: 'בדיקת מודד לאחר יציקה AS-Made', responsible: 'מודד' },
-      { description: 'איטום', responsible: 'מנהל עבודה' },
-      { description: 'אישור סופי', responsible: 'מב"א' },
-    ],
-  },
-  jkWorks: {
-    label: 'עבודות JK',
-    title: 'רשימת תיוג לעבודות JK',
-    category: 'JK',
-    items: [
-      { description: 'סימון בשטח', responsible: 'מודד' },
-      { description: 'חפירת תעלות לקורות העיגון', responsible: 'מנהל עבודה' },
-      { description: 'אישור הברזל ואישור ליציקת קורות העיגון', responsible: 'בקרת איכות' },
-      { description: 'ביצוע עבודות העפר', responsible: 'מנהל עבודה' },
-      { description: 'הנחת רשתות מתכת J.K STRUCTURE ועיגונן לקרקע', responsible: 'מנהל עבודה' },
-      { description: 'אישור הנחת רשתות ואישור לפיזור הבטון', responsible: 'בקרת איכות' },
-      { description: 'פיזור הבטון בגוון המתאים לפני השטח על גבי הרשתות', responsible: 'מנהל עבודה' },
-      { description: 'בדיקת בטון', responsible: 'בקרת איכות' },
-      { description: 'החלקת הבטון באמצעות מגרפות', responsible: 'מנהל עבודה' },
-      { description: 'ביצוע אשפרה', responsible: 'מנהל עבודה' },
-      { description: 'מדידת מצב לאחר ביצוע העבודות', responsible: 'מודד' },
+      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות מעברי מכבש', responsible: 'בקרת איכות' },
+      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
@@ -409,8 +227,6 @@ const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
     responsible: item.responsible,
     status: 'לא נבדק' as const,
     notes: '',
-    inspector: '',
-    executionDate: '',
   }));
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -419,8 +235,6 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   responsible: '',
   status: 'לא נבדק',
   notes: '',
-  inspector: '',
-  executionDate: '',
 });
 
 const createDefaultChecklist = (
@@ -499,7 +313,84 @@ const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryReco
           notes: '',
         }
       : undefined,
+
 });
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function sanitizeFileName(value: string) {
+  return value
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildChecklistExportHtml(record: ChecklistRecord, projectName: string) {
+  const rows = record.items
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(item.description)}</td>
+          <td>${escapeHtml(item.responsible)}</td>
+          <td>${escapeHtml(item.status)}</td>
+          <td>${escapeHtml(item.notes || '')}</td>
+        </tr>
+      `
+    )
+    .join('');
+
+  return `
+    <html dir="rtl" lang="he">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(record.title)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; color: #0f172a; }
+          h1 { margin: 0 0 16px; font-size: 28px; }
+          .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; margin-bottom: 20px; }
+          .meta div { padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: right; vertical-align: top; }
+          th { background: #e2e8f0; }
+          .notes-box { margin-top: 18px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; min-height: 72px; white-space: pre-wrap; }
+        </style>
+      </head>
+      <body>
+        <h1>${escapeHtml(record.title)}</h1>
+        <div class="meta">
+          <div><strong>פרויקט:</strong> ${escapeHtml(projectName || '')}</div>
+          <div><strong>קטגוריה:</strong> ${escapeHtml(record.category || '')}</div>
+          <div><strong>מיקום:</strong> ${escapeHtml(record.location || '')}</div>
+          <div><strong>תאריך:</strong> ${escapeHtml(record.date || '')}</div>
+          <div><strong>קבלן מבצע:</strong> ${escapeHtml(record.contractor || '')}</div>
+          <div><strong>תבנית:</strong> ${escapeHtml(record.templateKey)}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>תיאור</th>
+              <th>אחראי</th>
+              <th>סטטוס</th>
+              <th>הערות</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>הערות כלליות</h3>
+        <div class="notes-box">${escapeHtml(record.notes || '')}</div>
+      </body>
+    </html>
+  `;
+}
 
 export default function Page() {
   const [section, setSection] = useState<Section>('home');
@@ -559,13 +450,7 @@ export default function Page() {
         date: row.date ?? '',
         contractor: row.contractor ?? '',
         notes: row.notes ?? '',
-        items: Array.isArray(row.items)
-          ? row.items.map((item: any) => ({
-              ...item,
-              inspector: item?.inspector ?? '',
-              executionDate: item?.executionDate ?? '',
-            }))
-          : [],
+        items: Array.isArray(row.items) ? row.items : [],
         savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
       }));
       setSavedChecklists(mapped);
@@ -914,11 +799,7 @@ export default function Page() {
       date: record.date,
       contractor: record.contractor,
       notes: record.notes,
-      items: record.items.map((item) => ({
-        ...item,
-        inspector: item.inspector || '',
-        executionDate: item.executionDate || '',
-      })),
+      items: record.items.map((item) => ({ ...item })),
     });
   };
 
@@ -1098,6 +979,115 @@ export default function Page() {
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? (
     <div style={emptyBoxStyle}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
   ) : null;
+
+
+  const buildChecklistRecordForExport = (): ChecklistRecord => ({
+    id: 'export-preview',
+    projectId: currentProjectId ?? '',
+    templateKey: checklistForm.templateKey,
+    title: checklistForm.title || checklistTemplates[checklistForm.templateKey].title,
+    category: checklistForm.category,
+    location: checklistForm.location,
+    date: checklistForm.date,
+    contractor: checklistForm.contractor,
+    notes: checklistForm.notes,
+    items: checklistForm.items.map((item) => ({ ...item })),
+    savedAt: new Date().toLocaleString('he-IL'),
+  });
+
+  const downloadBlobFile = (content: BlobPart, mimeType: string, fileName: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+
+  const exportChecklistAsWord = () => {
+    const record = buildChecklistRecordForExport();
+    const fileName = `${sanitizeFileName(record.title || 'רשימת-תיוג')}.doc`;
+    const html = buildChecklistExportHtml(record, projectName);
+    downloadBlobFile('\ufeff' + html, 'application/msword;charset=utf-8', fileName);
+  };
+
+  const exportChecklistAsExcel = () => {
+    const record = buildChecklistRecordForExport();
+    const rows = record.items
+      .map(
+        (item, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(item.description)}</td>
+            <td>${escapeHtml(item.responsible)}</td>
+            <td>${escapeHtml(item.status)}</td>
+            <td>${escapeHtml(item.notes || '')}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    const tableHtml = `
+      <html dir="rtl" lang="he">
+        <head>
+          <meta charset="utf-8" />
+        </head>
+        <body>
+          <table border="1">
+            <tr><th>שם רשימת תיוג</th><td>${escapeHtml(record.title)}</td></tr>
+            <tr><th>פרויקט</th><td>${escapeHtml(projectName || '')}</td></tr>
+            <tr><th>קטגוריה</th><td>${escapeHtml(record.category || '')}</td></tr>
+            <tr><th>מיקום</th><td>${escapeHtml(record.location || '')}</td></tr>
+            <tr><th>תאריך</th><td>${escapeHtml(record.date || '')}</td></tr>
+            <tr><th>קבלן מבצע</th><td>${escapeHtml(record.contractor || '')}</td></tr>
+          </table>
+          <br />
+          <table border="1">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>תיאור</th>
+                <th>אחראי</th>
+                <th>סטטוס</th>
+                <th>הערות</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <br />
+          <table border="1">
+            <tr><th>הערות כלליות</th></tr>
+            <tr><td>${escapeHtml(record.notes || '')}</td></tr>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const fileName = `${sanitizeFileName(record.title || 'רשימת-תיוג')}.xls`;
+    downloadBlobFile('\ufeff' + tableHtml, 'application/vnd.ms-excel;charset=utf-8', fileName);
+  };
+
+  const exportChecklistAsPdf = () => {
+    const record = buildChecklistRecordForExport();
+    const html = buildChecklistExportHtml(record, projectName);
+    const printWindow = window.open('', '_blank', 'width=1100,height=800');
+    if (!printWindow) {
+      alert('הדפדפן חסם את חלון ההדפסה. יש לאפשר פתיחת חלונות קופצים ולנסות שוב.');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  };
 
   const homeModules = [
     {
@@ -1320,21 +1310,6 @@ export default function Page() {
                         <Field label="הערות" full>
                           <input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} />
                         </Field>
-                        <Field label="שם בודק / חתימה">
-                          <input
-                            value={item.inspector || ''}
-                            onChange={(e) => updateChecklistItem(item.id, 'inspector', e.target.value)}
-                            style={inputStyle}
-                          />
-                        </Field>
-                        <Field label="תאריך ביצוע">
-                          <input
-                            type="date"
-                            value={item.executionDate || ''}
-                            onChange={(e) => updateChecklistItem(item.id, 'executionDate', e.target.value)}
-                            style={inputStyle}
-                          />
-                        </Field>
                       </div>
                       <button style={dangerButtonStyle} onClick={() => removeChecklistItem(item.id)}>
                         מחק שורה
@@ -1346,6 +1321,12 @@ export default function Page() {
                     <button style={secondaryButtonStyle} onClick={addChecklistItem}>הוסף שורה</button>
                     <button style={primaryButtonStyle} onClick={saveChecklist}>שמור רשימת תיוג</button>
                     <button style={secondaryButtonStyle} onClick={resetChecklistForm}>נקה טופס</button>
+                  </div>
+
+                  <div style={buttonRowStyle}>
+                    <button style={secondaryButtonStyle} onClick={exportChecklistAsExcel}>הורד Excel</button>
+                    <button style={secondaryButtonStyle} onClick={exportChecklistAsWord}>הורד Word</button>
+                    <button style={secondaryButtonStyle} onClick={exportChecklistAsPdf}>הורד PDF</button>
                   </div>
                 </>
               )}
