@@ -1,492 +1,1850 @@
 'use client';
 
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 
-type ChecklistTemplateKey = 'template14' | 'template01' | 'templateCustom';
-type ChecklistStatus = 'לא נבדק' | 'תקין' | 'לא תקין';
+type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary' | 'externalSystem';
+type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
+type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
+
+type Project = {
+  id: number;
+  name: string;
+  description: string;
+  manager: string;
+  isActive: boolean;
+  createdAt: string;
+};
 
 type ChecklistItem = {
   id: number;
   description: string;
   responsible: string;
-  status: ChecklistStatus;
-  executionDate: string;
-  signature: string;
-  documentRef: string;
+  status: 'לא נבדק' | 'תקין' | 'לא תקין';
   notes: string;
 };
 
-type ChecklistTemplateDefinition = {
-  label: string;
-  title: string;
-  category: string;
-  code: string;
-  items: { description: string; responsible: string }[];
-};
-
-type ChecklistForm = {
+type ChecklistRecord = {
+  id: number;
+  projectId: number;
   templateKey: ChecklistTemplateKey;
   title: string;
   category: string;
   location: string;
   date: string;
   contractor: string;
-  structureName: string;
-  roadOrSection: string;
-  checklistNo: string;
   notes: string;
   items: ChecklistItem[];
+  savedAt: string;
 };
 
-const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplateDefinition> = {
-  template14: {
-    label: 'מילוי בהידוק מבוקר',
-    title: 'רשימת תיוג לעבודות בהידוק מבוקר',
-    category: 'מילוי בהידוק מבוקר',
-    code: '14',
+type NonconformanceRecord = {
+  id: number;
+  projectId: number;
+  title: string;
+  location: string;
+  date: string;
+  raisedBy: string;
+  severity: 'נמוכה' | 'בינונית' | 'גבוהה';
+  status: 'פתוח' | 'בטיפול' | 'נסגר';
+  description: string;
+  actionRequired: string;
+  notes: string;
+  savedAt: string;
+};
+
+type TrialSectionRecord = {
+  id: number;
+  projectId: number;
+  title: string;
+  location: string;
+  date: string;
+  spec: string;
+  result: string;
+  approvedBy: string;
+  status: 'טיוטה' | 'אושר' | 'נדחה';
+  notes: string;
+  savedAt: string;
+};
+
+type SupplierPreliminary = {
+  supplierName: string;
+  suppliedMaterial: string;
+  contactPhone: string;
+  approvalNo: string;
+  notes: string;
+};
+
+type SubcontractorPreliminary = {
+  subcontractorName: string;
+  field: string;
+  contactPhone: string;
+  approvalNo: string;
+  notes: string;
+};
+
+type MaterialPreliminary = {
+  materialName: string;
+  source: string;
+  usage: string;
+  certificateNo: string;
+  notes: string;
+};
+
+type PreliminaryRecord = {
+  id: number;
+  projectId: number;
+  subtype: PreliminaryTab;
+  title: string;
+  date: string;
+  status: 'טיוטה' | 'מאושר' | 'לא מאושר';
+  supplier?: SupplierPreliminary;
+  subcontractor?: SubcontractorPreliminary;
+  material?: MaterialPreliminary;
+  savedAt: string;
+};
+
+type PersistedData = {
+  projects: Project[];
+  currentProjectId: number | null;
+  savedChecklists: ChecklistRecord[];
+  savedNonconformances: NonconformanceRecord[];
+  savedTrialSections: TrialSectionRecord[];
+  savedPreliminary: PreliminaryRecord[];
+};
+
+const EXTERNAL_SYSTEM_URL = 'https://my-819ankelm-younis1012-4577s-projects.vercel.app/';
+
+const STORAGE_KEY = 'yk-quality-stage3-v2';
+
+const defaultProjects: Project[] = [
+  {
+    id: 1,
+    name: 'כביש 781',
+    description: 'פרויקט תשתיות',
+    manager: '',
+    isActive: true,
+    createdAt: new Date().toLocaleString('he-IL'),
+  },
+];
+
+const checklistTemplates: Record<
+  ChecklistTemplateKey,
+  { label: string; title: string; category: string; items: { description: string; responsible: string }[] }
+> = {
+  general: {
+    label: 'רשימה כללית',
+    title: 'רשימת תיוג',
+    category: 'עבודות עפר',
     items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקר איכות' },
-      { description: 'ביצוע הבדיקות המקדימות התואמות לחומר', responsible: 'בקר איכות' },
-      { description: 'השלמת תהליך הבקרה לשכבה הקודמת', responsible: 'בקר איכות' },
-      { description: 'הכנת שכבה קודמת לפיזור שכבה מיועדת לבדיקה', responsible: 'מהנדס ביצוע / מנהל עבודה' },
-      { description: 'אישור מנהל העבודה על סיום ביצוע השכבה', responsible: 'מהנדס ביצוע / מנהל עבודה' },
-      { description: 'בקרה ויזואלית לשכבה', responsible: 'בקר איכות' },
-      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקר איכות' },
-      { description: 'בדיקת מפלסים ורוחב השכבה', responsible: 'מודד' },
-      { description: 'אישור סופי', responsible: 'בקר איכות' },
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשטח לפני תחילת עבודה', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
-  template01: {
-    label: 'יציקת אלמנטים מבטון',
-    title: 'רשימת תיוג ליציקת אלמנטים מבטון',
-    category: 'יציקת אלמנטים מבטון',
-    code: '02.01.01.1',
+  guardrails: {
+    label: 'עבודות מעקות',
+    title: 'רשימת תיוג לעבודות מעקות',
+    category: 'מעקות',
     items: [
-      { description: 'עבודה עם תוכניות מעודכנות', responsible: 'בקר איכות' },
-      { description: 'בקרה מוקדמת: אישורי קבלן משנה, חומרים', responsible: 'בקר איכות' },
-      { description: 'מדידה וסימון', responsible: 'מודד' },
-      { description: 'בדיקת תבניות וזיון', responsible: 'בקר איכות' },
-      { description: 'אישור יציקה', responsible: 'בקר איכות' },
-      { description: 'ביצוע יציקה כולל ריטוט', responsible: 'מהנדס ביצוע / מנהל עבודה' },
-      { description: 'בדיקת אשפרה', responsible: 'מהנדס ביצוע / מנהל עבודה' },
-      { description: 'מדידות As-Made', responsible: 'מודד' },
-      { description: 'אישור סופי', responsible: 'בקר איכות' },
+      { description: 'אישור המעקה וסוגו', responsible: 'בקרת איכות' },
+      { description: 'אישור חומרים ובדיקות מוקדמות + אישור קבלן', responsible: 'בקרת איכות' },
+      { description: 'סימון תוואי מעקה מתוכנן', responsible: 'מודד' },
+      { description: 'בדיקת מרווח פעיל לפני התקנה', responsible: 'בקרת איכות' },
+      { description: 'בדיקת תעודת משלוח', responsible: 'בקרת איכות' },
+      { description: 'בקרה ויזואלית לחומרים המסופקים לשטח', responsible: 'בקרת איכות' },
+      { description: 'בדיקה ויזואלית לקו ההתקנה', responsible: 'בקרת איכות' },
+      { description: 'בדיקת סגירת ברגים ורום מעקה', responsible: 'מעבדה' },
+      { description: 'עומק החדרת העמוד', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת מרווח פעיל + התקנת מחזירי אור', responsible: 'בקרת איכות' },
+      { description: 'מדידה לאחר הביצוע', responsible: 'מודד' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
-  templateCustom: {
-    label: 'טופס מותאם אישית',
-    title: 'רשימת תיוג מקצועית',
-    category: 'כללי',
-    code: 'CUSTOM',
+  aggregateDistribution: {
+    label: 'פיזור מצעים',
+    title: 'רשימת תיוג לעבודות פיזור מצעים',
+    category: 'פיזור מצעים',
     items: [
-      { description: '', responsible: '' },
-      { description: '', responsible: '' },
-      { description: '', responsible: '' },
-      { description: '', responsible: '' },
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור בדיקות מקדימות לחומר המצע', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'פיזור שכבה חדשה אחידה ומפולסת', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מישוריות', responsible: 'בקרת איכות' },
+      { description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  curbstones: {
+    label: 'אבני שפה',
+    title: 'רשימת תיוג לאבני שפה',
+    category: 'אבני שפה',
+    items: [
+      { description: 'האם קיימת סקיצה / תוכנית / הנחיות בכתב לביצוע העבודות', responsible: 'מנהל העבודה' },
+      { description: 'האם בוצע סיור וסימון מוקדם בנוכחות מנהל פרויקט', responsible: 'מנהל העבודה' },
+      { description: 'אישור בקרה מוקדמת לטיב החומרים', responsible: 'בקרת איכות' },
+      { description: 'בדיקת רום שתית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת הידוק ורום מצעים', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט', responsible: 'מנהל העבודה' },
+      { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
+      { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
+      { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
+    ],
+  },
+  standardCompaction: {
+    label: 'הידוק רגיל',
+    title: 'רשימת תיוג לעבודות הידוק רגיל',
+    category: 'הידוק רגיל',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות מעברי מכבש', responsible: 'בקרת איכות' },
+      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
 };
 
-const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey): ChecklistItem[] =>
+const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
   checklistTemplates[templateKey].items.map((item, index) => ({
     id: Date.now() + index,
     description: item.description,
     responsible: item.responsible,
-    status: 'לא נבדק',
-    executionDate: '',
-    signature: '',
-    documentRef: '',
+    status: 'לא נבדק' as const,
     notes: '',
   }));
 
-const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'template14'): ChecklistForm => ({
+const emptyChecklistItem = (id: number): ChecklistItem => ({
+  id,
+  description: '',
+  responsible: '',
+  status: 'לא נבדק',
+  notes: '',
+});
+
+const createDefaultChecklist = (
+  templateKey: ChecklistTemplateKey = 'general'
+): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({
   templateKey,
   title: checklistTemplates[templateKey].title,
   category: checklistTemplates[templateKey].category,
   location: '',
   date: '',
   contractor: '',
-  structureName: '',
-  roadOrSection: '',
-  checklistNo: checklistTemplates[templateKey].code,
   notes: '',
   items: buildChecklistItemsFromTemplate(templateKey),
 });
 
-const buildChecklistFileName = (title: string, extension: string) => {
-  const safeTitle = (title || 'checklist').replace(/[\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
-  return `${safeTitle || 'checklist'}.${extension}`;
-};
+const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({
+  title: '',
+  location: '',
+  date: '',
+  raisedBy: '',
+  severity: 'בינונית',
+  status: 'פתוח',
+  description: '',
+  actionRequired: '',
+  notes: '',
+});
 
-const escapeHtml = (value: string) =>
-  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({
+  title: '',
+  location: '',
+  date: '',
+  spec: '',
+  result: '',
+  approvedBy: '',
+  status: 'טיוטה',
+  notes: '',
+});
 
-const statusBadgeTone = (status: ChecklistStatus): CSSProperties =>
-  status === 'תקין'
-    ? { background: '#dcfce7', color: '#166534' }
-    : status === 'לא תקין'
-    ? { background: '#fee2e2', color: '#991b1b' }
-    : { background: '#e2e8f0', color: '#334155' };
+const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({
+  subtype,
+  title:
+    subtype === 'suppliers'
+      ? 'בקרה מקדימה - ספקים'
+      : subtype === 'subcontractors'
+      ? 'בקרה מקדימה - קבלנים'
+      : 'בקרה מקדימה - חומרים',
+  date: '',
+  status: 'טיוטה',
+  supplier:
+    subtype === 'suppliers'
+      ? {
+          supplierName: '',
+          suppliedMaterial: '',
+          contactPhone: '',
+          approvalNo: '',
+          notes: '',
+        }
+      : undefined,
+  subcontractor:
+    subtype === 'subcontractors'
+      ? {
+          subcontractorName: '',
+          field: '',
+          contactPhone: '',
+          approvalNo: '',
+          notes: '',
+        }
+      : undefined,
+  material:
+    subtype === 'materials'
+      ? {
+          materialName: '',
+          source: '',
+          usage: '',
+          certificateNo: '',
+          notes: '',
+        }
+      : undefined,
+});
 
-const pageStyle: CSSProperties = { minHeight: '100vh', background: '#eef3f8', direction: 'rtl', fontFamily: 'Arial, sans-serif', color: '#0f172a', padding: 20, boxSizing: 'border-box' };
-const pageWrapStyle: CSSProperties = { maxWidth: 1580, margin: '0 auto' };
-const topBarStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' };
-const titleBlockStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6 };
-const appTitleStyle: CSSProperties = { fontSize: 34, fontWeight: 900 };
-const appSubTitleStyle: CSSProperties = { fontSize: 15, color: '#475569' };
-const actionsRowStyle: CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' };
-const layoutStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(420px, 500px) minmax(0, 1fr)', gap: 22, alignItems: 'start' };
-const cardStyle: CSSProperties = { background: '#fff', borderRadius: 24, border: '1px solid #dbe3ee', boxShadow: '0 14px 34px rgba(15,23,42,0.07)' };
-const sideCardStyle: CSSProperties = { ...cardStyle, padding: 22, position: 'sticky', top: 20 };
-const mainCardStyle: CSSProperties = { ...cardStyle, padding: 22 };
-const sectionTitleStyle: CSSProperties = { fontSize: 22, fontWeight: 800, marginBottom: 14 };
-const smallTitleStyle: CSSProperties = { fontSize: 17, fontWeight: 800, margin: '18px 0 10px' };
-const helperTextStyle: CSSProperties = { color: '#64748b', fontSize: 13, marginBottom: 10, lineHeight: 1.6 };
-const formGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 };
-const fieldWrapStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6 };
-const fieldLabelStyle: CSSProperties = { fontSize: 14, fontWeight: 800 };
-const inputStyle: CSSProperties = { width: '100%', padding: '11px 12px', borderRadius: 12, border: '1px solid #cbd5e1', background: '#fff', fontSize: 14, boxSizing: 'border-box', color: '#0f172a' };
-const textareaStyle: CSSProperties = { ...inputStyle, minHeight: 88, resize: 'vertical' };
-const fullWidthStyle: CSSProperties = { gridColumn: '1 / -1' };
-const buttonBaseStyle: CSSProperties = { borderRadius: 14, padding: '11px 16px', fontWeight: 800, cursor: 'pointer', fontSize: 14 };
-const primaryButtonStyle: CSSProperties = { ...buttonBaseStyle, border: 'none', background: '#0f172a', color: '#fff' };
-const secondaryButtonStyle: CSSProperties = { ...buttonBaseStyle, background: '#fff', color: '#0f172a', border: '1px solid #cbd5e1' };
-const dangerButtonStyle: CSSProperties = { ...buttonBaseStyle, border: 'none', background: '#dc2626', color: '#fff' };
-const softPanelStyle: CSSProperties = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 18, padding: 16 };
-const rowCardStyle: CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 20, padding: 14, background: '#fff', marginBottom: 12 };
-const rowTopStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' };
-const rowNumberPillStyle: CSSProperties = { width: 42, height: 42, borderRadius: 14, background: '#e2e8f0', color: '#0f172a', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 18 };
-const rowGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 };
-const pillBaseStyle: CSSProperties = { borderRadius: 999, padding: '6px 10px', fontSize: 12, fontWeight: 800 };
-const previewShellStyle: CSSProperties = { background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 18, padding: 16 };
-const exportSheetStyle: CSSProperties = { background: '#fff', padding: '22px 22px 18px', border: '1px solid #000', direction: 'rtl', color: '#000', width: '100%', boxSizing: 'border-box' };
-const exportTitleStyle: CSSProperties = { textAlign: 'center', fontSize: 28, fontWeight: 800, marginBottom: 8 };
-const exportSubTitleStyle: CSSProperties = { textAlign: 'center', fontSize: 12, marginBottom: 14, color: '#334155' };
-const exportMetaTableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', marginBottom: 12, tableLayout: 'fixed' };
-const exportItemsTableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' };
-const metaHeaderCellStyle: CSSProperties = { border: '1px solid #000', background: '#f1f5f9', padding: '7px 6px', fontWeight: 700, fontSize: 12, textAlign: 'center', verticalAlign: 'middle' };
-const metaValueCellStyle: CSSProperties = { border: '1px solid #000', padding: '7px 6px', fontSize: 12, textAlign: 'center', verticalAlign: 'middle', background: '#fff' };
-const tableHeaderStyle: CSSProperties = { border: '1px solid #000', background: '#f1f5f9', padding: '7px 6px', fontWeight: 700, fontSize: 12, textAlign: 'center', verticalAlign: 'middle' };
-const tableCellStyle: CSSProperties = { border: '1px solid #000', padding: '7px 6px', fontSize: 12, textAlign: 'center', verticalAlign: 'middle', minHeight: 34, wordBreak: 'break-word' };
-const notesBoxStyle: CSSProperties = { marginTop: 12, border: '1px solid #000', padding: '10px 12px', minHeight: 46, fontSize: 12, background: '#fff' };
-const summaryGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 16 };
-const summaryCardStyle: CSSProperties = { background: '#0f172a', color: '#fff', borderRadius: 18, padding: 16, textAlign: 'center' };
-const summaryValueStyle: CSSProperties = { fontSize: 26, fontWeight: 900, marginBottom: 4 };
-const summaryLabelStyle: CSSProperties = { fontSize: 12, opacity: 0.9 };
+export default function Page() {
+  const [section, setSection] = useState<Section>('home');
+  const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
 
-function Field({ label, children, full = false }: { label: string; children: React.ReactNode; full?: boolean }) {
+  const [projects, setProjects] = useState<Project[]>(defaultProjects);
+  const [currentProjectId, setCurrentProjectId] = useState<number | null>(1);
+
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [newProjectManager, setNewProjectManager] = useState('');
+
+  const [checklistForm, setChecklistForm] = useState(createDefaultChecklist());
+  const [nonconformanceForm, setNonconformanceForm] = useState(createDefaultNonconformance());
+  const [trialSectionForm, setTrialSectionForm] = useState(createDefaultTrialSection());
+  const [supplierPreliminaryForm, setSupplierPreliminaryForm] = useState(createDefaultPreliminary('suppliers'));
+  const [subcontractorPreliminaryForm, setSubcontractorPreliminaryForm] = useState(createDefaultPreliminary('subcontractors'));
+  const [materialPreliminaryForm, setMaterialPreliminaryForm] = useState(createDefaultPreliminary('materials'));
+
+  const [savedChecklists, setSavedChecklists] = useState<ChecklistRecord[]>([]);
+  const [savedNonconformances, setSavedNonconformances] = useState<NonconformanceRecord[]>([]);
+  const [savedTrialSections, setSavedTrialSections] = useState<TrialSectionRecord[]>([]);
+  const [savedPreliminary, setSavedPreliminary] = useState<PreliminaryRecord[]>([]);
+
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      setLoaded(true);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as PersistedData;
+      if (parsed.projects?.length) setProjects(parsed.projects);
+      if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
+      if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
+      if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
+      if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
+      if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
+    } catch (error) {
+      console.error('Failed to load saved data', error);
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+
+    const payload: PersistedData = {
+      projects,
+      currentProjectId,
+      savedChecklists,
+      savedNonconformances,
+      savedTrialSections,
+      savedPreliminary,
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded]);
+
+  const currentProject = useMemo(
+    () => projects.find((project) => project.id === currentProjectId) ?? null,
+    [projects, currentProjectId]
+  );
+
+  const projectName = currentProject?.name ?? 'לא נבחר פרויקט';
+  const checklistTemplateLabel = (key: ChecklistTemplateKey) => checklistTemplates[key].label;
+
+  const projectChecklists = useMemo(
+    () => savedChecklists.filter((item) => item.projectId === currentProjectId),
+    [savedChecklists, currentProjectId]
+  );
+  const projectNonconformances = useMemo(
+    () => savedNonconformances.filter((item) => item.projectId === currentProjectId),
+    [savedNonconformances, currentProjectId]
+  );
+  const projectTrialSections = useMemo(
+    () => savedTrialSections.filter((item) => item.projectId === currentProjectId),
+    [savedTrialSections, currentProjectId]
+  );
+  const projectPreliminary = useMemo(
+    () => savedPreliminary.filter((item) => item.projectId === currentProjectId),
+    [savedPreliminary, currentProjectId]
+  );
+
+  const addProject = () => {
+    if (!newProjectName.trim()) {
+      alert('יש להזין שם פרויקט');
+      return;
+    }
+
+    const id = Date.now();
+    const project: Project = {
+      id,
+      name: newProjectName.trim(),
+      description: newProjectDescription.trim(),
+      manager: newProjectManager.trim(),
+      isActive: true,
+      createdAt: new Date().toLocaleString('he-IL'),
+    };
+
+    setProjects((prev) => [...prev.map((item) => ({ ...item, isActive: false })), project]);
+    setCurrentProjectId(id);
+    setNewProjectName('');
+    setNewProjectDescription('');
+    setNewProjectManager('');
+  };
+
+  const renameProject = (projectId: number) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    const nextName = window.prompt('שם פרויקט חדש', project.name);
+    if (!nextName || !nextName.trim()) return;
+
+    setProjects((prev) =>
+      prev.map((item) => (item.id === projectId ? { ...item, name: nextName.trim() } : item))
+    );
+  };
+
+  const updateProjectMeta = (projectId: number) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    const nextDescription = window.prompt('תיאור פרויקט', project.description ?? '');
+    if (nextDescription === null) return;
+    const nextManager = window.prompt('מנהל פרויקט', project.manager ?? '');
+    if (nextManager === null) return;
+
+    setProjects((prev) =>
+      prev.map((item) =>
+        item.id === projectId
+          ? { ...item, description: nextDescription.trim(), manager: nextManager.trim() }
+          : item
+      )
+    );
+  };
+
+  const setActiveProject = (projectId: number) => {
+    setProjects((prev) => prev.map((item) => ({ ...item, isActive: item.id === projectId })));
+    setCurrentProjectId(projectId);
+  };
+
+  const deleteProject = (projectId: number) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    const ok = window.confirm(`למחוק את הפרויקט "${project.name}"? כל הרשומות שלו יימחקו.`);
+    if (!ok) return;
+
+    const nextProjects = projects.filter((item) => item.id !== projectId);
+    const nextCurrentProjectId = nextProjects[0]?.id ?? null;
+
+    setProjects(nextProjects.map((item, index) => ({ ...item, isActive: index === 0 && nextCurrentProjectId === item.id })));
+    setCurrentProjectId(nextCurrentProjectId);
+    setSavedChecklists((prev) => prev.filter((item) => item.projectId !== projectId));
+    setSavedNonconformances((prev) => prev.filter((item) => item.projectId !== projectId));
+    setSavedTrialSections((prev) => prev.filter((item) => item.projectId !== projectId));
+    setSavedPreliminary((prev) => prev.filter((item) => item.projectId !== projectId));
+  };
+
+  const resetChecklistForm = () => setChecklistForm(createDefaultChecklist());
+
+  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => {
+    setChecklistForm((prev) => ({
+      ...createDefaultChecklist(templateKey),
+      location: prev.location,
+      date: prev.date,
+      contractor: prev.contractor,
+      notes: prev.notes,
+    }));
+  };
+
+  const updateChecklistItem = (id: number, field: keyof ChecklistItem, value: string) => {
+    setChecklistForm((prev) => ({
+      ...prev,
+      items: prev.items.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    }));
+  };
+
+  const addChecklistItem = () => {
+    setChecklistForm((prev) => ({
+      ...prev,
+      items: [...prev.items, emptyChecklistItem(Date.now())],
+    }));
+  };
+
+  const removeChecklistItem = (id: number) => {
+    setChecklistForm((prev) => ({
+      ...prev,
+      items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id),
+    }));
+  };
+
+  const saveChecklist = () => {
+    if (!currentProjectId) {
+      alert('יש לבחור פרויקט');
+      return;
+    }
+    if (!checklistForm.title.trim()) {
+      alert('יש להזין שם רשימת תיוג');
+      return;
+    }
+
+    const record: ChecklistRecord = {
+      id: Date.now(),
+      projectId: currentProjectId,
+      ...checklistForm,
+      savedAt: new Date().toLocaleString('he-IL'),
+    };
+
+    setSavedChecklists((prev) => [record, ...prev]);
+    resetChecklistForm();
+    alert('רשימת התיוג נשמרה');
+  };
+
+  const loadChecklist = (record: ChecklistRecord) => {
+    setSection('checklists');
+    setChecklistForm({
+      templateKey: record.templateKey,
+      title: record.title,
+      category: record.category,
+      location: record.location,
+      date: record.date,
+      contractor: record.contractor,
+      notes: record.notes,
+      items: record.items.map((item) => ({ ...item })),
+    });
+  };
+
+  const deleteChecklist = (id: number) => {
+    setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const saveNonconformance = () => {
+    if (!currentProjectId) {
+      alert('יש לבחור פרויקט');
+      return;
+    }
+    if (!nonconformanceForm.title.trim()) {
+      alert('יש להזין כותרת לאי התאמה');
+      return;
+    }
+
+    const record: NonconformanceRecord = {
+      id: Date.now(),
+      projectId: currentProjectId,
+      ...nonconformanceForm,
+      savedAt: new Date().toLocaleString('he-IL'),
+    };
+
+    setSavedNonconformances((prev) => [record, ...prev]);
+    setNonconformanceForm(createDefaultNonconformance());
+    alert('אי ההתאמה נשמרה');
+  };
+
+  const loadNonconformance = (record: NonconformanceRecord) => {
+    setSection('nonconformances');
+    setNonconformanceForm({
+      title: record.title,
+      location: record.location,
+      date: record.date,
+      raisedBy: record.raisedBy,
+      severity: record.severity,
+      status: record.status,
+      description: record.description,
+      actionRequired: record.actionRequired,
+      notes: record.notes,
+    });
+  };
+
+  const deleteNonconformance = (id: number) => {
+    setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const saveTrialSection = () => {
+    if (!currentProjectId) {
+      alert('יש לבחור פרויקט');
+      return;
+    }
+    if (!trialSectionForm.title.trim()) {
+      alert('יש להזין שם לקטע ניסוי');
+      return;
+    }
+
+    const record: TrialSectionRecord = {
+      id: Date.now(),
+      projectId: currentProjectId,
+      ...trialSectionForm,
+      savedAt: new Date().toLocaleString('he-IL'),
+    };
+
+    setSavedTrialSections((prev) => [record, ...prev]);
+    setTrialSectionForm(createDefaultTrialSection());
+    alert('קטע הניסוי נשמר');
+  };
+
+  const loadTrialSection = (record: TrialSectionRecord) => {
+    setSection('trialSections');
+    setTrialSectionForm({
+      title: record.title,
+      location: record.location,
+      date: record.date,
+      spec: record.spec,
+      result: record.result,
+      approvedBy: record.approvedBy,
+      status: record.status,
+      notes: record.notes,
+    });
+  };
+
+  const deleteTrialSection = (id: number) => {
+    setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const savePreliminary = (subtype: PreliminaryTab) => {
+    if (!currentProjectId) {
+      alert('יש לבחור פרויקט');
+      return;
+    }
+
+    const form =
+      subtype === 'suppliers'
+        ? supplierPreliminaryForm
+        : subtype === 'subcontractors'
+        ? subcontractorPreliminaryForm
+        : materialPreliminaryForm;
+
+    const record: PreliminaryRecord = {
+      id: Date.now(),
+      projectId: currentProjectId,
+      ...form,
+      savedAt: new Date().toLocaleString('he-IL'),
+    };
+
+    setSavedPreliminary((prev) => [record, ...prev]);
+
+    if (subtype === 'suppliers') setSupplierPreliminaryForm(createDefaultPreliminary('suppliers'));
+    if (subtype === 'subcontractors') setSubcontractorPreliminaryForm(createDefaultPreliminary('subcontractors'));
+    if (subtype === 'materials') setMaterialPreliminaryForm(createDefaultPreliminary('materials'));
+
+    alert('טופס הבקרה המקדימה נשמר');
+  };
+
+  const loadPreliminary = (record: PreliminaryRecord) => {
+    setSection('preliminary');
+    setPreliminaryTab(record.subtype);
+
+    if (record.subtype === 'suppliers') {
+      setSupplierPreliminaryForm({
+        subtype: 'suppliers',
+        title: record.title,
+        date: record.date,
+        status: record.status,
+        supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier,
+      });
+    }
+    if (record.subtype === 'subcontractors') {
+      setSubcontractorPreliminaryForm({
+        subtype: 'subcontractors',
+        title: record.title,
+        date: record.date,
+        status: record.status,
+        subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor,
+      });
+    }
+    if (record.subtype === 'materials') {
+      setMaterialPreliminaryForm({
+        subtype: 'materials',
+        title: record.title,
+        date: record.date,
+        status: record.status,
+        material: record.material ?? createDefaultPreliminary('materials').material,
+      });
+    }
+  };
+
+  const deletePreliminary = (id: number) => {
+    setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? (
+    <div style={emptyBoxStyle}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
+  ) : null;
+
+  const homeModules = [
+    {
+      key: 'projects' as Section,
+      title: 'פרויקטים',
+      icon: '📁',
+      description: 'הוספה, עריכה, בחירה ומחיקה של פרויקטים',
+      count: projects.length,
+    },
+    {
+      key: 'nonconformances' as Section,
+      title: 'אי תאמות',
+      icon: '⚠️',
+      description: 'ניהול אי תאמות, סטטוסים ופעולות נדרשות',
+      count: projectNonconformances.length,
+    },
+    {
+      key: 'trialSections' as Section,
+      title: 'קטעי ניסוי',
+      icon: '🧪',
+      description: 'פתיחת קטעי ניסוי, תוצאות ואישורים',
+      count: projectTrialSections.length,
+    },
+    {
+      key: 'preliminary' as Section,
+      title: 'בקרה מקדימה',
+      icon: '🗂️',
+      description: 'תיקיית אב הכוללת קבלנים, ספקים וחומרים',
+      count: projectPreliminary.length,
+    },
+    {
+      key: 'checklists' as Section,
+      title: 'רשימות תיוג',
+      icon: '📋',
+      description: 'טפסי בקרת איכות לפי תבניות עבודה',
+      count: projectChecklists.length,
+    },
+    {
+      key: 'externalSystem' as Section,
+      title: 'מערכת קיימת',
+      icon: '🌐',
+      description: 'פתיחת המערכת הישנה בתוך מסך פנימי',
+      count: 1,
+    },
+  ];
+
   return (
-    <div style={{ ...fieldWrapStyle, ...(full ? fullWidthStyle : {}) }}>
+    <div style={pageStyle}>
+      <header style={headerStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <QualityLogo />
+          <div>
+            <div style={brandTitleStyle}>Y.K QUALITY</div>
+            <div style={brandSubTitleStyle}>QA / QC · Built on Quality. Driven by Precision</div>
+          </div>
+        </div>
+        <div style={projectBadgeStyle}>
+          <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
+          <div>{projectName}</div>
+        </div>
+      </header>
+
+      <div style={navRowStyle}>
+        <NavButton label="דף בית" active={section === 'home'} onClick={() => setSection('home')} />
+        <NavButton label="פרויקטים" active={section === 'projects'} onClick={() => setSection('projects')} />
+        <NavButton label="רשימות תיוג" active={section === 'checklists'} onClick={() => setSection('checklists')} />
+        <NavButton label="אי תאמות" active={section === 'nonconformances'} onClick={() => setSection('nonconformances')} />
+        <NavButton label="קטעי ניסוי" active={section === 'trialSections'} onClick={() => setSection('trialSections')} />
+        <NavButton label="בקרה מקדימה" active={section === 'preliminary'} onClick={() => setSection('preliminary')} />
+        <NavButton label="מערכת קיימת" active={section === 'externalSystem'} onClick={() => setSection('externalSystem')} />
+      </div>
+
+      <div style={layoutStyle}>
+        <main style={mainCardStyle}>
+          {section === 'home' && (
+            <div>
+              <h2 style={sectionTitleStyle}>דף שער</h2>
+              <div style={statsGridStyle}>
+                <StatCard title="פרויקטים" value={projects.length} />
+                <StatCard title="רשימות תיוג" value={projectChecklists.length} />
+                <StatCard title="אי תאמות" value={projectNonconformances.length} />
+                <StatCard title="קטעי ניסוי" value={projectTrialSections.length} />
+                <StatCard title="בקרה מקדימה" value={projectPreliminary.length} />
+              </div>
+
+              <div style={heroBoxStyle}>
+                <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 8 }}>מודולים ותיקיות</div>
+                <div style={{ color: '#475569', lineHeight: 1.7 }}>
+                  בדף השער מוצגים כל המודולים הראשיים. לחץ על כל כרטיס כדי להיכנס למסך המתאים.
+                </div>
+              </div>
+
+              <div style={homeModulesGridStyle}>
+                {homeModules.map((module) => (
+                  <button key={module.key} style={homeModuleCardStyle} onClick={() => setSection(module.key)}>
+                    <div style={homeModuleIconStyle}>{module.icon}</div>
+                    <div style={homeModuleTitleStyle}>{module.title}</div>
+                    <div style={homeModuleTextStyle}>{module.description}</div>
+                    <div style={homeModuleCountStyle}>רשומות: {module.count}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {section === 'externalSystem' && (
+            <div>
+              <h2 style={sectionTitleStyle}>מערכת קיימת</h2>
+              <div style={heroBoxStyle}>
+                <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 8 }}>פתיחת המערכת הישנה בתוך המערכת החדשה</div>
+                <div style={{ color: '#475569', lineHeight: 1.7, marginBottom: 12 }}>
+                  אם האתר החיצוני חוסם הצגה בתוך iframe, השתמש בכפתור "פתח בחלון חדש".
+                </div>
+                <div style={buttonRowStyle}>
+                  <button style={secondaryButtonStyle} onClick={() => window.open(EXTERNAL_SYSTEM_URL, '_blank', 'noopener,noreferrer')}>
+                    פתח בחלון חדש
+                  </button>
+                  <button style={secondaryButtonStyle} onClick={() => setSection('home')}>
+                    חזרה לדף השער
+                  </button>
+                </div>
+              </div>
+
+              <div style={iframeShellStyle}>
+                <iframe
+                  src={EXTERNAL_SYSTEM_URL}
+                  title="מערכת קיימת"
+                  style={iframeStyle}
+                />
+              </div>
+            </div>
+          )}
+
+          {section === 'projects' && (
+            <div>
+              <h2 style={sectionTitleStyle}>פרויקטים</h2>
+
+              <div style={formGridStyle}>
+                <Field label="שם פרויקט">
+                  <input value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} style={inputStyle} />
+                </Field>
+                <Field label="מנהל פרויקט">
+                  <input value={newProjectManager} onChange={(e) => setNewProjectManager(e.target.value)} style={inputStyle} />
+                </Field>
+                <Field label="תיאור" full>
+                  <textarea
+                    value={newProjectDescription}
+                    onChange={(e) => setNewProjectDescription(e.target.value)}
+                    style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+                  />
+                </Field>
+              </div>
+
+              <div style={buttonRowStyle}>
+                <button style={primaryButtonStyle} onClick={addProject}>
+                  הוסף פרויקט
+                </button>
+              </div>
+
+              <div style={cardsGridStyle}>
+                {projects.map((project) => (
+                  <div key={project.id} style={savedCardStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={savedCardTitleStyle}>{project.name}</div>
+                      {project.id === currentProjectId && <span style={activePillStyle}>פעיל</span>}
+                    </div>
+                    <div style={savedCardTextStyle}>מנהל פרויקט: {project.manager || '-'}</div>
+                    <div style={savedCardTextStyle}>תיאור: {project.description || '-'}</div>
+                    <div style={savedCardTextStyle}>נוצר בתאריך: {project.createdAt}</div>
+                    <div style={savedCardActionsStyle}>
+                      <button style={secondaryButtonStyle} onClick={() => setActiveProject(project.id)}>
+                        בחר
+                      </button>
+                      <button style={secondaryButtonStyle} onClick={() => renameProject(project.id)}>
+                        ערוך שם
+                      </button>
+                      <button style={secondaryButtonStyle} onClick={() => updateProjectMeta(project.id)}>
+                        ערוך פרטים
+                      </button>
+                      <button style={dangerButtonStyle} onClick={() => deleteProject(project.id)}>
+                        מחק
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {section === 'checklists' && (
+            <div>
+              <h2 style={sectionTitleStyle}>רשימות תיוג</h2>
+              {guardedBody || (
+                <>
+                  <div style={templateSelectorCardStyle}>
+                    <div style={{ fontWeight: 800, marginBottom: 10 }}>בחירת טופס רשימת תיוג</div>
+                    <div style={templateButtonsWrapStyle}>
+                      {(Object.keys(checklistTemplates) as ChecklistTemplateKey[]).map((templateKey) => (
+                        <button
+                          key={templateKey}
+                          style={{
+                            ...templateChipStyle,
+                            background: checklistForm.templateKey === templateKey ? '#0f172a' : '#fff',
+                            color: checklistForm.templateKey === templateKey ? '#fff' : '#0f172a',
+                          }}
+                          onClick={() => applyChecklistTemplate(templateKey)}
+                        >
+                          {checklistTemplates[templateKey].label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={formGridStyle}>
+                    <Field label="תבנית">
+                      <input value={checklistTemplateLabel(checklistForm.templateKey)} readOnly style={{ ...inputStyle, background: '#f8fafc' }} />
+                    </Field>
+                    <Field label="שם רשימת תיוג">
+                      <input value={checklistForm.title} onChange={(e) => setChecklistForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="קטגוריה">
+                      <input value={checklistForm.category} onChange={(e) => setChecklistForm((prev) => ({ ...prev, category: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="מיקום">
+                      <input value={checklistForm.location} onChange={(e) => setChecklistForm((prev) => ({ ...prev, location: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="תאריך">
+                      <input type="date" value={checklistForm.date} onChange={(e) => setChecklistForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="קבלן מבצע">
+                      <input value={checklistForm.contractor} onChange={(e) => setChecklistForm((prev) => ({ ...prev, contractor: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="הערות כלליות" full>
+                      <textarea value={checklistForm.notes} onChange={(e) => setChecklistForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                    </Field>
+                  </div>
+
+                  <div style={subHeaderStyle}>סעיפי בקרה</div>
+                  {checklistForm.items.map((item, index) => (
+                    <div key={item.id} style={rowCardStyle}>
+                      <div style={rowCardIndexStyle}>{index + 1}</div>
+                      <div style={rowCardGridStyle}>
+                        <Field label="תיאור">
+                          <input value={item.description} onChange={(e) => updateChecklistItem(item.id, 'description', e.target.value)} style={inputStyle} />
+                        </Field>
+                        <Field label="אחראי">
+                          <input value={item.responsible} onChange={(e) => updateChecklistItem(item.id, 'responsible', e.target.value)} style={inputStyle} />
+                        </Field>
+                        <Field label="סטטוס">
+                          <select value={item.status} onChange={(e) => updateChecklistItem(item.id, 'status', e.target.value)} style={inputStyle}>
+                            <option value="לא נבדק">לא נבדק</option>
+                            <option value="תקין">תקין</option>
+                            <option value="לא תקין">לא תקין</option>
+                          </select>
+                        </Field>
+                        <Field label="הערות" full>
+                          <input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} />
+                        </Field>
+                      </div>
+                      <button style={dangerButtonStyle} onClick={() => removeChecklistItem(item.id)}>
+                        מחק שורה
+                      </button>
+                    </div>
+                  ))}
+
+                  <div style={buttonRowStyle}>
+                    <button style={secondaryButtonStyle} onClick={addChecklistItem}>הוסף שורה</button>
+                    <button style={primaryButtonStyle} onClick={saveChecklist}>שמור רשימת תיוג</button>
+                    <button style={secondaryButtonStyle} onClick={resetChecklistForm}>נקה טופס</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {section === 'nonconformances' && (
+            <div>
+              <h2 style={sectionTitleStyle}>אי תאמות</h2>
+              {guardedBody || (
+                <>
+                  <div style={formGridStyle}>
+                    <Field label="כותרת">
+                      <input value={nonconformanceForm.title} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="מיקום">
+                      <input value={nonconformanceForm.location} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, location: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="תאריך">
+                      <input type="date" value={nonconformanceForm.date} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="נפתח על ידי">
+                      <input value={nonconformanceForm.raisedBy} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, raisedBy: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="חומרה">
+                      <select value={nonconformanceForm.severity} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, severity: e.target.value as NonconformanceRecord['severity'] }))} style={inputStyle}>
+                        <option value="נמוכה">נמוכה</option>
+                        <option value="בינונית">בינונית</option>
+                        <option value="גבוהה">גבוהה</option>
+                      </select>
+                    </Field>
+                    <Field label="סטטוס">
+                      <select value={nonconformanceForm.status} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, status: e.target.value as NonconformanceRecord['status'] }))} style={inputStyle}>
+                        <option value="פתוח">פתוח</option>
+                        <option value="בטיפול">בטיפול</option>
+                        <option value="נסגר">נסגר</option>
+                      </select>
+                    </Field>
+                    <Field label="תיאור אי תאמה" full>
+                      <textarea value={nonconformanceForm.description} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, description: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                    </Field>
+                    <Field label="פעולה נדרשת" full>
+                      <textarea value={nonconformanceForm.actionRequired} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, actionRequired: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                    </Field>
+                    <Field label="הערות" full>
+                      <textarea value={nonconformanceForm.notes} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                    </Field>
+                  </div>
+
+                  <div style={buttonRowStyle}>
+                    <button style={primaryButtonStyle} onClick={saveNonconformance}>שמור אי תאמה</button>
+                    <button style={secondaryButtonStyle} onClick={() => setNonconformanceForm(createDefaultNonconformance())}>נקה טופס</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {section === 'trialSections' && (
+            <div>
+              <h2 style={sectionTitleStyle}>קטעי ניסוי</h2>
+              {guardedBody || (
+                <>
+                  <div style={formGridStyle}>
+                    <Field label="שם קטע ניסוי">
+                      <input value={trialSectionForm.title} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="מיקום">
+                      <input value={trialSectionForm.location} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, location: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="תאריך">
+                      <input type="date" value={trialSectionForm.date} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="מפרט / תקן">
+                      <input value={trialSectionForm.spec} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, spec: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="תוצאה">
+                      <input value={trialSectionForm.result} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, result: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="מאשר">
+                      <input value={trialSectionForm.approvedBy} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, approvedBy: e.target.value }))} style={inputStyle} />
+                    </Field>
+                    <Field label="סטטוס">
+                      <select value={trialSectionForm.status} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as TrialSectionRecord['status'] }))} style={inputStyle}>
+                        <option value="טיוטה">טיוטה</option>
+                        <option value="אושר">אושר</option>
+                        <option value="נדחה">נדחה</option>
+                      </select>
+                    </Field>
+                    <Field label="הערות" full>
+                      <textarea value={trialSectionForm.notes} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                    </Field>
+                  </div>
+
+                  <div style={buttonRowStyle}>
+                    <button style={primaryButtonStyle} onClick={saveTrialSection}>שמור קטע ניסוי</button>
+                    <button style={secondaryButtonStyle} onClick={() => setTrialSectionForm(createDefaultTrialSection())}>נקה טופס</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {section === 'preliminary' && (
+            <div>
+              <h2 style={sectionTitleStyle}>בקרה מקדימה</h2>
+              {guardedBody || (
+                <>
+                  <div style={folderIntroStyle}>
+                    <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 8 }}>תיקיות בתוך בקרה מקדימה</div>
+                    <div style={{ color: '#475569', lineHeight: 1.7 }}>
+                      כאן יש תיקיית אב אחת בשם "בקרה מקדימה", ובתוכה שלוש תיקיות: קבלנים, ספקים וחומרים.
+                    </div>
+                  </div>
+
+                  <div style={preliminaryFoldersGridStyle}>
+                    <FolderCard
+                      title="קבלנים"
+                      subtitle="אישורים, תחום, טלפון ומסמכים"
+                      active={preliminaryTab === 'subcontractors'}
+                      onClick={() => setPreliminaryTab('subcontractors')}
+                    />
+                    <FolderCard
+                      title="ספקים"
+                      subtitle="אישורי ספק, חומרים מסופקים ותיעוד"
+                      active={preliminaryTab === 'suppliers'}
+                      onClick={() => setPreliminaryTab('suppliers')}
+                    />
+                    <FolderCard
+                      title="חומרים"
+                      subtitle="מקור, ייעוד, תעודות ובקרה"
+                      active={preliminaryTab === 'materials'}
+                      onClick={() => setPreliminaryTab('materials')}
+                    />
+                  </div>
+
+                  {preliminaryTab === 'suppliers' && (
+                    <>
+                      <div style={subHeaderStyle}>תיקיית ספקים</div>
+                      <div style={formGridStyle}>
+                        <Field label="כותרת">
+                          <input value={supplierPreliminaryForm.title} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="תאריך">
+                          <input type="date" value={supplierPreliminaryForm.date} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="סטטוס">
+                          <select value={supplierPreliminaryForm.status} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                            <option value="טיוטה">טיוטה</option>
+                            <option value="מאושר">מאושר</option>
+                            <option value="לא מאושר">לא מאושר</option>
+                          </select>
+                        </Field>
+                        <Field label="שם ספק">
+                          <input value={supplierPreliminaryForm.supplier?.supplierName ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), supplierName: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="חומר מסופק">
+                          <input value={supplierPreliminaryForm.supplier?.suppliedMaterial ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), suppliedMaterial: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="טלפון">
+                          <input value={supplierPreliminaryForm.supplier?.contactPhone ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), contactPhone: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="מספר אישור">
+                          <input value={supplierPreliminaryForm.supplier?.approvalNo ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), approvalNo: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="הערות" full>
+                          <textarea value={supplierPreliminaryForm.supplier?.notes ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                        </Field>
+                      </div>
+                      <div style={buttonRowStyle}>
+                        <button style={primaryButtonStyle} onClick={() => savePreliminary('suppliers')}>שמור ספק</button>
+                      </div>
+                    </>
+                  )}
+
+                  {preliminaryTab === 'subcontractors' && (
+                    <>
+                      <div style={subHeaderStyle}>תיקיית קבלנים</div>
+                      <div style={formGridStyle}>
+                        <Field label="כותרת">
+                          <input value={subcontractorPreliminaryForm.title} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="תאריך">
+                          <input type="date" value={subcontractorPreliminaryForm.date} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="סטטוס">
+                          <select value={subcontractorPreliminaryForm.status} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                            <option value="טיוטה">טיוטה</option>
+                            <option value="מאושר">מאושר</option>
+                            <option value="לא מאושר">לא מאושר</option>
+                          </select>
+                        </Field>
+                        <Field label="שם קבלן">
+                          <input value={subcontractorPreliminaryForm.subcontractor?.subcontractorName ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), subcontractorName: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="תחום">
+                          <input value={subcontractorPreliminaryForm.subcontractor?.field ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), field: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="טלפון">
+                          <input value={subcontractorPreliminaryForm.subcontractor?.contactPhone ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), contactPhone: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="מספר אישור">
+                          <input value={subcontractorPreliminaryForm.subcontractor?.approvalNo ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), approvalNo: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="הערות" full>
+                          <textarea value={subcontractorPreliminaryForm.subcontractor?.notes ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                        </Field>
+                      </div>
+                      <div style={buttonRowStyle}>
+                        <button style={primaryButtonStyle} onClick={() => savePreliminary('subcontractors')}>שמור קבלן</button>
+                      </div>
+                    </>
+                  )}
+
+                  {preliminaryTab === 'materials' && (
+                    <>
+                      <div style={subHeaderStyle}>תיקיית חומרים</div>
+                      <div style={formGridStyle}>
+                        <Field label="כותרת">
+                          <input value={materialPreliminaryForm.title} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, title: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="תאריך">
+                          <input type="date" value={materialPreliminaryForm.date} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
+                        </Field>
+                        <Field label="סטטוס">
+                          <select value={materialPreliminaryForm.status} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                            <option value="טיוטה">טיוטה</option>
+                            <option value="מאושר">מאושר</option>
+                            <option value="לא מאושר">לא מאושר</option>
+                          </select>
+                        </Field>
+                        <Field label="שם חומר">
+                          <input value={materialPreliminaryForm.material?.materialName ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), materialName: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="מקור">
+                          <input value={materialPreliminaryForm.material?.source ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), source: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="ייעוד">
+                          <input value={materialPreliminaryForm.material?.usage ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), usage: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="מספר תעודה">
+                          <input value={materialPreliminaryForm.material?.certificateNo ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), certificateNo: e.target.value } }))} style={inputStyle} />
+                        </Field>
+                        <Field label="הערות" full>
+                          <textarea value={materialPreliminaryForm.material?.notes ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                        </Field>
+                      </div>
+                      <div style={buttonRowStyle}>
+                        <button style={primaryButtonStyle} onClick={() => savePreliminary('materials')}>שמור חומר</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </main>
+
+        <aside style={sideCardStyle}>
+          <h3 style={sideTitleStyle}>רשומות שמורות</h3>
+          <div style={sideProjectStyle}>פרויקט: {projectName}</div>
+
+          <div style={smallSectionTitleStyle}>רשימות תיוג</div>
+          {projectChecklists.length === 0 ? (
+            <div style={emptyBoxStyle}>אין רשימות תיוג שמורות.</div>
+          ) : (
+            projectChecklists.map((item) => (
+              <SavedCard
+                key={item.id}
+                title={item.title}
+                subtitle={`תבנית: ${checklistTemplateLabel(item.templateKey)} · קטגוריה: ${item.category}`}
+                meta={`נשמר: ${item.savedAt}`}
+                onOpen={() => loadChecklist(item)}
+                onDelete={() => deleteChecklist(item.id)}
+              />
+            ))
+          )}
+
+          <div style={smallSectionTitleStyle}>אי תאמות</div>
+          {projectNonconformances.length === 0 ? (
+            <div style={emptyBoxStyle}>אין אי תאמות שמורות.</div>
+          ) : (
+            projectNonconformances.map((item) => (
+              <SavedCard
+                key={item.id}
+                title={item.title}
+                subtitle={`סטטוס: ${item.status}`}
+                meta={`נשמר: ${item.savedAt}`}
+                onOpen={() => loadNonconformance(item)}
+                onDelete={() => deleteNonconformance(item.id)}
+              />
+            ))
+          )}
+
+          <div style={smallSectionTitleStyle}>קטעי ניסוי</div>
+          {projectTrialSections.length === 0 ? (
+            <div style={emptyBoxStyle}>אין קטעי ניסוי שמורים.</div>
+          ) : (
+            projectTrialSections.map((item) => (
+              <SavedCard
+                key={item.id}
+                title={item.title}
+                subtitle={`סטטוס: ${item.status}`}
+                meta={`נשמר: ${item.savedAt}`}
+                onOpen={() => loadTrialSection(item)}
+                onDelete={() => deleteTrialSection(item.id)}
+              />
+            ))
+          )}
+
+          <div style={smallSectionTitleStyle}>בקרה מקדימה</div>
+          {projectPreliminary.length === 0 ? (
+            <div style={emptyBoxStyle}>אין טפסי בקרה מקדימה שמורים.</div>
+          ) : (
+            projectPreliminary.map((item) => (
+              <SavedCard
+                key={item.id}
+                title={item.title}
+                subtitle={`סוג: ${labelForPreliminary(item.subtype)} | סטטוס: ${item.status}`}
+                meta={`נשמר: ${item.savedAt}`}
+                onOpen={() => loadPreliminary(item)}
+                onDelete={() => deletePreliminary(item.id)}
+              />
+            ))
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function labelForPreliminary(subtype: PreliminaryTab) {
+  if (subtype === 'suppliers') return 'ספקים';
+  if (subtype === 'subcontractors') return 'קבלנים';
+  return 'חומרים';
+}
+
+function QualityLogo() {
+  return (
+    <svg width="170" height="64" viewBox="0 0 420 150" role="img" aria-label="YK QA QC" style={{ display: 'block' }}>
+      <rect width="420" height="150" fill="transparent" />
+      <path d="M42 118 L48 56 L16 12 L53 12 L82 52 L109 12 L145 12 L85 84 L80 118 Z" fill="#0f172a" />
+      <path d="M148 118 L148 12 L184 12 L184 55 L222 12 L266 12 L218 58 L269 118 L223 118 L184 72 L184 118 Z" fill="#0f172a" />
+      <rect x="286" y="18" width="4" height="102" fill="#0f172a" rx="2" />
+      <text x="310" y="62" fontSize="48" fontWeight="800" fill="#0f172a" fontFamily="Arial, sans-serif">QA / QC</text>
+      <text x="310" y="96" fontSize="20" fill="#334155" fontFamily="Arial, sans-serif">Built on Quality.</text>
+      <text x="310" y="122" fontSize="20" fill="#334155" fontFamily="Arial, sans-serif">Driven by Precision</text>
+    </svg>
+  );
+}
+
+function NavButton({
+  label,
+  active,
+  onClick,
+  compact = false,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...navButtonStyle,
+        ...(compact ? compactNavButtonStyle : null),
+        background: active ? '#0f172a' : '#fff',
+        color: active ? '#fff' : '#0f172a',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function Field({
+  label,
+  children,
+  full = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  full?: boolean;
+}) {
+  return (
+    <div style={{ ...fieldWrapStyle, ...(full ? fullWidthStyle : null) }}>
       <label style={fieldLabelStyle}>{label}</label>
       {children}
     </div>
   );
 }
 
-export default function Page() {
-  const [checklistForm, setChecklistForm] = useState<ChecklistForm>(createDefaultChecklist());
-  const checklistExportRef = useRef<HTMLDivElement | null>(null);
-
-  const templateLabel = useMemo(() => checklistTemplates[checklistForm.templateKey]?.label ?? 'טופס מותאם', [checklistForm.templateKey]);
-  const templateCode = useMemo(() => checklistTemplates[checklistForm.templateKey]?.code ?? '', [checklistForm.templateKey]);
-
-  const statusSummary = useMemo(() => {
-    const total = checklistForm.items.length;
-    const ok = checklistForm.items.filter((item) => item.status === 'תקין').length;
-    const bad = checklistForm.items.filter((item) => item.status === 'לא תקין').length;
-    const pending = checklistForm.items.filter((item) => item.status === 'לא נבדק').length;
-    return { total, ok, bad, pending };
-  }, [checklistForm.items]);
-
-  const handleTemplateChange = (templateKey: ChecklistTemplateKey) => {
-    const template = checklistTemplates[templateKey];
-    setChecklistForm((prev) => ({ ...prev, templateKey, title: template.title, category: template.category, checklistNo: template.code === 'CUSTOM' ? prev.checklistNo : template.code, items: buildChecklistItemsFromTemplate(templateKey) }));
-  };
-
-  const updateChecklistField = <K extends keyof ChecklistForm>(field: K, value: ChecklistForm[K]) => setChecklistForm((prev) => ({ ...prev, [field]: value }));
-  const updateChecklistItem = <K extends keyof ChecklistItem>(id: number, field: K, value: ChecklistItem[K]) => setChecklistForm((prev) => ({ ...prev, items: prev.items.map((item) => (item.id === id ? { ...item, [field]: value } : item)) }));
-
-  const addChecklistItem = () => setChecklistForm((prev) => ({
-    ...prev,
-    items: [...prev.items, { id: Date.now(), description: '', responsible: '', status: 'לא נבדק', executionDate: '', signature: '', documentRef: '', notes: '' }],
-  }));
-
-  const removeChecklistItem = (id: number) => setChecklistForm((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== id) }));
-
-  const buildChecklistExportRows = () => checklistForm.items.map((item, index) => ({
-    מספר: index + 1,
-    'תיאור פעולת הבקרה': item.description,
-    אחריות: item.responsible,
-    סטטוס: item.status,
-    'תאריך ביצוע': item.executionDate,
-    חתימה: item.signature,
-    "מס' תוכנית / תעודת בדיקה": item.documentRef,
-    הערות: item.notes,
-  }));
-
-  const exportChecklistToExcel = () => {
-    const workbook = XLSX.utils.book_new();
-    const title = checklistForm.title || 'רשימת תיוג';
-    const rows = buildChecklistExportRows();
-    const sheetRows = [
-      [title],
-      ['פרטי הטופס'],
-      ['שם תבנית', templateLabel, 'קוד טופס', templateCode || '-', 'מספר רשימת תיוג', checklistForm.checklistNo || '-'],
-      ['שם הפרויקט / כביש', checklistForm.roadOrSection || '-', 'קבלן מבצע', checklistForm.contractor || '-', 'תאריך', checklistForm.date || '-'],
-      ['מבנה / כביש', checklistForm.structureName || '-', 'קטע עבודה', checklistForm.category || '-', 'צד / מיקום', checklistForm.location || '-'],
-      ['הערות כלליות', checklistForm.notes || '-'],
-      [],
-      ['סעיפי בקרה'],
-      ['מספר', 'תיאור פעולת הבקרה', 'אחריות', 'סטטוס', 'תאריך ביצוע', 'חתימה', "מס' תוכנית / תעודת בדיקה", 'הערות'],
-      ...rows.map((row) => [row['מספר'], row['תיאור פעולת הבקרה'], row['אחריות'], row['סטטוס'], row['תאריך ביצוע'], row['חתימה'], row["מס' תוכנית / תעודת בדיקה"], row['הערות']]),
-    ];
-    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 8 }, { wch: 42 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 28 }, { wch: 30 }];
-    worksheet['!merges'] = [XLSX.utils.decode_range('A1:H1'), XLSX.utils.decode_range('A2:H2'), XLSX.utils.decode_range('A6:H6'), XLSX.utils.decode_range('A8:H8')];
-    worksheet['!autofilter'] = { ref: `A9:H${rows.length + 9}` };
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'רשימת תיוג');
-    XLSX.writeFile(workbook, buildChecklistFileName(title, 'xlsx'));
-  };
-
-  const exportChecklistToWord = () => {
-    const rowsHtml = checklistForm.items.map((item, index) => `
-      <tr>
-        <td>${index + 1}</td>
-        <td>${escapeHtml(item.description || '')}</td>
-        <td>${escapeHtml(item.responsible || '')}</td>
-        <td>${escapeHtml(item.status || '')}</td>
-        <td>${escapeHtml(item.executionDate || '')}</td>
-        <td>${escapeHtml(item.signature || '')}</td>
-        <td>${escapeHtml(item.documentRef || '')}</td>
-        <td>${escapeHtml(item.notes || '')}</td>
-      </tr>`).join('');
-
-    const html = `
-      <html dir="rtl">
-        <head>
-          <meta charset="utf-8" />
-          <style>
-            body { font-family: Arial, sans-serif; direction: rtl; padding: 24px; }
-            h1 { text-align: center; margin-bottom: 8px; }
-            .sub { text-align: center; font-size: 12px; margin-bottom: 14px; color: #475569; }
-            table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 12px; }
-            th, td { border: 1px solid #000; padding: 7px 6px; text-align: center; vertical-align: middle; font-size: 12px; }
-            th { background: #f1f5f9; font-weight: 700; }
-            .notes { border: 1px solid #000; padding: 10px; min-height: 40px; margin-top: 12px; }
-          </style>
-        </head>
-        <body>
-          <h1>${escapeHtml(checklistForm.title || 'רשימת תיוג')}</h1>
-          <div class="sub">טופס בקרת איכות מקצועי</div>
-          <table>
-            <tr>
-              <th>שם הפרויקט</th><td>${escapeHtml(checklistForm.roadOrSection || '-')}</td>
-              <th>קבלן מבצע</th><td>${escapeHtml(checklistForm.contractor || '-')}</td>
-              <th>קטע עבודה</th><td>${escapeHtml(checklistForm.category || '-')}</td>
-              <th>מבנה / כביש</th><td>${escapeHtml(checklistForm.structureName || '-')}</td>
-            </tr>
-            <tr>
-              <th>מספר רשימת תיוג</th><td>${escapeHtml(checklistForm.checklistNo || '-')}</td>
-              <th>תבנית</th><td>${escapeHtml(templateLabel)}</td>
-              <th>קוד טופס</th><td>${escapeHtml(templateCode || '-')}</td>
-              <th>תאריך</th><td>${escapeHtml(checklistForm.date || '-')}</td>
-            </tr>
-            <tr><th>צד / מיקום</th><td colspan="7">${escapeHtml(checklistForm.location || '-')}</td></tr>
-          </table>
-          <table>
-            <thead>
-              <tr>
-                <th>מספר</th><th>תיאור פעולת הבקרה</th><th>אחריות</th><th>סטטוס</th><th>תאריך ביצוע</th><th>חתימה</th><th>מס' תוכנית / תעודת בדיקה</th><th>הערות</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-          <div class="notes"><strong>הערות כלליות:</strong> ${escapeHtml(checklistForm.notes || '-')}</div>
-        </body>
-      </html>`;
-    const blob = new Blob(['﻿', html], { type: 'application/msword;charset=utf-8' });
-    saveAs(blob, buildChecklistFileName(checklistForm.title || templateLabel, 'doc'));
-  };
-
-  const exportChecklistToPdf = async () => {
-    const target = checklistExportRef.current;
-    if (!target) return alert('לא נמצא אזור לייצוא PDF');
-    const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: target.scrollWidth, windowHeight: target.scrollHeight });
-    const imageData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 20;
-    const usableWidth = pageWidth - margin * 2;
-    const imgHeight = (canvas.height * usableWidth) / canvas.width;
-    let heightLeft = imgHeight;
-    let position = margin;
-    pdf.addImage(imageData, 'PNG', margin, position, usableWidth, imgHeight);
-    heightLeft -= pageHeight - margin * 2;
-    while (heightLeft > 0) {
-      position = -(imgHeight - heightLeft) + margin;
-      pdf.addPage();
-      pdf.addImage(imageData, 'PNG', margin, position, usableWidth, imgHeight);
-      heightLeft -= pageHeight - margin * 2;
-    }
-    pdf.save(buildChecklistFileName(checklistForm.title || templateLabel, 'pdf'));
-  };
-
+function SavedCard({
+  title,
+  subtitle,
+  meta,
+  onOpen,
+  onDelete,
+}: {
+  title: string;
+  subtitle: string;
+  meta: string;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <div style={pageStyle}>
-      <div style={pageWrapStyle}>
-        <div style={topBarStyle}>
-          <div style={titleBlockStyle}>
-            <div style={appTitleStyle}>רשימות תיוג – גרסה מקצועית</div>
-            <div style={appSubTitleStyle}>טופס מקצועי בסגנון בקרת איכות, עם טבלה עליונה, טבלת בקרה, חתימות, סטטוסים וייצוא.</div>
-          </div>
-          <div style={actionsRowStyle}>
-            <button style={secondaryButtonStyle} onClick={exportChecklistToExcel}>ייצוא Excel</button>
-            <button style={secondaryButtonStyle} onClick={exportChecklistToWord}>ייצוא Word</button>
-            <button style={primaryButtonStyle} onClick={exportChecklistToPdf}>ייצוא PDF</button>
-          </div>
-        </div>
-
-        <div style={summaryGridStyle}>
-          <div style={summaryCardStyle}><div style={summaryValueStyle}>{statusSummary.total}</div><div style={summaryLabelStyle}>סה״כ סעיפים</div></div>
-          <div style={summaryCardStyle}><div style={summaryValueStyle}>{statusSummary.ok}</div><div style={summaryLabelStyle}>תקין</div></div>
-          <div style={summaryCardStyle}><div style={summaryValueStyle}>{statusSummary.bad}</div><div style={summaryLabelStyle}>לא תקין</div></div>
-          <div style={summaryCardStyle}><div style={summaryValueStyle}>{statusSummary.pending}</div><div style={summaryLabelStyle}>לא נבדק</div></div>
-        </div>
-
-        <div style={layoutStyle}>
-          <aside style={sideCardStyle}>
-            <div style={sectionTitleStyle}>עריכת הטופס</div>
-
-            <Field label="בחירת תבנית">
-              <select value={checklistForm.templateKey} onChange={(e) => handleTemplateChange(e.target.value as ChecklistTemplateKey)} style={inputStyle}>
-                <option value="template14">מילוי בהידוק מבוקר</option>
-                <option value="template01">יציקת אלמנטים מבטון</option>
-                <option value="templateCustom">טופס מותאם אישית</option>
-              </select>
-            </Field>
-
-            <div style={{ ...formGridStyle, marginTop: 14 }}>
-              <Field label="שם הטופס"><input value={checklistForm.title} onChange={(e) => updateChecklistField('title', e.target.value)} style={inputStyle} /></Field>
-              <Field label="מספר רשימת תיוג"><input value={checklistForm.checklistNo} onChange={(e) => updateChecklistField('checklistNo', e.target.value)} style={inputStyle} /></Field>
-              <Field label="שם הפרויקט"><input value={checklistForm.roadOrSection} onChange={(e) => updateChecklistField('roadOrSection', e.target.value)} style={inputStyle} placeholder="למשל: כביש 8070" /></Field>
-              <Field label="מבנה / כביש"><input value={checklistForm.structureName} onChange={(e) => updateChecklistField('structureName', e.target.value)} style={inputStyle} /></Field>
-              <Field label="קטע עבודה"><input value={checklistForm.category} onChange={(e) => updateChecklistField('category', e.target.value)} style={inputStyle} /></Field>
-              <Field label="קבלן מבצע"><input value={checklistForm.contractor} onChange={(e) => updateChecklistField('contractor', e.target.value)} style={inputStyle} /></Field>
-              <Field label="צד / מיקום"><input value={checklistForm.location} onChange={(e) => updateChecklistField('location', e.target.value)} style={inputStyle} /></Field>
-              <Field label="תאריך"><input type="date" value={checklistForm.date} onChange={(e) => updateChecklistField('date', e.target.value)} style={inputStyle} /></Field>
-              <Field label="הערות כלליות" full><textarea value={checklistForm.notes} onChange={(e) => updateChecklistField('notes', e.target.value)} style={textareaStyle} /></Field>
-            </div>
-
-            <div style={smallTitleStyle}>סעיפי בקרה – עריכה מקצועית</div>
-            <div style={helperTextStyle}>לכל סעיף: סטטוס, תאריך ביצוע, חתימה, אסמכתא והערות. בצד ימין התצוגה הרשמית להדפסה.</div>
-
-            <div style={softPanelStyle}>
-              {checklistForm.items.map((item, index) => (
-                <div key={item.id} style={rowCardStyle}>
-                  <div style={rowTopStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={rowNumberPillStyle}>{index + 1}</div>
-                      <div style={{ fontWeight: 800 }}>סעיף בקרה</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ ...pillBaseStyle, ...statusBadgeTone(item.status) }}>{item.status}</span>
-                      <button style={dangerButtonStyle} onClick={() => removeChecklistItem(item.id)}>מחק שורה</button>
-                    </div>
-                  </div>
-
-                  <div style={rowGridStyle}>
-                    <Field label="תיאור"><input value={item.description} onChange={(e) => updateChecklistItem(item.id, 'description', e.target.value)} style={inputStyle} placeholder="תיאור פעולת הבקרה" /></Field>
-                    <Field label="אחראי"><input value={item.responsible} onChange={(e) => updateChecklistItem(item.id, 'responsible', e.target.value)} style={inputStyle} placeholder="אחראי" /></Field>
-                    <Field label="סטטוס">
-                      <select value={item.status} onChange={(e) => updateChecklistItem(item.id, 'status', e.target.value as ChecklistStatus)} style={inputStyle}>
-                        <option value="לא נבדק">לא נבדק</option>
-                        <option value="תקין">תקין</option>
-                        <option value="לא תקין">לא תקין</option>
-                      </select>
-                    </Field>
-                    <Field label="תאריך ביצוע"><input type="date" value={item.executionDate} onChange={(e) => updateChecklistItem(item.id, 'executionDate', e.target.value)} style={inputStyle} /></Field>
-                    <Field label="חתימה / שם בודק"><input value={item.signature} onChange={(e) => updateChecklistItem(item.id, 'signature', e.target.value)} style={inputStyle} placeholder="חתימה / שם" /></Field>
-                    <Field label="מס׳ תוכנית / תעודת בדיקה"><input value={item.documentRef} onChange={(e) => updateChecklistItem(item.id, 'documentRef', e.target.value)} style={inputStyle} placeholder="מס׳ אסמכתא" /></Field>
-                    <Field label="הערות" full><input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} placeholder="הערות" /></Field>
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                <button style={secondaryButtonStyle} onClick={addChecklistItem}>הוסף שורה</button>
-                <button style={secondaryButtonStyle} onClick={() => setChecklistForm(createDefaultChecklist(checklistForm.templateKey))}>איפוס לפי תבנית</button>
-              </div>
-            </div>
-          </aside>
-
-          <main style={mainCardStyle}>
-            <div style={sectionTitleStyle}>תצוגה רשמית להדפסה / PDF</div>
-            <div style={previewShellStyle}>
-              <div ref={checklistExportRef} style={exportSheetStyle}>
-                <div style={exportTitleStyle}>{checklistForm.title || 'רשימת תיוג'}</div>
-                <div style={exportSubTitleStyle}>טופס בקרת איכות מקצועי</div>
-
-                <table style={exportMetaTableStyle}>
-                  <tbody>
-                    <tr>
-                      <th style={metaHeaderCellStyle}>שם הפרויקט</th><td style={metaValueCellStyle}>{checklistForm.roadOrSection || '-'}</td>
-                      <th style={metaHeaderCellStyle}>קבלן מבצע</th><td style={metaValueCellStyle}>{checklistForm.contractor || '-'}</td>
-                      <th style={metaHeaderCellStyle}>קטע עבודה</th><td style={metaValueCellStyle}>{checklistForm.category || '-'}</td>
-                      <th style={metaHeaderCellStyle}>מבנה / כביש</th><td style={metaValueCellStyle}>{checklistForm.structureName || '-'}</td>
-                    </tr>
-                    <tr>
-                      <th style={metaHeaderCellStyle}>מספר רשימת תיוג</th><td style={metaValueCellStyle}>{checklistForm.checklistNo || '-'}</td>
-                      <th style={metaHeaderCellStyle}>תבנית</th><td style={metaValueCellStyle}>{templateLabel}</td>
-                      <th style={metaHeaderCellStyle}>קוד טופס</th><td style={metaValueCellStyle}>{templateCode || '-'}</td>
-                      <th style={metaHeaderCellStyle}>תאריך</th><td style={metaValueCellStyle}>{checklistForm.date || '-'}</td>
-                    </tr>
-                    <tr>
-                      <th style={metaHeaderCellStyle}>צד / מיקום</th>
-                      <td style={metaValueCellStyle} colSpan={7}>{checklistForm.location || '-'}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <table style={exportItemsTableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderStyle}>מספר</th>
-                      <th style={tableHeaderStyle}>תיאור פעולת הבקרה</th>
-                      <th style={tableHeaderStyle}>אחריות</th>
-                      <th style={tableHeaderStyle}>סטטוס</th>
-                      <th style={tableHeaderStyle}>תאריך ביצוע</th>
-                      <th style={tableHeaderStyle}>חתימה</th>
-                      <th style={tableHeaderStyle}>מס׳ תוכנית / תעודת בדיקה</th>
-                      <th style={tableHeaderStyle}>הערות</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {checklistForm.items.map((item, index) => (
-                      <tr key={item.id}>
-                        <td style={tableCellStyle}>{index + 1}</td>
-                        <td style={tableCellStyle}>{item.description || '-'}</td>
-                        <td style={tableCellStyle}>{item.responsible || '-'}</td>
-                        <td style={tableCellStyle}>{item.status || '-'}</td>
-                        <td style={tableCellStyle}>{item.executionDate || ''}</td>
-                        <td style={tableCellStyle}>{item.signature || ''}</td>
-                        <td style={tableCellStyle}>{item.documentRef || ''}</td>
-                        <td style={tableCellStyle}>{item.notes || ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div style={notesBoxStyle}><strong>הערות כלליות:</strong> {checklistForm.notes || '-'}</div>
-              </div>
-            </div>
-          </main>
-        </div>
+    <div style={savedCardStyle}>
+      <div style={savedCardTitleStyle}>{title}</div>
+      <div style={savedCardTextStyle}>{subtitle}</div>
+      <div style={savedCardTextStyle}>{meta}</div>
+      <div style={savedCardActionsStyle}>
+        <button style={secondaryButtonStyle} onClick={onOpen}>פתח</button>
+        <button style={dangerButtonStyle} onClick={onDelete}>מחק</button>
       </div>
     </div>
   );
 }
+
+function StatCard({ title, value }: { title: string; value: number }) {
+  return (
+    <div style={statCardStyle}>
+      <div style={statValueStyle}>{value}</div>
+      <div style={statTitleStyle}>{title}</div>
+    </div>
+  );
+}
+
+function FolderCard({
+  title,
+  subtitle,
+  active,
+  onClick,
+}: {
+  title: string;
+  subtitle: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...folderCardStyle,
+        borderColor: active ? '#0f172a' : '#dbe2ea',
+        background: active ? '#eff6ff' : '#fff',
+      }}
+    >
+      <div style={folderIconStyle}>📁</div>
+      <div style={folderTitleStyle}>{title}</div>
+      <div style={folderTextStyle}>{subtitle}</div>
+    </button>
+  );
+}
+
+const pageStyle: CSSProperties = {
+  minHeight: '100vh',
+  padding: '20px',
+  background: '#eef2f7',
+  fontFamily: 'Arial, sans-serif',
+  direction: 'rtl',
+  boxSizing: 'border-box',
+};
+
+const headerStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 16,
+  alignItems: 'center',
+  marginBottom: 20,
+  flexWrap: 'wrap',
+};
+
+const brandTitleStyle: CSSProperties = {
+  fontSize: 42,
+  fontWeight: 900,
+  color: '#0f172a',
+};
+
+const brandSubTitleStyle: CSSProperties = {
+  color: '#475569',
+  marginTop: 6,
+  fontSize: 16,
+};
+
+const projectBadgeStyle: CSSProperties = {
+  background: '#fff',
+  border: '1px solid #dbe2ea',
+  borderRadius: 18,
+  padding: '14px 18px',
+  minWidth: 220,
+  boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
+};
+
+const navRowStyle: CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  flexWrap: 'wrap',
+  marginBottom: 20,
+};
+
+const navButtonStyle: CSSProperties = {
+  border: '1px solid #cbd5e1',
+  borderRadius: 14,
+  padding: '12px 18px',
+  fontSize: 15,
+  fontWeight: 700,
+  cursor: 'pointer',
+};
+
+const compactNavButtonStyle: CSSProperties = {
+  padding: '10px 14px',
+};
+
+const layoutStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)',
+  gap: 20,
+  alignItems: 'start',
+};
+
+const mainCardStyle: CSSProperties = {
+  background: '#fff',
+  borderRadius: 24,
+  padding: 22,
+  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
+  border: '1px solid #e2e8f0',
+};
+
+const sideCardStyle: CSSProperties = {
+  background: '#fff',
+  borderRadius: 24,
+  padding: 20,
+  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
+  border: '1px solid #e2e8f0',
+};
+
+const sectionTitleStyle: CSSProperties = {
+  fontSize: 28,
+  fontWeight: 800,
+  margin: '0 0 18px 0',
+  color: '#0f172a',
+};
+
+const sideTitleStyle: CSSProperties = {
+  fontSize: 22,
+  fontWeight: 800,
+  margin: '0 0 8px 0',
+};
+
+const sideProjectStyle: CSSProperties = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 14,
+  padding: '12px 14px',
+  marginBottom: 14,
+  color: '#334155',
+};
+
+const smallSectionTitleStyle: CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
+  margin: '18px 0 10px 0',
+};
+
+const templateSelectorCardStyle: CSSProperties = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 16,
+  padding: 16,
+  marginBottom: 18,
+};
+
+const templateButtonsWrapStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 10,
+};
+
+const templateChipStyle: CSSProperties = {
+  border: '1px solid #cbd5e1',
+  borderRadius: 999,
+  padding: '10px 14px',
+  cursor: 'pointer',
+  fontWeight: 700,
+  background: '#fff',
+};
+
+const heroBoxStyle: CSSProperties = {
+  background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
+  border: '1px solid #dbeafe',
+  borderRadius: 22,
+  padding: 20,
+  marginBottom: 18,
+};
+
+const statsGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+  gap: 14,
+  marginBottom: 18,
+};
+
+const statCardStyle: CSSProperties = {
+  background: '#0f172a',
+  color: '#fff',
+  borderRadius: 18,
+  padding: 18,
+  textAlign: 'center',
+};
+
+const statValueStyle: CSSProperties = {
+  fontSize: 28,
+  fontWeight: 900,
+  marginBottom: 6,
+};
+
+const statTitleStyle: CSSProperties = {
+  fontSize: 14,
+  opacity: 0.9,
+};
+
+const homeModulesGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 16,
+};
+
+const homeModuleCardStyle: CSSProperties = {
+  border: '1px solid #dbe2ea',
+  borderRadius: 20,
+  padding: 18,
+  background: '#fff',
+  textAlign: 'right',
+  cursor: 'pointer',
+  boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
+};
+
+const homeModuleIconStyle: CSSProperties = {
+  fontSize: 30,
+  marginBottom: 10,
+};
+
+const homeModuleTitleStyle: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 800,
+  color: '#0f172a',
+  marginBottom: 8,
+};
+
+const homeModuleTextStyle: CSSProperties = {
+  fontSize: 14,
+  color: '#475569',
+  lineHeight: 1.7,
+  minHeight: 48,
+};
+
+const homeModuleCountStyle: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#0f172a',
+  marginTop: 12,
+};
+
+const iframeShellStyle: CSSProperties = {
+  marginTop: 18,
+  border: '1px solid #dbe2ea',
+  borderRadius: 22,
+  overflow: 'hidden',
+  background: '#fff',
+  boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
+};
+
+const iframeStyle: CSSProperties = {
+  width: '100%',
+  height: '78vh',
+  border: 'none',
+  display: 'block',
+};
+
+const formGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 14,
+};
+
+const fieldWrapStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const fullWidthStyle: CSSProperties = {
+  gridColumn: '1 / -1',
+};
+
+const fieldLabelStyle: CSSProperties = {
+  fontWeight: 700,
+  color: '#334155',
+};
+
+const inputStyle: CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  borderRadius: 14,
+  border: '1px solid #cbd5e1',
+  background: '#fff',
+  fontSize: 14,
+  boxSizing: 'border-box',
+};
+
+const buttonRowStyle: CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  flexWrap: 'wrap',
+  marginTop: 18,
+};
+
+const primaryButtonStyle: CSSProperties = {
+  border: 'none',
+  borderRadius: 14,
+  padding: '12px 18px',
+  background: '#0f172a',
+  color: '#fff',
+  fontWeight: 800,
+  cursor: 'pointer',
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  border: '1px solid #cbd5e1',
+  borderRadius: 14,
+  padding: '12px 18px',
+  background: '#fff',
+  color: '#0f172a',
+  fontWeight: 800,
+  cursor: 'pointer',
+};
+
+const dangerButtonStyle: CSSProperties = {
+  border: 'none',
+  borderRadius: 14,
+  padding: '12px 18px',
+  background: '#dc2626',
+  color: '#fff',
+  fontWeight: 800,
+  cursor: 'pointer',
+};
+
+const cardsGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: 14,
+  marginTop: 18,
+};
+
+const savedCardStyle: CSSProperties = {
+  border: '1px solid #e2e8f0',
+  borderRadius: 18,
+  padding: 14,
+  background: '#fff',
+};
+
+const savedCardTitleStyle: CSSProperties = {
+  fontWeight: 800,
+  fontSize: 16,
+  marginBottom: 6,
+};
+
+const savedCardTextStyle: CSSProperties = {
+  color: '#475569',
+  fontSize: 14,
+  marginBottom: 4,
+};
+
+const savedCardActionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  marginTop: 10,
+};
+
+const activePillStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 999,
+  background: '#dcfce7',
+  color: '#166534',
+  padding: '4px 10px',
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const emptyBoxStyle: CSSProperties = {
+  background: '#f8fafc',
+  border: '1px dashed #cbd5e1',
+  borderRadius: 16,
+  padding: 16,
+  color: '#64748b',
+};
+
+const rowCardStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '50px minmax(0, 1fr) auto',
+  gap: 14,
+  alignItems: 'start',
+  border: '1px solid #e2e8f0',
+  borderRadius: 18,
+  padding: 14,
+  marginBottom: 12,
+};
+
+const rowCardGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 12,
+};
+
+const rowCardIndexStyle: CSSProperties = {
+  width: 42,
+  height: 42,
+  borderRadius: 12,
+  background: '#e2e8f0',
+  color: '#0f172a',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 800,
+};
+
+const subHeaderStyle: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 800,
+  margin: '20px 0 12px 0',
+};
+
+const folderIntroStyle: CSSProperties = {
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 18,
+  padding: 16,
+  marginBottom: 16,
+};
+
+const preliminaryFoldersGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 14,
+  marginBottom: 14,
+};
+
+const folderCardStyle: CSSProperties = {
+  border: '1px solid #dbe2ea',
+  borderRadius: 18,
+  padding: 18,
+  background: '#fff',
+  textAlign: 'right',
+  cursor: 'pointer',
+};
+
+const folderIconStyle: CSSProperties = {
+  fontSize: 28,
+  marginBottom: 10,
+};
+
+const folderTitleStyle: CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
+  color: '#0f172a',
+  marginBottom: 6,
+};
+
+const folderTextStyle: CSSProperties = {
+  color: '#475569',
+  fontSize: 14,
+  lineHeight: 1.6,
+};
