@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
+
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
 type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
@@ -662,7 +663,7 @@ export default function Page() {
     }));
   };
 
-  const updateChecklistItem = (id: number, field: keyof ChecklistItem, value: string) => {
+  const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => {
     setChecklistForm((prev) => ({
       ...prev,
       items: prev.items.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
