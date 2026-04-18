@@ -6,7 +6,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
-type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
+type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction' | 'controlledCompaction' | 'signage' | 'paving' | 'steelGuardrails' | 'asphalt' | 'drainagePipes' | 'curbCasting' | 'catEyes' | 'siteConcrete' | 'jkWorks';
 
 type Project = {
   id: string;
@@ -23,8 +23,11 @@ type ChecklistItem = {
   responsible: string;
   status: 'לא נבדק' | 'תקין' | 'לא תקין';
   notes: string;
-};
 
+  // חדש 👇
+  inspector: string;
+  executionDate: string;
+};
 type ChecklistRecord = {
   id: string;
   projectId: string;
@@ -141,13 +144,69 @@ const checklistTemplates: Record<
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
+  standardCompaction: {
+    label: 'הידוק רגיל',
+    title: 'רשימת תיוג לעבודות הידוק רגיל',
+    category: 'הידוק',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות מעברי מכבש', responsible: 'בקרת איכות' },
+      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  controlledCompaction: {
+    label: 'הידוק מבוקר',
+    title: 'רשימת תיוג לעבודות הידוק מבוקר',
+    category: 'הידוק',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות דרגת הידוק ורטיבות', responsible: 'בקרת איכות' },
+      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  aggregateDistribution: {
+    label: 'פיזור מצעים',
+    title: 'רשימת תיוג לעבודות פיזור מצעים',
+    category: 'מצעים',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור בדיקות מקדימות לחומר המצע', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'פיזור שכבה חדשה אחידה ומפולסת', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה כל שכבה שנייה ו/או בסוף השלב', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מישוריות', responsible: 'בקרת איכות' },
+      { description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
   guardrails: {
     label: 'עבודות מעקות',
     title: 'רשימת תיוג לעבודות מעקות',
     category: 'מעקות',
     items: [
       { description: 'אישור המעקה וסוגו', responsible: 'בקרת איכות' },
-      { description: 'אישור חומרים ובדיקות מוקדמות + אישור קבלן', responsible: 'בקרת איכות' },
+      { description: 'אישור חומרים ובדיקות מוקדמות + אישור קבלן משנה', responsible: 'בקרת איכות' },
       { description: 'סימון תוואי מעקה מתוכנן', responsible: 'מודד' },
       { description: 'בדיקת מרווח פעיל לפני התקנה', responsible: 'בקרת איכות' },
       { description: 'בדיקת תעודת משלוח', responsible: 'בקרת איכות' },
@@ -160,24 +219,58 @@ const checklistTemplates: Record<
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
-  aggregateDistribution: {
-    label: 'פיזור מצעים',
-    title: 'רשימת תיוג לעבודות פיזור מצעים',
-    category: 'פיזור מצעים',
+  steelGuardrails: {
+    label: 'מעקות פלדה',
+    title: 'רשימת תיוג לאספקה והרכבת מעקות פלדה',
+    category: 'מעקות פלדה',
     items: [
-      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'איתור בדיקות מקדימות לחומר המצע', responsible: 'בקרת איכות' },
-      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'פיזור שכבה חדשה אחידה ומפולסת', responsible: 'מנהל עבודה' },
-      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
-      { description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
-      { description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מישוריות', responsible: 'בקרת איכות' },
-      { description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות' },
-      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'תעודות הסמכת רתכים', responsible: 'מהנדס בקרת איכות' },
+      { description: 'ביצוע בדיקות אולטרסוניות לאיכות ריתוכים', responsible: 'מעבדה' },
+      { description: 'אישור משלוח לגילוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'קבלת תעודות טיב ועובי גילוון מהמפעל המגלוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'ביצוע בדיקות עובי גילוון', responsible: 'מעבדה' },
+      { description: 'בדיקה ויזואלית לניקיון ברגי העיגון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'אישור להרכבת מעקה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקת אופן הרכבת המעקה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקה ויזואלית לאיתור פגיעות ושפשופים של הגילוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקה ויזואלית של קו המעקה לאחר הרכבה', responsible: 'מהנדס בקרת איכות' },
+    ],
+  },
+  signage: {
+    label: 'תמרור ושילוט',
+    title: 'רשימת תיוג לעבודות תמרור ושילוט',
+    category: 'תמרור ושילוט',
+    items: [
+      { description: 'אישור שלב ביצוע קודם', responsible: 'בקרת איכות' },
+      { description: 'בדיקות מוקדמות', responsible: 'בקרת איכות' },
+      { description: 'סימון', responsible: 'מודד' },
+      { description: 'הכנת האלמנטים', responsible: 'מנהל עבודה' },
+      { description: 'הצבת השילוט והתמרור', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'מנהל עבודה' },
+      { description: 'בדיקות החזר אור', responsible: 'בקרת איכות' },
+      { description: 'AS-MADE', responsible: 'מודד' },
+      { description: 'אישור הקטע', responsible: 'בקרת איכות' },
+    ],
+  },
+  paving: {
+    label: 'ריצוף',
+    title: 'רשימת תיוג עבודות ריצוף',
+    category: 'ריצוף',
+    items: [
+      { description: 'האם קיימת סקיצה / תוכנית / הנחיות בכתב לביצוע העבודות', responsible: 'מנהל העבודה' },
+      { description: 'האם בוצע סיור וסימון מוקדם בנוכחות מנהל פרויקט', responsible: 'מנהל העבודה' },
+      { description: 'אישור בקרה מוקדמת לטיב החומרים', responsible: 'בקרת איכות' },
+      { description: 'בדיקת רום שתית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת הידוק ורום מצעים', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט לאבן שפה / אבן אי', responsible: 'מנהל העבודה' },
+      { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
+      { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
+      { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
     ],
   },
   curbstones: {
@@ -193,28 +286,117 @@ const checklistTemplates: Record<
       { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
       { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
       { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
-      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע תחתית ומשענת בטון לפי הפרט לאבן שפה / אבן אי', responsible: 'מנהל העבודה' },
       { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
       { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
       { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
       { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
     ],
   },
-  standardCompaction: {
-    label: 'הידוק רגיל',
-    title: 'רשימת תיוג לעבודות הידוק רגיל',
-    category: 'הידוק רגיל',
+  curbCasting: {
+    label: 'הנחת / יציקת אבן שפה',
+    title: 'רשימת תיוג להנחת / יציקת אבן שפה',
+    category: 'אבני שפה',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקר איכות' },
+      { description: 'בדיקה חזותית לשטח ולשלמות האבן טרם ההנחה', responsible: 'בקר איכות' },
+      { description: 'אישור מוקדם לספק האבן', responsible: 'בקר איכות' },
+      { description: 'סימון לביצוע', responsible: 'מודד' },
+      { description: 'הנחת בסיס מבטון לאבן (אבן טרומית בלבד)', responsible: 'מנהל עבודה' },
+      { description: 'הנחת / יציקת אבן שפה', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע גב ופוגות כנדרש', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת מפלסים ומיקום', responsible: 'מודד' },
+      { description: 'בדיקה חזותית בגמר העבודה', responsible: 'בקר איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  catEyes: {
+    label: 'עיני חתול',
+    title: 'רשימת תיוג להתקנת עיני חתול',
+    category: 'בטיחות ותמרור',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מב"א' },
+      { description: 'בקרה מקדימה לחומרים ולציוד', responsible: 'מב"א' },
+      { description: 'סימון לביצוע', responsible: 'מודד הקבלן' },
+      { description: 'התקנת עיני חתול', responsible: 'מנהל עבודה' },
+      { description: 'בדיקה חזותית לאחר התקנה ובדיקה ידנית לחוזק ההדבקה', responsible: 'מב"א' },
+      { description: 'בדיקת AS MADE', responsible: 'מודד הקבלן' },
+      { description: 'בדיקת נראות', responsible: 'מעבדה' },
+      { description: 'אישור סופי', responsible: 'מב"א' },
+    ],
+  },
+  asphalt: {
+    label: 'אספלט',
+    title: 'רשימת תיוג לביצוע עבודות אספלט באתר',
+    category: 'אספלט',
+    items: [
+      { description: 'אישור בקרה מוקדמת בהתאם לטופס 51.04', responsible: 'בקרת איכות' },
+      { description: 'קיום אישור לשכבה קודמת', responsible: 'בקרת איכות' },
+      { description: 'אישור בקרה ויזואלית של השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'תקינות פינישר, כבלים, מרססת וציוד הידוק', responsible: 'בקרת איכות' },
+      { description: 'קיום רשימת תוכניות עבודה מעודכנות', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות שוטפות – פרק 51.04', responsible: 'בקרת איכות' },
+      { description: 'בדיקת התאמת מפלס לדרישות המפרט', responsible: 'מודד מוסמך' },
+      { description: 'בדיקות גליות', responsible: 'בקרת איכות' },
+      { description: 'בדיקה ויזואלית וגמר', responsible: 'בקרת איכות' },
+    ],
+  },
+  drainagePipes: {
+    label: 'צנרת ניקוז',
+    title: 'רשימת תיוג להתקנת צנרת ניקוז',
+    category: 'צנרת ניקוז',
     items: [
       { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
-      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
-      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
-      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
-      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
-      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
-      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
-      { description: 'בדיקות מעברי מכבש', responsible: 'בקרת איכות' },
-      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
+      { description: 'סימון צירי החפירה ומיקום', responsible: 'מודד הקבלן' },
+      { description: 'חפירה והכנת תחתית החפירה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'אישור להנחת הצנרת', responsible: 'בקרת איכות' },
+      { description: 'התקנה והנחת צנרת בהתאם לדרישות', responsible: 'מנהל עבודה' },
+      { description: 'מדידת גבהים ושיפועים', responsible: 'מודד הקבלן' },
+      { description: 'הזמנת בדיקות לשלמות הקו (צילום)', responsible: 'בקרת איכות' },
+      { description: 'בדיקת אטימות וישרות הקו', responsible: 'בקרת איכות' },
+      { description: 'התקנת אביזרים', responsible: 'בקרת איכות' },
+      { description: 'עטיפת הצינור בחול', responsible: 'מנהל עבודה' },
+      { description: 'אישור לביצוע מילוי חוזר', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  siteConcrete: {
+    label: 'יציקות באתר',
+    title: 'רשימת תיוג ליציקות באתר',
+    category: 'בטון',
+    items: [
+      { description: 'שימוש בתוכניות מעודכנות', responsible: 'מב"א' },
+      { description: 'סימון מיקום ורשימת גבהים ליציקה', responsible: 'מודד' },
+      { description: 'יציקת בטון רזה (עפ"י דרישת התוכנית)', responsible: 'מנהל עבודה' },
+      { description: 'סידור הזיון, מיקום חפיות, גובה סטטי של החתך, עובי כיסוי נדרש', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת זיון, חיפוש, הארקות, קיטום פינות, אביזרים נלווים, ניקיון כללי ואישור להרכבת תבניות', responsible: 'מב"א' },
+      { description: 'אישור ליציקה', responsible: 'מב"א' },
+      { description: 'פיקוח על יציקת הבטון (רצף, עובי וריטוט)', responsible: 'מב"א' },
+      { description: 'נטילת מדגמי בטון', responsible: 'מב"א' },
+      { description: 'טיפול בפני הבטון עם סיום היציקה למניעת סדיקה', responsible: 'מנהל עבודה' },
+      { description: 'תהליך אשפרה', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת חזות הבטון', responsible: 'מב"א' },
+      { description: 'בדיקת מודד לאחר יציקה AS-Made', responsible: 'מודד' },
+      { description: 'איטום', responsible: 'מנהל עבודה' },
+      { description: 'אישור סופי', responsible: 'מב"א' },
+    ],
+  },
+  jkWorks: {
+    label: 'עבודות JK',
+    title: 'רשימת תיוג לעבודות JK',
+    category: 'JK',
+    items: [
+      { description: 'סימון בשטח', responsible: 'מודד' },
+      { description: 'חפירת תעלות לקורות העיגון', responsible: 'מנהל עבודה' },
+      { description: 'אישור הברזל ואישור ליציקת קורות העיגון', responsible: 'בקרת איכות' },
+      { description: 'ביצוע עבודות העפר', responsible: 'מנהל עבודה' },
+      { description: 'הנחת רשתות מתכת J.K STRUCTURE ועיגונן לקרקע', responsible: 'מנהל עבודה' },
+      { description: 'אישור הנחת רשתות ואישור לפיזור הבטון', responsible: 'בקרת איכות' },
+      { description: 'פיזור הבטון בגוון המתאים לפני השטח על גבי הרשתות', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת בטון', responsible: 'בקרת איכות' },
+      { description: 'החלקת הבטון באמצעות מגרפות', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע אשפרה', responsible: 'מנהל עבודה' },
+      { description: 'מדידת מצב לאחר ביצוע העבודות', responsible: 'מודד' },
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
@@ -227,6 +409,8 @@ const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
     responsible: item.responsible,
     status: 'לא נבדק' as const,
     notes: '',
+    inspector: '',
+    executionDate: '',
   }));
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -235,6 +419,8 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   responsible: '',
   status: 'לא נבדק',
   notes: '',
+  inspector: '',
+  executionDate: '',
 });
 
 const createDefaultChecklist = (
@@ -313,11 +499,10 @@ const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryReco
           notes: '',
         }
       : undefined,
-
-});
+}});
 
 function escapeHtml(value: string) {
-  return value
+  return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -326,7 +511,7 @@ function escapeHtml(value: string) {
 }
 
 function sanitizeFileName(value: string) {
-  return value
+  return String(value ?? 'file')
     .replace(/[\\/:*?"<>|]/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
@@ -341,6 +526,8 @@ function buildChecklistExportHtml(record: ChecklistRecord, projectName: string) 
           <td>${escapeHtml(item.description)}</td>
           <td>${escapeHtml(item.responsible)}</td>
           <td>${escapeHtml(item.status)}</td>
+          <td>${escapeHtml(item.inspector || '')}</td>
+          <td>${escapeHtml(item.executionDate || '')}</td>
           <td>${escapeHtml(item.notes || '')}</td>
         </tr>
       `
@@ -380,13 +567,14 @@ function buildChecklistExportHtml(record: ChecklistRecord, projectName: string) 
               <th>תיאור</th>
               <th>אחראי</th>
               <th>סטטוס</th>
+              <th>חתימה / שם בודק</th>
+              <th>תאריך ביצוע</th>
               <th>הערות</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        <h3>הערות כלליות</h3>
-        <div class="notes-box">${escapeHtml(record.notes || '')}</div>
+        <div class="notes-box"><strong>הערות כלליות:</strong><br />${escapeHtml(record.notes || '')}</div>
       </body>
     </html>
   `;
@@ -450,7 +638,13 @@ export default function Page() {
         date: row.date ?? '',
         contractor: row.contractor ?? '',
         notes: row.notes ?? '',
-        items: Array.isArray(row.items) ? row.items : [],
+        items: Array.isArray(row.items)
+          ? row.items.map((item: any) => ({
+              ...item,
+              inspector: item?.inspector ?? '',
+              executionDate: item?.executionDate ?? '',
+            }))
+          : [],
         savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
       }));
       setSavedChecklists(mapped);
@@ -799,7 +993,11 @@ export default function Page() {
       date: record.date,
       contractor: record.contractor,
       notes: record.notes,
-      items: record.items.map((item) => ({ ...item })),
+      items: record.items.map((item) => ({
+        ...item,
+        inspector: item.inspector || '',
+        executionDate: item.executionDate || '',
+      })),
     });
   };
 
@@ -980,7 +1178,6 @@ export default function Page() {
     <div style={emptyBoxStyle}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
   ) : null;
 
-
   const buildChecklistRecordForExport = (): ChecklistRecord => ({
     id: 'export-preview',
     projectId: currentProjectId ?? '',
@@ -1024,6 +1221,8 @@ export default function Page() {
             <td>${escapeHtml(item.description)}</td>
             <td>${escapeHtml(item.responsible)}</td>
             <td>${escapeHtml(item.status)}</td>
+            <td>${escapeHtml(item.inspector || '')}</td>
+            <td>${escapeHtml(item.executionDate || '')}</td>
             <td>${escapeHtml(item.notes || '')}</td>
           </tr>
         `
@@ -1032,9 +1231,7 @@ export default function Page() {
 
     const tableHtml = `
       <html dir="rtl" lang="he">
-        <head>
-          <meta charset="utf-8" />
-        </head>
+        <head><meta charset="utf-8" /></head>
         <body>
           <table border="1">
             <tr><th>שם רשימת תיוג</th><td>${escapeHtml(record.title)}</td></tr>
@@ -1052,15 +1249,12 @@ export default function Page() {
                 <th>תיאור</th>
                 <th>אחראי</th>
                 <th>סטטוס</th>
+                <th>חתימה / שם בודק</th>
+                <th>תאריך ביצוע</th>
                 <th>הערות</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
-          </table>
-          <br />
-          <table border="1">
-            <tr><th>הערות כלליות</th></tr>
-            <tr><td>${escapeHtml(record.notes || '')}</td></tr>
           </table>
         </body>
       </html>
@@ -1078,15 +1272,11 @@ export default function Page() {
       alert('הדפדפן חסם את חלון ההדפסה. יש לאפשר פתיחת חלונות קופצים ולנסות שוב.');
       return;
     }
-
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
-
-    setTimeout(() => {
-      printWindow.print();
-    }, 300);
+    setTimeout(() => printWindow.print(), 300);
   };
 
   const homeModules = [
@@ -1169,6 +1359,27 @@ export default function Page() {
                 <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 8 }}>מודולים ותיקיות</div>
                 <div style={{ color: '#475569', lineHeight: 1.7 }}>
                   בדף השער מוצגים כל המודולים הראשיים. לחץ על כל כרטיס כדי להיכנס למסך המתאים.
+                </div>
+              </div>
+
+              <div style={templateSelectorCardStyle}>
+                <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 10 }}>רשימות תיוג</div>
+                <div style={{ color: '#475569', lineHeight: 1.7, marginBottom: 14 }}>
+                  בחר תבנית רשימת תיוג מדף הבית, והמערכת תפתח את הטופס הרלוונטי בלי שמות קבועים של אתר, כביש, חומר או בעלי תפקידים.
+                </div>
+                <div style={templateButtonsWrapStyle}>
+                  {(Object.keys(checklistTemplates) as ChecklistTemplateKey[]).map((templateKey) => (
+                    <button
+                      key={templateKey}
+                      style={templateChipStyle}
+                      onClick={() => {
+                        applyChecklistTemplate(templateKey);
+                        setSection('checklists');
+                      }}
+                    >
+                      {checklistTemplates[templateKey].label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1310,6 +1521,21 @@ export default function Page() {
                         <Field label="הערות" full>
                           <input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} />
                         </Field>
+                        <Field label="שם בודק / חתימה">
+                          <input
+                            value={item.inspector || ''}
+                            onChange={(e) => updateChecklistItem(item.id, 'inspector', e.target.value)}
+                            style={inputStyle}
+                          />
+                        </Field>
+                        <Field label="תאריך ביצוע">
+                          <input
+                            type="date"
+                            value={item.executionDate || ''}
+                            onChange={(e) => updateChecklistItem(item.id, 'executionDate', e.target.value)}
+                            style={inputStyle}
+                          />
+                        </Field>
                       </div>
                       <button style={dangerButtonStyle} onClick={() => removeChecklistItem(item.id)}>
                         מחק שורה
@@ -1321,9 +1547,6 @@ export default function Page() {
                     <button style={secondaryButtonStyle} onClick={addChecklistItem}>הוסף שורה</button>
                     <button style={primaryButtonStyle} onClick={saveChecklist}>שמור רשימת תיוג</button>
                     <button style={secondaryButtonStyle} onClick={resetChecklistForm}>נקה טופס</button>
-                  </div>
-
-                  <div style={buttonRowStyle}>
                     <button style={secondaryButtonStyle} onClick={exportChecklistAsExcel}>הורד Excel</button>
                     <button style={secondaryButtonStyle} onClick={exportChecklistAsWord}>הורד Word</button>
                     <button style={secondaryButtonStyle} onClick={exportChecklistAsPdf}>הורד PDF</button>
@@ -1615,577 +1838,3 @@ export default function Page() {
                 title={item.title}
                 subtitle={`סטטוס: ${item.status}`}
                 meta={`נשמר: ${item.savedAt}`}
-                onOpen={() => loadNonconformance(item)}
-                onDelete={() => deleteNonconformance(item.id)}
-              />
-            ))
-          )}
-
-          <div style={smallSectionTitleStyle}>קטעי ניסוי</div>
-          {projectTrialSections.length === 0 ? (
-            <div style={emptyBoxStyle}>אין קטעי ניסוי שמורים.</div>
-          ) : (
-            projectTrialSections.map((item) => (
-              <SavedCard
-                key={item.id}
-                title={item.title}
-                subtitle={`סטטוס: ${item.status}`}
-                meta={`נשמר: ${item.savedAt}`}
-                onOpen={() => loadTrialSection(item)}
-                onDelete={() => deleteTrialSection(item.id)}
-              />
-            ))
-          )}
-
-          <div style={smallSectionTitleStyle}>בקרה מקדימה</div>
-          {projectPreliminary.length === 0 ? (
-            <div style={emptyBoxStyle}>אין טפסי בקרה מקדימה שמורים.</div>
-          ) : (
-            projectPreliminary.map((item) => (
-              <SavedCard
-                key={item.id}
-                title={item.title}
-                subtitle={`סוג: ${labelForPreliminary(item.subtype)} | סטטוס: ${item.status}`}
-                meta={`נשמר: ${item.savedAt}`}
-                onOpen={() => loadPreliminary(item)}
-                onDelete={() => deletePreliminary(item.id)}
-              />
-            ))
-          )}
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function labelForPreliminary(subtype: PreliminaryTab) {
-  if (subtype === 'suppliers') return 'ספקים';
-  if (subtype === 'subcontractors') return 'קבלנים';
-  return 'חומרים';
-}
-
-function QualityLogo() {
-  return (
-    <svg width="170" height="64" viewBox="0 0 420 150" role="img" aria-label="YK QA QC" style={{ display: 'block' }}>
-      <rect width="420" height="150" fill="transparent" />
-      <path d="M42 118 L48 56 L16 12 L53 12 L82 52 L109 12 L145 12 L85 84 L80 118 Z" fill="#0f172a" />
-      <path d="M148 118 L148 12 L184 12 L184 55 L222 12 L266 12 L218 58 L269 118 L223 118 L184 72 L184 118 Z" fill="#0f172a" />
-      <rect x="286" y="18" width="4" height="102" fill="#0f172a" rx="2" />
-      <text x="310" y="62" fontSize="48" fontWeight="800" fill="#0f172a" fontFamily="Arial, sans-serif">QA / QC</text>
-      <text x="310" y="96" fontSize="20" fill="#334155" fontFamily="Arial, sans-serif">Built on Quality.</text>
-      <text x="310" y="122" fontSize="20" fill="#334155" fontFamily="Arial, sans-serif">Driven by Precision</text>
-    </svg>
-  );
-}
-
-function NavButton({
-  label,
-  active,
-  onClick,
-  compact = false,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        ...navButtonStyle,
-        ...(compact ? compactNavButtonStyle : null),
-        background: active ? '#0f172a' : '#fff',
-        color: active ? '#fff' : '#0f172a',
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function Field({
-  label,
-  children,
-  full = false,
-}: {
-  label: string;
-  children: React.ReactNode;
-  full?: boolean;
-}) {
-  return (
-    <div style={{ ...fieldWrapStyle, ...(full ? fullWidthStyle : null) }}>
-      <label style={fieldLabelStyle}>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function SavedCard({
-  title,
-  subtitle,
-  meta,
-  onOpen,
-  onDelete,
-}: {
-  title: string;
-  subtitle: string;
-  meta: string;
-  onOpen: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div style={savedCardStyle}>
-      <div style={savedCardTitleStyle}>{title}</div>
-      <div style={savedCardTextStyle}>{subtitle}</div>
-      <div style={savedCardTextStyle}>{meta}</div>
-      <div style={savedCardActionsStyle}>
-        <button style={secondaryButtonStyle} onClick={onOpen}>פתח</button>
-        <button style={dangerButtonStyle} onClick={onDelete}>מחק</button>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value }: { title: string; value: number }) {
-  return (
-    <div style={statCardStyle}>
-      <div style={statValueStyle}>{value}</div>
-      <div style={statTitleStyle}>{title}</div>
-    </div>
-  );
-}
-
-function FolderCard({
-  title,
-  subtitle,
-  active,
-  onClick,
-}: {
-  title: string;
-  subtitle: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        ...folderCardStyle,
-        borderColor: active ? '#0f172a' : '#dbe2ea',
-        background: active ? '#eff6ff' : '#fff',
-      }}
-    >
-      <div style={folderIconStyle}>📁</div>
-      <div style={folderTitleStyle}>{title}</div>
-      <div style={folderTextStyle}>{subtitle}</div>
-    </button>
-  );
-}
-
-const pageStyle: CSSProperties = {
-  minHeight: '100vh',
-  padding: '20px',
-  background: '#eef2f7',
-  fontFamily: 'Arial, sans-serif',
-  direction: 'rtl',
-  boxSizing: 'border-box',
-};
-
-const headerStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 16,
-  alignItems: 'center',
-  marginBottom: 20,
-  flexWrap: 'wrap',
-};
-
-const brandTitleStyle: CSSProperties = {
-  fontSize: 42,
-  fontWeight: 900,
-  color: '#0f172a',
-};
-
-const brandSubTitleStyle: CSSProperties = {
-  color: '#475569',
-  marginTop: 6,
-  fontSize: 16,
-};
-
-const projectBadgeStyle: CSSProperties = {
-  background: '#fff',
-  border: '1px solid #dbe2ea',
-  borderRadius: 18,
-  padding: '14px 18px',
-  minWidth: 220,
-  boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
-};
-
-const navRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  flexWrap: 'wrap',
-  marginBottom: 20,
-};
-
-const navButtonStyle: CSSProperties = {
-  border: '1px solid #cbd5e1',
-  borderRadius: 14,
-  padding: '12px 18px',
-  fontSize: 15,
-  fontWeight: 700,
-  cursor: 'pointer',
-};
-
-const compactNavButtonStyle: CSSProperties = {
-  padding: '10px 14px',
-};
-
-const layoutStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)',
-  gap: 20,
-  alignItems: 'start',
-};
-
-const mainCardStyle: CSSProperties = {
-  background: '#fff',
-  borderRadius: 24,
-  padding: 22,
-  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
-  border: '1px solid #e2e8f0',
-};
-
-const sideCardStyle: CSSProperties = {
-  background: '#fff',
-  borderRadius: 24,
-  padding: 20,
-  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
-  border: '1px solid #e2e8f0',
-};
-
-const sectionTitleStyle: CSSProperties = {
-  fontSize: 28,
-  fontWeight: 800,
-  margin: '0 0 18px 0',
-  color: '#0f172a',
-};
-
-const sideTitleStyle: CSSProperties = {
-  fontSize: 22,
-  fontWeight: 800,
-  margin: '0 0 8px 0',
-};
-
-const sideProjectStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 14,
-  padding: '12px 14px',
-  marginBottom: 14,
-  color: '#334155',
-};
-
-const smallSectionTitleStyle: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 800,
-  margin: '18px 0 10px 0',
-};
-
-const templateSelectorCardStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 16,
-  padding: 16,
-  marginBottom: 18,
-};
-
-const templateButtonsWrapStyle: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 10,
-};
-
-const templateChipStyle: CSSProperties = {
-  border: '1px solid #cbd5e1',
-  borderRadius: 999,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontWeight: 700,
-  background: '#fff',
-};
-
-const heroBoxStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
-  border: '1px solid #dbeafe',
-  borderRadius: 22,
-  padding: 20,
-  marginBottom: 18,
-};
-
-const statsGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-  gap: 14,
-  marginBottom: 18,
-};
-
-const statCardStyle: CSSProperties = {
-  background: '#0f172a',
-  color: '#fff',
-  borderRadius: 18,
-  padding: 18,
-  textAlign: 'center',
-};
-
-const statValueStyle: CSSProperties = {
-  fontSize: 28,
-  fontWeight: 900,
-  marginBottom: 6,
-};
-
-const statTitleStyle: CSSProperties = {
-  fontSize: 14,
-  opacity: 0.9,
-};
-
-const homeModulesGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: 16,
-};
-
-const homeModuleCardStyle: CSSProperties = {
-  border: '1px solid #dbe2ea',
-  borderRadius: 20,
-  padding: 18,
-  background: '#fff',
-  textAlign: 'right',
-  cursor: 'pointer',
-  boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
-};
-
-const homeModuleIconStyle: CSSProperties = {
-  fontSize: 30,
-  marginBottom: 10,
-};
-
-const homeModuleTitleStyle: CSSProperties = {
-  fontSize: 20,
-  fontWeight: 800,
-  color: '#0f172a',
-  marginBottom: 8,
-};
-
-const homeModuleTextStyle: CSSProperties = {
-  fontSize: 14,
-  color: '#475569',
-  lineHeight: 1.7,
-  minHeight: 48,
-};
-
-const homeModuleCountStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: '#0f172a',
-  marginTop: 12,
-};
-
-const formGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 14,
-};
-
-const fieldWrapStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-};
-
-const fullWidthStyle: CSSProperties = {
-  gridColumn: '1 / -1',
-};
-
-const fieldLabelStyle: CSSProperties = {
-  fontWeight: 700,
-  color: '#334155',
-};
-
-const inputStyle: CSSProperties = {
-  width: '100%',
-  padding: '12px 14px',
-  borderRadius: 14,
-  border: '1px solid #cbd5e1',
-  background: '#fff',
-  fontSize: 14,
-  boxSizing: 'border-box',
-};
-
-const buttonRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  flexWrap: 'wrap',
-  marginTop: 18,
-};
-
-const primaryButtonStyle: CSSProperties = {
-  border: 'none',
-  borderRadius: 14,
-  padding: '12px 18px',
-  background: '#0f172a',
-  color: '#fff',
-  fontWeight: 800,
-  cursor: 'pointer',
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  border: '1px solid #cbd5e1',
-  borderRadius: 14,
-  padding: '12px 18px',
-  background: '#fff',
-  color: '#0f172a',
-  fontWeight: 800,
-  cursor: 'pointer',
-};
-
-const dangerButtonStyle: CSSProperties = {
-  border: 'none',
-  borderRadius: 14,
-  padding: '12px 18px',
-  background: '#dc2626',
-  color: '#fff',
-  fontWeight: 800,
-  cursor: 'pointer',
-};
-
-const cardsGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 14,
-  marginTop: 18,
-};
-
-const savedCardStyle: CSSProperties = {
-  border: '1px solid #e2e8f0',
-  borderRadius: 18,
-  padding: 14,
-  background: '#fff',
-};
-
-const savedCardTitleStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: 16,
-  marginBottom: 6,
-};
-
-const savedCardTextStyle: CSSProperties = {
-  color: '#475569',
-  fontSize: 14,
-  marginBottom: 4,
-};
-
-const savedCardActionsStyle: CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  flexWrap: 'wrap',
-  marginTop: 10,
-};
-
-const activePillStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderRadius: 999,
-  background: '#dcfce7',
-  color: '#166534',
-  padding: '4px 10px',
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const emptyBoxStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px dashed #cbd5e1',
-  borderRadius: 16,
-  padding: 16,
-  color: '#64748b',
-};
-
-const rowCardStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '50px minmax(0, 1fr) auto',
-  gap: 14,
-  alignItems: 'start',
-  border: '1px solid #e2e8f0',
-  borderRadius: 18,
-  padding: 14,
-  marginBottom: 12,
-};
-
-const rowCardGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 12,
-};
-
-const rowCardIndexStyle: CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 12,
-  background: '#e2e8f0',
-  color: '#0f172a',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontWeight: 800,
-};
-
-const subHeaderStyle: CSSProperties = {
-  fontSize: 20,
-  fontWeight: 800,
-  margin: '20px 0 12px 0',
-};
-
-const folderIntroStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 18,
-  padding: 16,
-  marginBottom: 16,
-};
-
-const preliminaryFoldersGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: 14,
-  marginBottom: 14,
-};
-
-const folderCardStyle: CSSProperties = {
-  border: '1px solid #dbe2ea',
-  borderRadius: 18,
-  padding: 18,
-  background: '#fff',
-  textAlign: 'right',
-  cursor: 'pointer',
-};
-
-const folderIconStyle: CSSProperties = {
-  fontSize: 28,
-  marginBottom: 10,
-};
-
-const folderTitleStyle: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 800,
-  color: '#0f172a',
-  marginBottom: 6,
-};
-
-const folderTextStyle: CSSProperties = {
-  color: '#475569',
-  fontSize: 14,
-  lineHeight: 1.6,
-};
