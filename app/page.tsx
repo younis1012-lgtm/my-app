@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
 type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction' | 'catsEyes' | 'concreteCasting' | 'jkWorks' | 'controlledCompaction' | 'signage' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping';
