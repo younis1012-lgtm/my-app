@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-
 
 type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary';
 type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
-type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction';
+type ChecklistTemplateKey = 'general' | 'guardrails' | 'aggregateDistribution' | 'curbstones' | 'standardCompaction' | 'catsEyes' | 'concreteCasting' | 'jkWorks' | 'controlledCompaction' | 'signage' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping';
 
 type Project = {
   id: string;
@@ -17,12 +16,20 @@ type Project = {
   createdAt: string;
 };
 
+type ChecklistStatus = 'לא נבדק' | 'תקין' | 'לא תקין';
+type Severity = 'נמוכה' | 'בינונית' | 'גבוהה';
+type RecordStatus = 'טיוטה' | 'מאושר' | 'לא מאושר';
+type TrialStatus = 'טיוטה' | 'אושר' | 'נדחה';
+type NonconformanceStatus = 'פתוח' | 'בטיפול' | 'נסגר';
+
 type ChecklistItem = {
   id: string;
   description: string;
   responsible: string;
-  status: 'לא נבדק' | 'תקין' | 'לא תקין';
+  status: ChecklistStatus;
   notes: string;
+  inspector: string;
+  executionDate: string;
 };
 
 type ChecklistRecord = {
@@ -46,8 +53,8 @@ type NonconformanceRecord = {
   location: string;
   date: string;
   raisedBy: string;
-  severity: 'נמוכה' | 'בינונית' | 'גבוהה';
-  status: 'פתוח' | 'בטיפול' | 'נסגר';
+  severity: Severity;
+  status: NonconformanceStatus;
   description: string;
   actionRequired: string;
   notes: string;
@@ -63,7 +70,7 @@ type TrialSectionRecord = {
   spec: string;
   result: string;
   approvedBy: string;
-  status: 'טיוטה' | 'אושר' | 'נדחה';
+  status: TrialStatus;
   notes: string;
   savedAt: string;
 };
@@ -98,7 +105,7 @@ type PreliminaryRecord = {
   subtype: PreliminaryTab;
   title: string;
   date: string;
-  status: 'טיוטה' | 'מאושר' | 'לא מאושר';
+  status: RecordStatus;
   supplier?: SupplierPreliminary;
   subcontractor?: SubcontractorPreliminary;
   material?: MaterialPreliminary;
@@ -114,7 +121,18 @@ type PersistedData = {
   savedPreliminary: PreliminaryRecord[];
 };
 
-const STORAGE_KEY = 'yk-quality-stage3-v2';
+type ChecklistTemplateDefinition = {
+  label: string;
+  title: string;
+  category: string;
+  items: { description: string; responsible: string }[];
+};
+
+const STORAGE_KEY = 'yk-quality-stage3-v3';
+const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
+
+const nowLocal = () => new Date().toLocaleString('he-IL');
+const nowIso = () => new Date().toISOString();
 
 const defaultProjects: Project[] = [
   {
@@ -123,14 +141,11 @@ const defaultProjects: Project[] = [
     description: 'פרויקט תשתיות',
     manager: '',
     isActive: true,
-    createdAt: new Date().toLocaleString('he-IL'),
+    createdAt: nowLocal(),
   },
 ];
 
-const checklistTemplates: Record<
-  ChecklistTemplateKey,
-  { label: string; title: string; category: string; items: { description: string; responsible: string }[] }
-> = {
+const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplateDefinition> = {
   general: {
     label: 'רשימה כללית',
     title: 'רשימת תיוג',
@@ -218,15 +233,190 @@ const checklistTemplates: Record<
       { description: 'אישור סופי', responsible: 'בקרת איכות' },
     ],
   },
+  catsEyes: {
+    label: 'עיני חתול',
+    title: 'רשימת תיוג להתקנת עיני חתול',
+    category: 'התקנת עיני חתול',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מב"א' },
+      { description: 'בקרה מקדימה לחומרים ולציוד', responsible: 'מב"א' },
+      { description: 'סימון לביצוע', responsible: 'מודד הקבלן' },
+      { description: 'התקנת עיני חתול', responsible: 'מנהל עבודה' },
+      { description: 'בדיקה חזותית לאחר התקנה ובדיקה ידנית לחוזק ההדבקה', responsible: 'מב"א' },
+      { description: 'בדיקת AS MADE', responsible: 'מודד הקבלן' },
+      { description: 'בדיקת נראות', responsible: 'מעבדה' },
+      { description: 'אישור סופי', responsible: 'מב"א' },
+    ],
+  },
+  concreteCasting: {
+    label: 'יציקות באתר',
+    title: 'רשימת תיוג ליציקות באתר',
+    category: 'בטון',
+    items: [
+      { description: 'שימוש בתוכניות מעודכנות', responsible: 'מב"א' },
+      { description: 'סימון מיקום ורשימת גבהים ליציקה', responsible: 'מודד' },
+      { description: 'יציקת בטון רזה (עפ"י דרישת התוכנית)', responsible: 'מנה"ע' },
+      { description: 'סידור הזיון, מיקום חפיות, גובה סטטי של החתך, עובי כיסוי נדרש', responsible: 'מנה"ע' },
+      { description: 'בדיקת זיון, חיפוש, הארקות, קיטום פינות, אביזרים נלווים, ניקיון כללי ואישור להרכבת תבניות', responsible: 'מב"א' },
+      { description: 'אישור ליציקה', responsible: 'מב"א' },
+      { description: 'פיקוח על יציקת הבטון (רצף, עובי וריטוט)', responsible: 'מב"א' },
+      { description: 'נטילת מדגמי בטון', responsible: 'מב"א' },
+      { description: 'טיפול בפני הבטון עם סיום היציקה למניעת סדיקה', responsible: 'מנה"ע' },
+      { description: 'תהליך אשפרה', responsible: 'מנה"ע' },
+      { description: 'בדיקת חזות הבטון', responsible: 'מב"א' },
+      { description: 'בדיקת מודד לאחר יציקה As-Made', responsible: 'מודד' },
+      { description: 'איטום', responsible: 'מנה"ע' },
+      { description: 'אישור סופי', responsible: 'מב"א' },
+    ],
+  },
+  jkWorks: {
+    label: 'עבודות JK',
+    title: 'רשימת תיוג לעבודות JK',
+    category: 'JK',
+    items: [
+      { description: 'סימון בשטח', responsible: 'מודד' },
+      { description: 'חפירת תעלות לקורות העיגון', responsible: 'מנהל עבודה' },
+      { description: 'אישור הברזל ואישור ליציקת קורות העיגון', responsible: 'בקרת איכות' },
+      { description: 'ביצוע עבודות העפר', responsible: 'מנהל עבודה' },
+      { description: 'הנחת רשתות מתכת דגם J.K STRUCTURE ועיגונן לקרקע, שימוש בשומרי מרחק מהקרקע ונשמים. קצות הרשתות החיצוניות יכופפו לתוך תעלות העיגון האורכיות', responsible: 'מנהל עבודה' },
+      { description: 'אישור הנחת רשתות ואישור לפיזור הבטון', responsible: 'בקרת איכות' },
+      { description: 'פיזור הבטון בגוון המתאים לפני השטח על גבי הרשתות', responsible: 'מנהל עבודה' },
+      { description: 'בדיקת בטון', responsible: 'בקרת איכות' },
+      { description: 'החלקת הבטון באמצעות מגרפות', responsible: 'מנהל עבודה' },
+      { description: 'ביצוע אשפרה', responsible: 'מנהל עבודה' },
+      { description: 'מדידת מצב לאחר ביצוע העבודות', responsible: 'מודד' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  controlledCompaction: {
+    label: 'הידוק מבוקר',
+    title: 'רשימת תיוג לעבודות הידוק מבוקר',
+    category: 'הידוק מבוקר',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'איתור הבדיקות המקדימות התואמות לחומר המילוי', responsible: 'בקרת איכות' },
+      { description: 'אימות תוצאות כל הבדיקות לשכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'בדיקה חזותית לשלמות השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות' },
+      { description: 'פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'בקרת איכות' },
+      { description: 'בדיקת מפלסי השכבה', responsible: 'מודד הקבלן' },
+      { description: 'בדיקות דרגת הידוק ורטיבות', responsible: 'בקרת איכות' },
+      { description: 'בדיקת FWD', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
+  signage: {
+    label: 'תמרור ושילוט',
+    title: 'רשימת תיוג לעבודות תמרור ושילוט',
+    category: 'תמרור ושילוט',
+    items: [
+      { description: 'אישור שלב ביצוע קודם', responsible: 'בקרת איכות' },
+      { description: 'בדיקות מוקדמות', responsible: 'בקרת איכות' },
+      { description: 'סימון', responsible: 'מודד' },
+      { description: 'הכנת האלמנטים', responsible: 'מנהל עבודה' },
+      { description: 'הצבת השילוט והתמרור', responsible: 'מנהל עבודה' },
+      { description: 'בקרה ויזואלית', responsible: 'מנהל עבודה' },
+      { description: 'בדיקות החזר אור', responsible: 'בקרת איכות' },
+      { description: 'AS-MADE', responsible: 'מודד' },
+      { description: 'אישור הקטע', responsible: 'בקרת איכות' },
+    ],
+  },
+  paving: {
+    label: 'ריצוף',
+    title: 'רשימת תיוג עבודות ריצוף',
+    category: 'ריצוף',
+    items: [
+      { description: 'האם קיימת סקיצה/תוכנית/הנחיות בכתב ממנהל הפרויקט לביצוע העבודות', responsible: 'מנהל העבודה' },
+      { description: 'האם בוצע סיור וסימון מוקדם בנוכחות מנהל פרויקט', responsible: 'מנהל העבודה' },
+      { description: 'אישור בקרה מוקדמת לטיב החומרים', responsible: 'בקרת איכות' },
+      { description: 'בדיקת רום שתית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת הידוק ורום מצעים', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול דיונות בעובי 4 ס"מ', responsible: 'מנהל העבודה' },
+      { description: 'פיזור חול מעל הריצוף והידוק בפלטה ויברציונית', responsible: 'מנהל העבודה' },
+      { description: 'בדיקת מפלס אבן שפה / אבן אי מעל מפלס האספלט', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע תחתית ומשענת בטון עפ"י הפרט לאבן שפה / אבן אי', responsible: 'מנהל העבודה' },
+      { description: 'מילוי הפוגות בין אבני השפה בטיט צמנטי', responsible: 'מנהל העבודה' },
+      { description: 'ביצוע ראש אי מבטון מזוין', responsible: 'מנהל העבודה' },
+      { description: 'תוצאות הבדיקה לאחר 28 יום', responsible: 'מנהל העבודה' },
+      { description: 'אישור גמר העבודה', responsible: 'בקרת איכות' },
+    ],
+  },
+  steelGuardrailsSupply: {
+    label: 'אספקה והרכבת מעקות פלדה',
+    title: 'רשימת תיוג לאספקה והרכבת מעקות פלדה',
+    category: 'מעקות פלדה',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'תעודות הסמכת רתכים', responsible: 'מהנדס בקרת איכות' },
+      { description: 'ביצוע בדיקות אולטרסוניות לאיכות ריתוכים', responsible: 'מעבדה' },
+      { description: 'אישור משלוח לגילוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'קבלת תעודות טיב ועובי גילוון מהמפעל המגלוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'ביצוע בדיקות עובי גילוון', responsible: 'מעבדה' },
+      { description: 'בדיקה ויזואלית לניקיון ברגי העיגון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'אישור להרכבת מעקה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקת אופן הרכבת המעקה', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקה ויזואלית לאיתור פגיעות ושפשופים של הגילוון', responsible: 'מהנדס בקרת איכות' },
+      { description: 'בדיקה ויזואלית של קו המעקה לאחר הרכבה', responsible: 'מהנדס בקרת איכות' },
+    ],
+  },
+  asphaltWorks: {
+    label: 'עבודות אספלט',
+    title: 'רשימת תיוג לביצוע עבודות אספלט באתר',
+    category: 'אספלט',
+    items: [
+      { description: 'אישור בקרה מוקדמת בהתאם לטופס 51.04', responsible: 'בקרת איכות' },
+      { description: 'קיום אישור לשכבה קודמת', responsible: 'בקרת איכות' },
+      { description: 'אישור בקרה ויזואלית של השכבה הקודמת', responsible: 'בקרת איכות' },
+      { description: 'תקינות פינישר, כבלים, מרססת וציוד הידוק', responsible: 'בקרת איכות' },
+      { description: 'קיום רשימת תוכניות עבודה מעודכנות', responsible: 'בקרת איכות' },
+      { description: 'ביצוע בדיקות שוטפות – פרק 51.04', responsible: 'בקרת איכות' },
+      { description: 'בדיקת התאמת מפלס לדרישות המפרט', responsible: 'מודד מוסמך' },
+      { description: 'בדיקות גליות', responsible: 'בקרת איכות' },
+      { description: 'בדיקה ויזואלית וגמר', responsible: 'בקרת איכות' },
+      { description: 'מעקב בדיקות שוטפות לחומר ולתערובת', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי בקרת איכות', responsible: 'בקרת איכות' },
+    ],
+  },
+  drainagePiping: {
+    label: 'צנרת ניקוז',
+    title: 'רשימת תיוג התקנת מערכות אספקת מים / צנרת ניקוז',
+    category: 'צנרת ניקוז',
+    items: [
+      { description: 'בדיקת תוכניות לביצוע + מהדורה', responsible: 'בקרת איכות' },
+      { description: 'סימון צירי החפירה ומיקום', responsible: 'מודד הקבלן' },
+      { description: 'חפירה והכנת תחתית החפירה והידוק', responsible: 'מנהל עבודה' },
+      { description: 'אישור להנחת הצנרת', responsible: 'בקרת איכות' },
+      { description: 'התקנה והנחת צנרת בהתאם לדרישות', responsible: 'מנהל עבודה' },
+      { description: 'מדידת גבהים ושיפועים', responsible: 'מודד הקבלן' },
+      { description: 'הזמנת בדיקות לשלמות הקו (צילום)', responsible: 'בקרת איכות' },
+      { description: 'בדיקת אטימות וישרות הקו', responsible: 'בקרת איכות' },
+      { description: 'התקנת אביזרים', responsible: 'בקרת איכות' },
+      { description: 'עטיפת הצינור בחול', responsible: 'מנהל עבודה' },
+      { description: 'אישור לביצוע מילוי חוזר', responsible: 'בקרת איכות' },
+      { description: 'אישור סופי', responsible: 'בקרת איכות' },
+    ],
+  },
 };
 
-const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey) =>
+
+const isChecklistTemplateKey = (value: unknown): value is ChecklistTemplateKey => {
+  return typeof value === 'string' && value in checklistTemplates;
+};
+
+const normalizeChecklistTemplateKey = (value: unknown): ChecklistTemplateKey => {
+  return isChecklistTemplateKey(value) ? value : 'general';
+};
+
+const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey): ChecklistItem[] =>
   checklistTemplates[templateKey].items.map((item, index) => ({
     id: `${Date.now()}-${index}`,
     description: item.description,
     responsible: item.responsible,
-    status: 'לא נבדק' as const,
+    status: 'לא נבדק',
     notes: '',
+    inspector: '',
+    executionDate: '',
   }));
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -235,10 +425,29 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   responsible: '',
   status: 'לא נבדק',
   notes: '',
+  inspector: '',
+  executionDate: '',
 });
 
+const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistItem[] => {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((item, index) => {
+    const row = (item ?? {}) as Partial<ChecklistItem>;
+    return {
+      id: row.id ?? `${Date.now()}-${index}`,
+      description: row.description ?? '',
+      responsible: row.responsible ?? '',
+      status: row.status ?? 'לא נבדק',
+      notes: row.notes ?? '',
+      inspector: row.inspector ?? '',
+      executionDate: row.executionDate ?? '',
+    };
+  });
+};
+
 const createDefaultChecklist = (
-  templateKey: ChecklistTemplateKey = 'general'
+  templateKey: ChecklistTemplateKey = 'general',
 ): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({
   templateKey,
   title: checklistTemplates[templateKey].title,
@@ -279,8 +488,8 @@ const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryReco
     subtype === 'suppliers'
       ? 'בקרה מקדימה - ספקים'
       : subtype === 'subcontractors'
-      ? 'בקרה מקדימה - קבלנים'
-      : 'בקרה מקדימה - חומרים',
+        ? 'בקרה מקדימה - קבלנים'
+        : 'בקרה מקדימה - חומרים',
   date: '',
   status: 'טיוטה',
   supplier:
@@ -315,6 +524,21 @@ const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryReco
       : undefined,
 });
 
+
+const isSupabaseHeaderEncodingError = (error: unknown): boolean => {
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '')
+      : String(error ?? '');
+
+  const details =
+    typeof error === 'object' && error !== null && 'details' in error
+      ? String((error as { details?: unknown }).details ?? '')
+      : '';
+
+  return `${message} ${details}`.includes(SUPABASE_HEADER_ERROR_FRAGMENT);
+};
+
 export default function Page() {
   const [section, setSection] = useState<Section>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
@@ -340,13 +564,38 @@ export default function Page() {
 
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
+
+  const loadPersistedData = (raw: string | null) => {
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as PersistedData;
+      if (parsed.projects?.length) setProjects(parsed.projects);
+      if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
+      if (parsed.savedChecklists) {
+        setSavedChecklists(
+          parsed.savedChecklists.map((item) => ({
+            ...item,
+            templateKey: normalizeChecklistTemplateKey(item.templateKey),
+            items: normalizeChecklistItems(item.items),
+          })),
+        );
+      }
+      if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
+      if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
+      if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
+    } catch (error) {
+      console.error('Failed to parse local saved data', error);
+    }
+  };
 
   const loadFromCloudResults = (
     projectsRows: any[] | null,
     checklistRows: any[] | null,
     nonconformanceRows: any[] | null,
     trialRows: any[] | null,
-    preliminaryRows: any[] | null
+    preliminaryRows: any[] | null,
   ) => {
     if (projectsRows?.length) {
       const mappedProjects: Project[] = projectsRows.map((row) => ({
@@ -366,17 +615,17 @@ export default function Page() {
       const mapped: ChecklistRecord[] = checklistRows.map((row) => ({
         id: row.id,
         projectId: row.project_id,
-        templateKey: row.template_key,
+        templateKey: normalizeChecklistTemplateKey(row.template_key),
         title: row.title ?? '',
         category: row.category ?? '',
         location: row.location ?? '',
         date: row.date ?? '',
         contractor: row.contractor ?? '',
         notes: row.notes ?? '',
-        items: Array.isArray(row.items) ? row.items : [],
+        items: normalizeChecklistItems(row.items),
         savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '',
       }));
-      setSavedChecklists(mapped);
+      setSavedChecklists(mapped.map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey) })));
     }
 
     if (nonconformanceRows) {
@@ -433,26 +682,15 @@ export default function Page() {
 
   useEffect(() => {
     const loadAll = async () => {
-      if (!isSupabaseConfigured) {
+      if (!cloudEnabled) {
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (!raw) {
           setLoaded(true);
           return;
         }
 
-        try {
-          const parsed = JSON.parse(raw) as PersistedData;
-          if (parsed.projects?.length) setProjects(parsed.projects);
-          if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
-          if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
-          if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
-          if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
-          if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
-        } catch (error) {
-          console.error('Failed to load local saved data', error);
-        } finally {
-          setLoaded(true);
-        }
+        loadPersistedData(raw);
+        setLoaded(true);
         return;
       }
 
@@ -466,33 +704,26 @@ export default function Page() {
         ]);
 
         const fatalErrors = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error].filter(
-          (item) => item && !String(item.message).includes('relation')
+          (item) => item && !String(item.message).includes('relation'),
         );
         if (fatalErrors.length) throw fatalErrors[0];
 
         loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
       } catch (error) {
-        console.error('Failed to load Supabase data, falling back to localStorage', error);
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw) as PersistedData;
-            if (parsed.projects?.length) setProjects(parsed.projects);
-            if (typeof parsed.currentProjectId !== 'undefined') setCurrentProjectId(parsed.currentProjectId);
-            if (parsed.savedChecklists) setSavedChecklists(parsed.savedChecklists);
-            if (parsed.savedNonconformances) setSavedNonconformances(parsed.savedNonconformances);
-            if (parsed.savedTrialSections) setSavedTrialSections(parsed.savedTrialSections);
-            if (parsed.savedPreliminary) setSavedPreliminary(parsed.savedPreliminary);
-          } catch (innerError) {
-            console.error('Failed to parse local fallback data', innerError);
-          }
+        if (isSupabaseHeaderEncodingError(error)) {
+          console.warn('Supabase headers are misconfigured. Cloud sync was disabled for this session and localStorage will be used instead.');
+          setCloudEnabled(false);
+        } else {
+          console.error('Failed to load Supabase data, falling back to localStorage', error);
         }
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        loadPersistedData(raw);
       } finally {
         setLoaded(true);
       }
     };
 
-    loadAll();
+    void loadAll();
   }, []);
 
   useEffect(() => {
@@ -511,7 +742,7 @@ export default function Page() {
   }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded]);
 
   const refreshCloudData = async () => {
-    if (!isSupabaseConfigured) return;
+    if (!cloudEnabled) return;
     const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes] = await Promise.all([
       supabase.from('projects').select('*').order('created_at', { ascending: false }),
       supabase.from('checklists').select('*').order('saved_at', { ascending: false }),
@@ -522,29 +753,41 @@ export default function Page() {
     loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
   };
 
+  const withSaving = async (action: () => Promise<void>) => {
+    try {
+      setIsSaving(true);
+      await action();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const currentProject = useMemo(
     () => projects.find((project) => project.id === currentProjectId) ?? null,
-    [projects, currentProjectId]
+    [projects, currentProjectId],
   );
 
   const projectName = currentProject?.name ?? 'לא נבחר פרויקט';
-  const checklistTemplateLabel = (key: ChecklistTemplateKey) => checklistTemplates[key].label;
+  const checklistTemplateLabel = (key: ChecklistTemplateKey | string | undefined) => {
+    const normalizedKey = normalizeChecklistTemplateKey(key);
+    return checklistTemplates[normalizedKey]?.label ?? 'רשימת תיוג';
+  };
 
   const projectChecklists = useMemo(
     () => savedChecklists.filter((item) => item.projectId === currentProjectId),
-    [savedChecklists, currentProjectId]
+    [savedChecklists, currentProjectId],
   );
   const projectNonconformances = useMemo(
     () => savedNonconformances.filter((item) => item.projectId === currentProjectId),
-    [savedNonconformances, currentProjectId]
+    [savedNonconformances, currentProjectId],
   );
   const projectTrialSections = useMemo(
     () => savedTrialSections.filter((item) => item.projectId === currentProjectId),
-    [savedTrialSections, currentProjectId]
+    [savedTrialSections, currentProjectId],
   );
   const projectPreliminary = useMemo(
     () => savedPreliminary.filter((item) => item.projectId === currentProjectId),
-    [savedPreliminary, currentProjectId]
+    [savedPreliminary, currentProjectId],
   );
 
   const addProject = async () => {
@@ -560,24 +803,28 @@ export default function Page() {
       description: newProjectDescription.trim(),
       manager: newProjectManager.trim(),
       isActive: true,
-      createdAt: new Date().toLocaleString('he-IL'),
+      createdAt: nowLocal(),
     };
 
     const nextProjects = [...projects.map((item) => ({ ...item, isActive: false })), project];
     setProjects(nextProjects);
     setCurrentProjectId(id);
-    if (isSupabaseConfigured) {
-      await supabase.from('projects').insert({
-        id,
-        name: project.name,
-        description: project.description,
-        manager: project.manager,
-        is_active: true,
-        created_at: new Date().toISOString(),
-      });
-      await supabase.from('projects').update({ is_active: false }).neq('id', id);
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('projects').insert({
+          id,
+          name: project.name,
+          description: project.description,
+          manager: project.manager,
+          is_active: true,
+          created_at: nowIso(),
+        });
+        await supabase.from('projects').update({ is_active: false }).neq('id', id);
+        await refreshCloudData();
+      }
+    });
+
     setNewProjectName('');
     setNewProjectDescription('');
     setNewProjectManager('');
@@ -591,10 +838,13 @@ export default function Page() {
     if (!nextName || !nextName.trim()) return;
 
     setProjects((prev) => prev.map((item) => (item.id === projectId ? { ...item, name: nextName.trim() } : item)));
-    if (isSupabaseConfigured) {
-      await supabase.from('projects').update({ name: nextName.trim() }).eq('id', projectId);
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('projects').update({ name: nextName.trim() }).eq('id', projectId);
+        await refreshCloudData();
+      }
+    });
   };
 
   const updateProjectMeta = async (projectId: string) => {
@@ -606,21 +856,34 @@ export default function Page() {
     const nextManager = window.prompt('מנהל פרויקט', project.manager ?? '');
     if (nextManager === null) return;
 
-    setProjects((prev) => prev.map((item) => item.id === projectId ? { ...item, description: nextDescription.trim(), manager: nextManager.trim() } : item));
-    if (isSupabaseConfigured) {
-      await supabase.from('projects').update({ description: nextDescription.trim(), manager: nextManager.trim() }).eq('id', projectId);
-      await refreshCloudData();
-    }
+    setProjects((prev) =>
+      prev.map((item) =>
+        item.id === projectId ? { ...item, description: nextDescription.trim(), manager: nextManager.trim() } : item,
+      ),
+    );
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase
+          .from('projects')
+          .update({ description: nextDescription.trim(), manager: nextManager.trim() })
+          .eq('id', projectId);
+        await refreshCloudData();
+      }
+    });
   };
 
   const setActiveProject = async (projectId: string) => {
     setProjects((prev) => prev.map((item) => ({ ...item, isActive: item.id === projectId })));
     setCurrentProjectId(projectId);
-    if (isSupabaseConfigured) {
-      await supabase.from('projects').update({ is_active: false }).neq('id', projectId);
-      await supabase.from('projects').update({ is_active: true }).eq('id', projectId);
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('projects').update({ is_active: false }).neq('id', projectId);
+        await supabase.from('projects').update({ is_active: true }).eq('id', projectId);
+        await refreshCloudData();
+      }
+    });
   };
 
   const deleteProject = async (projectId: string) => {
@@ -639,19 +902,22 @@ export default function Page() {
     setSavedNonconformances((prev) => prev.filter((item) => item.projectId !== projectId));
     setSavedTrialSections((prev) => prev.filter((item) => item.projectId !== projectId));
     setSavedPreliminary((prev) => prev.filter((item) => item.projectId !== projectId));
-    if (isSupabaseConfigured) {
-      await Promise.all([
-        supabase.from('projects').delete().eq('id', projectId),
-        supabase.from('checklists').delete().eq('project_id', projectId),
-        supabase.from('nonconformances').delete().eq('project_id', projectId),
-        supabase.from('trial_sections').delete().eq('project_id', projectId),
-        supabase.from('preliminary_records').delete().eq('project_id', projectId),
-      ]);
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await Promise.all([
+          supabase.from('projects').delete().eq('id', projectId),
+          supabase.from('checklists').delete().eq('project_id', projectId),
+          supabase.from('nonconformances').delete().eq('project_id', projectId),
+          supabase.from('trial_sections').delete().eq('project_id', projectId),
+          supabase.from('preliminary_records').delete().eq('project_id', projectId),
+        ]);
+        await refreshCloudData();
+      }
+    });
   };
 
-  const resetChecklistForm = () => setChecklistForm(createDefaultChecklist());
+  const resetChecklistForm = () => setChecklistForm(createDefaultChecklist(checklistForm.templateKey));
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => {
     setChecklistForm((prev) => ({
@@ -698,16 +964,31 @@ export default function Page() {
       id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...checklistForm,
-      savedAt: new Date().toLocaleString('he-IL'),
+      items: normalizeChecklistItems(checklistForm.items),
+      savedAt: nowLocal(),
     };
 
     setSavedChecklists((prev) => [record, ...prev]);
-    if (isSupabaseConfigured) {
-      await supabase.from('checklists').insert({
-        id: record.id, project_id: record.projectId, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, saved_at: new Date().toISOString()
-      });
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('checklists').insert({
+          id: record.id,
+          project_id: record.projectId,
+          template_key: record.templateKey,
+          title: record.title,
+          category: record.category,
+          location: record.location,
+          date: record.date,
+          contractor: record.contractor,
+          notes: record.notes,
+          items: record.items,
+          saved_at: nowIso(),
+        });
+        await refreshCloudData();
+      }
+    });
+
     resetChecklistForm();
     alert('רשימת התיוג נשמרה');
   };
@@ -722,13 +1003,19 @@ export default function Page() {
       date: record.date,
       contractor: record.contractor,
       notes: record.notes,
-      items: record.items.map((item) => ({ ...item })),
+      items: normalizeChecklistItems(record.items),
     });
   };
 
   const deleteChecklist = async (id: string) => {
     setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
-    if (isSupabaseConfigured) { await supabase.from('checklists').delete().eq('id', id); await refreshCloudData(); }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('checklists').delete().eq('id', id);
+        await refreshCloudData();
+      }
+    });
   };
 
   const saveNonconformance = async () => {
@@ -745,16 +1032,31 @@ export default function Page() {
       id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...nonconformanceForm,
-      savedAt: new Date().toLocaleString('he-IL'),
+      savedAt: nowLocal(),
     };
 
     setSavedNonconformances((prev) => [record, ...prev]);
-    if (isSupabaseConfigured) {
-      await supabase.from('nonconformances').insert({
-        id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, raised_by: record.raisedBy, severity: record.severity, status: record.status, description: record.description, action_required: record.actionRequired, notes: record.notes, saved_at: new Date().toISOString()
-      });
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('nonconformances').insert({
+          id: record.id,
+          project_id: record.projectId,
+          title: record.title,
+          location: record.location,
+          date: record.date,
+          raised_by: record.raisedBy,
+          severity: record.severity,
+          status: record.status,
+          description: record.description,
+          action_required: record.actionRequired,
+          notes: record.notes,
+          saved_at: nowIso(),
+        });
+        await refreshCloudData();
+      }
+    });
+
     setNonconformanceForm(createDefaultNonconformance());
     alert('אי ההתאמה נשמרה');
   };
@@ -776,7 +1078,13 @@ export default function Page() {
 
   const deleteNonconformance = async (id: string) => {
     setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
-    if (isSupabaseConfigured) { await supabase.from('nonconformances').delete().eq('id', id); await refreshCloudData(); }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('nonconformances').delete().eq('id', id);
+        await refreshCloudData();
+      }
+    });
   };
 
   const saveTrialSection = async () => {
@@ -793,16 +1101,30 @@ export default function Page() {
       id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...trialSectionForm,
-      savedAt: new Date().toLocaleString('he-IL'),
+      savedAt: nowLocal(),
     };
 
     setSavedTrialSections((prev) => [record, ...prev]);
-    if (isSupabaseConfigured) {
-      await supabase.from('trial_sections').insert({
-        id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approved_by: record.approvedBy, status: record.status, notes: record.notes, saved_at: new Date().toISOString()
-      });
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('trial_sections').insert({
+          id: record.id,
+          project_id: record.projectId,
+          title: record.title,
+          location: record.location,
+          date: record.date,
+          spec: record.spec,
+          result: record.result,
+          approved_by: record.approvedBy,
+          status: record.status,
+          notes: record.notes,
+          saved_at: nowIso(),
+        });
+        await refreshCloudData();
+      }
+    });
+
     setTrialSectionForm(createDefaultTrialSection());
     alert('קטע הניסוי נשמר');
   };
@@ -823,7 +1145,13 @@ export default function Page() {
 
   const deleteTrialSection = async (id: string) => {
     setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
-    if (isSupabaseConfigured) { await supabase.from('trial_sections').delete().eq('id', id); await refreshCloudData(); }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('trial_sections').delete().eq('id', id);
+        await refreshCloudData();
+      }
+    });
   };
 
   const savePreliminary = async (subtype: PreliminaryTab) => {
@@ -836,23 +1164,35 @@ export default function Page() {
       subtype === 'suppliers'
         ? supplierPreliminaryForm
         : subtype === 'subcontractors'
-        ? subcontractorPreliminaryForm
-        : materialPreliminaryForm;
+          ? subcontractorPreliminaryForm
+          : materialPreliminaryForm;
 
     const record: PreliminaryRecord = {
       id: crypto.randomUUID(),
       projectId: currentProjectId,
       ...form,
-      savedAt: new Date().toLocaleString('he-IL'),
+      savedAt: nowLocal(),
     };
 
     setSavedPreliminary((prev) => [record, ...prev]);
-    if (isSupabaseConfigured) {
-      await supabase.from('preliminary_records').insert({
-        id: record.id, project_id: record.projectId, subtype: record.subtype, title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? null, subcontractor: record.subcontractor ?? null, material: record.material ?? null, saved_at: new Date().toISOString()
-      });
-      await refreshCloudData();
-    }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('preliminary_records').insert({
+          id: record.id,
+          project_id: record.projectId,
+          subtype: record.subtype,
+          title: record.title,
+          date: record.date,
+          status: record.status,
+          supplier: record.supplier ?? null,
+          subcontractor: record.subcontractor ?? null,
+          material: record.material ?? null,
+          saved_at: nowIso(),
+        });
+        await refreshCloudData();
+      }
+    });
 
     if (subtype === 'suppliers') setSupplierPreliminaryForm(createDefaultPreliminary('suppliers'));
     if (subtype === 'subcontractors') setSubcontractorPreliminaryForm(createDefaultPreliminary('subcontractors'));
@@ -896,7 +1236,13 @@ export default function Page() {
 
   const deletePreliminary = async (id: string) => {
     setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
-    if (isSupabaseConfigured) { await supabase.from('preliminary_records').delete().eq('id', id); await refreshCloudData(); }
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase.from('preliminary_records').delete().eq('id', id);
+        await refreshCloudData();
+      }
+    });
   };
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? (
@@ -942,7 +1288,7 @@ export default function Page() {
   ];
 
   return (
-    <div style={pageStyle}>
+    <div style={pageStyle} dir="rtl">
       <header style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <QualityLogo />
@@ -954,6 +1300,8 @@ export default function Page() {
         <div style={projectBadgeStyle}>
           <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
           <div>{projectName}</div>
+          {isSaving && <div style={savingTextStyle}>שומר נתונים...</div>}
+          {!cloudEnabled && <div style={savingTextStyle}>מצב מקומי בלבד</div>}
         </div>
       </header>
 
@@ -1014,13 +1362,13 @@ export default function Page() {
                   <textarea
                     value={newProjectDescription}
                     onChange={(e) => setNewProjectDescription(e.target.value)}
-                    style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+                    style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }}
                   />
                 </Field>
               </div>
 
               <div style={buttonRowStyle}>
-                <button style={primaryButtonStyle} onClick={addProject}>
+                <button style={primaryButtonStyle} onClick={() => void addProject()}>
                   הוסף פרויקט
                 </button>
               </div>
@@ -1028,7 +1376,7 @@ export default function Page() {
               <div style={cardsGridStyle}>
                 {projects.map((project) => (
                   <div key={project.id} style={savedCardStyle}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                       <div style={savedCardTitleStyle}>{project.name}</div>
                       {project.id === currentProjectId && <span style={activePillStyle}>פעיל</span>}
                     </div>
@@ -1036,16 +1384,16 @@ export default function Page() {
                     <div style={savedCardTextStyle}>תיאור: {project.description || '-'}</div>
                     <div style={savedCardTextStyle}>נוצר בתאריך: {project.createdAt}</div>
                     <div style={savedCardActionsStyle}>
-                      <button style={secondaryButtonStyle} onClick={() => setActiveProject(project.id)}>
+                      <button style={secondaryButtonStyle} onClick={() => void setActiveProject(project.id)}>
                         בחר
                       </button>
-                      <button style={secondaryButtonStyle} onClick={() => renameProject(project.id)}>
+                      <button style={secondaryButtonStyle} onClick={() => void renameProject(project.id)}>
                         ערוך שם
                       </button>
-                      <button style={secondaryButtonStyle} onClick={() => updateProjectMeta(project.id)}>
+                      <button style={secondaryButtonStyle} onClick={() => void updateProjectMeta(project.id)}>
                         ערוך פרטים
                       </button>
-                      <button style={dangerButtonStyle} onClick={() => deleteProject(project.id)}>
+                      <button style={dangerButtonStyle} onClick={() => void deleteProject(project.id)}>
                         מחק
                       </button>
                     </div>
@@ -1099,7 +1447,7 @@ export default function Page() {
                       <input value={checklistForm.contractor} onChange={(e) => setChecklistForm((prev) => ({ ...prev, contractor: e.target.value }))} style={inputStyle} />
                     </Field>
                     <Field label="הערות כלליות" full>
-                      <textarea value={checklistForm.notes} onChange={(e) => setChecklistForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                      <textarea value={checklistForm.notes} onChange={(e) => setChecklistForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                     </Field>
                   </div>
 
@@ -1121,6 +1469,12 @@ export default function Page() {
                             <option value="לא תקין">לא תקין</option>
                           </select>
                         </Field>
+                        <Field label="שם בודק">
+                          <input value={item.inspector} onChange={(e) => updateChecklistItem(item.id, 'inspector', e.target.value)} style={inputStyle} />
+                        </Field>
+                        <Field label="תאריך ביצוע">
+                          <input type="date" value={item.executionDate} onChange={(e) => updateChecklistItem(item.id, 'executionDate', e.target.value)} style={inputStyle} />
+                        </Field>
                         <Field label="הערות" full>
                           <input value={item.notes} onChange={(e) => updateChecklistItem(item.id, 'notes', e.target.value)} style={inputStyle} />
                         </Field>
@@ -1133,7 +1487,7 @@ export default function Page() {
 
                   <div style={buttonRowStyle}>
                     <button style={secondaryButtonStyle} onClick={addChecklistItem}>הוסף שורה</button>
-                    <button style={primaryButtonStyle} onClick={saveChecklist}>שמור רשימת תיוג</button>
+                    <button style={primaryButtonStyle} onClick={() => void saveChecklist()}>שמור רשימת תיוג</button>
                     <button style={secondaryButtonStyle} onClick={resetChecklistForm}>נקה טופס</button>
                   </div>
                 </>
@@ -1160,32 +1514,32 @@ export default function Page() {
                       <input value={nonconformanceForm.raisedBy} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, raisedBy: e.target.value }))} style={inputStyle} />
                     </Field>
                     <Field label="חומרה">
-                      <select value={nonconformanceForm.severity} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, severity: e.target.value as NonconformanceRecord['severity'] }))} style={inputStyle}>
+                      <select value={nonconformanceForm.severity} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, severity: e.target.value as Severity }))} style={inputStyle}>
                         <option value="נמוכה">נמוכה</option>
                         <option value="בינונית">בינונית</option>
                         <option value="גבוהה">גבוהה</option>
                       </select>
                     </Field>
                     <Field label="סטטוס">
-                      <select value={nonconformanceForm.status} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, status: e.target.value as NonconformanceRecord['status'] }))} style={inputStyle}>
+                      <select value={nonconformanceForm.status} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, status: e.target.value as NonconformanceStatus }))} style={inputStyle}>
                         <option value="פתוח">פתוח</option>
                         <option value="בטיפול">בטיפול</option>
                         <option value="נסגר">נסגר</option>
                       </select>
                     </Field>
                     <Field label="תיאור אי תאמה" full>
-                      <textarea value={nonconformanceForm.description} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, description: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                      <textarea value={nonconformanceForm.description} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, description: e.target.value }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                     </Field>
                     <Field label="פעולה נדרשת" full>
-                      <textarea value={nonconformanceForm.actionRequired} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, actionRequired: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                      <textarea value={nonconformanceForm.actionRequired} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, actionRequired: e.target.value }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                     </Field>
                     <Field label="הערות" full>
-                      <textarea value={nonconformanceForm.notes} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                      <textarea value={nonconformanceForm.notes} onChange={(e) => setNonconformanceForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                     </Field>
                   </div>
 
                   <div style={buttonRowStyle}>
-                    <button style={primaryButtonStyle} onClick={saveNonconformance}>שמור אי תאמה</button>
+                    <button style={primaryButtonStyle} onClick={() => void saveNonconformance()}>שמור אי תאמה</button>
                     <button style={secondaryButtonStyle} onClick={() => setNonconformanceForm(createDefaultNonconformance())}>נקה טופס</button>
                   </div>
                 </>
@@ -1218,19 +1572,19 @@ export default function Page() {
                       <input value={trialSectionForm.approvedBy} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, approvedBy: e.target.value }))} style={inputStyle} />
                     </Field>
                     <Field label="סטטוס">
-                      <select value={trialSectionForm.status} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as TrialSectionRecord['status'] }))} style={inputStyle}>
+                      <select value={trialSectionForm.status} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as TrialStatus }))} style={inputStyle}>
                         <option value="טיוטה">טיוטה</option>
                         <option value="אושר">אושר</option>
                         <option value="נדחה">נדחה</option>
                       </select>
                     </Field>
                     <Field label="הערות" full>
-                      <textarea value={trialSectionForm.notes} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                      <textarea value={trialSectionForm.notes} onChange={(e) => setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                     </Field>
                   </div>
 
                   <div style={buttonRowStyle}>
-                    <button style={primaryButtonStyle} onClick={saveTrialSection}>שמור קטע ניסוי</button>
+                    <button style={primaryButtonStyle} onClick={() => void saveTrialSection()}>שמור קטע ניסוי</button>
                     <button style={secondaryButtonStyle} onClick={() => setTrialSectionForm(createDefaultTrialSection())}>נקה טופס</button>
                   </div>
                 </>
@@ -1282,7 +1636,7 @@ export default function Page() {
                           <input type="date" value={supplierPreliminaryForm.date} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
                         </Field>
                         <Field label="סטטוס">
-                          <select value={supplierPreliminaryForm.status} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                          <select value={supplierPreliminaryForm.status} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, status: e.target.value as RecordStatus }))} style={inputStyle}>
                             <option value="טיוטה">טיוטה</option>
                             <option value="מאושר">מאושר</option>
                             <option value="לא מאושר">לא מאושר</option>
@@ -1301,11 +1655,11 @@ export default function Page() {
                           <input value={supplierPreliminaryForm.supplier?.approvalNo ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), approvalNo: e.target.value } }))} style={inputStyle} />
                         </Field>
                         <Field label="הערות" full>
-                          <textarea value={supplierPreliminaryForm.supplier?.notes ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                          <textarea value={supplierPreliminaryForm.supplier?.notes ?? ''} onChange={(e) => setSupplierPreliminaryForm((prev) => ({ ...prev, supplier: { ...(prev.supplier as SupplierPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                         </Field>
                       </div>
                       <div style={buttonRowStyle}>
-                        <button style={primaryButtonStyle} onClick={() => savePreliminary('suppliers')}>שמור ספק</button>
+                        <button style={primaryButtonStyle} onClick={() => void savePreliminary('suppliers')}>שמור ספק</button>
                       </div>
                     </>
                   )}
@@ -1321,7 +1675,7 @@ export default function Page() {
                           <input type="date" value={subcontractorPreliminaryForm.date} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
                         </Field>
                         <Field label="סטטוס">
-                          <select value={subcontractorPreliminaryForm.status} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                          <select value={subcontractorPreliminaryForm.status} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, status: e.target.value as RecordStatus }))} style={inputStyle}>
                             <option value="טיוטה">טיוטה</option>
                             <option value="מאושר">מאושר</option>
                             <option value="לא מאושר">לא מאושר</option>
@@ -1340,11 +1694,11 @@ export default function Page() {
                           <input value={subcontractorPreliminaryForm.subcontractor?.approvalNo ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), approvalNo: e.target.value } }))} style={inputStyle} />
                         </Field>
                         <Field label="הערות" full>
-                          <textarea value={subcontractorPreliminaryForm.subcontractor?.notes ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                          <textarea value={subcontractorPreliminaryForm.subcontractor?.notes ?? ''} onChange={(e) => setSubcontractorPreliminaryForm((prev) => ({ ...prev, subcontractor: { ...(prev.subcontractor as SubcontractorPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                         </Field>
                       </div>
                       <div style={buttonRowStyle}>
-                        <button style={primaryButtonStyle} onClick={() => savePreliminary('subcontractors')}>שמור קבלן</button>
+                        <button style={primaryButtonStyle} onClick={() => void savePreliminary('subcontractors')}>שמור קבלן</button>
                       </div>
                     </>
                   )}
@@ -1360,7 +1714,7 @@ export default function Page() {
                           <input type="date" value={materialPreliminaryForm.date} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, date: e.target.value }))} style={inputStyle} />
                         </Field>
                         <Field label="סטטוס">
-                          <select value={materialPreliminaryForm.status} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, status: e.target.value as PreliminaryRecord['status'] }))} style={inputStyle}>
+                          <select value={materialPreliminaryForm.status} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, status: e.target.value as RecordStatus }))} style={inputStyle}>
                             <option value="טיוטה">טיוטה</option>
                             <option value="מאושר">מאושר</option>
                             <option value="לא מאושר">לא מאושר</option>
@@ -1379,11 +1733,11 @@ export default function Page() {
                           <input value={materialPreliminaryForm.material?.certificateNo ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), certificateNo: e.target.value } }))} style={inputStyle} />
                         </Field>
                         <Field label="הערות" full>
-                          <textarea value={materialPreliminaryForm.material?.notes ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                          <textarea value={materialPreliminaryForm.material?.notes ?? ''} onChange={(e) => setMaterialPreliminaryForm((prev) => ({ ...prev, material: { ...(prev.material as MaterialPreliminary), notes: e.target.value } }))} style={{ ...inputStyle, minHeight: 88, resize: 'vertical' }} />
                         </Field>
                       </div>
                       <div style={buttonRowStyle}>
-                        <button style={primaryButtonStyle} onClick={() => savePreliminary('materials')}>שמור חומר</button>
+                        <button style={primaryButtonStyle} onClick={() => void savePreliminary('materials')}>שמור חומר</button>
                       </div>
                     </>
                   )}
@@ -1408,7 +1762,7 @@ export default function Page() {
                 subtitle={`תבנית: ${checklistTemplateLabel(item.templateKey)} · קטגוריה: ${item.category}`}
                 meta={`נשמר: ${item.savedAt}`}
                 onOpen={() => loadChecklist(item)}
-                onDelete={() => deleteChecklist(item.id)}
+                onDelete={() => void deleteChecklist(item.id)}
               />
             ))
           )}
@@ -1424,7 +1778,7 @@ export default function Page() {
                 subtitle={`סטטוס: ${item.status}`}
                 meta={`נשמר: ${item.savedAt}`}
                 onOpen={() => loadNonconformance(item)}
-                onDelete={() => deleteNonconformance(item.id)}
+                onDelete={() => void deleteNonconformance(item.id)}
               />
             ))
           )}
@@ -1440,7 +1794,7 @@ export default function Page() {
                 subtitle={`סטטוס: ${item.status}`}
                 meta={`נשמר: ${item.savedAt}`}
                 onOpen={() => loadTrialSection(item)}
-                onDelete={() => deleteTrialSection(item.id)}
+                onDelete={() => void deleteTrialSection(item.id)}
               />
             ))
           )}
@@ -1456,7 +1810,7 @@ export default function Page() {
                 subtitle={`סוג: ${labelForPreliminary(item.subtype)} | סטטוס: ${item.status}`}
                 meta={`נשמר: ${item.savedAt}`}
                 onOpen={() => loadPreliminary(item)}
-                onDelete={() => deletePreliminary(item.id)}
+                onDelete={() => void deletePreliminary(item.id)}
               />
             ))
           )}
@@ -1490,19 +1844,16 @@ function NavButton({
   label,
   active,
   onClick,
-  compact = false,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
-  compact?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       style={{
         ...navButtonStyle,
-        ...(compact ? compactNavButtonStyle : null),
         background: active ? '#0f172a' : '#fff',
         color: active ? '#fff' : '#0f172a',
       }}
@@ -1512,15 +1863,7 @@ function NavButton({
   );
 }
 
-function Field({
-  label,
-  children,
-  full = false,
-}: {
-  label: string;
-  children: React.ReactNode;
-  full?: boolean;
-}) {
+function Field({ label, children, full = false }: { label: string; children: ReactNode; full?: boolean }) {
   return (
     <div style={{ ...fieldWrapStyle, ...(full ? fullWidthStyle : null) }}>
       <label style={fieldLabelStyle}>{label}</label>
@@ -1580,11 +1923,12 @@ function FolderCard({
       onClick={onClick}
       style={{
         ...folderCardStyle,
-        borderColor: active ? '#0f172a' : '#dbe2ea',
-        background: active ? '#eff6ff' : '#fff',
+        borderColor: active ? '#0f172a' : '#dbe4f0',
+        boxShadow: active ? '0 16px 40px rgba(15, 23, 42, 0.12)' : '0 10px 24px rgba(15, 23, 42, 0.06)',
+        background: active ? '#f8fafc' : '#ffffff',
       }}
     >
-      <div style={folderIconStyle}>📁</div>
+      <div style={{ fontSize: 28 }}>📂</div>
       <div style={folderTitleStyle}>{title}</div>
       <div style={folderTextStyle}>{subtitle}</div>
     </button>
@@ -1593,223 +1937,201 @@ function FolderCard({
 
 const pageStyle: CSSProperties = {
   minHeight: '100vh',
-  padding: '20px',
-  background: '#eef2f7',
+  background: 'linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%)',
+  padding: 24,
+  color: '#0f172a',
   fontFamily: 'Arial, sans-serif',
-  direction: 'rtl',
-  boxSizing: 'border-box',
 };
 
 const headerStyle: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: 16,
   alignItems: 'center',
-  marginBottom: 20,
+  gap: 20,
+  background: '#ffffff',
+  border: '1px solid #dbe4f0',
+  borderRadius: 24,
+  padding: 20,
+  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
+  marginBottom: 18,
   flexWrap: 'wrap',
 };
 
 const brandTitleStyle: CSSProperties = {
-  fontSize: 42,
+  fontSize: 28,
   fontWeight: 900,
-  color: '#0f172a',
+  letterSpacing: 0.5,
 };
 
 const brandSubTitleStyle: CSSProperties = {
   color: '#475569',
-  marginTop: 6,
-  fontSize: 16,
+  marginTop: 4,
+  fontSize: 14,
 };
 
 const projectBadgeStyle: CSSProperties = {
-  background: '#fff',
-  border: '1px solid #dbe2ea',
-  borderRadius: 18,
+  background: '#0f172a',
+  color: '#fff',
+  borderRadius: 20,
   padding: '14px 18px',
-  minWidth: 220,
-  boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
+  minWidth: 210,
+  boxShadow: '0 16px 30px rgba(15, 23, 42, 0.18)',
+};
+
+const savingTextStyle: CSSProperties = {
+  marginTop: 8,
+  fontSize: 12,
+  opacity: 0.85,
 };
 
 const navRowStyle: CSSProperties = {
   display: 'flex',
   gap: 10,
   flexWrap: 'wrap',
-  marginBottom: 20,
+  marginBottom: 18,
 };
 
 const navButtonStyle: CSSProperties = {
   border: '1px solid #cbd5e1',
-  borderRadius: 14,
+  borderRadius: 16,
   padding: '12px 18px',
   fontSize: 15,
   fontWeight: 700,
   cursor: 'pointer',
-};
-
-const compactNavButtonStyle: CSSProperties = {
-  padding: '10px 14px',
+  transition: 'all .2s ease',
 };
 
 const layoutStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)',
-  gap: 20,
+  gridTemplateColumns: 'minmax(0, 1.7fr) minmax(320px, 0.9fr)',
+  gap: 18,
   alignItems: 'start',
 };
 
 const mainCardStyle: CSSProperties = {
-  background: '#fff',
+  background: '#ffffff',
+  border: '1px solid #dbe4f0',
   borderRadius: 24,
   padding: 22,
-  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
-  border: '1px solid #e2e8f0',
+  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.06)',
 };
 
 const sideCardStyle: CSSProperties = {
-  background: '#fff',
+  background: '#ffffff',
+  border: '1px solid #dbe4f0',
   borderRadius: 24,
-  padding: 20,
-  boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
-  border: '1px solid #e2e8f0',
-};
-
-const sectionTitleStyle: CSSProperties = {
-  fontSize: 28,
-  fontWeight: 800,
-  margin: '0 0 18px 0',
-  color: '#0f172a',
+  padding: 18,
+  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.06)',
+  position: 'sticky',
+  top: 20,
 };
 
 const sideTitleStyle: CSSProperties = {
+  margin: 0,
   fontSize: 22,
-  fontWeight: 800,
-  margin: '0 0 8px 0',
+  fontWeight: 900,
 };
 
 const sideProjectStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 14,
-  padding: '12px 14px',
+  color: '#475569',
+  marginTop: 8,
   marginBottom: 14,
-  color: '#334155',
+};
+
+const sectionTitleStyle: CSSProperties = {
+  margin: '0 0 18px',
+  fontSize: 28,
+  fontWeight: 900,
 };
 
 const smallSectionTitleStyle: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 800,
-  margin: '18px 0 10px 0',
-};
-
-const templateSelectorCardStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 16,
-  padding: 16,
-  marginBottom: 18,
-};
-
-const templateButtonsWrapStyle: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 10,
-};
-
-const templateChipStyle: CSSProperties = {
-  border: '1px solid #cbd5e1',
-  borderRadius: 999,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontWeight: 700,
-  background: '#fff',
-};
-
-const heroBoxStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)',
-  border: '1px solid #dbeafe',
-  borderRadius: 22,
-  padding: 20,
-  marginBottom: 18,
+  marginTop: 20,
+  marginBottom: 10,
+  fontWeight: 900,
+  fontSize: 16,
 };
 
 const statsGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-  gap: 14,
-  marginBottom: 18,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gap: 12,
 };
 
 const statCardStyle: CSSProperties = {
-  background: '#0f172a',
-  color: '#fff',
-  borderRadius: 18,
+  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+  border: '1px solid #dbe4f0',
+  borderRadius: 20,
   padding: 18,
   textAlign: 'center',
 };
 
 const statValueStyle: CSSProperties = {
-  fontSize: 28,
+  fontSize: 32,
   fontWeight: 900,
-  marginBottom: 6,
 };
 
 const statTitleStyle: CSSProperties = {
-  fontSize: 14,
-  opacity: 0.9,
+  color: '#475569',
+  marginTop: 6,
+};
+
+const heroBoxStyle: CSSProperties = {
+  marginTop: 16,
+  padding: 20,
+  borderRadius: 22,
+  background: 'linear-gradient(135deg, #dbeafe 0%, #f8fafc 100%)',
+  border: '1px solid #bfdbfe',
 };
 
 const homeModulesGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: 16,
+  gap: 14,
+  marginTop: 16,
 };
 
 const homeModuleCardStyle: CSSProperties = {
-  border: '1px solid #dbe2ea',
-  borderRadius: 20,
-  padding: 18,
-  background: '#fff',
   textAlign: 'right',
+  border: '1px solid #dbe4f0',
+  borderRadius: 22,
+  background: '#ffffff',
+  padding: 18,
   cursor: 'pointer',
-  boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
+  boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
 };
 
 const homeModuleIconStyle: CSSProperties = {
-  fontSize: 30,
+  fontSize: 28,
   marginBottom: 10,
 };
 
 const homeModuleTitleStyle: CSSProperties = {
-  fontSize: 20,
-  fontWeight: 800,
-  color: '#0f172a',
+  fontWeight: 900,
+  fontSize: 19,
   marginBottom: 8,
 };
 
 const homeModuleTextStyle: CSSProperties = {
-  fontSize: 14,
   color: '#475569',
-  lineHeight: 1.7,
-  minHeight: 48,
+  lineHeight: 1.6,
+  minHeight: 50,
 };
 
 const homeModuleCountStyle: CSSProperties = {
-  fontSize: 13,
+  marginTop: 10,
   fontWeight: 700,
-  color: '#0f172a',
-  marginTop: 12,
 };
 
 const formGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
   gap: 14,
 };
 
 const fieldWrapStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 8,
 };
 
 const fullWidthStyle: CSSProperties = {
@@ -1817,17 +2139,18 @@ const fullWidthStyle: CSSProperties = {
 };
 
 const fieldLabelStyle: CSSProperties = {
-  fontWeight: 700,
+  fontWeight: 800,
   color: '#334155',
 };
 
 const inputStyle: CSSProperties = {
   width: '100%',
-  padding: '12px 14px',
-  borderRadius: 14,
   border: '1px solid #cbd5e1',
-  background: '#fff',
+  borderRadius: 14,
+  padding: '12px 14px',
   fontSize: 14,
+  background: '#fff',
+  outline: 'none',
   boxSizing: 'border-box',
 };
 
@@ -1835,7 +2158,7 @@ const buttonRowStyle: CSSProperties = {
   display: 'flex',
   gap: 10,
   flexWrap: 'wrap',
-  marginTop: 18,
+  marginTop: 16,
 };
 
 const primaryButtonStyle: CSSProperties = {
@@ -1851,149 +2174,166 @@ const primaryButtonStyle: CSSProperties = {
 const secondaryButtonStyle: CSSProperties = {
   border: '1px solid #cbd5e1',
   borderRadius: 14,
-  padding: '12px 18px',
+  padding: '10px 14px',
   background: '#fff',
   color: '#0f172a',
-  fontWeight: 800,
+  fontWeight: 700,
   cursor: 'pointer',
 };
 
 const dangerButtonStyle: CSSProperties = {
-  border: 'none',
+  border: '1px solid #fecaca',
   borderRadius: 14,
-  padding: '12px 18px',
-  background: '#dc2626',
-  color: '#fff',
-  fontWeight: 800,
+  padding: '10px 14px',
+  background: '#fff1f2',
+  color: '#b91c1c',
+  fontWeight: 700,
   cursor: 'pointer',
 };
 
 const cardsGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
   gap: 14,
   marginTop: 18,
 };
 
 const savedCardStyle: CSSProperties = {
-  border: '1px solid #e2e8f0',
+  border: '1px solid #dbe4f0',
   borderRadius: 18,
   padding: 14,
   background: '#fff',
+  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.04)',
 };
 
 const savedCardTitleStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: 16,
-  marginBottom: 6,
+  fontWeight: 900,
+  fontSize: 17,
+  marginBottom: 8,
 };
 
 const savedCardTextStyle: CSSProperties = {
   color: '#475569',
+  lineHeight: 1.6,
   fontSize: 14,
-  marginBottom: 4,
 };
 
 const savedCardActionsStyle: CSSProperties = {
   display: 'flex',
   gap: 8,
   flexWrap: 'wrap',
-  marginTop: 10,
+  marginTop: 12,
 };
 
 const activePillStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderRadius: 999,
   background: '#dcfce7',
   color: '#166534',
-  padding: '4px 10px',
+  borderRadius: 999,
+  padding: '6px 10px',
   fontSize: 12,
-  fontWeight: 800,
+  fontWeight: 900,
 };
 
-const emptyBoxStyle: CSSProperties = {
+const templateSelectorCardStyle: CSSProperties = {
   background: '#f8fafc',
-  border: '1px dashed #cbd5e1',
-  borderRadius: 16,
+  border: '1px solid #dbe4f0',
+  borderRadius: 20,
   padding: 16,
-  color: '#64748b',
+  marginBottom: 16,
+};
+
+const templateButtonsWrapStyle: CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  flexWrap: 'wrap',
+};
+
+const templateChipStyle: CSSProperties = {
+  border: '1px solid #cbd5e1',
+  borderRadius: 999,
+  padding: '10px 14px',
+  fontWeight: 800,
+  cursor: 'pointer',
+};
+
+const subHeaderStyle: CSSProperties = {
+  marginTop: 18,
+  marginBottom: 12,
+  fontWeight: 900,
+  fontSize: 20,
 };
 
 const rowCardStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '50px minmax(0, 1fr) auto',
+  gridTemplateColumns: '56px minmax(0, 1fr) auto',
   gap: 14,
   alignItems: 'start',
-  border: '1px solid #e2e8f0',
-  borderRadius: 18,
+  border: '1px solid #dbe4f0',
+  borderRadius: 20,
   padding: 14,
-  marginBottom: 12,
-};
-
-const rowCardGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 12,
+  marginBottom: 14,
+  background: '#fff',
 };
 
 const rowCardIndexStyle: CSSProperties = {
   width: 42,
   height: 42,
-  borderRadius: 12,
-  background: '#e2e8f0',
-  color: '#0f172a',
+  borderRadius: '50%',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontWeight: 800,
+  background: '#0f172a',
+  color: '#fff',
+  fontWeight: 900,
+  marginTop: 4,
 };
 
-const subHeaderStyle: CSSProperties = {
-  fontSize: 20,
-  fontWeight: 800,
-  margin: '20px 0 12px 0',
+const rowCardGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 12,
+};
+
+const emptyBoxStyle: CSSProperties = {
+  border: '1px dashed #cbd5e1',
+  borderRadius: 18,
+  padding: 18,
+  background: '#f8fafc',
+  color: '#475569',
 };
 
 const folderIntroStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: 18,
   padding: 16,
-  marginBottom: 16,
+  borderRadius: 20,
+  background: '#f8fafc',
+  border: '1px solid #dbe4f0',
+  marginBottom: 14,
 };
 
 const preliminaryFoldersGridStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: 14,
-  marginBottom: 14,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 12,
+  marginBottom: 10,
 };
 
 const folderCardStyle: CSSProperties = {
-  border: '1px solid #dbe2ea',
-  borderRadius: 18,
+  border: '1px solid #dbe4f0',
+  borderRadius: 20,
   padding: 18,
   background: '#fff',
-  textAlign: 'right',
   cursor: 'pointer',
-};
-
-const folderIconStyle: CSSProperties = {
-  fontSize: 28,
-  marginBottom: 10,
+  textAlign: 'right',
 };
 
 const folderTitleStyle: CSSProperties = {
   fontSize: 18,
-  fontWeight: 800,
-  color: '#0f172a',
-  marginBottom: 6,
+  fontWeight: 900,
+  marginTop: 8,
 };
 
 const folderTextStyle: CSSProperties = {
   color: '#475569',
-  fontSize: 14,
+  marginTop: 6,
   lineHeight: 1.6,
 };
