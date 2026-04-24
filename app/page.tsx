@@ -16,49 +16,6 @@ const STORAGE_KEY = 'yk-quality-stage4-multifile';
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
 
-// מונע קריסה של האתר כאשר הדפדפן מלא בנתוני localStorage ישנים/גדולים.
-const LEGACY_LARGE_STORAGE_KEYS = [
-  'yk-quality-stage5-single-file',
-  'yk-quality-stage4-multifile',
-  'yk-quality-stage4-multifile-current-project-id',
-];
-
-const safeLocalStorageGet = (key: string): string | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch (error) {
-    console.warn('localStorage get failed; continuing without local cache', error);
-    return null;
-  }
-};
-
-const safeLocalStorageSet = (key: string, value: string) => {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch (error) {
-    console.warn('localStorage set failed; clearing local cache and continuing without crash', error);
-    try {
-      window.localStorage.removeItem(key);
-    } catch {}
-  }
-};
-
-const safeLocalStorageRemove = (key: string) => {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {}
-};
-
-const clearLegacyLargeLocalStorage = () => {
-  if (typeof window === 'undefined') return;
-  for (const key of LEGACY_LARGE_STORAGE_KEYS) {
-    safeLocalStorageRemove(key);
-  }
-};
-
 const nowLocal = () => new Date().toLocaleString('he-IL');
 const nowIso = () => new Date().toISOString();
 
@@ -67,8 +24,7 @@ const createDefaultApproval = (): ApprovalFlow => ({
   remarks: '',
   signatures: [
     { role: 'מנהל בקרת איכות', signerName: '', signature: '', signedAt: '', required: true },
-    { role: 'מנהל פרויקט', signerName: '', signature: '', signedAt: '', required: true },
-    { role: 'מפקח', signerName: '', signature: '', signedAt: '', required: false },
+    { role: 'מנהל הבטחת איכות', signerName: '', signature: '', signedAt: '', required: true },
   ],
 });
 
@@ -112,11 +68,8 @@ const isSupabaseHeaderEncodingError = (error: unknown) => String(error ?? '').in
 const errorText = (error: unknown) => typeof error === 'object' && error !== null ? `${String((error as any).message ?? '')} ${String((error as any).details ?? '')}`.trim() : String(error ?? '');
 const isMissingColumnError = (error: unknown, columnName: string) => errorText(error).toLowerCase().includes(columnName.toLowerCase()) && errorText(error).toLowerCase().includes('does not exist');
 const shouldIgnoreCloudError = (error: unknown) => /relation .* does not exist/i.test(errorText(error));
-const readLocalCurrentProjectId = () => safeLocalStorageGet(CURRENT_PROJECT_STORAGE_KEY);
-const writeLocalCurrentProjectId = (projectId: string | null) => {
-  if (projectId) safeLocalStorageSet(CURRENT_PROJECT_STORAGE_KEY, projectId);
-  else safeLocalStorageRemove(CURRENT_PROJECT_STORAGE_KEY);
-};
+const readLocalCurrentProjectId = () => typeof window === 'undefined' ? null : window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY);
+const writeLocalCurrentProjectId = (projectId: string | null) => { if (typeof window === 'undefined') return; projectId ? window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, projectId) : window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY); };
 
 async function selectTable(table: string, orderColumn?: string) {
   const baseQuery = supabase.from(table).select('*');
@@ -192,9 +145,8 @@ export default function Page() {
 
   useEffect(() => {
     const loadAll = async () => {
-      clearLegacyLargeLocalStorage();
       if (!cloudEnabled) {
-        loadPersistedData(safeLocalStorageGet(STORAGE_KEY));
+        loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
         setLoaded(true);
         return;
       }
@@ -205,7 +157,7 @@ export default function Page() {
         loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
-        loadPersistedData(safeLocalStorageGet(STORAGE_KEY));
+        loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
       } finally {
         setLoaded(true);
       }
@@ -232,11 +184,11 @@ export default function Page() {
         savedTrialSections,
         savedPreliminary,
       };
-      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(payload));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
       console.warn('Local storage quota exceeded. Clearing local cache and continuing without crash.', error);
       try {
-        safeLocalStorageRemove(STORAGE_KEY);
+        window.localStorage.removeItem(STORAGE_KEY);
       } catch {}
     }
   }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded, cloudEnabled]);
