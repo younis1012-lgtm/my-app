@@ -30,7 +30,7 @@ type ProjectProfile = {
 const PROJECT_PROFILES: ProjectProfile[] = [
   {
     projectName: "כביש 806 צלמון שלב א׳",
-    contractor: 'פלסי הגליל סלילה עפר ופיתוח בע"מ',
+    contractor: 'מפלסי הגליל סלילה עפר ופיתוח בע"מ',
     projectManager: 'א.ש. רונן הנדסה אזרחית בע"מ',
     qaCompany: 'תיקו הנדסה בע"מ',
     qualityControl: 'יונס אברהים',
@@ -288,7 +288,7 @@ export default function Page() {
   const applyProjectTeamToItems = (items: ChecklistItem[]) =>
     items.map((item) => ({
       ...item,
-      inspector: item.inspector || resolveResponsibleName(item.responsible, projectName),
+      inspector: resolveResponsibleName(item.responsible, projectName) || item.inspector,
     }));
   const checklistTemplateLabel = (key: ChecklistTemplateKey | string | undefined) => checklistTemplates[normalizeChecklistTemplateKey(key)]?.label ?? 'רשימת תיוג';
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
@@ -296,6 +296,20 @@ export default function Page() {
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
+
+  useEffect(() => {
+    if (!loaded || section !== 'checklists') return;
+    const profile = currentProjectProfile ?? getProjectProfile(projectName);
+    if (!profile) return;
+    setChecklistForm((prev) => ({
+      ...prev,
+      contractor: !prev.contractor || prev.contractor.includes('פלסי הגליל') ? profile.contractor : prev.contractor,
+      items: prev.items.map((item) => ({
+        ...item,
+        inspector: resolveResponsibleName(item.responsible, profile.projectName) || item.inspector,
+      })),
+    }));
+  }, [loaded, section, currentProjectId, currentProjectProfile?.projectName, projectName]);
 
   const resetChecklistForm = (templateKey: ChecklistTemplateKey = checklistForm.templateKey) => {
     setEditingChecklistId(null);
@@ -349,7 +363,7 @@ export default function Page() {
       ...next,
       location: prev.location,
       date: prev.date,
-      contractor: prev.contractor || profile?.contractor || '',
+      contractor: !prev.contractor || prev.contractor.includes('פלסי הגליל') ? profile?.contractor || '' : prev.contractor,
       notes: prev.notes,
       items: applyProjectTeamToItems(next.items),
       approval: prev.approval,
@@ -506,7 +520,7 @@ export default function Page() {
             <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
           </thead>
           <tbody>
-            ${items.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector || resolveResponsibleName(item.responsible, projectName), 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+            ${items.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
           </tbody>
         </table>`;
       }
@@ -516,7 +530,7 @@ export default function Page() {
           <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
         </thead>
         <tbody>
-          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector || resolveResponsibleName(item.responsible, projectName), 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     };
