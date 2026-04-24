@@ -360,22 +360,25 @@ export default function Page() {
   };
 
   const exportStyles = `
-    @page{size:A4 landscape;margin:10mm}
-    body{font-family:Arial,sans-serif;direction:rtl;padding:10px;color:#111827;font-size:11px}
-    h1{font-size:18px;margin:0 0 8px;text-align:center;font-weight:800}
-    h2{font-size:13px;margin:12px 0 6px;text-align:right;font-weight:800}
-    table{border-collapse:collapse;width:100%;margin:6px 0;table-layout:fixed}
-    th,td{border:1px solid #111827;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.35}
+    @page{size:A4 portrait;margin:10mm}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:0;color:#111827;font-size:10.5px;background:#fff}
+    .export-page{width:100%;max-width:760px;margin:0 auto;direction:rtl}
+    h1{font-size:16px;margin:0 0 8px;text-align:center;font-weight:800}
+    h2{font-size:12px;margin:10px 0 5px;text-align:right;font-weight:800}
+    table{border-collapse:collapse;width:100%;margin:0;table-layout:fixed}
+    th,td{border:1px solid #111827;padding:4px 5px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
     th{background:#eef3f8;font-weight:800}
-    .meta{color:#334155;margin-bottom:8px;text-align:center;font-size:11px}
-    .form-title{background:#fff;font-weight:800;font-size:15px;text-align:center}
-    .details-table th{width:18%;background:#eef3f8;text-align:center}
-    .details-table td{height:26px;text-align:center;background:#fff}
-    .items-table th{background:#eef3f8;font-size:10.5px}
-    .items-table td{height:28px;background:#fff;font-size:10.5px}
-    .num-col{width:34px}.desc-col{width:32%}.resp-col{width:15%}.status-col{width:11%}.date-col{width:11%}.sign-col{width:14%}.notes-col{width:17%}
-    .signature td{height:36px;background:#fff}.no-print-note{color:#64748b;font-size:10px;margin-top:6px;text-align:center}
-    @media print{button{display:none} body{padding:0}}
+    .checklist-header{margin:0 0 10px 0;border:1px solid #111827}
+    .checklist-header th,.checklist-header td{height:24px;font-size:10.5px}
+    .checklist-header-title{background:#eef3f8;font-weight:900;font-size:13px;height:28px;text-align:center}
+    .label-cell{background:#eef3f8;font-weight:800;width:22%}
+    .value-cell{background:#fff;text-align:center;width:78%}
+    .items-title{font-size:12px;font-weight:800;text-align:right;margin:8px 0 4px}
+    .items-table th{background:#eef3f8;font-size:9.5px;padding:4px 3px}
+    .items-table td{height:24px;background:#fff;font-size:9.5px;padding:4px 3px}
+    .num-col{width:32px}.desc-col{width:34%}.resp-col{width:14%}.status-col{width:10%}.date-col{width:12%}.sign-col{width:12%}.notes-col{width:16%}
+    .signature{margin-top:10px}.signature td{height:30px;background:#fff}.no-print-note{display:none}
+    @media print{button{display:none} body{padding:0}.export-page{max-width:none}}
   `;
 
   const recordTitleForExport = () => {
@@ -402,19 +405,21 @@ export default function Page() {
 
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
+    const title = checklistForm.title || checklistTemplateLabel(checklistForm.templateKey);
     return `
-    <table class="details-table">
+    <table class="checklist-header">
+      <colgroup><col style="width:22%"/><col style="width:78%"/></colgroup>
       <tbody>
-        <tr><th colspan="2" class="form-title">${safeText(checklistForm.title || checklistTemplateLabel(checklistForm.templateKey))}</th></tr>
-        <tr><th>כותרת</th><td>${valueOrBlank(checklistForm.title)}</td></tr>
-        <tr><th>קטגוריה</th><td>${valueOrBlank(checklistForm.category)}</td></tr>
-        <tr><th>מיקום</th><td>${valueOrBlank(checklistForm.location)}</td></tr>
-        <tr><th>תאריך</th><td>${valueOrBlank(checklistForm.date)}</td></tr>
-        <tr><th>קבלן</th><td>${valueOrBlank(checklistForm.contractor)}</td></tr>
-        <tr><th>הערות</th><td>${valueOrBlank(checklistForm.notes, 60)}</td></tr>
+        <tr><th colspan="2" class="checklist-header-title">${safeText(title)}</th></tr>
+        <tr><th class="label-cell">כותרת</th><td class="value-cell">${valueOrBlank(checklistForm.title)}</td></tr>
+        <tr><th class="label-cell">קטגוריה</th><td class="value-cell">${valueOrBlank(checklistForm.category)}</td></tr>
+        <tr><th class="label-cell">מיקום</th><td class="value-cell">${valueOrBlank(checklistForm.location)}</td></tr>
+        <tr><th class="label-cell">תאריך</th><td class="value-cell">${valueOrBlank(checklistForm.date)}</td></tr>
+        <tr><th class="label-cell">קבלן</th><td class="value-cell">${valueOrBlank(checklistForm.contractor)}</td></tr>
+        <tr><th class="label-cell">הערות</th><td class="value-cell">${valueOrBlank(checklistForm.notes, 45)}</td></tr>
       </tbody>
     </table>
-    <h2>סעיפי בדיקה</h2>
+    <div class="items-title">סעיפי בדיקה</div>
     <table class="items-table">
       <thead>
         <tr>
@@ -428,10 +433,9 @@ export default function Page() {
         </tr>
       </thead>
       <tbody>
-        ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 38)}</td><td>${valueOrBlank(item.responsible, 38)}</td><td>${valueOrBlank(item.status, 38)}</td><td>${valueOrBlank(item.executionDate, 38)}</td><td>${valueOrBlank(item.inspector, 38)}</td><td>${valueOrBlank(item.notes, 52)}</td></tr>`).join('')}
+        ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 30)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.status, 30)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.inspector, 30)}</td><td>${valueOrBlank(item.notes, 40)}</td></tr>`).join('')}
       </tbody>
-    </table>
-    ${signaturesTable(checklistForm.approval)}`;
+    </table>`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
@@ -486,7 +490,7 @@ export default function Page() {
       : section === 'trialSections' ? trialSectionExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)} | הופק: ${safeText(nowLocal())}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${body}</div></body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
