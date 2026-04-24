@@ -1,4 +1,4 @@
-import type { TrialSectionRecord } from '../types';
+type TrialSectionRecord = any;
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 
 type StoredAttachment = {

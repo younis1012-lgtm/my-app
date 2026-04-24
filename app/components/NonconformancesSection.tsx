@@ -1,4 +1,4 @@
-import type { NonconformanceRecord } from '../types';
+type NonconformanceRecord = any;
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 
 type StoredAttachment = {
