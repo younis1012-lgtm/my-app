@@ -1,20 +1,4 @@
-// ==== TYPES ====
-
-export type ChecklistTemplateKey =
-  | "general"
-  | "asphaltWorks"
-  | "drainagePiping"
-  | "painting";
-
-export interface ChecklistItem {
-  id: string;
-  description: string;
-  responsible: string;
-  status: string;
-  notes: string;
-  inspector: string;
-  executionDate: string;
-}
+import type { ChecklistItem, ChecklistTemplateKey, Project } from './types';
 
 export interface ChecklistTemplate {
   label: string;
@@ -23,109 +7,1377 @@ export interface ChecklistTemplate {
   items: ChecklistItem[];
 }
 
-// ==== HELPERS ====
-
-const createItem = (
-  id: string,
-  description: string,
-  responsible = "בקרת איכות",
-  status = "לא נבדק"
-): ChecklistItem => ({
-  id,
-  description,
-  responsible,
-  status,
-  notes: "",
-  inspector: "",
-  executionDate: "",
-});
-
-// ==== TEMPLATES ====
+export const defaultProjects: Project[] = [
+  {
+    id: 'default-project',
+    name: 'פרויקט לדוגמה',
+    description: '',
+    manager: '',
+    isActive: true,
+    createdAt: new Date().toLocaleString('he-IL'),
+  },
+];
 
 export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate> = {
   general: {
-    label: "כללי",
-    title: "רשימת תיוג כללית",
-    category: "כללי",
+    label: 'כללי',
+    title: 'רשימת תיוג כללית',
+    category: 'כללי',
     items: [
-      createItem("1", "בדיקה כללית"),
+      {
+        id: '1',
+        description: 'בדיקה כללית',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'אישור התאמה למסמכי הפרויקט',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'תיעוד הערות וממצאים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  paintWorks: {
+    label: 'עבודות צבע',
+    title: 'רשימת תיוג לעבודות צבע',
+    category: 'צבע',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומר הצבע והגוון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת הכנת השטח',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת תנאי מזג אוויר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת שכבה ראשונה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת שכבה סופית',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  milling: {
+    label: 'קרצוף',
+    title: 'רשימת תיוג לעבודות קרצוף',
+    category: 'קרצוף',
+    items: [
+      {
+        id: '1',
+        description: 'אישור תוכנית הקרצוף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'סימון שטחי הקרצוף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת עומק הקרצוף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'ניקוי ופינוי חומר מקורצף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת מפלסים ושיפועים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור לפני המשך עבודה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  rockWall: {
+    label: 'קיר סלעים',
+    title: 'רשימת תיוג לקיר סלעים',
+    category: 'קירות',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומרים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת יסוד ותשתית',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'סידור אבנים/סלעים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת יציבות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'ניקוז מאחורי הקיר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  excavation: {
+    label: 'חפירה',
+    title: 'רשימת תיוג לעבודות חפירה',
+    category: 'עפר',
+    items: [
+      {
+        id: '1',
+        description: 'אישור תוכנית חפירה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'סימון גבולות החפירה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת עומקים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת שיפועים ודפנות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'פינוי עודפי עפר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור תחתית חפירה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  channelPaving: {
+    label: 'ריצוף תעלות',
+    title: 'רשימת תיוג לריצוף תעלות',
+    category: 'תעלות',
+    items: [
+      {
+        id: '1',
+        description: 'אישור תוואי ותשתית',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת מצעים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הנחת ריצוף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת שיפועים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת גמר וניקיון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  baseCourseSpreading: {
+    label: 'פיזור מצעים',
+    title: 'רשימת תיוג לפיזור מצעים',
+    category: 'מצעים',
+    items: [
+      {
+        id: '1',
+        description: 'אישור מקור חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת עובי שכבה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'פיזור ויישור',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'הרטבה והידוק',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת צפיפות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור להמשך',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  curbstones: {
+    label: 'אבני שפה',
+    title: 'רשימת תיוג לאבני שפה',
+    category: 'אבני שפה',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'סימון תוואי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הכנת יסוד בטון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'הנחת אבני שפה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת גבהים וקווים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'מילוי וגמר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  asphaltSite: {
+    label: 'אתר אספלט',
+    title: 'רשימת תיוג לאתר אספלט',
+    category: 'אספלט',
+    items: [
+      {
+        id: '1',
+        description: 'אישור ציוד וצוות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת טמפרטורת אספלט',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת ניקיון שטח',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת עובי שכבה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת הידוק',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  castCurbstone: {
+    label: 'אבן שפה יצוקה',
+    title: 'רשימת תיוג לאבן שפה יצוקה',
+    category: 'בטון',
+    items: [
+      {
+        id: '1',
+        description: 'בדיקת תבניות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת זיון/אביזרים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת בטון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'יציקה וגמר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'אשפרה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  catsEyes: {
+    label: 'עיני חתול',
+    title: 'רשימת תיוג לעיני חתול',
+    category: 'סימון דרך',
+    items: [
+      {
+        id: '1',
+        description: 'אישור מיקום',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'ניקוי משטח',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'התקנה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת הדבקה/עיגון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת נראות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  siteConcrete: {
+    label: 'בטון באתר',
+    title: 'רשימת תיוג לעבודות בטון',
+    category: 'בטון',
+    items: [
+      {
+        id: '1',
+        description: 'אישור תבניות וזיון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת בטון טרי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'יציקה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'רטוט וגמר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'אשפרה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'בדיקת קוביות/תיעוד',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  jkWorks: {
+    label: 'עבודות ג׳קינג',
+    title: 'רשימת תיוג לעבודות ג׳קינג',
+    category: 'תשתיות',
+    items: [
+      {
+        id: '1',
+        description: 'אישור ציוד',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת תוואי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בקרת דחיקה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת שיפועים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'תיעוד מדידות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  controlledCompaction: {
+    label: 'הידוק מבוקר',
+    title: 'רשימת תיוג להידוק מבוקר',
+    category: 'עפר',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומר מילוי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת עובי שכבות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הרטבה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'הידוק',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקות צפיפות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור שכבה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  standardCompaction: {
+    label: 'הידוק רגיל',
+    title: 'רשימת תיוג להידוק רגיל',
+    category: 'עפר',
+    items: [
+      {
+        id: '1',
+        description: 'אישור אזור עבודה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'פיזור חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הידוק',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת גבהים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת צפיפות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  guardrails: {
+    label: 'מעקות',
+    title: 'רשימת תיוג לעבודות מעקות',
+    category: 'מעקות',
+    items: [
+      {
+        id: '1',
+        description: 'אישור סוג מעקה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'סימון תוואי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת יסודות/עמודים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'התקנת מעקה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת גובה ורציפות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  signage: {
+    label: 'שילוט',
+    title: 'רשימת תיוג לשילוט',
+    category: 'שילוט',
+    items: [
+      {
+        id: '1',
+        description: 'אישור מיקום ותוכן',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת עמודים/בסיסים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'התקנת שלטים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת גובה ונראות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת ניקיון וגמר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  waterSystems: {
+    label: 'מערכות מים',
+    title: 'רשימת תיוג למערכות מים',
+    category: 'מים',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומרים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת תוואי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הנחת צנרת',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת לחץ',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'שטיפה וחיטוי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  paving: {
+    label: 'ריצוף',
+    title: 'רשימת תיוג לעבודות ריצוף',
+    category: 'ריצוף',
+    items: [
+      {
+        id: '1',
+        description: 'אישור חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת מצע',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'הנחת ריצוף',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת מישקים ושיפועים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'ניקיון וגמר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
+    ],
+  },
+
+  steelGuardrailsSupply: {
+    label: 'אספקת מעקות פלדה',
+    title: 'רשימת תיוג לאספקת מעקות פלדה',
+    category: 'מעקות',
+    items: [
+      {
+        id: '1',
+        description: 'בדיקת תעודות חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת מידות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת גילוון/צבע',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת כמות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת שילוח ואחסון',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור קבלה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
     ],
   },
 
   asphaltWorks: {
-    label: "עבודות אספלט",
-    title: "רשימת תיוג לעבודות אספלט",
-    category: "אספלט",
+    label: 'עבודות אספלט',
+    title: 'רשימת תיוג לעבודות אספלט',
+    category: 'אספלט',
     items: [
-      createItem("1", "אישור תכנית העבודה לפני ביצוע"),
-      createItem("2", "בדיקת ניקיון פני השטח לפני פיזור"),
-      createItem("3", "בדיקת טמפרטורת התערובת בעת פריקה"),
-      createItem("4", "בדיקת עובי שכבת האספלט"),
-      createItem("5", "בדיקת הידוק וגימור פני השטח"),
-      createItem("6", "אישור סופי לאחר ביצוע"),
+      {
+        id: '1',
+        description: 'אישור מקור אספלט',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת ניקיון פני שטח',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת טמפרטורה בעת פריקה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'בדיקת עובי שכבה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת הידוק ומפלסים',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'אישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
     ],
   },
 
   drainagePiping: {
-    label: "צנרת ניקוז",
-    title: "רשימת תיוג לצנרת ניקוז",
-    category: "ניקוז",
+    label: 'צנרת ניקוז',
+    title: 'רשימת תיוג לצנרת ניקוז',
+    category: 'ניקוז',
     items: [
-      createItem("1", "אישור חומר/סוג הצינור לפני ביצוע"),
-      createItem("2", "בדיקת תוואי וחפירה"),
-      createItem("3", "בדיקת מצע ותחתית"),
-      createItem("4", "הנחת צנרת ושוחות"),
-      createItem("5", "בדיקת שיפועים ואטימות"),
-      createItem("6", "כיסוי ואישור סופי"),
+      {
+        id: '1',
+        description: 'אישור חומר/סוג חומר',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '2',
+        description: 'בדיקת תוואי וחפירה',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '3',
+        description: 'בדיקת מצע ותחתית',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '4',
+        description: 'הנחת צנרת ושוחות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '5',
+        description: 'בדיקת שיפועים ואטימות',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      },
+      {
+        id: '6',
+        description: 'כיסוי ואישור סופי',
+        responsible: 'בקרת איכות',
+        status: 'לא נבדק',
+        notes: '',
+        inspector: '',
+        executionDate: '',
+      }
     ],
-  },
-
-  painting: {
-    label: "צביעה",
-    title: "רשימת תיוג לעבודות צבע",
-    category: "גמר",
-    items: [
-      createItem("1", "אישור חומר הצבע והגוון"),
-      createItem("2", "בדיקת הכנת השטח"),
-      createItem("3", "בדיקת שכבת יסוד"),
-      createItem("4", "בדיקת שכבות צבע וגמר"),
-      createItem("5", "בדיקת תיקונים וניקיון"),
-      createItem("6", "אישור סופי"),
-    ],
-  },
+  }
 };
 
-// ==== SAFE KEY ====
-
-export function normalizeChecklistTemplateKey(
-  key: string | undefined | null
-): ChecklistTemplateKey {
-  if (!key) return "general";
-
-  if (key in checklistTemplates) {
+export function normalizeChecklistTemplateKey(key: string | undefined | null): ChecklistTemplateKey {
+  if (!key) return 'general';
+  if (key === 'painting') return 'paintWorks';
+  if (Object.prototype.hasOwnProperty.call(checklistTemplates, key)) {
     return key as ChecklistTemplateKey;
   }
-
-  return "general";
+  return 'general';
 }
 
-// ==== BUILD ITEMS ====
-
-export function buildChecklistItemsFromTemplate(
-  templateKey: string | undefined | null
-): ChecklistItem[] {
+export function buildChecklistItemsFromTemplate(templateKey: string | undefined | null): ChecklistItem[] {
   const safeKey = normalizeChecklistTemplateKey(templateKey);
-
   return checklistTemplates[safeKey].items.map((item, index) => ({
     id:
-      typeof crypto !== "undefined" && crypto.randomUUID
+      typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
-        : `${safeKey}-${item.id}-${Date.now()}-${index}`,
-    description: item.description ?? "",
-    responsible: item.responsible ?? "בקרת איכות",
-    status: item.status ?? "לא נבדק",
-    notes: item.notes ?? "",
-    inspector: item.inspector ?? "",
-    executionDate: item.executionDate ?? "",
+        : `${safeKey}-${item.id || index}-${Date.now()}`,
+    description: item.description ?? '',
+    responsible: item.responsible ?? 'בקרת איכות',
+    status: item.status ?? 'לא נבדק',
+    notes: item.notes ?? '',
+    inspector: item.inspector ?? '',
+    executionDate: item.executionDate ?? '',
   }));
 }

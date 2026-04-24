@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, PersistedData } from './types';
-import { buildChecklistItemsFromTemplate, checklistTemplates, normalizeChecklistTemplateKey } from './checklistTemplates';
+import { buildChecklistItemsFromTemplate, checklistTemplates, defaultProjects, normalizeChecklistTemplateKey } from './checklistTemplates';
 import { styles } from './components/common';
 import { SavedRecordsSidebar } from './components/SavedRecordsSidebar';
 import { HomeSection } from './components/HomeSection';
@@ -18,17 +18,6 @@ const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code poin
 
 const nowLocal = () => new Date().toLocaleString('he-IL');
 const nowIso = () => new Date().toISOString();
-
-const defaultProjects: Project[] = [
-  {
-    id: 'default-project',
-    name: 'פרויקט לדוגמה',
-    description: '',
-    manager: '',
-    isActive: true,
-    createdAt: nowLocal(),
-  },
-];
 
 type StoredAttachment = {
   name: string;
@@ -91,22 +80,7 @@ const validateApproval = (approval: ApprovalFlow) => {
 const emptyChecklistItem = (id: string): ChecklistItem => ({ id, description: '', responsible: '', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' });
 const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistItem[] => Array.isArray(items) ? items.map((item, index) => ({ id: item?.id ?? `${Date.now()}-${index}`, description: item?.description ?? '', responsible: item?.responsible ?? '', status: item?.status ?? 'לא נבדק', notes: item?.notes ?? '', inspector: item?.inspector ?? '', executionDate: item?.executionDate ?? '' })) : [];
 
-const createDefaultChecklist = (templateKey: ChecklistTemplateKey | string = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => {
-  const safeKey = normalizeChecklistTemplateKey(templateKey);
-  const template = checklistTemplates[safeKey];
-
-  return {
-    templateKey: safeKey as ChecklistTemplateKey,
-    title: template.title,
-    category: template.category,
-    location: '',
-    date: '',
-    contractor: '',
-    notes: '',
-    items: buildChecklistItemsFromTemplate(safeKey),
-    approval: createDefaultApproval(),
-  };
-};
+const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
 const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
 const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', spec: '', result: '', approvedBy: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
 const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({ subtype, title: subtype === 'suppliers' ? 'בקרה מקדימה - ספקים' : subtype === 'subcontractors' ? 'בקרה מקדימה - קבלנים' : 'בקרה מקדימה - חומרים', date: '', status: 'טיוטה', supplier: subtype === 'suppliers' ? { supplierName: '', suppliedMaterial: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, subcontractor: subtype === 'subcontractors' ? { subcontractorName: '', field: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, material: subtype === 'materials' ? { materialName: '', source: '', usage: '', certificateNo: '', notes: '' } : undefined, approval: createDefaultApproval() });
@@ -259,10 +233,7 @@ export default function Page() {
 
   const currentProject = useMemo(() => projects.find((p) => p.id === currentProjectId) ?? null, [projects, currentProjectId]);
   const projectName = !loaded ? 'טוען...' : currentProject?.name ?? 'לא נבחר פרויקט';
-  const checklistTemplateLabel = (key: ChecklistTemplateKey | string | undefined) => {
-    const safeKey = normalizeChecklistTemplateKey(key);
-    return checklistTemplates[safeKey]?.label ?? 'רשימת תיוג';
-  };
+  const checklistTemplateLabel = (key: ChecklistTemplateKey | string | undefined) => checklistTemplates[normalizeChecklistTemplateKey(key)]?.label ?? 'רשימת תיוג';
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
   const projectChecklists = useMemo(() => savedChecklists.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.category, item.location, item.contractor].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedChecklists, currentProjectId, normalizedSearchTerm]);
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
@@ -297,7 +268,7 @@ export default function Page() {
   const setActiveProject = async (projectId: string) => await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ is_active: false }).neq('id', projectId), await supabase.from('projects').update({ is_active: true }).eq('id', projectId), await refreshCloudData()) : (setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId }))), setCurrentProjectId(projectId)));
   const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase.from('checklists').delete().eq('project_id', projectId); await supabase.from('nonconformances').delete().eq('project_id', projectId); await supabase.from('trial_sections').delete().eq('project_id', projectId); await supabase.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
-  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey | string) => setChecklistForm((prev) => ({ ...createDefaultChecklist(templateKey), location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval }));
+  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => ({ ...createDefaultChecklist(templateKey), location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval }));
   const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
   const addChecklistItem = () => setChecklistForm((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(crypto.randomUUID())] }));
   const removeChecklistItem = (id: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id) }));
