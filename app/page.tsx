@@ -290,22 +290,32 @@ export default function Page() {
     const id = crypto.randomUUID();
     const project: Project = { id, name: normalizeProjectDisplayName(newProjectName.trim()), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
     await withSaving(async () => {
+      setCurrentProjectId(id);
+      writeLocalCurrentProjectId(id);
+      setProjects((prev) => [...prev.map((p) => ({ ...p, isActive: false })), project]);
       if (cloudEnabled) {
         await supabase.from('projects').update({ is_active: false }).neq('id', id);
         const result = await supabase.from('projects').insert({ id, name: project.name, description: project.description, manager: project.manager, is_active: true, created_at: nowIso() });
         if (result.error) throw result.error;
         await refreshCloudData();
-      } else {
-        setProjects((prev) => [...prev.map((p) => ({ ...p, isActive: false })), project]);
-        setCurrentProjectId(id);
       }
     });
     setNewProjectName(''); setNewProjectDescription(''); setNewProjectManager('');
   };
 
-  const renameProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
+  const renameProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; const normalizedName = normalizeProjectDisplayName(nextName.trim()); await withSaving(async () => { setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: normalizedName } : p)); if (cloudEnabled) { const result = await supabase.from('projects').update({ name: normalizedName }).eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } }); };
   const updateProjectMeta = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
-  const setActiveProject = async (projectId: string) => await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ is_active: false }).neq('id', projectId), await supabase.from('projects').update({ is_active: true }).eq('id', projectId), await refreshCloudData()) : (setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId }))), setCurrentProjectId(projectId)));
+  const setActiveProject = async (projectId: string) => await withSaving(async () => {
+    setCurrentProjectId(projectId);
+    writeLocalCurrentProjectId(projectId);
+    setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId })));
+    if (cloudEnabled) {
+      await supabase.from('projects').update({ is_active: false }).neq('id', projectId);
+      const result = await supabase.from('projects').update({ is_active: true }).eq('id', projectId);
+      if (result.error) throw result.error;
+      await refreshCloudData();
+    }
+  });
   const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase.from('checklists').delete().eq('project_id', projectId); await supabase.from('nonconformances').delete().eq('project_id', projectId); await supabase.from('trial_sections').delete().eq('project_id', projectId); await supabase.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => { const next = createDefaultChecklist(templateKey); return { ...next, location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval, items: fillChecklistTeamNames(next.items) }; });
