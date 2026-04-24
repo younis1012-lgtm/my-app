@@ -396,7 +396,8 @@ export default function Page() {
 
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
-    const template = checklistTemplates[normalizeChecklistTemplateKey(checklistForm.templateKey)] as any;
+    const templateKey = normalizeChecklistTemplateKey(checklistForm.templateKey);
+    const template = checklistTemplates[templateKey] as any;
     const title = checklistForm.title || template.title || 'רשימת תיוג';
     const procedureNo = template.procedureNo || '051.21.01';
     const edition = template.edition || 'א׳';
@@ -404,32 +405,96 @@ export default function Page() {
     const defaultProjectName = projectName;
     const contractor = checklistForm.contractor || '';
     const location = checklistForm.location || '';
+    const titleText = `${title} ${template.label ?? ''} ${template.category ?? ''}`;
+    const isBaseCourse = /מצע|מצעים/.test(titleText);
+    const isPainting = /צבע/.test(titleText);
+
+    const renderChecklistRows = (columns: 'source' | 'system' = 'source') => {
+      if (columns === 'system') {
+        return `<table class="check-table">
+          <thead>
+            <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+            <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
+          </thead>
+          <tbody>
+            ${items.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+          </tbody>
+        </table>`;
+      }
+      return `<table class="check-table">
+        <thead>
+          <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+          <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+    };
+
+    if (isBaseCourse) {
+      return `<table class="doc-header">
+        <tbody>
+          <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+          <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
+        </tbody>
+      </table>
+      <table class="source-meta">
+        <tbody>
+          <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
+          <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank('', 22)}</td></tr>
+          <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך / היסט / לחתך</th></tr>
+          <tr><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
+          <tr><th>מקור החומר</th><th colspan="2">תאור חומר המילוי</th><th colspan="2">מיון החומר</th></tr>
+          <tr><td>${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td></tr>
+        </tbody>
+      </table>
+      ${renderChecklistRows('source')}`;
+    }
+
+    if (isPainting) {
+      return `<table class="doc-header">
+        <tbody>
+          <tr><td>מספר הליך:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+          <tr><td>${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
+        </tbody>
+      </table>
+      <table class="source-meta">
+        <tbody>
+          <tr><th>חוזה מס׳</th><th>שם פרויקט</th><th>כביש מס׳:</th><th colspan="2">מספר רשימת תיוג</th></tr>
+          <tr><td>${valueOrBlank('', 22)}</td><td>${safeText(defaultProjectName)}</td><td>${safeText(location)}</td><td colspan="2">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>תאריך מתן העבודה:</th><th>יום / לילה</th><th>מק״מ / חתך</th><th>עד ק״מ / חתך</th><th></th></tr>
+          <tr><td>${valueOrBlank(checklistForm.date, 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
+          <tr><th>ניהול פרויקט</th><td>${valueOrBlank('', 22)}</td><th>שם קבלן:</th><td colspan="2">${safeText(contractor)}</td></tr>
+          <tr><th>שם קבלן:</th><td>${safeText(contractor)}</td><th>שטח צביעה יומי (מ״ר):</th><td colspan="2">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>קבלן משנה:</th><td>${valueOrBlank('', 22)}</td><th>תחילת קטע יומי (ק״מ / חתך):</th><td colspan="2">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>קבלן משנה לעבודות צבע:</th><td>${valueOrBlank('', 22)}</td><th>סוף קטע יומי (ק״מ / חתך):</th><td colspan="2">${valueOrBlank('', 22)}</td></tr>
+        </tbody>
+      </table>
+      <table class="approval-table">
+        <thead><tr><th>תאור העבודה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead>
+        <tbody>
+          <tr><td>אישור מוקדם לצורך העבודה עפ״י נוהל 33.13</td><td>בקרת איכות</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
+          <tr><td>שלמות השינויים בגוף המסמך</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
+          <tr><td>אישור מנהל הבטחת איכות</td><td>מנהל הבטחת איכות</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
+        </tbody>
+      </table>
+      ${renderChecklistRows('system')}`;
+    }
 
     return `<table class="doc-header">
       <tbody>
-        <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-        <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
+        <tr><td>מספר הליך:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td>${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
       </tbody>
     </table>
     <table class="source-meta">
       <tbody>
         <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
         <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank('', 22)}</td></tr>
-        <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך / היסט / לחתך</th></tr>
-        <tr><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
-        <tr><th>מקור החומר</th><th colspan="2">תאור חומר המילוי</th><th colspan="2">מיון החומר</th></tr>
-        <tr><td>${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td></tr>
       </tbody>
     </table>
-    <table class="check-table">
-      <thead>
-        <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-        <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
-      </thead>
-      <tbody>
-        ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
-      </tbody>
-    </table>`;
+    ${renderChecklistRows('source')}`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
@@ -484,7 +549,7 @@ export default function Page() {
       : section === 'trialSections' ? trialSectionExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}</body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}</body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
