@@ -11,8 +11,8 @@ import { ChecklistsSection } from './components/ChecklistsSection';
 import { NonconformancesSection } from './components/NonconformancesSection';
 import { TrialSectionsSection } from './components/TrialSectionsSection';
 import { PreliminarySection } from './components/PreliminarySection';
-import { isSupabaseConfigured, supabase } from './lib/supabaseClient';
 
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 const STORAGE_KEY = 'yk-quality-stage4-multifile';
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
