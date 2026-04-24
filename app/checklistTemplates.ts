@@ -13,53 +13,80 @@ export interface ChecklistItem {
   status: string;
 }
 
+export interface ChecklistTemplate {
+  label: string;
+  title: string;
+  category: string;
+  items: ChecklistItem[];
+}
+
 // ==== TEMPLATES ====
 
-export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistItem[]> = {
-  general: [
-    {
-      id: "1",
-      description: "בדיקה כללית",
-      responsible: "בקרת איכות",
-      status: "לא נבדק",
-    },
-  ],
+export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate> = {
+  general: {
+    label: "כללי",
+    title: "רשימת תיוג כללית",
+    category: "כללי",
+    items: [
+      {
+        id: "1",
+        description: "בדיקה כללית",
+        responsible: "בקרת איכות",
+        status: "לא נבדק",
+      },
+    ],
+  },
 
-  asphaltWorks: [
-    {
-      id: "1",
-      description: "בדיקת שכבת אספלט",
-      responsible: "בקרת איכות",
-      status: "לא נבדק",
-    },
-  ],
+  asphaltWorks: {
+    label: "עבודות אספלט",
+    title: "רשימת תיוג לעבודות אספלט",
+    category: "אספלט",
+    items: [
+      {
+        id: "1",
+        description: "בדיקת שכבת אספלט",
+        responsible: "בקרת איכות",
+        status: "לא נבדק",
+      },
+    ],
+  },
 
-  drainagePiping: [
-    {
-      id: "1",
-      description: "בדיקת צנרת ניקוז",
-      responsible: "בקרת איכות",
-      status: "לא נבדק",
-    },
-  ],
+  drainagePiping: {
+    label: "צנרת ניקוז",
+    title: "רשימת תיוג לצנרת ניקוז",
+    category: "ניקוז",
+    items: [
+      {
+        id: "1",
+        description: "בדיקת צנרת ניקוז",
+        responsible: "בקרת איכות",
+        status: "לא נבדק",
+      },
+    ],
+  },
 
-  painting: [
-    {
-      id: "1",
-      description: "אישור חומר הצבע והגוון",
-      responsible: "בקרת איכות",
-      status: "לא נבדק",
-    },
-    {
-      id: "2",
-      description: "בדיקת הכנת השטח",
-      responsible: "בקרת איכות",
-      status: "לא נבדק",
-    },
-  ],
+  painting: {
+    label: "צביעה",
+    title: "רשימת תיוג לעבודות צבע",
+    category: "גמר",
+    items: [
+      {
+        id: "1",
+        description: "אישור חומר הצבע והגוון",
+        responsible: "בקרת איכות",
+        status: "לא נבדק",
+      },
+      {
+        id: "2",
+        description: "בדיקת הכנת השטח",
+        responsible: "בקרת איכות",
+        status: "לא נבדק",
+      },
+    ],
+  },
 };
 
-// ==== FIX CRASH FUNCTION ====
+// ==== SAFE KEY ====
 
 export function normalizeChecklistTemplateKey(
   key: string | undefined | null
@@ -80,7 +107,7 @@ export function buildChecklistItemsFromTemplate(
 ): ChecklistItem[] {
   const safeKey = normalizeChecklistTemplateKey(templateKey);
 
-  return checklistTemplates[safeKey].map((item) => ({
+  return checklistTemplates[safeKey].items.map((item) => ({
     ...item,
     id:
       typeof crypto !== "undefined" && crypto.randomUUID
@@ -88,4 +115,3 @@ export function buildChecklistItemsFromTemplate(
         : `${item.id}-${Date.now()}`,
   }));
 }
-export const defaultProjects: string[] = [];
