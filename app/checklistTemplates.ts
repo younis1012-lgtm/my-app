@@ -11,6 +11,9 @@ export interface ChecklistItem {
   description: string;
   responsible: string;
   status: string;
+  notes: string;
+  inspector: string;
+  executionDate: string;
 }
 
 export interface ChecklistTemplate {
@@ -20,6 +23,23 @@ export interface ChecklistTemplate {
   items: ChecklistItem[];
 }
 
+// ==== HELPERS ====
+
+const createItem = (
+  id: string,
+  description: string,
+  responsible = "בקרת איכות",
+  status = "לא נבדק"
+): ChecklistItem => ({
+  id,
+  description,
+  responsible,
+  status,
+  notes: "",
+  inspector: "",
+  executionDate: "",
+});
+
 // ==== TEMPLATES ====
 
 export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate> = {
@@ -28,12 +48,7 @@ export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate>
     title: "רשימת תיוג כללית",
     category: "כללי",
     items: [
-      {
-        id: "1",
-        description: "בדיקה כללית",
-        responsible: "בקרת איכות",
-        status: "לא נבדק",
-      },
+      createItem("1", "בדיקה כללית"),
     ],
   },
 
@@ -42,12 +57,12 @@ export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate>
     title: "רשימת תיוג לעבודות אספלט",
     category: "אספלט",
     items: [
-      {
-        id: "1",
-        description: "בדיקת שכבת אספלט",
-        responsible: "בקרת איכות",
-        status: "לא נבדק",
-      },
+      createItem("1", "אישור תכנית העבודה לפני ביצוע"),
+      createItem("2", "בדיקת ניקיון פני השטח לפני פיזור"),
+      createItem("3", "בדיקת טמפרטורת התערובת בעת פריקה"),
+      createItem("4", "בדיקת עובי שכבת האספלט"),
+      createItem("5", "בדיקת הידוק וגימור פני השטח"),
+      createItem("6", "אישור סופי לאחר ביצוע"),
     ],
   },
 
@@ -56,12 +71,12 @@ export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate>
     title: "רשימת תיוג לצנרת ניקוז",
     category: "ניקוז",
     items: [
-      {
-        id: "1",
-        description: "בדיקת צנרת ניקוז",
-        responsible: "בקרת איכות",
-        status: "לא נבדק",
-      },
+      createItem("1", "אישור חומר/סוג הצינור לפני ביצוע"),
+      createItem("2", "בדיקת תוואי וחפירה"),
+      createItem("3", "בדיקת מצע ותחתית"),
+      createItem("4", "הנחת צנרת ושוחות"),
+      createItem("5", "בדיקת שיפועים ואטימות"),
+      createItem("6", "כיסוי ואישור סופי"),
     ],
   },
 
@@ -70,18 +85,12 @@ export const checklistTemplates: Record<ChecklistTemplateKey, ChecklistTemplate>
     title: "רשימת תיוג לעבודות צבע",
     category: "גמר",
     items: [
-      {
-        id: "1",
-        description: "אישור חומר הצבע והגוון",
-        responsible: "בקרת איכות",
-        status: "לא נבדק",
-      },
-      {
-        id: "2",
-        description: "בדיקת הכנת השטח",
-        responsible: "בקרת איכות",
-        status: "לא נבדק",
-      },
+      createItem("1", "אישור חומר הצבע והגוון"),
+      createItem("2", "בדיקת הכנת השטח"),
+      createItem("3", "בדיקת שכבת יסוד"),
+      createItem("4", "בדיקת שכבות צבע וגמר"),
+      createItem("5", "בדיקת תיקונים וניקיון"),
+      createItem("6", "אישור סופי"),
     ],
   },
 };
@@ -107,11 +116,16 @@ export function buildChecklistItemsFromTemplate(
 ): ChecklistItem[] {
   const safeKey = normalizeChecklistTemplateKey(templateKey);
 
-  return checklistTemplates[safeKey].items.map((item) => ({
-    ...item,
+  return checklistTemplates[safeKey].items.map((item, index) => ({
     id:
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
-        : `${item.id}-${Date.now()}`,
+        : `${safeKey}-${item.id}-${Date.now()}-${index}`,
+    description: item.description ?? "",
+    responsible: item.responsible ?? "בקרת איכות",
+    status: item.status ?? "לא נבדק",
+    notes: item.notes ?? "",
+    inspector: item.inspector ?? "",
+    executionDate: item.executionDate ?? "",
   }));
 }
