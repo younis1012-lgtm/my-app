@@ -360,18 +360,16 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:18px;color:#0f172a;font-size:11px}
-    h1{font-size:0;margin:0;height:0;overflow:hidden}
-    h2{font-size:14px;margin:14px 0 5px;border-bottom:2px solid #0f172a;padding-bottom:4px;text-align:right}
-    table{border-collapse:collapse;width:100%;margin:6px 0;table-layout:fixed}
-    th,td{border:1px solid #111827;padding:5px;vertical-align:middle;text-align:center;word-break:break-word}
-    th{background:#eef3f8;font-weight:700}
-    .meta{display:none}
-    .blank-cell{min-height:22px}.fill{min-height:24px;background:#fff}.large{min-height:50px;background:#fff}
-    .procedure-table td{height:28px}.procedure-table .title{font-size:20px;font-weight:800}.procedure-table .empty{background:#fff}
-    .work-table td{height:30px}.work-table th{background:#fff;font-weight:700}.work-table .label{font-weight:700;text-align:right;background:#fff}
-    .section-table th{width:auto;background:#eef3f8}.section-table td{min-height:30px}.signature td{height:36px}
-    @media print{@page{size:A4 portrait;margin:10mm} button{display:none} body{padding:0;font-size:10px} h2{font-size:12px;margin:10px 0 4px} th,td{padding:4px}.procedure-table .title{font-size:18px}}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:14px;color:#0f172a;font-size:11px}
+    h1{display:none}
+    h2{font-size:13px;margin:8px 0 4px;border-bottom:2px solid #111827;padding-bottom:3px;text-align:right}
+    table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed}
+    th,td{border:1px solid #111827;padding:4px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
+    th{background:#fff;font-weight:700}
+    .meta{display:none}.blank-cell{min-height:20px}.header-title{font-size:19px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
+    .doc-header td{height:26px}.source-meta td{height:26px}.check-table td{height:28px}.check-table th{height:26px;background:#fff}
+    .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:36px}
+    @media print{@page{size:A4 portrait;margin:10mm} button{display:none} body{padding:0;font-size:10px}.header-title{font-size:18px} th,td{padding:3px}}
   `;
 
   const recordTitleForExport = () => {
@@ -396,52 +394,42 @@ export default function Page() {
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
   };
 
-  const checklistWorkMetrics = (label: string) => {
-    const clean = String(label ?? '').trim();
-    const common = {
-      first: `נתון ביצוע לעבודות ${clean}:`,
-      second: `כמות ביצוע יומית לעבודות ${clean}:`,
-      third: `הובלת קטע יומי לעבודות ${clean}:`,
-    };
-
-    if (clean.includes('קרצוף')) return { first: '${safeText(metrics.first)}', second: '${safeText(metrics.second)}', third: '${safeText(metrics.third)}' };
-    if (clean.includes('מצע')) return { first: 'עובי שכבת המצע (ס״מ):', second: 'שטח פיזור יומי (מ״ר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('אבני שפה') || clean.includes('אבן שפה')) return { first: 'סוג/מידות אבן השפה:', second: 'אורך ביצוע יומי (מטר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('אספלט')) return { first: 'עובי שכבת אספלט (ס״מ):', second: 'שטח סלילה יומי (מ״ר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('מעקות')) return { first: 'סוג המעקה:', second: 'אורך התקנה יומי (מטר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('צבע')) return { first: 'סוג/גוון צבע:', second: 'שטח צביעה יומי (מ״ר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('ניקוז') || clean.includes('צנרת')) return { first: 'קוטר/סוג הצנרת:', second: 'אורך הנחה יומי (מטר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('שילוט') || clean.includes('תמרור')) return { first: 'סוג תמרור/שלט:', second: 'כמות התקנה יומית:', third: '${safeText(metrics.third)}' };
-    if (clean.includes('ריצוף')) return { first: 'סוג אבן/ריצוף:', second: 'שטח ביצוע יומי (מ״ר):', third: '${safeText(metrics.third)}' };
-    if (clean.includes('חפירה')) return { first: 'עומק חפירה (מ׳):', second: 'נפח חפירה יומי (מ״ק):', third: '${safeText(metrics.third)}' };
-    return common;
-  };
-
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
-    const templateLabel = checklistTemplateLabel(checklistForm.templateKey);
-    const title = checklistForm.title || checklistTemplates[normalizeChecklistTemplateKey(checklistForm.templateKey)].title || 'רשימת תיוג';
-    const metrics = checklistWorkMetrics(templateLabel);
-    return `<table class="procedure-table">
+    const template = checklistTemplates[normalizeChecklistTemplateKey(checklistForm.templateKey)] as any;
+    const title = checklistForm.title || template.title || 'רשימת תיוג';
+    const procedureNo = template.procedureNo || '051.21.01';
+    const edition = template.edition || 'א׳';
+    const procedureDate = template.procedureDate || '20/05/2010';
+    const defaultProjectName = projectName;
+    const contractor = checklistForm.contractor || '';
+    const location = checklistForm.location || '';
+
+    return `<table class="doc-header">
       <tbody>
-        <tr><td class="empty" colspan="4">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="4">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-        <tr><td class="empty" colspan="4">&nbsp;</td><td colspan="2">051.21.01</td><td colspan="4" class="title">${safeText(title)}</td><td>א׳</td><td>20/05/2010</td></tr>
+        <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
       </tbody>
     </table>
-    <table class="work-table">
+    <table class="source-meta">
       <tbody>
-        <tr><td colspan="2">&nbsp;</td><th colspan="2">כביש מס׳:</th><td colspan="3">${valueOrBlank('', 26)}</td><th colspan="2">שם פרויקט:</th><td colspan="3">${safeText(projectName)}</td></tr>
-        <tr><td colspan="2">&nbsp;</td><th colspan="2">תאריך מתן העבודה:</th><td>יום / לילה</td><td>מק״מ / חתך</td><td>עד ק״מ / חתך</td><td colspan="5">${valueOrBlank(checklistForm.date, 26)}</td></tr>
-        <tr><th colspan="2">ניהול פרויקט</th><td colspan="4">${valueOrBlank('', 30)}</td><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td></tr>
-        <tr><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td><td colspan="6" class="label">${safeText(metrics.first)}</td></tr>
-        <tr><th colspan="2">קבלן משנה:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">${safeText(metrics.second)}</td></tr>
-        <tr><th colspan="2">קבלן משנה לעבודות ${safeText(templateLabel)}:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">${safeText(metrics.third)}</td></tr>
+        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
+        <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank('', 22)}</td></tr>
+        <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך / היסט / לחתך</th></tr>
+        <tr><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
+        <tr><th>מקור החומר</th><th colspan="2">תאור חומר המילוי</th><th colspan="2">מיון החומר</th></tr>
+        <tr><td>${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td></tr>
       </tbody>
     </table>
-    <h2>סעיפי בדיקה</h2>
-    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>
-      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 38)}</td><td>${valueOrBlank(item.responsible, 38)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.inspector, 38)}</td><td>${valueOrBlank(item.executionDate, 38)}</td><td>${valueOrBlank(item.notes, 46)}</td></tr>`).join('')}
-    </tbody></table>`;
+    <table class="check-table">
+      <thead>
+        <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+        <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+      </tbody>
+    </table>`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
