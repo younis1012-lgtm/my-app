@@ -408,7 +408,7 @@ export default function Page() {
       ['הערות', checklistForm.notes, 70],
     ])}
     <h2>סעיפי בדיקה</h2>
-    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>בודק</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
+    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>חתימה</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
       ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 46)}</td><td>${valueOrBlank(item.responsible, 46)}</td><td>${valueOrBlank(item.status, 46)}</td><td>${valueOrBlank(item.inspector, 46)}</td><td>${valueOrBlank(item.executionDate, 46)}</td><td>${valueOrBlank(item.notes, 70)}</td></tr>`).join('')}
     </tbody></table>
     `;
