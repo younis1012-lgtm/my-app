@@ -88,3 +88,4 @@ export function buildChecklistItemsFromTemplate(
         : `${item.id}-${Date.now()}`,
   }));
 }
+export const defaultProjects: string[] = [];

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, PersistedData } from './types';
-import { buildChecklistItemsFromTemplate, checklistTemplates, defaultProjects, normalizeChecklistTemplateKey } from './checklistTemplates';
+import { buildChecklistItemsFromTemplate, checklistTemplates, normalizeChecklistTemplateKey } from './checklistTemplates';
 import { styles } from './components/common';
 import { SavedRecordsSidebar } from './components/SavedRecordsSidebar';
 import { HomeSection } from './components/HomeSection';
