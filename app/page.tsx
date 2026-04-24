@@ -466,7 +466,7 @@ export default function Page() {
       : section === 'trialSections' ? trialSectionExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)} | הופק: ${safeText(nowLocal())}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
