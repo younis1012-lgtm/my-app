@@ -131,7 +131,7 @@ const validateApproval = (approval: ApprovalFlow) => {
 const emptyChecklistItem = (id: string): ChecklistItem => ({ id, description: '', responsible: '', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' });
 const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistItem[] => Array.isArray(items) ? items.map((item, index) => ({ id: item?.id ?? `${Date.now()}-${index}`, description: item?.description ?? '', responsible: item?.responsible ?? '', status: item?.status ?? 'לא נבדק', notes: item?.notes ?? '', inspector: item?.inspector ?? '', executionDate: item?.executionDate ?? '' })) : [];
 
-const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ checklistNo: undefined, templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
+const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
 const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
 const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', spec: '', result: '', approvedBy: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
 const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({ subtype, title: subtype === 'suppliers' ? 'בקרה מקדימה - ספקים' : subtype === 'subcontractors' ? 'בקרה מקדימה - קבלנים' : 'בקרה מקדימה - חומרים', date: '', status: 'טיוטה', supplier: subtype === 'suppliers' ? { supplierName: '', suppliedMaterial: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, subcontractor: subtype === 'subcontractors' ? { subcontractorName: '', field: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, material: subtype === 'materials' ? { materialName: '', source: '', usage: '', certificateNo: '', notes: '' } : undefined, approval: createDefaultApproval() });
@@ -161,10 +161,6 @@ async function saveWithApprovalFallback(table: string, payload: Record<string, a
   if (result.error && isMissingColumnError(result.error, 'images')) {
     const { images, ...withoutImages } = payload;
     result = mode === 'insert' ? await supabase.from(table).insert(withoutImages) : await supabase.from(table).update(withoutImages).eq('id', id);
-  }
-  if (result.error && isMissingColumnError(result.error, 'checklist_no')) {
-    const { checklist_no, ...withoutChecklistNo } = payload;
-    result = mode === 'insert' ? await supabase.from(table).insert(withoutChecklistNo) : await supabase.from(table).update(withoutChecklistNo).eq('id', id);
   }
   if (result.error) throw new Error(errorText(result.error) || 'שגיאה בשמירה מול Supabase');
 }
@@ -202,7 +198,7 @@ export default function Page() {
       const parsed = JSON.parse(raw) as PersistedData;
       setProjects(parsed.projects?.length ? parsed.projects : defaultProjects);
       setCurrentProjectId(parsed.currentProjectId ?? parsed.projects?.[0]?.id ?? defaultProjects[0]?.id ?? null);
-      setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, checklistNo: Number((item as any).checklistNo ?? (item as any).checklist_no) || undefined, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
+      setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedPreliminary((parsed.savedPreliminary ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
@@ -217,7 +213,7 @@ export default function Page() {
     const storedProjectId = readLocalCurrentProjectId();
     const active = (storedProjectId ? mappedProjects.find((p) => p.id === storedProjectId) : undefined) ?? mappedProjects.find((p) => p.isActive) ?? mappedProjects[0] ?? defaultProjects[0];
     setCurrentProjectId(active?.id ?? null);
-    setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, checklistNo: Number(row.checklist_no) || undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, checklistNo: row.checklist_no ?? undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedPreliminary((preliminaryRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, subtype: row.subtype, title: row.title ?? '', date: row.date ?? '', status: row.status ?? 'טיוטה', supplier: row.supplier ?? undefined, subcontractor: row.subcontractor ?? undefined, material: row.material ?? undefined, approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
@@ -300,19 +296,6 @@ export default function Page() {
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
-  const getNextChecklistNo = (projectId: string | null = currentProjectId) => {
-    if (!projectId) return 1;
-    return savedChecklists
-      .filter((item) => item.projectId === projectId)
-      .reduce((max, item) => Math.max(max, Number((item as any).checklistNo ?? 0)), 0) + 1;
-  };
-
-  const getCurrentChecklistNo = () => {
-    const existingNo = editingChecklistId
-      ? savedChecklists.find((item) => item.id === editingChecklistId)?.checklistNo
-      : undefined;
-    return Number(checklistForm.checklistNo ?? existingNo) || getNextChecklistNo();
-  };
 
   useEffect(() => {
     if (!loaded || section !== 'checklists') return;
@@ -332,7 +315,7 @@ export default function Page() {
     setEditingChecklistId(null);
     const next = createDefaultChecklist(templateKey);
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    setChecklistForm({ ...next, checklistNo: getNextChecklistNo(), contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
+    setChecklistForm({ ...next, contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
   };
   const resetNonconformanceEditor = () => { setEditingNonconformanceId(null); setNonconformanceForm(createDefaultNonconformance()); };
   const resetTrialSectionEditor = () => { setEditingTrialSectionId(null); setTrialSectionForm(createDefaultTrialSection()); };
@@ -378,7 +361,6 @@ export default function Page() {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     return {
       ...next,
-      checklistNo: Number((prev as any).checklistNo) || getNextChecklistNo(),
       location: prev.location,
       date: prev.date,
       contractor: !prev.contractor || prev.contractor.includes('פלסי הגליל') ? profile?.contractor || '' : prev.contractor,
@@ -391,14 +373,23 @@ export default function Page() {
   const addChecklistItem = () => setChecklistForm((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(crypto.randomUUID())] }));
   const removeChecklistItem = (id: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id) }));
 
+  const getNextChecklistNo = () => {
+    const projectNumbers = savedChecklists
+      .filter((item) => item.projectId === currentProjectId)
+      .map((item) => Number(item.checklistNo ?? 0))
+      .filter((value) => Number.isFinite(value));
+
+    return Math.max(0, ...projectNumbers) + 1;
+  };
+
   const saveChecklist = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!checklistForm.title.trim()) return alert('יש להזין שם רשימת תיוג');
     const validation = validateApproval(checklistForm.approval); if (validation) return alert(validation);
     const id = editingChecklistId ?? crypto.randomUUID();
     const existingChecklistNo = editingChecklistId ? savedChecklists.find((item) => item.id === editingChecklistId)?.checklistNo : undefined;
-    const checklistNo = Number(checklistForm.checklistNo ?? existingChecklistNo) || getNextChecklistNo(currentProjectId);
-    const record: ChecklistRecord = { id, projectId: currentProjectId, ...checklistForm, checklistNo, items: normalizeChecklistItems(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
+    const checklistNo = existingChecklistNo ?? getNextChecklistNo();
+    const record: ChecklistRecord = { id, projectId: currentProjectId, checklistNo, ...checklistForm, items: normalizeChecklistItems(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = { id: record.id, project_id: record.projectId, checklist_no: record.checklistNo, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, approval: record.approval, saved_at: nowIso() };
@@ -410,7 +401,7 @@ export default function Page() {
     });
     resetChecklistForm();
   };
-  const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ checklistNo: record.checklistNo, templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
+  const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
   const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
   const saveNonconformance = async () => {
@@ -528,7 +519,7 @@ export default function Page() {
     const projectManager = profile?.projectManager || '';
     const qaCompany = profile?.qaCompany || '';
     const location = checklistForm.location || '';
-    const checklistNo = getCurrentChecklistNo();
+    const currentChecklistNo = editingChecklistId ? savedChecklists.find((item) => item.id === editingChecklistId)?.checklistNo ?? getNextChecklistNo() : getNextChecklistNo();
     const titleText = `${title} ${template.label ?? ''} ${template.category ?? ''}`;
     const isBaseCourse = /מצע|מצעים/.test(titleText);
     const isPainting = /צבע/.test(titleText);
@@ -566,7 +557,7 @@ export default function Page() {
       <table class="source-meta">
         <tbody>
           <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
-          <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(checklistNo, 22)}</td></tr>
+          <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
           <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך / היסט / לחתך</th></tr>
           <tr><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
           <tr><th>מקור החומר</th><th colspan="2">תאור חומר המילוי</th><th colspan="2">מיון החומר</th></tr>
@@ -586,7 +577,7 @@ export default function Page() {
       <table class="source-meta">
         <tbody>
           <tr><th>חוזה מס׳</th><th>שם פרויקט</th><th>כביש מס׳:</th><th colspan="2">מספר רשימת תיוג</th></tr>
-          <tr><td>${valueOrBlank('', 22)}</td><td>${safeText(defaultProjectName)}</td><td>${safeText(location)}</td><td colspan="2">${valueOrBlank(checklistNo, 22)}</td></tr>
+          <tr><td>${valueOrBlank('', 22)}</td><td>${safeText(defaultProjectName)}</td><td>${safeText(location)}</td><td colspan="2">${valueOrBlank(currentChecklistNo, 22)}</td></tr>
           <tr><th>תאריך מתן העבודה:</th><th>יום / לילה</th><th>מק״מ / חתך</th><th>עד ק״מ / חתך</th><th></th></tr>
           <tr><td>${valueOrBlank(checklistForm.date, 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
           <tr><th>ניהול פרויקט</th><td>${valueOrBlank(projectManager, 22)}</td><th>שם קבלן:</th><td colspan="2">${safeText(contractor)}</td></tr>
@@ -615,7 +606,7 @@ export default function Page() {
     <table class="source-meta">
       <tbody>
         <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
-        <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(checklistNo, 22)}</td></tr>
+        <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
       </tbody>
     </table>
     ${renderChecklistRows('source')}`;
