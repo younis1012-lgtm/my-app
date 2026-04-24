@@ -4,22 +4,19 @@ export const defaultProjects: Project[] = [
   { id: 'default-project', name: 'כביש 781 שפרעם', description: 'פרויקט ברירת מחדל', manager: '', isActive: true, createdAt: new Date().toLocaleString('he-IL') },
 ];
 
-const inferResponsible = (description: string): string => {
-  const text = description.trim();
+const surveyorKeywords = [
+  'סימון', 'מדיד', 'מודד', 'מפלס', 'מפלסים', 'גובה', 'גבהים', 'שיפוע', 'שיפועים',
+  'עומק', 'עובי', 'קו', 'קווים', 'תוואי', 'מיקום', 'מידות', 'as-made', 'AS-MADE', 'קילומטר', 'ק"מ', 'חתך'
+];
 
-  // כל פעולה שקשורה למדידה, סימון, גבהים, שיפועים, עומק, מפלסים או AS-MADE היא באחריות מודד.
-  if (/סימון|מסומן|תוואי|מיקום|מפלס|מפלסים|גבהים|גובה|שיפוע|שיפועים|מדיד|מדידה|מודד|AS\s*-?\s*MADE|As\s*-?\s*Made|עומק|עובי|מידות|קוים|קווים/.test(text)) {
-    return 'מודד';
-  }
-
-  return 'בקרת איכות';
-};
+const responsibilityFor = (description: string) =>
+  surveyorKeywords.some((keyword) => description.includes(keyword)) ? 'מודד' : 'בקרת איכות';
 
 const makeItems = (key: string, descriptions: string[]): ChecklistItem[] =>
   descriptions.map((description, index) => ({
     id: `${key}-${index + 1}`,
     description,
-    responsible: inferResponsible(description),
+    responsible: responsibilityFor(description),
     status: 'לא נבדק',
     notes: '',
     inspector: '',
@@ -161,18 +158,8 @@ export const checklistTemplates = {
   },
 } as const;
 
-export const normalizeChecklistTemplateKey = (key: string | undefined | null): ChecklistTemplateKey => {
-  if (key && Object.prototype.hasOwnProperty.call(checklistTemplates, key)) {
-    return key as ChecklistTemplateKey;
-  }
+export const normalizeChecklistTemplateKey = (key: string | undefined | null): ChecklistTemplateKey =>
+  key && Object.prototype.hasOwnProperty.call(checklistTemplates, key) ? key as ChecklistTemplateKey : 'general';
 
-  return 'general' as ChecklistTemplateKey;
-};
-
-export const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey | string | undefined | null): ChecklistItem[] => {
-  const normalizedKey = normalizeChecklistTemplateKey(templateKey);
-  return checklistTemplates[normalizedKey].items.map((item) => ({
-    ...item,
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${item.id}-${Date.now()}`,
-  }));
-};
+export const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey): ChecklistItem[] =>
+  checklistTemplates[normalizeChecklistTemplateKey(templateKey)].items.map((item) => ({ ...item, id: crypto.randomUUID?.() ?? `${item.id}-${Date.now()}` }));

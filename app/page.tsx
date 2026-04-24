@@ -360,18 +360,18 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:24px;color:#0f172a;font-size:13px}
-    h1{font-size:24px;margin:0 0 14px;text-align:center}
-    h2{font-size:18px;margin:22px 0 8px;border-bottom:2px solid #0f172a;padding-bottom:6px}
-    table{border-collapse:collapse;width:100%;margin:8px 0;table-layout:fixed}
-    th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;text-align:right;word-break:break-word}
-    th{background:#eef3f8;font-weight:700;width:170px}
-    .meta{color:#475569;margin-bottom:16px;text-align:center}
-    .fill{min-height:34px;background:#fff}
-    .large{min-height:88px;background:#fff}
-    .section-table th{width:auto}.section-table td{min-height:38px}
-    .signature td{height:46px}.no-print-note{color:#64748b;font-size:12px;margin-top:8px}
-    @media print{button{display:none} body{padding:12px}}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:18px;color:#0f172a;font-size:11px}
+    h1{font-size:0;margin:0;height:0;overflow:hidden}
+    h2{font-size:14px;margin:14px 0 5px;border-bottom:2px solid #0f172a;padding-bottom:4px;text-align:right}
+    table{border-collapse:collapse;width:100%;margin:6px 0;table-layout:fixed}
+    th,td{border:1px solid #111827;padding:5px;vertical-align:middle;text-align:center;word-break:break-word}
+    th{background:#eef3f8;font-weight:700}
+    .meta{display:none}
+    .blank-cell{min-height:22px}.fill{min-height:24px;background:#fff}.large{min-height:50px;background:#fff}
+    .procedure-table td{height:28px}.procedure-table .title{font-size:20px;font-weight:800}.procedure-table .empty{background:#fff}
+    .work-table td{height:30px}.work-table th{background:#fff;font-weight:700}.work-table .label{font-weight:700;text-align:right;background:#fff}
+    .section-table th{width:auto;background:#eef3f8}.section-table td{min-height:30px}.signature td{height:36px}
+    @media print{@page{size:A4 portrait;margin:10mm} button{display:none} body{padding:0;font-size:10px} h2{font-size:12px;margin:10px 0 4px} th,td{padding:4px}.procedure-table .title{font-size:18px}}
   `;
 
   const recordTitleForExport = () => {
@@ -398,20 +398,28 @@ export default function Page() {
 
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
-    return `${baseRows([
-      ['סוג רשימה', checklistTemplateLabel(checklistForm.templateKey)],
-      ['כותרת', checklistForm.title],
-      ['קטגוריה', checklistForm.category],
-      ['מיקום', checklistForm.location],
-      ['תאריך', checklistForm.date],
-      ['קבלן', checklistForm.contractor],
-      ['הערות', checklistForm.notes, 70],
-    ])}
+    const templateLabel = checklistTemplateLabel(checklistForm.templateKey);
+    const title = checklistForm.title || checklistTemplates[normalizeChecklistTemplateKey(checklistForm.templateKey)].title || 'רשימת תיוג';
+    return `<table class="procedure-table">
+      <tbody>
+        <tr><td class="empty" colspan="4">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="4">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td class="empty" colspan="4">&nbsp;</td><td colspan="2">051.21.01</td><td colspan="4" class="title">${safeText(title)}</td><td>א׳</td><td>20/05/2010</td></tr>
+      </tbody>
+    </table>
+    <table class="work-table">
+      <tbody>
+        <tr><td colspan="2">&nbsp;</td><th colspan="2">כביש מס׳:</th><td colspan="3">${valueOrBlank('', 26)}</td><th colspan="2">שם פרויקט:</th><td colspan="3">${safeText(projectName)}</td></tr>
+        <tr><td colspan="2">&nbsp;</td><th colspan="2">תאריך מתן העבודה:</th><td>יום / לילה</td><td>מק״מ / חתך</td><td>עד ק״מ / חתך</td><td colspan="5">${valueOrBlank(checklistForm.date, 26)}</td></tr>
+        <tr><th colspan="2">ניהול פרויקט</th><td colspan="4">${valueOrBlank('', 30)}</td><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td></tr>
+        <tr><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td><td colspan="6" class="label">עומק הקרצוף (ס״מ):</td></tr>
+        <tr><th colspan="2">קבלן משנה:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">שטח קרצוף יומי (מ״ר):</td></tr>
+        <tr><th colspan="2">קבלן משנה לעבודות ${safeText(templateLabel)}:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">הובלת קטע יומי (ק״מ/חתך):</td></tr>
+      </tbody>
+    </table>
     <h2>סעיפי בדיקה</h2>
-    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>חתימה</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
-      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 46)}</td><td>${valueOrBlank(item.responsible, 46)}</td><td>${valueOrBlank(item.status, 46)}</td><td>${valueOrBlank(item.inspector, 46)}</td><td>${valueOrBlank(item.executionDate, 46)}</td><td>${valueOrBlank(item.notes, 70)}</td></tr>`).join('')}
-    </tbody></table>
-    `;
+    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>
+      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 38)}</td><td>${valueOrBlank(item.responsible, 38)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.inspector, 38)}</td><td>${valueOrBlank(item.executionDate, 38)}</td><td>${valueOrBlank(item.notes, 46)}</td></tr>`).join('')}
+    </tbody></table>`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
@@ -466,7 +474,7 @@ export default function Page() {
       : section === 'trialSections' ? trialSectionExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}</body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
