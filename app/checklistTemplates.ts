@@ -150,18 +150,8 @@ export const checklistTemplates = {
   },
 } as const;
 
-export const normalizeChecklistTemplateKey = (key: string | undefined | null): ChecklistTemplateKey => {
-  if (key && Object.prototype.hasOwnProperty.call(checklistTemplates, key)) {
-    return key as ChecklistTemplateKey;
-  }
+export const normalizeChecklistTemplateKey = (key: string | undefined | null): ChecklistTemplateKey =>
+  key && Object.prototype.hasOwnProperty.call(checklistTemplates, key) ? key : 'general';
 
-  return 'general' as ChecklistTemplateKey;
-};
-
-export const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey | string | undefined | null): ChecklistItem[] => {
-  const normalizedKey = normalizeChecklistTemplateKey(templateKey);
-  return checklistTemplates[normalizedKey].items.map((item) => ({
-    ...item,
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${item.id}-${Date.now()}`,
-  }));
-};
+export const buildChecklistItemsFromTemplate = (templateKey: ChecklistTemplateKey): ChecklistItem[] =>
+  checklistTemplates[normalizeChecklistTemplateKey(templateKey)].items.map((item) => ({ ...item, id: crypto.randomUUID?.() ?? `${item.id}-${Date.now()}` }));

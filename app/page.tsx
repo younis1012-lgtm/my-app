@@ -360,35 +360,18 @@ export default function Page() {
   };
 
   const exportStyles = `
-    @page{size:A4 landscape;margin:10mm}
-    *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;direction:rtl;color:#000;font-size:12px;margin:0;padding:12px;background:#fff}
-    .document{width:100%;max-width:1120px;margin:0 auto}
-    table{border-collapse:collapse;width:100%;table-layout:fixed;margin:0}
-    th,td{border:1px solid #000;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;color:#000}
-    th{font-weight:700;background:#fff}
-    .top-table{border:2px solid #000;margin-bottom:14px}
-    .top-table td,.top-table th{border:1px solid #000;height:34px;font-size:12px}
-    .top-title{font-size:24px;font-weight:900;line-height:1.2}
-    .field-label{font-weight:700;background:#fff}
-    .field-value{font-weight:600;background:#fff}
-    .wide-empty{height:34px;background:#fff}
-    .approval-table{margin-top:18px;border:2px solid #000}
-    .approval-table th{height:34px;font-weight:800}
-    .approval-table td{height:44px;text-align:right;padding:6px 8px}
-    .approval-title{font-weight:900;text-align:right;margin:10px 0 5px;font-size:13px}
-    .section-title{font-weight:900;text-align:right;margin:14px 0 5px;font-size:15px}
-    .checklist-table{border:2px solid #000;margin-top:8px}
-    .checklist-table th{height:34px;font-weight:800;background:#fff}
-    .checklist-table td{height:38px;text-align:center}
-    .desc-cell{text-align:right!important;font-weight:600}
-    .blank-cell{display:block;min-height:24px;width:100%}
-    .meta-table{margin-bottom:14px;border:2px solid #000}
-    .meta-table td,.meta-table th{height:32px}
-    h1,.meta,.no-print-note{display:none}
-    h2{font-size:15px;margin:14px 0 5px;border:0;padding:0;text-align:right}
-    .signature{margin-top:12px;border:2px solid #000}.signature td{height:44px}.signature th{background:#fff}
-    @media print{body{padding:0}.document{max-width:none}}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:24px;color:#0f172a;font-size:13px}
+    h1{font-size:24px;margin:0 0 14px;text-align:center}
+    h2{font-size:18px;margin:22px 0 8px;border-bottom:2px solid #0f172a;padding-bottom:6px}
+    table{border-collapse:collapse;width:100%;margin:8px 0;table-layout:fixed}
+    th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;text-align:right;word-break:break-word}
+    th{background:#eef3f8;font-weight:700;width:170px}
+    .meta{color:#475569;margin-bottom:16px;text-align:center}
+    .fill{min-height:34px;background:#fff}
+    .large{min-height:88px;background:#fff}
+    .section-table th{width:auto}.section-table td{min-height:38px}
+    .signature td{height:46px}.no-print-note{color:#64748b;font-size:12px;margin-top:8px}
+    @media print{button{display:none} body{padding:12px}}
   `;
 
   const recordTitleForExport = () => {
@@ -415,101 +398,20 @@ export default function Page() {
 
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
-    const procedureNo = checklistForm.templateKey === 'milling' ? '051.21.01' : '';
-    return `<div class="document">
-      <table class="top-table">
-        <colgroup>
-          <col style="width:24%"/><col style="width:52%"/><col style="width:8%"/><col style="width:16%"/>
-        </colgroup>
-        <tbody>
-          <tr>
-            <td class="field-label">מספר הליך:</td>
-            <td rowspan="2" class="top-title">${safeText(checklistForm.title || checklistTemplateLabel(checklistForm.templateKey))}</td>
-            <td class="field-label">מהדורה:</td>
-            <td class="field-label">תאריך:</td>
-          </tr>
-          <tr>
-            <td class="field-value">${safeText(procedureNo)}</td>
-            <td class="field-value">א׳</td>
-            <td class="field-value"></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <table class="meta-table">
-        <colgroup>
-          <col style="width:22%"/><col style="width:22%"/><col style="width:10%"/><col style="width:11%"/><col style="width:11%"/><col style="width:24%"/>
-        </colgroup>
-        <tbody>
-          <tr>
-            <th>חוזה מס׳</th>
-            <th>שם פרויקט</th>
-            <th colspan="2">כביש מס׳:</th>
-            <th colspan="2"></th>
-          </tr>
-          <tr>
-            <td></td>
-            <td>${safeText(projectName)}</td>
-            <td colspan="2"></td>
-            <td class="field-label">תאריך מנה העבודה:</td>
-            <td></td>
-          </tr>
-          <tr>
-            <td></td>
-            <td></td>
-            <td>יום / לילה</td>
-            <td></td>
-            <td>מק״מ / חתך</td>
-            <td>עד ק״מ / חתך</td>
-          </tr>
-          <tr>
-            <th>ניהול פרויקט</th>
-            <td colspan="2"></td>
-            <td colspan="3">עומק הקרצוף (ס״מ):</td>
-          </tr>
-          <tr>
-            <th>שם קבלן:</th>
-            <td colspan="2">${safeText(checklistForm.contractor)}</td>
-            <td colspan="3">שטח קרצוף יומי (מ״ר):</td>
-          </tr>
-          <tr>
-            <th>קבלן משנה:</th>
-            <td colspan="2"></td>
-            <td colspan="3">הובלת קטע יומי (ק״מ / חתך):</td>
-          </tr>
-          <tr>
-            <th>קבלן משנה לעבודות ${safeText(checklistForm.category || checklistTemplateLabel(checklistForm.templateKey))}:</th>
-            <td colspan="2"></td>
-            <td colspan="3">סוף קטע יומי (ק״מ / חתך):</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <table class="approval-table">
-        <colgroup>
-          <col style="width:26%"/><col style="width:15%"/><col style="width:16%"/><col style="width:16%"/><col style="width:13%"/><col style="width:14%"/>
-        </colgroup>
-        <thead>
-          <tr><th>תאור העבודה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
-        </thead>
-        <tbody>
-          <tr><td class="desc-cell">אישור מוקדם לצורך העבודה עפ״י נוהל 33.13</td><td>בקרת איכות</td><td></td><td></td><td></td><td></td></tr>
-          <tr><td class="desc-cell">שלמות השינויים בגוף המסמך</td><td></td><td></td><td></td><td></td><td></td></tr>
-          <tr><td class="desc-cell">אישור מנהל הבטחת איכות</td><td>מנהל הבטחת איכות</td><td></td><td></td><td></td><td></td></tr>
-        </tbody>
-      </table>
-
-      <div class="section-title">סעיפי בדיקה</div>
-      <table class="checklist-table">
-        <colgroup>
-          <col style="width:4%"/><col style="width:42%"/><col style="width:13%"/><col style="width:10%"/><col style="width:11%"/><col style="width:10%"/><col style="width:10%"/>
-        </colgroup>
-        <thead><tr><th>מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>תאריך ביצוע</th><th>חתימות</th><th>הערות / ממצאים</th></tr></thead>
-        <tbody>
-          ${items.map((item, index) => `<tr><td>${index + 1}</td><td class="desc-cell">${valueOrBlank(item.description, 36)}</td><td>${valueOrBlank(item.responsible, 36)}</td><td>${valueOrBlank(item.status, 36)}</td><td>${valueOrBlank(item.executionDate, 36)}</td><td>${valueOrBlank(item.inspector, 36)}</td><td>${valueOrBlank(item.notes, 36)}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+    return `${baseRows([
+      ['סוג רשימה', checklistTemplateLabel(checklistForm.templateKey)],
+      ['כותרת', checklistForm.title],
+      ['קטגוריה', checklistForm.category],
+      ['מיקום', checklistForm.location],
+      ['תאריך', checklistForm.date],
+      ['קבלן', checklistForm.contractor],
+      ['הערות', checklistForm.notes, 70],
+    ])}
+    <h2>סעיפי בדיקה</h2>
+    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>בודק</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
+      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 46)}</td><td>${valueOrBlank(item.responsible, 46)}</td><td>${valueOrBlank(item.status, 46)}</td><td>${valueOrBlank(item.inspector, 46)}</td><td>${valueOrBlank(item.executionDate, 46)}</td><td>${valueOrBlank(item.notes, 70)}</td></tr>`).join('')}
+    </tbody></table>
+    `;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
@@ -564,7 +466,7 @@ export default function Page() {
       : section === 'trialSections' ? trialSectionExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body>${section === 'checklists' ? body : `<h1>${safeText(title)}</h1>${body}`}<div class="no-print-note"></div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)} | הופק: ${safeText(nowLocal())}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
