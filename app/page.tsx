@@ -360,18 +360,22 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:24px;color:#0f172a;font-size:13px}
-    h1{font-size:24px;margin:0 0 14px;text-align:center}
-    h2{font-size:18px;margin:22px 0 8px;border-bottom:2px solid #0f172a;padding-bottom:6px}
-    table{border-collapse:collapse;width:100%;margin:8px 0;table-layout:fixed}
-    th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;text-align:right;word-break:break-word}
-    th{background:#eef3f8;font-weight:700;width:170px}
-    .meta{color:#475569;margin-bottom:16px;text-align:center}
-    .fill{min-height:34px;background:#fff}
-    .large{min-height:88px;background:#fff}
-    .section-table th{width:auto}.section-table td{min-height:38px}
-    .signature td{height:46px}.no-print-note{color:#64748b;font-size:12px;margin-top:8px}
-    @media print{button{display:none} body{padding:12px}}
+    @page{size:A4 landscape;margin:10mm}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:10px;color:#111827;font-size:11px}
+    h1{font-size:18px;margin:0 0 8px;text-align:center;font-weight:800}
+    h2{font-size:13px;margin:12px 0 6px;text-align:right;font-weight:800}
+    table{border-collapse:collapse;width:100%;margin:6px 0;table-layout:fixed}
+    th,td{border:1px solid #111827;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.35}
+    th{background:#eef3f8;font-weight:800}
+    .meta{color:#334155;margin-bottom:8px;text-align:center;font-size:11px}
+    .form-title{background:#fff;font-weight:800;font-size:15px;text-align:center}
+    .details-table th{width:18%;background:#eef3f8;text-align:center}
+    .details-table td{height:26px;text-align:center;background:#fff}
+    .items-table th{background:#eef3f8;font-size:10.5px}
+    .items-table td{height:28px;background:#fff;font-size:10.5px}
+    .num-col{width:34px}.desc-col{width:32%}.resp-col{width:15%}.status-col{width:11%}.date-col{width:11%}.sign-col{width:14%}.notes-col{width:17%}
+    .signature td{height:36px;background:#fff}.no-print-note{color:#64748b;font-size:10px;margin-top:6px;text-align:center}
+    @media print{button{display:none} body{padding:0}}
   `;
 
   const recordTitleForExport = () => {
@@ -398,20 +402,36 @@ export default function Page() {
 
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
-    return `${baseRows([
-      ['סוג רשימה', checklistTemplateLabel(checklistForm.templateKey)],
-      ['כותרת', checklistForm.title],
-      ['קטגוריה', checklistForm.category],
-      ['מיקום', checklistForm.location],
-      ['תאריך', checklistForm.date],
-      ['קבלן', checklistForm.contractor],
-      ['הערות', checklistForm.notes, 70],
-    ])}
+    return `
+    <table class="details-table">
+      <tbody>
+        <tr><th colspan="2" class="form-title">${safeText(checklistForm.title || checklistTemplateLabel(checklistForm.templateKey))}</th></tr>
+        <tr><th>כותרת</th><td>${valueOrBlank(checklistForm.title)}</td></tr>
+        <tr><th>קטגוריה</th><td>${valueOrBlank(checklistForm.category)}</td></tr>
+        <tr><th>מיקום</th><td>${valueOrBlank(checklistForm.location)}</td></tr>
+        <tr><th>תאריך</th><td>${valueOrBlank(checklistForm.date)}</td></tr>
+        <tr><th>קבלן</th><td>${valueOrBlank(checklistForm.contractor)}</td></tr>
+        <tr><th>הערות</th><td>${valueOrBlank(checklistForm.notes, 60)}</td></tr>
+      </tbody>
+    </table>
     <h2>סעיפי בדיקה</h2>
-    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>בודק</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
-      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 46)}</td><td>${valueOrBlank(item.responsible, 46)}</td><td>${valueOrBlank(item.status, 46)}</td><td>${valueOrBlank(item.inspector, 46)}</td><td>${valueOrBlank(item.executionDate, 46)}</td><td>${valueOrBlank(item.notes, 70)}</td></tr>`).join('')}
-    </tbody></table>
-    `;
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th class="num-col">מס׳</th>
+          <th class="desc-col">תיאור פעילות הבקרה</th>
+          <th class="resp-col">אחראי</th>
+          <th class="status-col">סטטוס</th>
+          <th class="date-col">תאריך ביצוע</th>
+          <th class="sign-col">חתימות</th>
+          <th class="notes-col">הערות / ממצאים</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 38)}</td><td>${valueOrBlank(item.responsible, 38)}</td><td>${valueOrBlank(item.status, 38)}</td><td>${valueOrBlank(item.executionDate, 38)}</td><td>${valueOrBlank(item.inspector, 38)}</td><td>${valueOrBlank(item.notes, 52)}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    ${signaturesTable(checklistForm.approval)}`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
