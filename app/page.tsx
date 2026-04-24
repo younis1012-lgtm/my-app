@@ -396,10 +396,32 @@ export default function Page() {
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
   };
 
+  const checklistWorkMetrics = (label: string) => {
+    const clean = String(label ?? '').trim();
+    const common = {
+      first: `נתון ביצוע לעבודות ${clean}:`,
+      second: `כמות ביצוע יומית לעבודות ${clean}:`,
+      third: `הובלת קטע יומי לעבודות ${clean}:`,
+    };
+
+    if (clean.includes('קרצוף')) return { first: '${safeText(metrics.first)}', second: '${safeText(metrics.second)}', third: '${safeText(metrics.third)}' };
+    if (clean.includes('מצע')) return { first: 'עובי שכבת המצע (ס״מ):', second: 'שטח פיזור יומי (מ״ר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('אבני שפה') || clean.includes('אבן שפה')) return { first: 'סוג/מידות אבן השפה:', second: 'אורך ביצוע יומי (מטר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('אספלט')) return { first: 'עובי שכבת אספלט (ס״מ):', second: 'שטח סלילה יומי (מ״ר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('מעקות')) return { first: 'סוג המעקה:', second: 'אורך התקנה יומי (מטר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('צבע')) return { first: 'סוג/גוון צבע:', second: 'שטח צביעה יומי (מ״ר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('ניקוז') || clean.includes('צנרת')) return { first: 'קוטר/סוג הצנרת:', second: 'אורך הנחה יומי (מטר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('שילוט') || clean.includes('תמרור')) return { first: 'סוג תמרור/שלט:', second: 'כמות התקנה יומית:', third: '${safeText(metrics.third)}' };
+    if (clean.includes('ריצוף')) return { first: 'סוג אבן/ריצוף:', second: 'שטח ביצוע יומי (מ״ר):', third: '${safeText(metrics.third)}' };
+    if (clean.includes('חפירה')) return { first: 'עומק חפירה (מ׳):', second: 'נפח חפירה יומי (מ״ק):', third: '${safeText(metrics.third)}' };
+    return common;
+  };
+
   const checklistExportHtml = () => {
     const items = normalizeChecklistItems(checklistForm.items);
     const templateLabel = checklistTemplateLabel(checklistForm.templateKey);
     const title = checklistForm.title || checklistTemplates[normalizeChecklistTemplateKey(checklistForm.templateKey)].title || 'רשימת תיוג';
+    const metrics = checklistWorkMetrics(templateLabel);
     return `<table class="procedure-table">
       <tbody>
         <tr><td class="empty" colspan="4">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="4">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
@@ -411,9 +433,9 @@ export default function Page() {
         <tr><td colspan="2">&nbsp;</td><th colspan="2">כביש מס׳:</th><td colspan="3">${valueOrBlank('', 26)}</td><th colspan="2">שם פרויקט:</th><td colspan="3">${safeText(projectName)}</td></tr>
         <tr><td colspan="2">&nbsp;</td><th colspan="2">תאריך מתן העבודה:</th><td>יום / לילה</td><td>מק״מ / חתך</td><td>עד ק״מ / חתך</td><td colspan="5">${valueOrBlank(checklistForm.date, 26)}</td></tr>
         <tr><th colspan="2">ניהול פרויקט</th><td colspan="4">${valueOrBlank('', 30)}</td><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td></tr>
-        <tr><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td><td colspan="6" class="label">עומק הקרצוף (ס״מ):</td></tr>
-        <tr><th colspan="2">קבלן משנה:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">שטח קרצוף יומי (מ״ר):</td></tr>
-        <tr><th colspan="2">קבלן משנה לעבודות ${safeText(templateLabel)}:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">הובלת קטע יומי (ק״מ/חתך):</td></tr>
+        <tr><th colspan="2">שם קבלן:</th><td colspan="4">${valueOrBlank(checklistForm.contractor, 30)}</td><td colspan="6" class="label">${safeText(metrics.first)}</td></tr>
+        <tr><th colspan="2">קבלן משנה:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">${safeText(metrics.second)}</td></tr>
+        <tr><th colspan="2">קבלן משנה לעבודות ${safeText(templateLabel)}:</th><td colspan="4">${valueOrBlank('', 30)}</td><td colspan="6" class="label">${safeText(metrics.third)}</td></tr>
       </tbody>
     </table>
     <h2>סעיפי בדיקה</h2>
