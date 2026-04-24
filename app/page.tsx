@@ -353,15 +353,26 @@ export default function Page() {
 
 
   const safeText = (value: unknown) => String(value ?? '').replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char] ?? char));
+  const blankCell = (height = 34) => `<div class="blank-cell" style="min-height:${height}px">&nbsp;</div>`;
+  const valueOrBlank = (value: unknown, height = 34) => {
+    const text = String(value ?? '').trim();
+    return text ? safeText(text) : blankCell(height);
+  };
 
-  const readableLabel = (key: string) => ({
-    title: 'כותרת', location: 'מיקום', date: 'תאריך', contractor: 'קבלן', notes: 'הערות', category: 'קטגוריה', templateKey: 'סוג רשימה',
-    raisedBy: 'נפתח על ידי', severity: 'חומרה', status: 'סטטוס', description: 'תיאור', actionRequired: 'פעולה נדרשת',
-    spec: 'מפרט', result: 'תוצאה', approvedBy: 'מאושר על ידי', subtype: 'סוג', supplier: 'ספק', subcontractor: 'קבלן משנה', material: 'חומר',
-    items: 'סעיפים', approval: 'אישורים וחתימות', images: 'תמונות וקבצים', supplierName: 'שם ספק', suppliedMaterial: 'חומר מסופק',
-    contactPhone: 'טלפון', approvalNo: 'מספר אישור', subcontractorName: 'שם קבלן משנה', field: 'תחום', materialName: 'שם חומר', source: 'מקור', usage: 'שימוש', certificateNo: 'מספר תעודה',
-    responsible: 'אחראי', inspector: 'בודק', executionDate: 'תאריך ביצוע'
-  } as Record<string, string>)[key] ?? key;
+  const exportStyles = `
+    body{font-family:Arial,sans-serif;direction:rtl;padding:24px;color:#0f172a;font-size:13px}
+    h1{font-size:24px;margin:0 0 14px;text-align:center}
+    h2{font-size:18px;margin:22px 0 8px;border-bottom:2px solid #0f172a;padding-bottom:6px}
+    table{border-collapse:collapse;width:100%;margin:8px 0;table-layout:fixed}
+    th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;text-align:right;word-break:break-word}
+    th{background:#eef3f8;font-weight:700;width:170px}
+    .meta{color:#475569;margin-bottom:16px;text-align:center}
+    .fill{min-height:34px;background:#fff}
+    .large{min-height:88px;background:#fff}
+    .section-table th{width:auto}.section-table td{min-height:38px}
+    .signature td{height:46px}.no-print-note{color:#64748b;font-size:12px;margin-top:8px}
+    @media print{button{display:none} body{padding:12px}}
+  `;
 
   const recordTitleForExport = () => {
     if (section === 'checklists') return checklistForm.title || 'רשימת תיוג';
@@ -371,37 +382,91 @@ export default function Page() {
     return 'טופס';
   };
 
-  const recordForExport = () => {
-    if (section === 'checklists') return { ...checklistForm, templateKey: checklistTemplateLabel(checklistForm.templateKey) };
-    if (section === 'nonconformances') return nonconformanceForm;
-    if (section === 'trialSections') return trialSectionForm;
-    if (section === 'preliminary') return currentPreliminaryForm;
-    return null;
+  const baseRows = (rows: Array<[string, unknown, number?]>) =>
+    `<table><tbody>${rows.map(([label, value, height]) => `<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 34)}</td></tr>`).join('')}</tbody></table>`;
+
+  const attachmentsList = (items: unknown) => {
+    const attachments = normalizeAttachments(items);
+    if (!attachments.length) return '';
+    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || 'קובץ')}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
   };
 
-  const renderValueForExport = (value: any): string => {
-    if (value === null || value === undefined || value === '') return '';
-    if (Array.isArray(value)) {
-      if (value.length === 0) return '';
-      if (value.every((item) => item && typeof item === 'object' && 'dataUrl' in item)) {
-        return `<ul>${value.map((file: any) => `<li>${safeText(file.name)} (${safeText(file.type || 'קובץ')})</li>`).join('')}</ul>`;
-      }
-      return `<table><tbody>${value.map((item: any, index: number) => `<tr><th>${index + 1}</th><td>${renderValueForExport(item)}</td></tr>`).join('')}</tbody></table>`;
+  const signaturesTable = (approval: ApprovalFlow | undefined) => {
+    const normalized = normalizeApproval(approval);
+    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
+  };
+
+  const checklistExportHtml = () => {
+    const items = normalizeChecklistItems(checklistForm.items);
+    return `${baseRows([
+      ['סוג רשימה', checklistTemplateLabel(checklistForm.templateKey)],
+      ['כותרת', checklistForm.title],
+      ['קטגוריה', checklistForm.category],
+      ['מיקום', checklistForm.location],
+      ['תאריך', checklistForm.date],
+      ['קבלן', checklistForm.contractor],
+      ['הערות', checklistForm.notes, 70],
+    ])}
+    <h2>סעיפי בדיקה</h2>
+    <table class="section-table"><thead><tr><th style="width:42px">מס׳</th><th>תיאור פעילות הבקרה</th><th>אחראי</th><th>סטטוס</th><th>בודק</th><th>תאריך ביצוע</th><th>הערות / ממצאים</th></tr></thead><tbody>
+      ${items.map((item, index) => `<tr><td>${index + 1}</td><td>${valueOrBlank(item.description, 46)}</td><td>${valueOrBlank(item.responsible, 46)}</td><td>${valueOrBlank(item.status, 46)}</td><td>${valueOrBlank(item.inspector, 46)}</td><td>${valueOrBlank(item.executionDate, 46)}</td><td>${valueOrBlank(item.notes, 70)}</td></tr>`).join('')}
+    </tbody></table>
+    ${signaturesTable(checklistForm.approval)}`;
+  };
+
+  const nonconformanceExportHtml = () => `${baseRows([
+    ['כותרת', nonconformanceForm.title],
+    ['מיקום', nonconformanceForm.location],
+    ['תאריך', nonconformanceForm.date],
+    ['נפתח על ידי', nonconformanceForm.raisedBy],
+    ['חומרה', nonconformanceForm.severity],
+    ['סטטוס', nonconformanceForm.status],
+    ['תיאור אי ההתאמה', nonconformanceForm.description, 100],
+    ['פעולה נדרשת / מתקנת', nonconformanceForm.actionRequired, 100],
+    ['הערות', nonconformanceForm.notes, 80],
+  ])}${attachmentsList((nonconformanceForm as any).images)}${signaturesTable(nonconformanceForm.approval)}`;
+
+  const trialSectionExportHtml = () => `${baseRows([
+    ['שם קטע', trialSectionForm.title],
+    ['מיקום', trialSectionForm.location],
+    ['תאריך', trialSectionForm.date],
+    ['מאושר על ידי', trialSectionForm.approvedBy],
+    ['מפרט / דרישות', trialSectionForm.spec, 100],
+    ['תוצאה', trialSectionForm.result, 100],
+    ['סטטוס', trialSectionForm.status],
+    ['הערות', trialSectionForm.notes, 80],
+  ])}${attachmentsList((trialSectionForm as any).images)}${signaturesTable(trialSectionForm.approval)}`;
+
+  const preliminaryRows = () => {
+    if (preliminaryTab === 'suppliers') {
+      const s = supplierPreliminaryForm.supplier ?? {} as any;
+      return baseRows([
+        ['סוג בקרה', 'ספקים'], ['כותרת', supplierPreliminaryForm.title], ['תאריך', supplierPreliminaryForm.date], ['סטטוס', supplierPreliminaryForm.status],
+        ['שם ספק', (s as any).supplierName], ['חומר מסופק', (s as any).suppliedMaterial], ['טלפון', (s as any).contactPhone], ['מספר אישור', (s as any).approvalNo], ['הערות', (s as any).notes, 90],
+      ]) + signaturesTable(supplierPreliminaryForm.approval);
     }
-    if (typeof value === 'object') {
-      return `<table><tbody>${Object.entries(value).filter(([key]) => !['id', 'projectId', 'savedAt'].includes(key)).map(([key, entry]) => `<tr><th>${safeText(readableLabel(key))}</th><td>${renderValueForExport(entry)}</td></tr>`).join('')}</tbody></table>`;
+    if (preliminaryTab === 'subcontractors') {
+      const s = subcontractorPreliminaryForm.subcontractor ?? {} as any;
+      return baseRows([
+        ['סוג בקרה', 'קבלנים'], ['כותרת', subcontractorPreliminaryForm.title], ['תאריך', subcontractorPreliminaryForm.date], ['סטטוס', subcontractorPreliminaryForm.status],
+        ['שם קבלן משנה', (s as any).subcontractorName], ['תחום', (s as any).field], ['טלפון', (s as any).contactPhone], ['מספר אישור', (s as any).approvalNo], ['הערות', (s as any).notes, 90],
+      ]) + signaturesTable(subcontractorPreliminaryForm.approval);
     }
-    return safeText(value);
+    const m = materialPreliminaryForm.material ?? {} as any;
+    return baseRows([
+      ['סוג בקרה', 'חומרים'], ['כותרת', materialPreliminaryForm.title], ['תאריך', materialPreliminaryForm.date], ['סטטוס', materialPreliminaryForm.status],
+      ['שם חומר', (m as any).materialName], ['מקור', (m as any).source], ['שימוש', (m as any).usage], ['מספר תעודה', (m as any).certificateNo], ['הערות', (m as any).notes, 90],
+    ]) + signaturesTable(materialPreliminaryForm.approval);
   };
 
   const exportHtml = () => {
-    const record = recordForExport();
     const title = recordTitleForExport();
-    const body = record ? Object.entries(record as any)
-      .filter(([key]) => !['id', 'projectId', 'savedAt'].includes(key))
-      .map(([key, value]) => `<tr><th>${safeText(readableLabel(key))}</th><td>${renderValueForExport(value)}</td></tr>`)
-      .join('') : '';
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>body{font-family:Arial,sans-serif;direction:rtl;padding:24px;color:#0f172a}h1{font-size:24px;margin:0 0 16px}table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;text-align:right}th{background:#f1f5f9;width:180px}ul{margin:0;padding-right:18px}.meta{color:#475569;margin-bottom:16px}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)} | הופק: ${safeText(nowLocal())}</div><table><tbody>${body}</tbody></table></body></html>`;
+    const body = section === 'checklists' ? checklistExportHtml()
+      : section === 'nonconformances' ? nonconformanceExportHtml()
+      : section === 'trialSections' ? trialSectionExportHtml()
+      : section === 'preliminary' ? preliminaryRows()
+      : '';
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"/><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)} | הופק: ${safeText(nowLocal())}</div>${body}<div class="no-print-note">המסמך נוצר מהמערכת וניתן לעריכה ידנית ב-Word/Excel לאחר ההורדה.</div></body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
