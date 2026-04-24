@@ -1,0 +1,134 @@
+
+    <!doctype html>
+    <html dir="rtl" lang="he">
+      <head>
+        <meta charset="utf-8" />
+        <title>רשימת תיוג</title>
+        <style>
+          @page { size: A4 landscape; margin: 12mm; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 0; margin: 0; direction: rtl; color: #111827; }
+          h1 { text-align: center; margin: 0 0 14px; font-size: 26px; }
+          .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; table-layout: fixed; }
+          .meta-table th, .meta-table td { border: 1px solid #94a3b8; padding: 7px 9px; text-align: right; vertical-align: top; }
+          .meta-table th { background: #e2e8f0; font-weight: 800; width: 14%; white-space: nowrap; }
+          .meta-table td { width: 19%; }
+          .main-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          .main-table th, .main-table td { border: 1px solid #94a3b8; padding: 7px; text-align: right; vertical-align: top; word-break: break-word; }
+          .main-table th { background: #e2e8f0; font-weight: 800; text-align: center; }
+          .col-index { width: 4%; text-align: center !important; }
+          .col-desc { width: 25%; }
+          .col-resp { width: 12%; }
+          .col-status { width: 10%; text-align: center !important; }
+          .col-date { width: 10%; text-align: center !important; }
+          .col-signatures { width: 25%; }
+          .col-notes { width: 14%; }
+          .sig-row { display: grid; grid-template-columns: 28% 24% 28% 20%; gap: 4px; align-items: center; border-bottom: 1px dashed #cbd5e1; padding: 4px 0; min-height: 28px; }
+          .sig-row:last-child { border-bottom: 0; }
+          .sig-role { font-weight: 700; }
+          .sig-name, .sig-date { font-size: 12px; color: #334155; }
+          .sig-box { min-height: 24px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: center; padding: 3px; background: #fff; }
+          .signature-line { display: block; height: 20px; border-bottom: 1px solid #111827; }
+          .na-box { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; padding: 8px; text-align: center; font-weight: 700; }
+          @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+        </style>
+      </head>
+      <body>
+        <h1>רשימת תיוג</h1>
+        <table class="meta-table">
+          <tbody>
+            <tr>
+              <th>פרויקט</th><td>כביש 781 שפרעם</td>
+              <th>קטגוריה</th><td>עבודות עפר</td>
+              <th>מיקום</th><td>-</td>
+            </tr>
+            <tr>
+              <th>קבלן</th><td>-</td>
+              <th>תאריך</th><td>-</td>
+              <th>נשמר</th><td>24.4.2026, 15:01:46</td>
+            </tr>
+            <tr>
+              <th>הערות כלליות</th><td colspan="5">-</td>
+            </tr>
+          </tbody>
+        </table>
+        <table class="main-table">
+          <thead>
+            <tr>
+              <th class="col-index">#</th>
+              <th class="col-desc">סעיף</th>
+              <th class="col-resp">אחראי</th>
+              <th class="col-status">סטטוס</th>
+              <th class="col-date">תאריך ביצוע</th>
+              <th class="col-signatures">חתימות</th>
+              <th class="col-notes">הערות</th>
+            </tr>
+          </thead>
+          <tbody>
+        <tr>
+          <td class="col-index">1</td>
+          <td class="col-desc">בדיקת תוכניות לביצוע + מהדורה</td>
+          <td class="col-resp">בקרת איכות</td>
+          <td class="col-status">לא נבדק</td>
+          <td class="col-date"></td>
+          <td class="col-signatures">
+              <div class="sig-row">
+                <div class="sig-role">מנהל עבודה *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div>
+              <div class="sig-row">
+                <div class="sig-role">בקרת איכות *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div></td>
+          <td class="col-notes"></td>
+        </tr>
+        <tr>
+          <td class="col-index">2</td>
+          <td class="col-desc">בדיקה חזותית לשטח לפני תחילת עבודה</td>
+          <td class="col-resp">בקרת איכות</td>
+          <td class="col-status">לא נבדק</td>
+          <td class="col-date"></td>
+          <td class="col-signatures">
+              <div class="sig-row">
+                <div class="sig-role">מנהל עבודה *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div>
+              <div class="sig-row">
+                <div class="sig-role">בקרת איכות *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div></td>
+          <td class="col-notes"></td>
+        </tr>
+        <tr>
+          <td class="col-index">3</td>
+          <td class="col-desc">אישור סופי</td>
+          <td class="col-resp">בקרת איכות</td>
+          <td class="col-status">לא נבדק</td>
+          <td class="col-date"></td>
+          <td class="col-signatures">
+              <div class="sig-row">
+                <div class="sig-role">מנהל עבודה *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div>
+              <div class="sig-row">
+                <div class="sig-role">בקרת איכות *</div>
+                <div class="sig-name"></div>
+                <div class="sig-box"><span class="signature-line">&nbsp;</span></div>
+                <div class="sig-date"></div>
+              </div></td>
+          <td class="col-notes"></td>
+        </tr></tbody>
+        </table>
+      </body>
+    </html>
+  
