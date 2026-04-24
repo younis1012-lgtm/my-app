@@ -19,6 +19,41 @@ const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code poin
 const nowLocal = () => new Date().toLocaleString('he-IL');
 const nowIso = () => new Date().toISOString();
 
+const PROJECT_TEAMS = [
+  {
+    match: ['806', 'צלמון'],
+    projectName: 'כביש 806 צלמון שלב א׳',
+    qualityControl: 'יונס אברהים',
+    workManager: 'חוסיין מריסאת',
+    surveyor: 'באסל שקארה',
+  },
+];
+
+const normalizeProjectDisplayName = (name: string) => {
+  const clean = String(name ?? '').trim();
+  const team = PROJECT_TEAMS.find((entry) => entry.match.every((part) => clean.includes(part)));
+  return team?.projectName ?? clean;
+};
+
+const resolveProjectTeam = (projectName: string) => {
+  const clean = String(projectName ?? '').trim();
+  return PROJECT_TEAMS.find((entry) => entry.match.every((part) => clean.includes(part))) ?? null;
+};
+
+const resolveResponsibleName = (responsible: string, projectName: string) => {
+  const team = resolveProjectTeam(projectName);
+  if (!team) return '';
+
+  const role = String(responsible ?? '');
+  if (role.includes('בקרת איכות') || role.includes('בקר איכות')) return team.qualityControl;
+  if (role.includes('מנהל עבודה')) return team.workManager;
+  if (role.includes('מודד')) return team.surveyor;
+
+  return '';
+};
+
+
+
 type StoredAttachment = {
   name: string;
   type: string;
@@ -145,7 +180,7 @@ export default function Page() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as PersistedData;
-      setProjects(parsed.projects?.length ? parsed.projects : defaultProjects);
+      setProjects(parsed.projects?.length ? parsed.projects.map((p) => ({ ...p, name: normalizeProjectDisplayName(p.name) })) : defaultProjects);
       setCurrentProjectId(parsed.currentProjectId ?? parsed.projects?.[0]?.id ?? defaultProjects[0]?.id ?? null);
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
@@ -157,7 +192,7 @@ export default function Page() {
   };
 
   const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null) => {
-    const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: row.name ?? '', description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
+    const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: normalizeProjectDisplayName(row.name ?? ''), description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
     setProjects(mappedProjects.length ? mappedProjects : defaultProjects);
     const storedProjectId = readLocalCurrentProjectId();
     const active = (storedProjectId ? mappedProjects.find((p) => p.id === storedProjectId) : undefined) ?? mappedProjects.find((p) => p.isActive) ?? mappedProjects[0] ?? defaultProjects[0];
@@ -233,6 +268,11 @@ export default function Page() {
 
   const currentProject = useMemo(() => projects.find((p) => p.id === currentProjectId) ?? null, [projects, currentProjectId]);
   const projectName = !loaded ? 'טוען...' : currentProject?.name ?? 'לא נבחר פרויקט';
+  const fillChecklistTeamNames = (items: ChecklistItem[]) =>
+    normalizeChecklistItems(items).map((item) => ({
+      ...item,
+      inspector: item.inspector || resolveResponsibleName(item.responsible, projectName),
+    }));
   const checklistTemplateLabel = (key: ChecklistTemplateKey | string | undefined) => checklistTemplates[normalizeChecklistTemplateKey(key)]?.label ?? 'רשימת תיוג';
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
   const projectChecklists = useMemo(() => savedChecklists.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.category, item.location, item.contractor].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedChecklists, currentProjectId, normalizedSearchTerm]);
@@ -240,7 +280,7 @@ export default function Page() {
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
 
-  const resetChecklistForm = (templateKey: ChecklistTemplateKey = checklistForm.templateKey) => { setEditingChecklistId(null); setChecklistForm(createDefaultChecklist(templateKey)); };
+  const resetChecklistForm = (templateKey: ChecklistTemplateKey = checklistForm.templateKey) => { setEditingChecklistId(null); const next = createDefaultChecklist(templateKey); setChecklistForm({ ...next, items: fillChecklistTeamNames(next.items) }); };
   const resetNonconformanceEditor = () => { setEditingNonconformanceId(null); setNonconformanceForm(createDefaultNonconformance()); };
   const resetTrialSectionEditor = () => { setEditingTrialSectionId(null); setTrialSectionForm(createDefaultTrialSection()); };
   const resetPreliminaryEditor = () => { setEditingPreliminaryId(null); if (preliminaryTab === 'suppliers') setSupplierPreliminaryForm(createDefaultPreliminary('suppliers')); if (preliminaryTab === 'subcontractors') setSubcontractorPreliminaryForm(createDefaultPreliminary('subcontractors')); if (preliminaryTab === 'materials') setMaterialPreliminaryForm(createDefaultPreliminary('materials')); };
@@ -248,7 +288,7 @@ export default function Page() {
   const addProject = async () => {
     if (!newProjectName.trim()) return alert('יש להזין שם פרויקט');
     const id = crypto.randomUUID();
-    const project: Project = { id, name: newProjectName.trim(), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
+    const project: Project = { id, name: normalizeProjectDisplayName(newProjectName.trim()), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         await supabase.from('projects').update({ is_active: false }).neq('id', id);
@@ -268,7 +308,7 @@ export default function Page() {
   const setActiveProject = async (projectId: string) => await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ is_active: false }).neq('id', projectId), await supabase.from('projects').update({ is_active: true }).eq('id', projectId), await refreshCloudData()) : (setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId }))), setCurrentProjectId(projectId)));
   const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase.from('checklists').delete().eq('project_id', projectId); await supabase.from('nonconformances').delete().eq('project_id', projectId); await supabase.from('trial_sections').delete().eq('project_id', projectId); await supabase.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
-  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => ({ ...createDefaultChecklist(templateKey), location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval }));
+  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => { const next = createDefaultChecklist(templateKey); return { ...next, location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval, items: fillChecklistTeamNames(next.items) }; });
   const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
   const addChecklistItem = () => setChecklistForm((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(crypto.randomUUID())] }));
   const removeChecklistItem = (id: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id) }));
@@ -278,7 +318,7 @@ export default function Page() {
     if (!checklistForm.title.trim()) return alert('יש להזין שם רשימת תיוג');
     const validation = validateApproval(checklistForm.approval); if (validation) return alert(validation);
     const id = editingChecklistId ?? crypto.randomUUID();
-    const record: ChecklistRecord = { id, projectId: currentProjectId, ...checklistForm, items: normalizeChecklistItems(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
+    const record: ChecklistRecord = { id, projectId: currentProjectId, ...checklistForm, items: fillChecklistTeamNames(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = { id: record.id, project_id: record.projectId, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, approval: record.approval, saved_at: nowIso() };
@@ -290,7 +330,7 @@ export default function Page() {
     });
     resetChecklistForm();
   };
-  const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
+  const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: fillChecklistTeamNames(record.items), approval: normalizeApproval(record.approval) }); };
   const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
   const saveNonconformance = async () => {
@@ -395,7 +435,7 @@ export default function Page() {
   };
 
   const checklistExportHtml = () => {
-    const items = normalizeChecklistItems(checklistForm.items);
+    const items = fillChecklistTeamNames(checklistForm.items);
     const templateKey = normalizeChecklistTemplateKey(checklistForm.templateKey);
     const template = checklistTemplates[templateKey] as any;
     const title = checklistForm.title || template.title || 'רשימת תיוג';
