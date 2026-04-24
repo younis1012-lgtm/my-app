@@ -4,13 +4,38 @@ export const defaultProjects: Project[] = [
   { id: 'default-project', name: 'כביש 781 שפרעם', description: 'פרויקט ברירת מחדל', manager: '', isActive: true, createdAt: new Date().toLocaleString('he-IL') },
 ];
 
+const managerKeywords = [
+  'ציוד', 'כלי עבודה', 'ניקוי', 'פינוי', 'סילוק', 'עודפי', 'הכנת השטח', 'הכנת אזור',
+  'ביצוע', 'פיזור', 'סלילה', 'הידוק', 'הנחה', 'הנחת', 'התקנה', 'התקנת', 'הרכבה',
+  'יציקה', 'אשפרה', 'רטוט', 'קידוח', 'הדבקה', 'מילוי', 'כיסוי', 'שטיפה', 'חיטוי',
+  'ריסוס', 'פריקה', 'גמר', 'תיקונים', 'מישקים', 'חיבורים', 'אביזרים', 'סידור', 'פריימר'
+];
+
 const surveyorKeywords = [
   'סימון', 'מדיד', 'מודד', 'מפלס', 'מפלסים', 'גובה', 'גבהים', 'שיפוע', 'שיפועים',
   'עומק', 'עובי', 'קו', 'קווים', 'תוואי', 'מיקום', 'מידות', 'as-made', 'AS-MADE', 'קילומטר', 'ק"מ', 'חתך'
 ];
 
-const responsibilityFor = (description: string) =>
-  surveyorKeywords.some((keyword) => description.includes(keyword)) ? 'מודד' : 'בקרת איכות';
+const qualityKeywords = [
+  'אישור', 'תעודה', 'תעודות', 'בדיקה מוקדמת', 'בדיקות מוקדמות', 'בדיקות אפיון',
+  'מעבדה', 'מדגמים', 'תוצאות', 'תקן', 'מפרט', 'בקרה ויזואלית', 'חזותית', 'סופי'
+];
+
+const includesAny = (description: string, keywords: string[]) =>
+  keywords.some((keyword) => description.includes(keyword));
+
+const responsibilityFor = (description: string) => {
+  // פעולות ביצוע/ניקוי/ציוד הן באחריות מנהל עבודה, גם אם מופיעה המילה "בדיקת".
+  if (includesAny(description, managerKeywords)) return 'מנהל עבודה';
+
+  // מדידות, סימונים, מפלסים, גבהים, שיפועים, עומקים ומידות הן באחריות מודד.
+  if (includesAny(description, surveyorKeywords)) return 'מודד';
+
+  // אישורים, תעודות, התאמה למפרט ובדיקות איכות הן באחריות בקרת איכות.
+  if (includesAny(description, qualityKeywords) || description.includes('בדיק')) return 'בקרת איכות';
+
+  return 'בקרת איכות';
+};
 
 const makeItems = (key: string, descriptions: string[]): ChecklistItem[] =>
   descriptions.map((description, index) => ({
@@ -76,7 +101,7 @@ export const checklistTemplates = {
       { id: 'baseCourseSpreading-6', description: 'ביצוע בדיקות אפיון שוטפות', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: 'מוניר', executionDate: '' },
       { id: 'baseCourseSpreading-7', description: 'פיזור, פילוס, סילוק ריכוזי אבן, הרטבה והידוק', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: 'גמאל', executionDate: '' },
       { id: 'baseCourseSpreading-8', description: 'בקרה ויזואלית', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: 'מוניר', executionDate: '' },
-      { id: 'baseCourseSpreading-9', description: 'בדיקת מפלסי השכבה כל שכבה שנייה ו/או בסוף השלב', responsible: 'מודד הקבלן', status: 'לא נבדק', notes: '', inspector: 'אחמד', executionDate: '' },
+      { id: 'baseCourseSpreading-9', description: 'בדיקת מפלסי השכבה כל שכבה שנייה ו/או בסוף השלב', responsible: 'מודד', status: 'לא נבדק', notes: '', inspector: 'אחמד', executionDate: '' },
       { id: 'baseCourseSpreading-10', description: 'בדיקות דרגת הידוק ותכולת רטיבות', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: 'מוניר', executionDate: '' },
       { id: 'baseCourseSpreading-11', description: 'בדיקת מישוריות', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: 'מוניר', executionDate: '' },
       { id: 'baseCourseSpreading-12', description: 'בדיקות FWD לשכבה הסופית', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: 'מוניר', executionDate: '' },
