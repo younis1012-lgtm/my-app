@@ -532,28 +532,27 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:4px;color:#0f172a;font-size:8px}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,"Noto Sans Hebrew",sans-serif;direction:rtl;text-align:right}
+    body{padding:4mm;font-size:8.5px;line-height:1.2}
     h1{display:none}
-    h2{font-size:9px;margin:2px 0 1px;border-bottom:1px solid #111827;padding-bottom:1px;text-align:right}
-    table{border-collapse:collapse;width:100%;margin:0 0 2px;table-layout:fixed;page-break-inside:avoid}
-    th,td{border:1px solid #111827;padding:1px 2px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.05}
-    th{background:#fff;font-weight:700}
-    .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
-    .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
-    .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
-    .export-logo-wrap{width:100%;text-align:left;margin:0 0 4px}
-    .doc-logo{width:96px;height:auto;display:inline-block}
-    .trial-report{width:82%;margin:0 auto 3px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
-    .trial-report .trial-header td,.trial-report .trial-header th{height:30px}.trial-report .trial-edition-row td{height:24px;font-weight:700}
+    h2{font-size:10px;margin:3px 0 2px;border-bottom:1px solid #111827;padding-bottom:1px;text-align:right;font-weight:900}
+    table{border-collapse:collapse;width:100%;margin:0 0 2.5px;table-layout:fixed;page-break-inside:avoid;break-inside:avoid}
+    th,td{border:1px solid #111827;padding:2px 3px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;line-height:1.15}
+    th{background:#fff;font-weight:800}.meta{display:none}.empty{background:#fff}.no-border{border:0!important}.wide-label{font-weight:800}
+    .blank-cell{min-height:9px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}
+    .doc-header td{height:16px}.source-meta td{height:15px}.check-table td{height:15px}.check-table th{height:15px;background:#fff}
+    .export-logo-wrap{width:100%;text-align:left;margin:0 0 3px}.doc-logo{width:78px;height:auto;display:inline-block;object-fit:contain}
+    .signature td{height:18px}.signature .sig-img{max-width:95px;max-height:24px;display:block;margin:0 auto}.signature .sig-line{display:block;min-height:16px;border-bottom:1px solid #111827}
+    .trial-report{width:82%;margin:0 auto 3px;table-layout:fixed;page-break-inside:avoid;break-inside:avoid}
+    .trial-report th,.trial-report td{font-size:8.5px;line-height:1.12;height:18px;padding:2px 4px}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
-    .trial-report .trial-logo-cell{width:78px;text-align:center;vertical-align:middle;padding:1px}
-    .trial-report .trial-logo{width:58px!important;height:72px!important;max-width:58px!important;max-height:72px!important;object-fit:contain;display:block;margin:0 auto}
-    .trial-report .label{font-weight:800;width:32%}
-    .trial-report .value{height:20px}
-    .trial-report .large-value{height:48px}
+    .trial-report .trial-logo-cell{width:64px;text-align:center;vertical-align:middle;padding:1px}
+    .trial-report .trial-logo{width:58px;height:72px;max-width:58px;max-height:72px;object-fit:contain;display:block;margin:0 auto}
+    .trial-report .label{font-weight:800;width:32%;text-align:right}.trial-report .value{height:20px}.trial-report .large-value{height:46px}
+    .pdf-page{width:100%;max-width:287mm;margin:0 auto;page-break-after:always}.pdf-page:last-child{page-break-after:auto}
     @page{size:A4 landscape;margin:5mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.doc-logo{width:90px}.trial-report{width:82%}.trial-report .trial-logo{width:58px!important;height:72px!important}}
+    @media print{body{padding:0;font-size:8.5px}button{display:none}.pdf-page{max-width:none}.doc-logo{width:76px}.trial-report{width:82%}th,td{padding:2px 3px}.check-table td{height:15px}.check-table th{height:15px}}
   `;
 
   const recordTitleForExport = () => {
@@ -573,9 +572,29 @@ export default function Page() {
     return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || 'קובץ')}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
   };
 
+  const signatureMarkup = (signature: unknown) => {
+    const sig = String(signature ?? '').trim();
+    if (!sig) return '<span class="sig-line">&nbsp;</span>';
+    if (sig.startsWith('data:image/')) return `<img class="sig-img" src="${safeText(sig)}" alt="חתימה" />`;
+    return safeText(sig);
+  };
+
+  const defaultSignerNameForRole = (role: string) => {
+    const profile = currentProjectProfile ?? getProjectProfile(projectName);
+    if (!profile) return '';
+    if (role.includes('בקרת איכות')) return profile.qualityControl;
+    if (role.includes('הבטחת איכות')) return profile.qaCompany;
+    if (role.includes('ניהול') || role.includes('פרויקט')) return profile.projectManager;
+    return '';
+  };
+
   const signaturesTable = (approval: ApprovalFlow | undefined) => {
     const normalized = normalizeApproval(approval);
-    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
+    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => {
+      const signerName = String(sig.signerName ?? '').trim() || defaultSignerNameForRole(sig.role);
+      const signedAt = String(sig.signedAt ?? '').trim();
+      return `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(signerName)}</td><td>${signatureMarkup(sig.signature)}</td><td>${valueOrBlank(signedAt)}</td><td>${blankCell()}</td></tr>`;
+    }).join('')}</tbody></table>`;
   };
 
   const checklistExportHtml = (forcedChecklistNo?: number) => {
@@ -747,15 +766,15 @@ export default function Page() {
     const trialContractor = profile?.contractor || '';
     return `<table class="trial-report">
       <tbody>
-        <tr class="trial-header">
-          <td class="trial-logo-cell" rowspan="2"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" width="58" height="72" style="width:58px;height:72px;max-width:58px;max-height:72px;object-fit:contain;display:block;margin:0 auto" /></td>
-          <td class="trial-title" rowspan="2">דוח קטע ניסוי</td>
-          <th style="width:60px">מהדורה</th>
-          <th style="width:76px">תאריך מהדורה</th>
+        <tr>
+          <td rowspan="2" class="trial-logo-cell"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" /></td>
+          <td rowspan="2" class="trial-title">דוח קטע ניסוי</td>
+          <th>מהדורה</th>
+          <th>תאריך</th>
         </tr>
-        <tr class="trial-edition-row">
-          <td>א׳</td>
-          <td>01.01.2026</td>
+        <tr>
+          <td>${trialBlank()}</td>
+          <td>${trialBlank()}</td>
         </tr>
       </tbody>
     </table>
@@ -815,7 +834,7 @@ export default function Page() {
       : section === 'preliminary' ? preliminaryRows()
       : '';
     const leadingLogo = section === 'trialSections' ? '' : exportLogoHtml();
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body>${leadingLogo}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}</body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="pdf-page">${leadingLogo}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}</div></body></html>`;
   };
 
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
@@ -841,7 +860,16 @@ export default function Page() {
     printWindow.document.write(exportHtml(exportChecklistNo));
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => printWindow.print(), 300);
+    const printWhenReady = () => {
+      const images = Array.from(printWindow.document.images ?? []);
+      const waitForImages = images.map((img) => img.complete ? Promise.resolve() : new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      }));
+      Promise.all(waitForImages).finally(() => setTimeout(() => printWindow.print(), 150));
+    };
+    if (printWindow.document.readyState === 'complete') printWhenReady();
+    else printWindow.onload = printWhenReady;
   };
 
   const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
