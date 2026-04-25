@@ -1,5 +1,4 @@
-import type { ChecklistItem, ChecklistTemplateKey, Project } from ./types';
-
+import type { ChecklistItem, ChecklistTemplateKey, Project } from './types';
 export const defaultProjects: Project[] = [
   { id: 'default-project', name: 'כביש 781 שפרעם', description: 'פרויקט ברירת מחדל', manager: '', isActive: true, createdAt: new Date().toLocaleString('he-IL') },
 ];
