@@ -549,6 +549,12 @@ export default function Page() {
     const isBaseCourse = /מצע|מצעים/.test(titleText);
     const isPainting = /צבע/.test(titleText);
     const isAsphaltSite = templateKey === 'asphaltSite' || /אספלט באתר/.test(titleText);
+    const isFilledChecklistItem = (item: ChecklistItem) =>
+      String(item.status ?? '').trim() !== 'לא נבדק' ||
+      String(item.notes ?? '').trim() !== '' ||
+      String(item.executionDate ?? '').trim() !== '';
+    const itemsForExport = isAsphaltSite ? items.filter(isFilledChecklistItem) : items;
+    const displayedItems = isAsphaltSite && itemsForExport.length ? itemsForExport : items;
 
     const renderChecklistRows = (columns: 'source' | 'system' = 'source') => {
       if (columns === 'system') {
@@ -558,7 +564,7 @@ export default function Page() {
             <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
           </thead>
           <tbody>
-            ${items.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
           </tbody>
         </table>`;
       }
@@ -568,7 +574,7 @@ export default function Page() {
           <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
         </thead>
         <tbody>
-          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     };
@@ -600,7 +606,7 @@ export default function Page() {
           <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
         </thead>
         <tbody>
-          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     }
