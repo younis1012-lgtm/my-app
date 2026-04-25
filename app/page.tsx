@@ -487,23 +487,25 @@ export default function Page() {
 
 
   const safeText = (value: unknown) => String(value ?? '').replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char] ?? char));
-  const blankCell = (height = 34) => `<div class="blank-cell" style="min-height:${height}px">&nbsp;</div>`;
-  const valueOrBlank = (value: unknown, height = 34) => {
+  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 16);
+  const blankCell = (height = 18) => `<div class="blank-cell" style="min-height:${compactHeight(height)}px">&nbsp;</div>`;
+  const valueOrBlank = (value: unknown, height = 18) => {
     const text = String(value ?? '').trim();
     return text ? safeText(text) : blankCell(height);
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:14px;color:#0f172a;font-size:11px}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:4px;color:#0f172a;font-size:8px}
     h1{display:none}
-    h2{font-size:13px;margin:8px 0 4px;border-bottom:2px solid #111827;padding-bottom:3px;text-align:right}
-    table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed}
-    th,td{border:1px solid #111827;padding:4px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
+    h2{font-size:9px;margin:2px 0 1px;border-bottom:1px solid #111827;padding-bottom:1px;text-align:right}
+    table{border-collapse:collapse;width:100%;margin:0 0 2px;table-layout:fixed;page-break-inside:avoid}
+    th,td{border:1px solid #111827;padding:1px 2px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.05}
     th{background:#fff;font-weight:700}
-    .meta{display:none}.blank-cell{min-height:20px}.header-title{font-size:19px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
-    .doc-header td{height:26px}.source-meta td{height:26px}.check-table td{height:28px}.check-table th{height:26px;background:#fff}
-    .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:36px}
-    @media print{@page{size:A4 portrait;margin:10mm} button{display:none} body{padding:0;font-size:10px}.header-title{font-size:18px} th,td{padding:3px}}
+    .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
+    .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
+    .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
+    @page{size:A4 landscape;margin:5mm}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}}
   `;
 
   const recordTitleForExport = () => {
@@ -546,6 +548,7 @@ export default function Page() {
     const titleText = `${title} ${template.label ?? ''} ${template.category ?? ''}`;
     const isBaseCourse = /מצע|מצעים/.test(titleText);
     const isPainting = /צבע/.test(titleText);
+    const isAsphaltSite = templateKey === 'asphaltSite' || /אספלט באתר/.test(titleText);
 
     const renderChecklistRows = (columns: 'source' | 'system' = 'source') => {
       if (columns === 'system') {
@@ -569,6 +572,38 @@ export default function Page() {
         </tbody>
       </table>`;
     };
+
+    if (isAsphaltSite) {
+      return `<table class="doc-header">
+        <tbody>
+          <tr><td>מס׳ רשימת תיוג</td><td>מס׳ נוהל</td><td colspan="4">שם הנוהל</td><td>מהדורה</td><td>תאריך</td></tr>
+          <tr><td>${valueOrBlank(currentChecklistNo, 22)}</td><td>${valueOrBlank(procedureNo, 22)}</td><td colspan="4" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
+        </tbody>
+      </table>
+      <table class="source-meta">
+        <tbody>
+          <tr><th>קבלן ראשי</th><td colspan="3">${safeText(contractor)}</td><th>שם הפרויקט</th><td colspan="3">${safeText(defaultProjectName)}</td></tr>
+          <tr><th>חברת ניהול</th><td colspan="3">${valueOrBlank(projectManager, 22)}</td><th>מס׳ חוזה</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>חברת בקרת איכות</th><td colspan="3">${valueOrBlank(profile?.qualityControl || '', 22)}</td><th>חברת הבטחת איכות</th><td colspan="3">${valueOrBlank(qaCompany, 22)}</td></tr>
+          <tr><th>תת פרויקט</th><td colspan="3">${valueOrBlank('', 22)}</td><th>תאריך ביצוע</th><td colspan="3">${valueOrBlank(checklistForm.date, 22)}</td></tr>
+          <tr><th>כמות</th><td colspan="3">${valueOrBlank('', 22)}</td><th>מבנה</th><td colspan="3">${valueOrBlank(location, 22)}</td></tr>
+          <tr><th>מס׳ שכבה</th><td colspan="3">${valueOrBlank('', 22)}</td><th>שטח מבוקר (מ״ר)</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>מחתך</th><td colspan="3">${valueOrBlank('', 22)}</td><th>לחתך</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>צד / מיקום</th><td colspan="3">${valueOrBlank(location, 22)}</td><th>עובי מתוכנן</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>מפעל מייצר</th><td colspan="3">${valueOrBlank('', 22)}</td><th>סוג תערובת</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>שם קבוצת הפיזור</th><td colspan="3">${valueOrBlank('', 22)}</td><th>סוג אמולסיה</th><td colspan="3">${valueOrBlank('', 22)}</td></tr>
+          <tr><th>אלמנט</th><td colspan="7">${valueOrBlank('', 22)}</td></tr>
+        </tbody>
+      </table>
+      <table class="check-table">
+        <thead>
+          <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+    }
 
     if (isBaseCourse) {
       return `<table class="doc-header">
