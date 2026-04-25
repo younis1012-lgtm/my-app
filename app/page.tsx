@@ -545,7 +545,7 @@ export default function Page() {
     .doc-logo{width:96px;height:auto;display:inline-block}
     .trial-report{width:82%;margin:0 auto 3px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
-    .trial-report .trial-header td,.trial-report .trial-header th{height:58px}
+    .trial-report .trial-header td,.trial-report .trial-header th{height:30px}.trial-report .trial-edition-row td{height:24px;font-weight:700}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
     .trial-report .trial-logo-cell{width:78px;text-align:center;vertical-align:middle;padding:1px}
     .trial-report .trial-logo{width:58px!important;height:72px!important;max-width:58px!important;max-height:72px!important;object-fit:contain;display:block;margin:0 auto}
@@ -748,16 +748,14 @@ export default function Page() {
     return `<table class="trial-report">
       <tbody>
         <tr class="trial-header">
-          <td class="trial-logo-cell"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" width="58" height="72" style="width:58px;height:72px;max-width:58px;max-height:72px;object-fit:contain;display:block;margin:0 auto" /></td>
-          <td class="trial-title">דוח קטע ניסוי</td>
+          <td class="trial-logo-cell" rowspan="2"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" width="58" height="72" style="width:58px;height:72px;max-width:58px;max-height:72px;object-fit:contain;display:block;margin:0 auto" /></td>
+          <td class="trial-title" rowspan="2">דוח קטע ניסוי</td>
           <th style="width:60px">מהדורה</th>
-          <th style="width:70px">תאריך</th>
+          <th style="width:76px">תאריך מהדורה</th>
         </tr>
-        <tr>
-          <td class="no-border"></td>
-          <td class="no-border"></td>
-          <td>${trialBlank()}</td>
-          <td>${trialBlank()}</td>
+        <tr class="trial-edition-row">
+          <td>א׳</td>
+          <td>01.01.2026</td>
         </tr>
       </tbody>
     </table>
