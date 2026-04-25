@@ -545,14 +545,15 @@ export default function Page() {
     .doc-logo{width:96px;height:auto;display:inline-block}
     .trial-report{width:82%;margin:0 auto 3px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
+    .trial-report .trial-header td,.trial-report .trial-header th{height:58px}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
-    .trial-report .trial-logo-cell{width:20%;text-align:center;vertical-align:middle}
-    .trial-report .trial-logo{width:88px;height:auto;display:inline-block}
+    .trial-report .trial-logo-cell{width:78px;text-align:center;vertical-align:middle;padding:1px}
+    .trial-report .trial-logo{width:58px!important;height:72px!important;max-width:58px!important;max-height:72px!important;object-fit:contain;display:block;margin:0 auto}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
     @page{size:A4 landscape;margin:5mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.doc-logo{width:90px}.trial-report{width:82%}}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.doc-logo{width:90px}.trial-report{width:82%}.trial-report .trial-logo{width:58px!important;height:72px!important}}
   `;
 
   const recordTitleForExport = () => {
@@ -746,13 +747,15 @@ export default function Page() {
     const trialContractor = profile?.contractor || '';
     return `<table class="trial-report">
       <tbody>
-        <tr>
-          <td rowspan="2" class="trial-logo-cell"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" /></td>
-          <td rowspan="2" class="trial-title">דוח קטע ניסוי</td>
-          <th>מהדורה</th>
-          <th>תאריך</th>
+        <tr class="trial-header">
+          <td class="trial-logo-cell"><img class="trial-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" width="58" height="72" style="width:58px;height:72px;max-width:58px;max-height:72px;object-fit:contain;display:block;margin:0 auto" /></td>
+          <td class="trial-title">דוח קטע ניסוי</td>
+          <th style="width:60px">מהדורה</th>
+          <th style="width:70px">תאריך</th>
         </tr>
         <tr>
+          <td class="no-border"></td>
+          <td class="no-border"></td>
           <td>${trialBlank()}</td>
           <td>${trialBlank()}</td>
         </tr>
