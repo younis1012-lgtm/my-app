@@ -328,6 +328,24 @@ export default function Page() {
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
 
+  const extractSequentialNo = (title: unknown) => {
+    const text = String(title ?? '');
+    const match = text.match(/מס[׳'’`]?\s*(\d+)/) ?? text.match(/#\s*(\d+)/) ?? text.match(/(?:^|\s)(\d+)(?:\s|$)/);
+    return match ? Number(match[1]) || 0 : 0;
+  };
+  const nextSequentialNo = (records: Array<{ title?: string; projectId?: string; subtype?: string }>, subtype?: PreliminaryTab) =>
+    records
+      .filter((item) => item.projectId === currentProjectId)
+      .filter((item) => !subtype || item.subtype === subtype)
+      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0) + 1;
+  const numberedTitle = (base: string, number: number) => `${base} מס׳ ${number}`;
+  const titleHasNumber = (title: unknown) => extractSequentialNo(title) > 0;
+  const nextNonconformanceTitle = () => numberedTitle('אי התאמה', nextSequentialNo(savedNonconformances as any));
+  const nextTrialSectionTitle = () => numberedTitle('קטע ניסוי', nextSequentialNo(savedTrialSections as any));
+  const preliminaryBaseTitle = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'אישור ספקים' : subtype === 'subcontractors' ? 'אישור קבלנים' : 'אישור חומרים';
+  const nextPreliminaryTitle = (subtype: PreliminaryTab) => numberedTitle(preliminaryBaseTitle(subtype), nextSequentialNo(savedPreliminary as any, subtype));
+
+
   useEffect(() => {
     if (!loaded || section !== 'checklists') return;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -348,9 +366,20 @@ export default function Page() {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     setChecklistForm({ ...next, contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
   };
-  const resetNonconformanceEditor = () => { setEditingNonconformanceId(null); setNonconformanceForm(createDefaultNonconformance()); };
-  const resetTrialSectionEditor = () => { setEditingTrialSectionId(null); setTrialSectionForm(createDefaultTrialSection()); };
-  const resetPreliminaryEditor = () => { setEditingPreliminaryId(null); if (preliminaryTab === 'suppliers') setSupplierPreliminaryForm(createDefaultPreliminary('suppliers')); if (preliminaryTab === 'subcontractors') setSubcontractorPreliminaryForm(createDefaultPreliminary('subcontractors')); if (preliminaryTab === 'materials') setMaterialPreliminaryForm(createDefaultPreliminary('materials')); };
+  const resetNonconformanceEditor = () => {
+    setEditingNonconformanceId(null);
+    setNonconformanceForm({ ...createDefaultNonconformance(), title: nextNonconformanceTitle() });
+  };
+  const resetTrialSectionEditor = () => {
+    setEditingTrialSectionId(null);
+    setTrialSectionForm({ ...createDefaultTrialSection(), title: nextTrialSectionTitle() });
+  };
+  const resetPreliminaryEditor = () => {
+    setEditingPreliminaryId(null);
+    if (preliminaryTab === 'suppliers') setSupplierPreliminaryForm({ ...createDefaultPreliminary('suppliers'), title: nextPreliminaryTitle('suppliers') });
+    if (preliminaryTab === 'subcontractors') setSubcontractorPreliminaryForm({ ...createDefaultPreliminary('subcontractors'), title: nextPreliminaryTitle('subcontractors') });
+    if (preliminaryTab === 'materials') setMaterialPreliminaryForm({ ...createDefaultPreliminary('materials'), title: nextPreliminaryTitle('materials') });
+  };
 
   const addProject = async () => {
     if (!newProjectName.trim()) return alert('יש להזין שם פרויקט');
@@ -432,7 +461,8 @@ export default function Page() {
     if (!nonconformanceForm.title.trim()) return alert('יש להזין כותרת לאי התאמה');
     const validation = validateApproval(nonconformanceForm.approval); if (validation) return alert(validation);
     const id = editingNonconformanceId ?? crypto.randomUUID();
-    const record: NonconformanceRecord = { id, projectId: currentProjectId, ...nonconformanceForm, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
+    const title = editingNonconformanceId || titleHasNumber(nonconformanceForm.title) ? nonconformanceForm.title : nextNonconformanceTitle();
+    const record: NonconformanceRecord = { id, projectId: currentProjectId, ...nonconformanceForm, title, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = { id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, raised_by: record.raisedBy, severity: record.severity, status: record.status, description: record.description, action_required: record.actionRequired, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
@@ -449,7 +479,8 @@ export default function Page() {
     if (!trialSectionForm.title.trim()) return alert('יש להזין שם לקטע ניסוי');
     const validation = validateApproval(trialSectionForm.approval); if (validation) return alert(validation);
     const id = editingTrialSectionId ?? crypto.randomUUID();
-    const record: TrialSectionRecord = { id, projectId: currentProjectId, ...trialSectionForm, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
+    const title = editingTrialSectionId || titleHasNumber(trialSectionForm.title) ? trialSectionForm.title : nextTrialSectionTitle();
+    const record: TrialSectionRecord = { id, projectId: currentProjectId, ...trialSectionForm, title, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = { id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approved_by: record.approvedBy, status: record.status, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
@@ -468,7 +499,8 @@ export default function Page() {
     if (!form.title.trim()) return alert('יש להזין כותרת');
     const validation = validateApproval(form.approval); if (validation) return alert(validation);
     const id = editingPreliminaryId ?? crypto.randomUUID();
-    const record: PreliminaryRecord = { id, projectId: currentProjectId, ...form, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
+    const title = editingPreliminaryId || titleHasNumber(form.title) ? form.title : nextPreliminaryTitle(subtype);
+    const record: PreliminaryRecord = { id, projectId: currentProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = { id: record.id, project_id: record.projectId, subtype: record.subtype, title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? null, subcontractor: record.subcontractor ?? null, material: record.material ?? null, approval: record.approval, saved_at: nowIso() };
