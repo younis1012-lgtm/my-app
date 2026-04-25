@@ -549,12 +549,11 @@ export default function Page() {
     const isBaseCourse = /מצע|מצעים/.test(titleText);
     const isPainting = /צבע/.test(titleText);
     const isAsphaltSite = templateKey === 'asphaltSite' || /אספלט באתר/.test(titleText);
-    const isFilledChecklistItem = (item: ChecklistItem) =>
-      String(item.status ?? '').trim() !== 'לא נבדק' ||
-      String(item.notes ?? '').trim() !== '' ||
-      String(item.executionDate ?? '').trim() !== '';
-    const itemsForExport = isAsphaltSite ? items.filter(isFilledChecklistItem) : items;
-    const displayedItems = isAsphaltSite && itemsForExport.length ? itemsForExport : items;
+    // בטופס אספלט מציגים במערכת את כל תהליכי הבקרה.
+    // בייצוא Word/PDF מסתירים רק שורות שסומנו במפורש כ״לא רלוונטי״.
+    const isRelevantChecklistItem = (item: ChecklistItem) =>
+      String(item.status ?? '').trim() !== 'לא רלוונטי';
+    const displayedItems = isAsphaltSite ? items.filter(isRelevantChecklistItem) : items;
 
     const renderChecklistRows = (columns: 'source' | 'system' = 'source') => {
       if (columns === 'system') {
