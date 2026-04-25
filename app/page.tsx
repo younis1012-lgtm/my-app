@@ -527,7 +527,7 @@ export default function Page() {
         <div class="company-header-address">בית ג'אן 249900</div>
       </div>
       <div class="company-header-logo-wrap">
-        <img class="company-header-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" />
+        <img class="company-header-logo" src="${exportLogoSrc()}" alt="CONTROLENG PRIME LTD" style="width:22px!important;max-width:22px!important;height:auto!important;max-height:24px!important;display:block!important;margin:0 auto!important;border:0!important;object-fit:contain!important;" />
       </div>
       <div class="company-header-slogan">שירותי הנדסה, פיקוח ובקרת איכות</div>
     </div>`;
@@ -550,14 +550,14 @@ export default function Page() {
     .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
     .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
     .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
-    .company-header-bar{width:100%;height:34px;margin:0 0 4px;page-break-inside:avoid;background:#81765a;border:0!important;border-bottom:1.5px solid #d8be73!important;color:#fff;white-space:nowrap;overflow:hidden;text-align:center;box-sizing:border-box}
-    .company-header-contact,.company-header-logo-wrap,.company-header-slogan{display:inline-block;vertical-align:middle;height:34px;box-sizing:border-box;border:0!important;background:#81765a!important}
-    .company-header-contact{width:34%;text-align:right;padding:7px 8px 0 4px;font-weight:800}
-    .company-header-logo-wrap{width:18%;text-align:center;padding-top:2px}
-    .company-header-slogan{width:46%;text-align:left;padding:11px 8px 0 4px;font-size:8px;font-weight:900;color:#fff;white-space:normal;letter-spacing:0}
-    .company-header-logo{width:30px;height:auto;display:inline-block;vertical-align:middle;border:0!important}
-    .company-header-email{font-size:6.5px;line-height:1.05;margin-bottom:1px;direction:ltr;text-align:right;color:#ffffff}
-    .company-header-address{font-size:6px;line-height:1.05;margin-bottom:0;color:#f5e8b7;font-weight:700}
+    .company-header-bar{width:100%;height:26px;margin:0 0 3px;page-break-inside:avoid;background:#81765a;border:0!important;border-bottom:1px solid #d8be73!important;color:#fff;white-space:nowrap;overflow:hidden;text-align:center;box-sizing:border-box}
+    .company-header-contact,.company-header-logo-wrap,.company-header-slogan{display:inline-block;vertical-align:middle;height:26px;box-sizing:border-box;border:0!important;background:#81765a!important}
+    .company-header-contact{width:42%;text-align:right;padding:5px 7px 0 3px;font-weight:800}
+    .company-header-logo-wrap{width:14%;text-align:center;padding-top:1px;overflow:hidden}
+    .company-header-slogan{width:42%;text-align:left;padding:8px 7px 0 3px;font-size:7px;font-weight:900;color:#fff;white-space:normal;letter-spacing:0}
+    .company-header-logo{width:22px!important;max-width:22px!important;height:auto!important;max-height:24px!important;display:block!important;margin:0 auto!important;vertical-align:middle;border:0!important;object-fit:contain!important}
+    .company-header-email{font-size:5.5px;line-height:1.05;margin-bottom:0;direction:ltr;text-align:right;color:#ffffff}
+    .company-header-address{font-size:5px;line-height:1.05;margin-bottom:0;color:#f5e8b7;font-weight:700}
     .trial-report{width:100%;margin:0 0 3px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
@@ -565,7 +565,7 @@ export default function Page() {
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
     @page{size:A4 portrait;margin:8mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header-bar{width:100%;height:32px;margin:0 0 4px}.company-header-contact,.company-header-logo-wrap,.company-header-slogan{height:32px}.company-header-contact{padding-top:6px}.company-header-logo-wrap{padding-top:2px}.company-header-slogan{padding-top:10px;font-size:7.5px}.company-header-logo{width:28px}.company-header-email{font-size:6px}.company-header-address{font-size:5.5px}.trial-report{width:100%}}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header-bar{width:100%;height:25px;margin:0 0 3px}.company-header-contact,.company-header-logo-wrap,.company-header-slogan{height:25px}.company-header-contact{padding-top:5px}.company-header-logo-wrap{padding-top:1px}.company-header-slogan{padding-top:8px;font-size:6.8px}.company-header-logo{width:21px!important;max-width:21px!important;max-height:23px!important}.company-header-email{font-size:5.2px}.company-header-address{font-size:4.8px}.trial-report{width:100%}}
   `;
 
   const recordTitleForExport = () => {
