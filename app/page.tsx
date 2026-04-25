@@ -550,22 +550,22 @@ export default function Page() {
     .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
     .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
     .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
-    .company-header-bar{width:100%;height:56px;margin:0 0 6px;page-break-inside:avoid;background:#81765a;border:0!important;border-bottom:3px solid #d8be73!important;color:#fff;white-space:nowrap;overflow:hidden;text-align:center;box-sizing:border-box}
-    .company-header-contact,.company-header-logo-wrap,.company-header-slogan{display:inline-block;vertical-align:middle;height:56px;box-sizing:border-box;border:0!important;background:#81765a!important}
-    .company-header-contact{width:32%;text-align:right;padding:14px 12px 0 6px;font-weight:800}
-    .company-header-logo-wrap{width:22%;text-align:center;padding-top:4px}
-    .company-header-slogan{width:44%;text-align:left;padding:20px 12px 0 6px;font-size:10px;font-weight:900;color:#fff;white-space:normal;letter-spacing:.1px}
-    .company-header-logo{width:48px;height:auto;display:inline-block;vertical-align:middle;border:0!important}
-    .company-header-email{font-size:8px;line-height:1.15;margin-bottom:2px;direction:ltr;text-align:right;color:#ffffff}
-    .company-header-address{font-size:7px;line-height:1.15;margin-bottom:0;color:#f5e8b7;font-weight:700}
-    .trial-report{width:82%;margin:0 auto 3px;table-layout:fixed}
+    .company-header-bar{width:100%;height:34px;margin:0 0 4px;page-break-inside:avoid;background:#81765a;border:0!important;border-bottom:1.5px solid #d8be73!important;color:#fff;white-space:nowrap;overflow:hidden;text-align:center;box-sizing:border-box}
+    .company-header-contact,.company-header-logo-wrap,.company-header-slogan{display:inline-block;vertical-align:middle;height:34px;box-sizing:border-box;border:0!important;background:#81765a!important}
+    .company-header-contact{width:34%;text-align:right;padding:7px 8px 0 4px;font-weight:800}
+    .company-header-logo-wrap{width:18%;text-align:center;padding-top:2px}
+    .company-header-slogan{width:46%;text-align:left;padding:11px 8px 0 4px;font-size:8px;font-weight:900;color:#fff;white-space:normal;letter-spacing:0}
+    .company-header-logo{width:30px;height:auto;display:inline-block;vertical-align:middle;border:0!important}
+    .company-header-email{font-size:6.5px;line-height:1.05;margin-bottom:1px;direction:ltr;text-align:right;color:#ffffff}
+    .company-header-address{font-size:6px;line-height:1.05;margin-bottom:0;color:#f5e8b7;font-weight:700}
+    .trial-report{width:100%;margin:0 0 3px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
     @page{size:A4 portrait;margin:8mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header-bar{width:100%;height:52px;margin:0 0 5px}.company-header-contact,.company-header-logo-wrap,.company-header-slogan{height:52px}.company-header-contact{padding-top:13px}.company-header-logo-wrap{padding-top:4px}.company-header-slogan{padding-top:18px;font-size:9px}.company-header-logo{width:44px}.company-header-email{font-size:7px}.company-header-address{font-size:6px}.trial-report{width:100%}}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header-bar{width:100%;height:32px;margin:0 0 4px}.company-header-contact,.company-header-logo-wrap,.company-header-slogan{height:32px}.company-header-contact{padding-top:6px}.company-header-logo-wrap{padding-top:2px}.company-header-slogan{padding-top:10px;font-size:7.5px}.company-header-logo{width:28px}.company-header-email{font-size:6px}.company-header-address{font-size:5.5px}.trial-report{width:100%}}
   `;
 
   const recordTitleForExport = () => {
