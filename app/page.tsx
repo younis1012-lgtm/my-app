@@ -773,8 +773,8 @@ export default function Page() {
           <th>תאריך</th>
         </tr>
         <tr>
-          <td>${trialBlank()}</td>
-          <td>${trialBlank()}</td>
+          <td>${safeText('א׳')}</td>
+          <td>${safeText('01.01.2026')}</td>
         </tr>
       </tbody>
     </table>
