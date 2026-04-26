@@ -526,7 +526,7 @@ export default function Page() {
   const exportLogoIconSrc = () => CONTROLENG_LOGO_ICON_DATA_URI;
   const exportLogoTextSrc = () => CONTROLENG_LOGO_TEXT_DATA_URI;
 
-  const exportCompanyHeader = () => `<div class="company-header" dir="rtl">
+  const exportCompanyHeader = () => `<div class="company-header" dir="ltr">
     <div class="company-header-line"></div>
     <div class="company-header-content">
       <div class="company-brand-text">
@@ -576,15 +576,15 @@ export default function Page() {
     .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
     .company-header{width:100%;margin:0 0 7px;page-break-inside:avoid;box-sizing:border-box}
     .company-header-line,.company-footer-line{height:3px;background:#8a7d5b;width:100%;margin:0}
-    .company-header-content{height:58px;display:table;width:100%;table-layout:fixed;background:#fff;box-sizing:border-box}
+    .company-header-content{height:66px;display:table;width:100%;table-layout:fixed;background:#fff;box-sizing:border-box}
     .company-brand-text,.company-header-spacer,.company-brand-icon-wrap{display:table-cell;vertical-align:middle;border:0!important;background:#fff!important}
-    .company-brand-text{width:32%;text-align:left;padding:4px 7px}
-    .company-header-spacer{width:48%}
-    .company-brand-icon-wrap{width:20%;text-align:right;padding:3px 7px}
-    .company-brand-wordmark{height:30px!important;max-height:30px!important;width:auto!important;max-width:145px!important;display:block!important;border:0!important;object-fit:contain!important}
-    .company-brand-icon{height:48px!important;max-height:48px!important;width:auto!important;max-width:82px!important;display:inline-block!important;border:0!important;object-fit:contain!important}
+    .company-brand-text{width:36%;text-align:left;padding:6px 9px 5px 9px}
+    .company-header-spacer{width:42%}
+    .company-brand-icon-wrap{width:22%;text-align:right;padding:5px 9px 4px 9px}
+    .company-brand-wordmark{height:38px!important;max-height:38px!important;width:auto!important;max-width:170px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-brand-icon{height:56px!important;max-height:56px!important;width:auto!important;max-width:96px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
     .company-footer{width:100%;margin:9px 0 0;page-break-inside:avoid;box-sizing:border-box}
-    .company-footer-content{display:table;width:100%;table-layout:fixed;height:20px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box}
+    .company-footer-content{display:table;width:100%;table-layout:fixed;height:22px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box}
     .company-footer-service,.company-footer-contact{display:table-cell;vertical-align:middle;border:0!important;background:#fff!important;padding:2px 5px}
     .company-footer-service{text-align:left;width:42%}
     .company-footer-contact{text-align:right;width:58%;direction:rtl}
@@ -596,7 +596,7 @@ export default function Page() {
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
     @page{size:A4 portrait;margin:8mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-content{height:54px}.company-brand-wordmark{height:28px!important;max-height:28px!important}.company-brand-icon{height:44px!important;max-height:44px!important}.company-footer{margin-top:8px}.company-footer-content{height:18px;font-size:8.5px}.trial-report{width:100%}}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-content{height:62px}.company-brand-wordmark{height:36px!important;max-height:36px!important}.company-brand-icon{height:54px!important;max-height:54px!important}.company-footer{margin-top:8px}.company-footer-content{height:19px;font-size:8.5px}.trial-report{width:100%}}
   `;
 
   const recordTitleForExport = () => {
