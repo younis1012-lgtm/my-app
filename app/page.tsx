@@ -526,31 +526,27 @@ export default function Page() {
   const exportLogoIconSrc = () => CONTROLENG_LOGO_ICON_DATA_URI;
   const exportLogoTextSrc = () => CONTROLENG_LOGO_TEXT_DATA_URI;
 
-  const exportCompanyHeader = () => `<div class="company-header" dir="ltr">
-    <div class="company-header-line"></div>
-    <div class="company-header-content">
-      <div class="company-brand-text">
-        <img class="company-brand-wordmark" src="${exportLogoTextSrc()}" alt="CONTROLENG PRIME LTD" />
-      </div>
-      <div class="company-header-spacer"></div>
-      <div class="company-brand-icon-wrap">
-        <img class="company-brand-icon" src="${exportLogoIconSrc()}" alt="CONTROLENG PRIME" />
-      </div>
-    </div>
-    <div class="company-header-line"></div>
-  </div>`;
+  const exportCompanyHeader = () => `<table class="company-header-table" dir="ltr" cellpadding="0" cellspacing="0" role="presentation">
+    <tr><td class="company-header-line" colspan="3">&nbsp;</td></tr>
+    <tr class="company-header-main">
+      <td class="company-brand-wordmark-cell">
+        <img class="company-brand-wordmark" src="${exportLogoTextSrc()}" alt="CONTROLENG PRIME LTD" width="145" height="76" />
+      </td>
+      <td class="company-header-spacer-cell">&nbsp;</td>
+      <td class="company-brand-icon-cell">
+        <img class="company-brand-icon" src="${exportLogoIconSrc()}" alt="CONTROLENG PRIME" width="86" height="76" />
+      </td>
+    </tr>
+    <tr><td class="company-header-line" colspan="3">&nbsp;</td></tr>
+  </table>`;
 
-  const exportCompanyFooter = () => `<div class="company-footer" dir="rtl">
-    <div class="company-footer-line"></div>
-    <div class="company-footer-content">
-      <div class="company-footer-service">שירותי הנדסה, פיקוח ובקרת איכות</div>
-      <div class="company-footer-contact">
-        <span>בית ג׳אן 249900</span>
-        <span class="company-footer-separator">|</span>
-        <span dir="ltr">q.controling@gmail.com</span>
-      </div>
-    </div>
-  </div>`;
+  const exportCompanyFooter = () => `<table class="company-footer-table" dir="rtl" cellpadding="0" cellspacing="0" role="presentation">
+    <tr><td class="company-footer-line" colspan="2">&nbsp;</td></tr>
+    <tr class="company-footer-main">
+      <td class="company-footer-contact">בית ג׳אן 249900&nbsp;&nbsp;|&nbsp;&nbsp;<span dir="ltr">q.controling@gmail.com</span></td>
+      <td class="company-footer-service">שירותי הנדסה, פיקוח ובקרת איכות</td>
+    </tr>
+  </table>`;
 
 
 
@@ -574,21 +570,21 @@ export default function Page() {
     .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
     .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
     .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
-    .company-header{width:100%;margin:0 0 7px;page-break-inside:avoid;box-sizing:border-box}
-    .company-header-line,.company-footer-line{height:3px;background:#8a7d5b;width:100%;margin:0}
-    .company-header-content{height:66px;display:table;width:100%;table-layout:fixed;background:#fff;box-sizing:border-box}
-    .company-brand-text,.company-header-spacer,.company-brand-icon-wrap{display:table-cell;vertical-align:middle;border:0!important;background:#fff!important}
-    .company-brand-text{width:36%;text-align:left;padding:6px 9px 5px 9px}
-    .company-header-spacer{width:42%}
-    .company-brand-icon-wrap{width:22%;text-align:right;padding:5px 9px 4px 9px}
-    .company-brand-wordmark{height:38px!important;max-height:38px!important;width:auto!important;max-width:170px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
-    .company-brand-icon{height:56px!important;max-height:56px!important;width:auto!important;max-width:96px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
-    .company-footer{width:100%;margin:9px 0 0;page-break-inside:avoid;box-sizing:border-box}
-    .company-footer-content{display:table;width:100%;table-layout:fixed;height:22px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box}
-    .company-footer-service,.company-footer-contact{display:table-cell;vertical-align:middle;border:0!important;background:#fff!important;padding:2px 5px}
-    .company-footer-service{text-align:left;width:42%}
-    .company-footer-contact{text-align:right;width:58%;direction:rtl}
-    .company-footer-separator{display:inline-block;margin:0 8px;color:#8a7d5b}
+    .company-header-table{width:100%;border-collapse:collapse;table-layout:fixed;margin:0 0 8px;page-break-inside:avoid;border:0!important;background:#fff}
+    .company-header-table td{border:0!important;background:#fff!important;padding:0!important;vertical-align:middle!important}
+    .company-header-line,.company-footer-line{height:3px!important;line-height:3px!important;font-size:1px!important;background:#8a7d5b!important;border:0!important;padding:0!important}
+    .company-header-main{height:58px!important}
+    .company-brand-wordmark-cell{width:31%;text-align:left!important;padding:6px 6px!important;vertical-align:middle!important}
+    .company-header-spacer-cell{width:52%;font-size:1px!important}
+    .company-brand-icon-cell{width:17%;text-align:right!important;padding:6px 6px!important;vertical-align:middle!important}
+    .company-brand-wordmark{height:38px!important;max-height:38px!important;width:auto!important;max-width:150px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-brand-icon{height:50px!important;max-height:50px!important;width:auto!important;max-width:88px!important;display:inline-block!important;border:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-footer-table{width:100%;border-collapse:collapse;table-layout:fixed;margin:9px 0 0;page-break-inside:avoid;border:0!important;background:#fff}
+    .company-footer-table td{border:0!important;background:#fff!important;vertical-align:middle!important}
+    .company-footer-main{height:19px!important}
+    .company-footer-service,.company-footer-contact{font-size:9px;font-weight:700;color:#111827;padding:2px 5px!important}
+    .company-footer-service{text-align:left!important;width:42%}
+    .company-footer-contact{text-align:right!important;width:58%;direction:rtl}
     .trial-report{width:100%;margin:0 0 3px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
     .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
@@ -596,7 +592,7 @@ export default function Page() {
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
     @page{size:A4 portrait;margin:8mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-content{height:62px}.company-brand-wordmark{height:36px!important;max-height:36px!important}.company-brand-icon{height:54px!important;max-height:54px!important}.company-footer{margin-top:8px}.company-footer-content{height:19px;font-size:8.5px}.trial-report{width:100%}}
+    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header-table{margin-bottom:6px}.company-header-main{height:54px!important}.company-brand-wordmark{height:36px!important;max-height:36px!important}.company-brand-icon{height:48px!important;max-height:48px!important}.company-footer-table{margin-top:8px}.company-footer-main{height:18px!important}.company-footer-service,.company-footer-contact{font-size:8.5px!important}.trial-report{width:100%}}
   `;
 
   const recordTitleForExport = () => {
