@@ -596,6 +596,33 @@ export default function Page() {
     return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || 'קובץ')}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
   };
 
+
+
+  const checklistAttachmentRequirement = (description: unknown) => {
+    const text = String(description ?? '').trim();
+    if (!text) return '';
+    const normalized = text.replace(/\s+/g, ' ');
+
+    const labKeywords = [
+      'בדיקה', 'בדיקות', 'מעבדה', 'תעודה', 'תעודות', 'הידוק', 'רטיבות', 'תכולת רטיבות',
+      'דרגת הידוק', 'צפיפות', 'FWD', 'fwd', 'גלילים', 'מרשל', 'אספלט', 'תערובת', 'אגרגט',
+      'מצע', 'מצעים', 'בטון', 'חומר', 'חומרים', 'דגימה', 'מדגם', 'בדיקת צפיפות', 'בדיקת חוזק',
+      'מישוריות'
+    ];
+    const measurementKeywords = [
+      'מדיד', 'מדידה', 'מדידות', 'מפלס', 'מפלסים', 'גובה', 'גבהים', 'שיפוע',
+      'שיפועים', 'עובי', 'חתך', 'ק״מ', 'קמ', 'קו', 'קווים', 'תוואי', 'as-made', 'AS-MADE',
+      'קילומטר', 'מיקום'
+    ];
+
+    if (labKeywords.some((keyword) => normalized.includes(keyword))) return 'צירוף תעודת מעבדה';
+    if (measurementKeywords.some((keyword) => normalized.includes(keyword))) return 'צירוף רשימת מדידה';
+    return '';
+  };
+
+  const checklistAttachmentCell = (item: ChecklistItem, height = 34) =>
+    valueOrBlank((item as any).certificateRef || checklistAttachmentRequirement(item.description), height);
+
   const signaturesTable = (approval: ApprovalFlow | undefined) => {
     const normalized = normalizeApproval(approval);
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
@@ -631,20 +658,20 @@ export default function Page() {
         return `<table class="check-table">
           <thead>
             <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-            <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
+            <tr><th style="width:34%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th><th>מס׳</th></tr>
           </thead>
           <tbody>
-            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td><td>${index + 1}</td></tr>`).join('')}
           </tbody>
         </table>`;
       }
       return `<table class="check-table">
         <thead>
           <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-          <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
+          <tr><th style="width:34%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     };
@@ -673,10 +700,10 @@ export default function Page() {
       </table>
       <table class="check-table">
         <thead>
-          <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
+          <tr><th style="width:34%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th><th>הערות</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     }
