@@ -552,6 +552,17 @@ export default function Page() {
     </div>
   </div>`;
 
+
+
+  const safeText = (value: unknown) =>
+    String(value ?? '').replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char] ?? char));
+  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 16);
+  const blankCell = (height = 18) => `<div class="blank-cell" style="min-height:${compactHeight(height)}px">&nbsp;</div>`;
+  const valueOrBlank = (value: unknown, height = 18) => {
+    const text = String(value ?? '').trim();
+    return text ? safeText(text) : blankCell(height);
+  };
+
   const exportStyles = `
     body{font-family:Arial,sans-serif;direction:rtl;padding:4px;color:#0f172a;font-size:8px;background:#fff}
     .export-page{width:100%;box-sizing:border-box;margin:0 auto}
