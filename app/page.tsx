@@ -610,3 +610,5 @@ export function ConcentrationsSection({
     </section>
   );
 }
+
+export default ConcentrationsSection;
