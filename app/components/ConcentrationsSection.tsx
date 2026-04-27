@@ -53,13 +53,15 @@ const templates: ConcentrationTemplate[] = [
   { id: "supervision", title: "ריכוז דוחות פיקוח עליון", fileName: "ריכוז דוחות פיקוח עליון.xlsx", description: "דוחות פיקוח עליון", keywords: ["פיקוח עליון", "דוח פיקוח"], source: "trialSections" },
   { id: "materials", title: "ריכוז חומרים", fileName: "ריכוז חומרים.xlsx", description: "אישורי חומרים", keywords: ["חומר", "חומרים", "תקן", "מפרט", "תעודת התאמה"], source: "preliminary" },
   { id: "trial-sections", title: "ריכוז קטעי ניסוי", fileName: "ריכוז קטעי ניסוי.xlsx", description: "קטעי ניסוי", keywords: ["קטע ניסוי", "קטעי ניסוי"], source: "trialSections" },
-  { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "ריכוז אפיון מצע א.xlsx", description: "אפיון מצע א׳ / CBR / גרדציה", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists" },
-  { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "ריכוז אפיון נברר.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
+  // שים לב: אצלך שם הקובץ בתיקיית concentrations הוא בלי האות י' במילה רכוז.
+  { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "רכוז אפיון מצע א.xlsx", description: "אפיון מצע א׳ / CBR / גרדציה", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists" },
+  { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "רכוז אפיון נברר.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
 ];
 
 const normalize = (value: unknown) =>
   String(value ?? "")
     .replace(/[׳`’']/g, "")
+    .replace(/[\n\r\t]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -101,9 +103,9 @@ const recordText = (record: any) => {
       if (Array.isArray(item?.attachments)) item.attachments.forEach((a: any) => parts.push(a?.name, a?.kind));
     });
   }
-  if (record?.supplier) parts.push(record.supplier.supplierName, record.supplier.suppliedMaterial, record.supplier.notes);
-  if (record?.subcontractor) parts.push(record.subcontractor.subcontractorName, record.subcontractor.field, record.subcontractor.notes);
-  if (record?.material) parts.push(record.material.materialName, record.material.source, record.material.usage, record.material.notes);
+  if (record?.supplier) parts.push(record.supplier.supplierName, record.supplier.suppliedMaterial, record.supplier.notes, record.supplier.approvalNo);
+  if (record?.subcontractor) parts.push(record.subcontractor.subcontractorName, record.subcontractor.field, record.subcontractor.notes, record.subcontractor.approvalNo);
+  if (record?.material) parts.push(record.material.materialName, record.material.source, record.material.usage, record.material.notes, record.material.certificateNo);
   return parts.filter(Boolean).join(" ");
 };
 
@@ -165,59 +167,109 @@ const rowsFromSimpleRecords = (records: any[], template: ConcentrationTemplate, 
       uploadedAt: String(record?.savedAt ?? ""),
     }));
 
-const findFirstEmptyRow = (ws: XLSX.WorkSheet, minRow = 8) => {
-  const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
-  for (let r = Math.max(minRow, range.s.r); r <= range.e.r + 80; r += 1) {
-    let hasValue = false;
-    for (let c = range.s.c; c <= range.e.c; c += 1) {
-      const cell = ws[XLSX.utils.encode_cell({ r, c })];
-      if (cell && String(cell.v ?? "").trim()) {
-        hasValue = true;
-        break;
-      }
-    }
-    if (!hasValue) return r;
-  }
-  return range.e.r + 1;
-};
+const cellText = (cell: XLSX.CellObject | undefined) => normalize(cell?.v ?? "");
 
-const setCell = (ws: XLSX.WorkSheet, row: number, col: number, value: unknown) => {
+const getRange = (ws: XLSX.WorkSheet) => XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
+
+const setCellValueKeepStyle = (ws: XLSX.WorkSheet, row: number, col: number, value: unknown, styleFromRow?: number) => {
   const ref = XLSX.utils.encode_cell({ r: row, c: col });
-  ws[ref] = { t: typeof value === "number" ? "n" : "s", v: value ?? "" };
+  const oldCell: any = ws[ref] || {};
+  const styleCell: any = typeof styleFromRow === "number" ? ws[XLSX.utils.encode_cell({ r: styleFromRow, c: col })] : undefined;
+  const next: any = { ...oldCell, v: value ?? "", t: typeof value === "number" ? "n" : "s" };
+  if (!next.s && styleCell?.s) next.s = styleCell.s;
+  ws[ref] = next;
 };
 
-const updateRef = (ws: XLSX.WorkSheet, row: number, col: number) => {
-  const current = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
-  current.e.r = Math.max(current.e.r, row);
-  current.e.c = Math.max(current.e.c, col);
-  ws["!ref"] = XLSX.utils.encode_range(current);
+const clearCellKeepStyle = (ws: XLSX.WorkSheet, row: number, col: number) => {
+  const ref = XLSX.utils.encode_cell({ r: row, c: col });
+  const oldCell: any = ws[ref];
+  ws[ref] = oldCell?.s ? { t: "s", v: "", s: oldCell.s } : { t: "s", v: "" };
 };
 
-const fillWorksheet = (ws: XLSX.WorkSheet, rows: ConcentrationRow[], projectName: string) => {
-  if (!rows.length) return;
-  const startRow = findFirstEmptyRow(ws, 7);
-  const values = rows.map((row, index) => [
-    index + 1,
-    projectName,
-    row.checklistNo,
-    row.title,
-    row.category,
-    row.location,
-    row.contractor,
-    row.itemDescription,
-    row.attachmentKind,
-    row.certificateNo,
-    row.fileName,
-    row.executionDate || row.date,
-    row.status,
-    row.inspector,
-    row.responsible,
-    row.notes,
-  ]);
+const updateSheetRef = (ws: XLSX.WorkSheet, row: number, col: number) => {
+  const range = getRange(ws);
+  range.e.r = Math.max(range.e.r, row);
+  range.e.c = Math.max(range.e.c, col);
+  ws["!ref"] = XLSX.utils.encode_range(range);
+};
 
-  values.forEach((line, rIndex) => {
-    line.forEach((value, cIndex) => setCell(ws, startRow + rIndex, cIndex, value));
-    updateRef(ws, startRow + rIndex, line.length - 1);
+const findHeaderRow = (ws: XLSX.WorkSheet) => {
+  const range = getRange(ws);
+  let best = { row: Math.min(range.e.r, 10), score: 0 };
+  for (let r = range.s.r; r <= Math.min(range.e.r, 60); r += 1) {
+    let score = 0;
+    for (let c = range.s.c; c <= range.e.c; c += 1) {
+      const text = cellText(ws[XLSX.utils.encode_cell({ r, c })]);
+      if (!text) continue;
+      if (text.includes("מס סדורי") || text.includes("מס")) score += 1;
+      if (text.includes("תאריך")) score += 1;
+      if (text.includes("תעודה")) score += 2;
+      if (text.includes("מקור החומר") || text.includes("מקום") || text.includes("מיקום")) score += 1;
+      if (text.includes("הערות")) score += 1;
+      if (text.includes("qc") || text.includes("qa")) score += 1;
+    }
+    if (score > best.score) best = { row: r, score };
+  }
+  return best.row;
+};
+
+const buildHeaderMap = (ws: XLSX.WorkSheet, headerRow: number) => {
+  const range = getRange(ws);
+  const map = new Map<number, string>();
+  for (let c = range.s.c; c <= range.e.c; c += 1) {
+    const direct = cellText(ws[XLSX.utils.encode_cell({ r: headerRow, c })]);
+    const above = cellText(ws[XLSX.utils.encode_cell({ r: headerRow - 1, c })]);
+    const below = cellText(ws[XLSX.utils.encode_cell({ r: headerRow + 1, c })]);
+    const label = [above, direct, below].filter(Boolean).join(" ");
+    if (label) map.set(c, label);
+  }
+  return map;
+};
+
+const rowValueForHeader = (header: string, row: ConcentrationRow, index: number, projectName: string) => {
+  const h = normalize(header);
+  if (h.includes("מס סדורי") || h === "מס" || h.startsWith("מס ")) return index + 1;
+  if (h.includes("שם פרויקט") || h.includes("פרויקט")) return projectName;
+  if (h.includes("ניהול פרויקט")) return "";
+  if (h.includes("שם הקבלן") || h.includes("קבלן") || h.includes("שם מבצע")) return row.contractor;
+  if (h.includes("רשימת תיוג")) return row.checklistNo;
+  if (h.includes("מס תעודה") || h.includes("תעודה")) return row.certificateNo || row.fileName;
+  if (h.includes("מקור החומר")) return row.notes || row.contractor;
+  if (h.includes("מיקום נטילה") || h.includes("מקום נטילה")) return row.location;
+  if (h.includes("מקום הפיזור") || h.includes("מקום ביצוע") || h.includes("מיקום")) return row.location || row.itemDescription;
+  if (h.includes("תאריך")) return row.executionDate || row.date;
+  if (h.includes("בוצע") || h.includes("qc") || h.includes("qa")) return row.inspector || row.responsible || "QC";
+  if (h.includes("סוג העבודה") || h.includes("תיאור") || h.includes("בדיקה")) return row.itemDescription;
+  if (h.includes("אחראי")) return row.responsible;
+  if (h.includes("בודק") || h.includes("שם")) return row.inspector;
+  if (h.includes("ok") || h.includes("nc") || h.includes("תקין") || h.includes("סטטוס")) return row.status;
+  if (h.includes("הערות")) return row.notes;
+  return "";
+};
+
+const clearTemplateDataArea = (ws: XLSX.WorkSheet, headerRow: number, headerMap: Map<number, string>, rowsToClear = 80) => {
+  const dataStart = headerRow + 1;
+  const columns = Array.from(headerMap.keys());
+  for (let r = dataStart; r < dataStart + rowsToClear; r += 1) {
+    columns.forEach((c) => clearCellKeepStyle(ws, r, c));
+  }
+};
+
+const fillWorksheetKeepingTemplate = (ws: XLSX.WorkSheet, rows: ConcentrationRow[], projectName: string) => {
+  const headerRow = findHeaderRow(ws);
+  const headerMap = buildHeaderMap(ws, headerRow);
+  const dataStart = headerRow + 1;
+  const styleRow = dataStart;
+
+  clearTemplateDataArea(ws, headerRow, headerMap);
+
+  rows.forEach((row, rIndex) => {
+    const sheetRow = dataStart + rIndex;
+    headerMap.forEach((header, col) => {
+      const value = rowValueForHeader(header, row, rIndex, projectName);
+      if (value !== "") setCellValueKeepStyle(ws, sheetRow, col, value, styleRow);
+      updateSheetRef(ws, sheetRow, col);
+    });
   });
 };
 
@@ -262,13 +314,19 @@ export function ConcentrationsSection({
       const response = await fetch(getTemplateUrl(template.fileName));
       if (!response.ok) throw new Error(`לא נמצא קובץ תבנית: ${template.fileName}`);
       const buffer = await response.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      fillWorksheet(worksheet, rowsByTemplate[template.id] ?? [], currentProjectName);
-      workbook.Workbook = workbook.Workbook || {};
-      const out = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), template.fileName.replace(/\.xlsx$/i, "") + " - ריכוז אוטומטי.xlsx");
+      const workbook = XLSX.read(buffer, { type: "array", cellStyles: true, cellDates: true, bookVBA: true });
+      const sheetName = workbook.SheetNames.find((name) => !normalize(name).includes("סטטיסט")) || workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) throw new Error("לא נמצאה לשונית עבודה בקובץ הריכוז");
+
+      const rows = rowsByTemplate[template.id] ?? [];
+      if (rows.length) fillWorksheetKeepingTemplate(worksheet, rows, currentProjectName);
+
+      const out = XLSX.write(workbook, { bookType: "xlsx", type: "array", cellStyles: true });
+      downloadBlob(
+        new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        template.fileName.replace(/\.xlsx$/i, "") + " - ריכוז אוטומטי.xlsx"
+      );
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "אירעה שגיאה בהפקת הריכוז");
@@ -283,7 +341,7 @@ export function ConcentrationsSection({
         <div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
           <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
-            הורדת ריכוז אוטומטי פותחת את תבנית האקסל המקורית ומכניסה אליה תעודות/בדיקות ששויכו לרשימות התיוג של הפרויקט. אפשר להוריד גם תבנית ריקה מקורית.
+            הריכוז האוטומטי מוריד את אותו קובץ Excel מתוך <span dir="ltr">public/concentrations</span> ומשבץ נתונים בתוך התבנית המקורית, בלי לבנות טבלה חדשה ובלי לשנות את מבנה הקובץ.
           </div>
           {currentProjectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {currentProjectName}</div> : null}
         </div>
@@ -291,7 +349,7 @@ export function ConcentrationsSection({
       </div>
 
       <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 16, padding: 14, color: "#1e3a8a", fontWeight: 800, lineHeight: 1.7 }}>
-        חשוב: כדי שהורדה אוטומטית תעבוד יש להשאיר את קבצי האקסל המקוריים בתיקייה <span dir="ltr">public/concentrations</span>. אם אין תוצאות עדיין — הריכוז יורד כתבנית ריקה ונקייה.
+        חשוב: קבצי האקסל המקוריים חייבים להיות בתיקייה <span dir="ltr">public/concentrations</span>. אם אין תוצאות עדיין — כפתור הריכוז האוטומטי יוריד את אותה תבנית מקורית ללא מילוי.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
