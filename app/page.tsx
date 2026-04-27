@@ -10,11 +10,14 @@ import { ProjectsSection } from './components/ProjectsSection';
 import { NonconformancesSection } from './components/NonconformancesSection';
 import { TrialSectionsSection } from './components/TrialSectionsSection';
 import { PreliminarySection } from './components/PreliminarySection';
+import { ConcentrationsSection } from './components/ConcentrationsSection';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 const STORAGE_KEY = 'yk-quality-stage4-multifile';
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
+
+type AppSection = Section | 'concentrations';
 
 
 type ProjectProfile = {
@@ -479,7 +482,7 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 }
 
 export default function Page() {
-  const [section, setSection] = useState<Section>('home');
+  const [section, setSection] = useState<AppSection>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
   const [projects, setProjects] = useState<Project[]>(isSupabaseConfigured ? [] : defaultProjects);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(isSupabaseConfigured ? null : defaultProjects[0]?.id ?? null);
@@ -874,7 +877,7 @@ export default function Page() {
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
-  const homeModules = [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: projects.length }, { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length }, { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length }, { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length }, { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length }];
+  const homeModules = [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: projects.length }, { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length }, { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length }, { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length }, { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length }, { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 }];
   const labelForPreliminary = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'ספקים' : subtype === 'subcontractors' ? 'קבלנים' : 'חומרים';
 
 
@@ -1258,7 +1261,7 @@ export default function Page() {
         <div style={styles.headerCard}><div style={{ fontWeight: 800 }}>פרויקט פעיל</div><div>{projectName}</div>{isSaving && <div style={{ color: '#475569', marginTop: 6 }}>שומר נתונים...</div>}{!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}</div>
       </header>
 
-      <div style={styles.navRow}>{[['home','דף בית'],['projects','פרויקטים'],['checklists','רשימות תיוג'],['nonconformances','אי תאמות'],['trialSections','קטעי ניסוי'],['preliminary','בקרה מקדימה']].map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key as Section)}>{label}</button>)}</div>
+      <div style={styles.navRow}>{[['home','דף בית'],['projects','פרויקטים'],['checklists','רשימות תיוג'],['nonconformances','אי תאמות'],['trialSections','קטעי ניסוי'],['preliminary','בקרה מקדימה'],['concentrations','ריכוזים']].map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key as AppSection)}>{label}</button>)}</div>
 
       <div style={styles.layout}>
         <main style={styles.mainCard}>
@@ -1269,7 +1272,7 @@ export default function Page() {
               <button type="button" style={styles.secondaryBtn} onClick={exportWord}>הורד Word</button>
             </div>
           )}
-          {section === 'home' && <HomeSection projects={projects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection} />}
+          {section === 'home' && <HomeSection projects={projects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
           {section === 'projects' && <ProjectsSection projects={projects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
@@ -1279,6 +1282,7 @@ export default function Page() {
           {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
+          {section === 'concentrations' && <ConcentrationsSection />}
         </main>
 
         <SavedRecordsSidebar projectName={projectName} searchTerm={recordsSearchTerm} onSearchTermChange={setRecordsSearchTerm} checklistTemplateLabel={checklistTemplateLabel} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} onOpenChecklist={loadChecklist} onDeleteChecklist={deleteChecklist} onOpenNonconformance={loadNonconformance} onDeleteNonconformance={deleteNonconformance} onOpenTrialSection={loadTrialSection} onDeleteTrialSection={deleteTrialSection} onOpenPreliminary={loadPreliminary} onDeletePreliminary={deletePreliminary} />
