@@ -753,6 +753,28 @@ export default function Page() {
     const text = String(value ?? '').trim();
     return text ? safeText(text) : blankCell(height);
   };
+  const checklistAttachmentSummary = (item: unknown) => {
+    const attachments = normalizeChecklistAttachments((item as any)?.attachments);
+    if (!attachments.length) return '';
+    return attachments
+      .map((attachment) => `${checklistAttachmentLabel(attachment.kind)}: ${attachment.name}`)
+      .join(' | ');
+  };
+
+  const checklistNotesOrAttachments = (item: unknown, height = 18) => {
+    const attachments = checklistAttachmentSummary(item);
+    const notes = String((item as any)?.notes ?? '').trim();
+    const combined = [attachments, notes].filter(Boolean).join(' | ');
+    return valueOrBlank(combined, height);
+  };
+
+  const checklistAttachmentsExportTable = (items: unknown) => {
+    const rows = normalizeChecklistItems(items)
+      .flatMap((item: any) => normalizeChecklistAttachments(item.attachments).map((attachment) => ({ item, attachment })));
+    if (!rows.length) return '';
+    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th><th>תאריך צירוף</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${safeText(attachment.name)}</td><td>${safeText(attachment.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
+  };
+
 
   const exportStyles = `
     body{font-family:Arial,sans-serif;direction:rtl;padding:4px;color:#0f172a;font-size:8px;background:#fff}
@@ -838,7 +860,7 @@ export default function Page() {
             <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
           </thead>
           <tbody>
-            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td><td>${index + 1}</td></tr>`).join('')}
           </tbody>
         </table>`;
       }
@@ -848,7 +870,7 @@ export default function Page() {
           <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     };
@@ -880,7 +902,7 @@ export default function Page() {
           <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     }
@@ -902,7 +924,7 @@ export default function Page() {
           <tr><td>${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td><td colspan="2">${valueOrBlank('', 22)}</td></tr>
         </tbody>
       </table>
-      ${renderChecklistRows('source')}`;
+      ${renderChecklistRows('source')}${checklistAttachmentsExportTable(displayedItems)}`;
     }
 
     if (isPainting) {
@@ -932,7 +954,7 @@ export default function Page() {
           <tr><td>אישור מנהל הבטחת איכות</td><td>מנהל הבטחת איכות</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
         </tbody>
       </table>
-      ${renderChecklistRows('system')}`;
+      ${renderChecklistRows('system')}${checklistAttachmentsExportTable(displayedItems)}`;
     }
 
     return `<table class="doc-header">
@@ -949,7 +971,7 @@ export default function Page() {
         <tr><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td><td>${valueOrBlank('', 22)}</td></tr>
       </tbody>
     </table>
-    ${renderChecklistRows('source')}`;
+    ${renderChecklistRows('source')}${checklistAttachmentsExportTable(displayedItems)}`;
   };
 
   const nonconformanceExportHtml = () => `${baseRows([
