@@ -92,6 +92,81 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
     : [];
 
 
+type ChecklistAttachmentKind = 'lab' | 'measurement' | 'other';
+
+type ChecklistAttachment = StoredAttachment & {
+  id: string;
+  kind: ChecklistAttachmentKind;
+};
+
+const normalizeChecklistAttachments = (value: unknown): ChecklistAttachment[] =>
+  Array.isArray(value)
+    ? value
+        .filter((item) => item && typeof item === 'object')
+        .map((item: any, index: number) => ({
+          id: String(item.id ?? `${Date.now()}-${index}`),
+          name: String(item.name ?? 'קובץ'),
+          type: String(item.type ?? ''),
+          dataUrl: String(item.dataUrl ?? ''),
+          uploadedAt: String(item.uploadedAt ?? ''),
+          kind: item.kind === 'lab' || item.kind === 'measurement' ? item.kind : 'other',
+        }))
+        .filter((item) => item.dataUrl)
+    : [];
+
+const textIncludesAny = (text: string, keywords: string[]) => keywords.some((keyword) => text.includes(keyword));
+
+const getChecklistAttachmentRequirement = (description: unknown): ChecklistAttachmentKind | null => {
+  const text = String(description ?? '');
+
+  // בדיקות מעבדה — כולל מישוריות לפי התיקון המקצועי.
+  if (textIncludesAny(text, [
+    'בדיקה',
+    'בדיקות',
+    'מעבדה',
+    'הידוק',
+    'רטיבות',
+    'מישוריות',
+    'FWD',
+    'אספלט',
+    'מצעים',
+    'מצע',
+    'בטון',
+    'צפיפות',
+    'CBR',
+    'תכולת',
+    'דרגת',
+  ])) {
+    return 'lab';
+  }
+
+  // רשימות מדידה — רק פעולות מדידה/מודד אמיתיות.
+  if (textIncludesAny(text, [
+    'מדידה',
+    'מדידות',
+    'מודד',
+    'גובה',
+    'גבהים',
+    'שיפוע',
+    'שיפועים',
+    'חתך',
+    'חתכים',
+    'קואורדינטות',
+    'צירים',
+    'ציר',
+    'מיקום',
+    'עובי',
+  ])) {
+    return 'measurement';
+  }
+
+  return null;
+};
+
+const checklistAttachmentLabel = (kind: ChecklistAttachmentKind | null) =>
+  kind === 'lab' ? 'תעודת מעבדה' : kind === 'measurement' ? 'רשימת מדידה' : 'מסמך מצורף';
+
+
 const createDefaultApproval = (): ApprovalFlow => ({
   status: 'draft',
   remarks: '',
@@ -130,7 +205,19 @@ const validateApproval = (approval: ApprovalFlow) => {
 };
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({ id, description: '', responsible: '', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' });
-const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistItem[] => Array.isArray(items) ? items.map((item, index) => ({ id: item?.id ?? `${Date.now()}-${index}`, description: item?.description ?? '', responsible: item?.responsible ?? '', status: item?.status ?? 'לא נבדק', notes: item?.notes ?? '', inspector: item?.inspector ?? '', executionDate: item?.executionDate ?? '' })) : [];
+const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistItem[] =>
+  Array.isArray(items)
+    ? items.map((item: any, index) => ({
+        id: item?.id ?? `${Date.now()}-${index}`,
+        description: item?.description ?? '',
+        responsible: item?.responsible ?? '',
+        status: item?.status ?? 'לא נבדק',
+        notes: item?.notes ?? '',
+        inspector: item?.inspector ?? '',
+        executionDate: item?.executionDate ?? '',
+        attachments: normalizeChecklistAttachments(item?.attachments),
+      } as ChecklistItem & { attachments?: ChecklistAttachment[] }))
+    : [];
 
 const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ checklistNo: undefined, templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
 const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
@@ -164,6 +251,85 @@ async function saveWithApprovalFallback(table: string, payload: Record<string, a
     result = mode === 'insert' ? await supabase.from(table).insert(withoutImages) : await supabase.from(table).update(withoutImages).eq('id', id);
   }
   if (result.error) throw new Error(errorText(result.error) || 'שגיאה בשמירה מול Supabase');
+}
+
+
+type ChecklistAttachmentsPanelProps = {
+  items: ChecklistItem[];
+  onUpload: (itemId: string, kind: ChecklistAttachmentKind, file: File) => void;
+  onRemove: (itemId: string, attachmentId: string) => void;
+};
+
+function ChecklistAttachmentsPanel({ items, onUpload, onRemove }: ChecklistAttachmentsPanelProps) {
+  const relevantItems = items
+    .map((item) => ({ item, kind: getChecklistAttachmentRequirement(item.description) }))
+    .filter((entry): entry is { item: ChecklistItem & { attachments?: ChecklistAttachment[] }; kind: ChecklistAttachmentKind } => Boolean(entry.kind));
+
+  if (!relevantItems.length) return null;
+
+  return (
+    <div style={{ border: '1px solid #cbd5e1', borderRadius: 16, padding: 14, marginBottom: 16, background: '#f8fafc' }}>
+      <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>צירוף בדיקות ומדידות לרשימת התיוג</div>
+      <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
+        כאן מצרפים מסמכים בזמן מילוי הרשימה. תעודות מעבדה ורשימות מדידה נשמרות עם שורת הבקרה ואינן מוסיפות שורות לטופס הייצוא.
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
+          <thead>
+            <tr>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'right' }}>תהליך בקרה</th>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, width: 150 }}>סוג מסמך נדרש</th>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, width: 210 }}>צירוף מסמך</th>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, width: 260 }}>מסמכים שצורפו</th>
+            </tr>
+          </thead>
+          <tbody>
+            {relevantItems.map(({ item, kind }) => {
+              const attachments = normalizeChecklistAttachments((item as any).attachments).filter((attachment) => attachment.kind === kind);
+              return (
+                <tr key={item.id}>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'right', verticalAlign: 'top' }}>{item.description}</td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center', fontWeight: 800, verticalAlign: 'top' }}>
+                    {checklistAttachmentLabel(kind)}
+                  </td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center', verticalAlign: 'top' }}>
+                    <label style={{ display: 'inline-block', cursor: 'pointer', border: '1px solid #0f172a', borderRadius: 10, padding: '7px 10px', fontWeight: 800, background: '#fff' }}>
+                      📎 צרף {checklistAttachmentLabel(kind)}
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                        style={{ display: 'none' }}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) onUpload(item.id, kind, file);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, verticalAlign: 'top' }}>
+                    {attachments.length ? (
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        {attachments.map((attachment) => (
+                          <div key={attachment.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 6px' }}>
+                            <span title={attachment.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>✅ {attachment.name}</span>
+                            <button type="button" onClick={() => onRemove(item.id, attachment.id)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: '#b91c1c', fontWeight: 900 }}>מחיקה</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: '#64748b' }}>טרם צורף מסמך</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function Page() {
@@ -434,6 +600,44 @@ export default function Page() {
   const addChecklistItem = () => setChecklistForm((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(crypto.randomUUID())] }));
   const removeChecklistItem = (id: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id) }));
 
+  const uploadChecklistItemAttachment = (itemId: string, kind: ChecklistAttachmentKind, file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const attachment: ChecklistAttachment = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: file.type,
+        dataUrl: String(reader.result ?? ''),
+        uploadedAt: nowLocal(),
+        kind,
+      };
+
+      setChecklistForm((prev) => ({
+        ...prev,
+        items: prev.items.map((item: any) =>
+          item.id === itemId
+            ? { ...item, attachments: [...normalizeChecklistAttachments(item.attachments), attachment] }
+            : item
+        ),
+      }));
+    };
+    reader.onerror = () => alert('לא ניתן לקרוא את הקובץ שנבחר');
+    reader.readAsDataURL(file);
+  };
+
+  const removeChecklistItemAttachment = (itemId: string, attachmentId: string) => {
+    setChecklistForm((prev) => ({
+      ...prev,
+      items: prev.items.map((item: any) =>
+        item.id === itemId
+          ? { ...item, attachments: normalizeChecklistAttachments(item.attachments).filter((attachment) => attachment.id !== attachmentId) }
+          : item
+      ),
+    }));
+  };
+
+
+
   const saveChecklist = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!checklistForm.title.trim()) return alert('יש להזין שם רשימת תיוג');
@@ -596,33 +800,6 @@ export default function Page() {
     return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || 'קובץ')}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
   };
 
-
-
-  const checklistAttachmentRequirement = (description: unknown) => {
-    const text = String(description ?? '').trim();
-    if (!text) return '';
-    const normalized = text.replace(/\s+/g, ' ');
-
-    const labKeywords = [
-      'בדיקה', 'בדיקות', 'מעבדה', 'תעודה', 'תעודות', 'הידוק', 'רטיבות', 'תכולת רטיבות',
-      'דרגת הידוק', 'צפיפות', 'FWD', 'fwd', 'גלילים', 'מרשל', 'אספלט', 'תערובת', 'אגרגט',
-      'מצע', 'מצעים', 'בטון', 'חומר', 'חומרים', 'דגימה', 'מדגם', 'בדיקת צפיפות', 'בדיקת חוזק',
-      'מישוריות'
-    ];
-    const measurementKeywords = [
-      'מדיד', 'מדידה', 'מדידות', 'מפלס', 'מפלסים', 'גובה', 'גבהים', 'שיפוע',
-      'שיפועים', 'עובי', 'חתך', 'ק״מ', 'קמ', 'קו', 'קווים', 'תוואי', 'as-made', 'AS-MADE',
-      'קילומטר', 'מיקום'
-    ];
-
-    if (labKeywords.some((keyword) => normalized.includes(keyword))) return 'צירוף תעודת מעבדה';
-    if (measurementKeywords.some((keyword) => normalized.includes(keyword))) return 'צירוף רשימת מדידה';
-    return '';
-  };
-
-  const checklistAttachmentCell = (item: ChecklistItem, height = 34) =>
-    valueOrBlank((item as any).certificateRef || checklistAttachmentRequirement(item.description), height);
-
   const signaturesTable = (approval: ApprovalFlow | undefined) => {
     const normalized = normalizeApproval(approval);
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
@@ -658,20 +835,20 @@ export default function Page() {
         return `<table class="check-table">
           <thead>
             <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-            <tr><th style="width:34%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th><th>מס׳</th></tr>
+            <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
           </thead>
           <tbody>
-            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td><td>${index + 1}</td></tr>`).join('')}
+            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td><td>${index + 1}</td></tr>`).join('')}
           </tbody>
         </table>`;
       }
       return `<table class="check-table">
         <thead>
           <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-          <tr><th style="width:34%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th></tr>
+          <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     };
@@ -700,10 +877,10 @@ export default function Page() {
       </table>
       <table class="check-table">
         <thead>
-          <tr><th style="width:34%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>תעודת מעבדה / רשימת מדידה</th><th>הערות</th></tr>
+          <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
         </thead>
         <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistAttachmentCell(item, 34)}</td></tr>`).join('')}
+          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${valueOrBlank(item.notes, 34)}</td></tr>`).join('')}
         </tbody>
       </table>`;
     }
@@ -868,35 +1045,6 @@ export default function Page() {
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${footer}</div></body></html>`;
   };
 
-  const exportHtmlWithLogoSrc = (forcedChecklistNo: number | undefined, logoSrc: string) =>
-    exportHtml(forcedChecklistNo).split(CONTROLENG_LOGO_DATA_URI).join(logoSrc);
-
-  const exportMhtmlWithLogo = (forcedChecklistNo?: number) => {
-    const boundary = '----=_NextPart_ControlengPrime_Logo';
-    const logoBase64 = CONTROLENG_LOGO_DATA_URI.replace(/^data:image\/png;base64,/, '');
-    const html = exportHtmlWithLogoSrc(forcedChecklistNo, 'controleng-prime-logo.png');
-    return [
-      'MIME-Version: 1.0',
-      `Content-Type: multipart/related; boundary="${boundary}"; type="text/html"`,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/html; charset="utf-8"',
-      'Content-Transfer-Encoding: 8bit',
-      'Content-Location: export.html',
-      '',
-      html,
-      '',
-      `--${boundary}`,
-      'Content-Type: image/png',
-      'Content-Transfer-Encoding: base64',
-      'Content-Location: controleng-prime-logo.png',
-      '',
-      logoBase64,
-      '',
-      `--${boundary}--`,
-    ].join('\r\n');
-  };
-
   const downloadTextFile = (filename: string, mimeType: string, content: string) => {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -910,8 +1058,8 @@ export default function Page() {
   };
 
   const getExportChecklistNo = () => section === 'checklists' ? ensureChecklistNo() : undefined;
-  const exportWord = () => downloadTextFile(`${recordTitleForExport()}.doc`, 'application/msword;charset=utf-8', exportMhtmlWithLogo(getExportChecklistNo()));
-  const exportExcel = () => downloadTextFile(`${recordTitleForExport()}.xls`, 'application/vnd.ms-excel;charset=utf-8', exportMhtmlWithLogo(getExportChecklistNo()));
+  const exportWord = () => downloadTextFile(`${recordTitleForExport()}.doc`, 'application/msword;charset=utf-8', exportHtml(getExportChecklistNo()));
+  const exportExcel = () => downloadTextFile(`${recordTitleForExport()}.xls`, 'application/vnd.ms-excel;charset=utf-8', exportHtml(getExportChecklistNo()));
   const exportPdf = () => {
     const exportChecklistNo = getExportChecklistNo();
     const printWindow = window.open('', '_blank');
@@ -945,7 +1093,18 @@ export default function Page() {
           )}
           {section === 'home' && <HomeSection projects={projects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection} />}
           {section === 'projects' && <ProjectsSection projects={projects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
-          {section === 'checklists' && <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} />}
+          {section === 'checklists' && (
+            <>
+              {!guardedBody && (
+                <ChecklistAttachmentsPanel
+                  items={checklistForm.items}
+                  onUpload={uploadChecklistItemAttachment}
+                  onRemove={removeChecklistItemAttachment}
+                />
+              )}
+              <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} />
+            </>
+          )}
           {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
