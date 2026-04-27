@@ -332,6 +332,67 @@ function ChecklistAttachmentsPanel({ items, onUpload, onRemove }: ChecklistAttac
   );
 }
 
+const RESPONSIBLE_ROLE_OPTIONS = [
+  '',
+  'בקרת איכות',
+  'מנהל עבודה',
+  'מודד',
+  'הבטחת איכות',
+  'ניהול פרויקט',
+];
+
+type ChecklistResponsiblePanelProps = {
+  items: ChecklistItem[];
+  projectName: string;
+  onChangeResponsible: (itemId: string, responsible: string) => void;
+};
+
+function ChecklistResponsiblePanel({ items, projectName, onChangeResponsible }: ChecklistResponsiblePanelProps) {
+  if (!items.length) return null;
+
+  return (
+    <div style={{ border: '1px solid #cbd5e1', borderRadius: 16, padding: 14, marginBottom: 16, background: '#fff' }}>
+      <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>בחירת גורם אחראי לתהליכי הבקרה</div>
+      <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
+        בחר גורם אחראי לכל תהליך. לאחר הבחירה, שם האדם המתאים מתעדכן אוטומטית לפי אנשי הקשר של הפרויקט.
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
+          <thead>
+            <tr>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'right' }}>תהליך בקרה</th>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, width: 190 }}>גורם אחראי</th>
+              <th style={{ border: '1px solid #cbd5e1', padding: 8, width: 190 }}>שם אוטומטי</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const autoName = resolveResponsibleName(item.responsible, projectName);
+              return (
+                <tr key={item.id}>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'right', verticalAlign: 'middle' }}>{item.description || 'תהליך ללא שם'}</td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center', verticalAlign: 'middle' }}>
+                    <select
+                      value={item.responsible || ''}
+                      onChange={(event) => onChangeResponsible(item.id, event.target.value)}
+                      style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '8px 10px', fontWeight: 800, background: '#fff', textAlign: 'center' }}
+                    >
+                      {RESPONSIBLE_ROLE_OPTIONS.map((role) => <option key={role || 'empty'} value={role}>{role || 'בחר גורם'}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center', verticalAlign: 'middle', fontWeight: 800 }}>
+                    {autoName || item.inspector || '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function Page() {
   const [section, setSection] = useState<Section>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
@@ -596,7 +657,17 @@ export default function Page() {
       approval: prev.approval,
     };
   });
-  const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
+  const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => setChecklistForm((prev) => ({
+    ...prev,
+    items: prev.items.map((item) => {
+      if (item.id !== id) return item;
+      if (field === 'responsible') {
+        const autoName = resolveResponsibleName(value, projectName);
+        return { ...item, responsible: value, inspector: autoName || item.inspector };
+      }
+      return { ...item, [field]: value };
+    }),
+  }));
   const addChecklistItem = () => setChecklistForm((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(crypto.randomUUID())] }));
   const removeChecklistItem = (id: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.length <= 1 ? prev.items : prev.items.filter((item) => item.id !== id) }));
 
@@ -1118,11 +1189,18 @@ export default function Page() {
           {section === 'checklists' && (
             <>
               {!guardedBody && (
-                <ChecklistAttachmentsPanel
-                  items={checklistForm.items}
-                  onUpload={uploadChecklistItemAttachment}
-                  onRemove={removeChecklistItemAttachment}
-                />
+                <>
+                  <ChecklistResponsiblePanel
+                    items={checklistForm.items}
+                    projectName={projectName}
+                    onChangeResponsible={(itemId, responsible) => updateChecklistItem(itemId, 'responsible', responsible)}
+                  />
+                  <ChecklistAttachmentsPanel
+                    items={checklistForm.items}
+                    onUpload={uploadChecklistItemAttachment}
+                    onRemove={removeChecklistItemAttachment}
+                  />
+                </>
               )}
               <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} />
             </>
