@@ -7,7 +7,6 @@ import { styles } from './components/common';
 import { SavedRecordsSidebar } from './components/SavedRecordsSidebar';
 import { HomeSection } from './components/HomeSection';
 import { ProjectsSection } from './components/ProjectsSection';
-import { ChecklistsSection } from './components/ChecklistsSection';
 import { NonconformancesSection } from './components/NonconformancesSection';
 import { TrialSectionsSection } from './components/TrialSectionsSection';
 import { PreliminarySection } from './components/PreliminarySection';
@@ -390,6 +389,92 @@ function ChecklistResponsiblePanel({ items, projectName, onChangeResponsible }: 
         </table>
       </div>
     </div>
+  );
+}
+
+
+
+type InlineChecklistSectionProps = {
+  guardedBody: React.ReactNode;
+  editingChecklistId: string | null;
+  checklistForm: any;
+  setChecklistForm: React.Dispatch<React.SetStateAction<any>>;
+  checklistTemplateLabel: (key: ChecklistTemplateKey | string | undefined) => string;
+  applyChecklistTemplate: (templateKey: ChecklistTemplateKey) => void;
+  updateChecklistItem: (id: string, field: keyof ChecklistItem, value: string) => void;
+  addChecklistItem: () => void;
+  removeChecklistItem: (id: string) => void;
+  saveChecklist: () => void;
+  resetChecklistForm: (templateKey?: ChecklistTemplateKey) => void;
+  projectName: string;
+  onUploadAttachment: (itemId: string, kind: ChecklistAttachmentKind, file: File) => void;
+  onRemoveAttachment: (itemId: string, attachmentId: string) => void;
+};
+
+function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, setChecklistForm, checklistTemplateLabel, applyChecklistTemplate, updateChecklistItem, addChecklistItem, removeChecklistItem, saveChecklist, resetChecklistForm, projectName, onUploadAttachment, onRemoveAttachment }: InlineChecklistSectionProps) {
+  if (guardedBody) return <>{guardedBody}</>;
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '10px 12px', background: '#fff', fontWeight: 700, minHeight: 44 };
+  const labelStyle: React.CSSProperties = { fontWeight: 900, marginBottom: 6, display: 'block', color: '#0f172a' };
+  const cardStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#f8fafc', marginBottom: 14 };
+  const setField = (field: string, value: string) => setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
+  const templateEntries = Object.entries(checklistTemplates) as Array<[ChecklistTemplateKey, any]>;
+
+  return (
+    <section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div><h2 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>רשימות תיוג</h2><div style={{ color: '#64748b', marginTop: 4 }}>{editingChecklistId ? 'עריכת רשימת תיוג קיימת' : 'מילוי רשימת תיוג חדשה'}</div></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" style={styles.secondaryBtn} onClick={() => resetChecklistForm()}>נקה טופס</button><button type="button" style={styles.primaryBtn} onClick={saveChecklist}>{editingChecklistId ? 'עדכן רשימה' : 'שמור רשימה'}</button></div>
+      </div>
+      <div style={cardStyle}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <label><span style={labelStyle}>סוג רשימת תיוג</span><select value={checklistForm.templateKey} onChange={(event) => applyChecklistTemplate(event.target.value as ChecklistTemplateKey)} style={inputStyle}>{templateEntries.map(([key]) => <option key={key} value={key}>{checklistTemplateLabel(key)}</option>)}</select></label>
+          <label><span style={labelStyle}>שם רשימת תיוג</span><input value={checklistForm.title ?? ''} onChange={(event) => setField('title', event.target.value)} style={inputStyle} /></label>
+          <label><span style={labelStyle}>קטגוריה</span><input value={checklistForm.category ?? ''} onChange={(event) => setField('category', event.target.value)} style={inputStyle} /></label>
+          <label><span style={labelStyle}>תאריך</span><input type="date" value={checklistForm.date ?? ''} onChange={(event) => setField('date', event.target.value)} style={inputStyle} /></label>
+          <label><span style={labelStyle}>מיקום / קטע עבודה</span><input value={checklistForm.location ?? ''} onChange={(event) => setField('location', event.target.value)} style={inputStyle} /></label>
+          <label><span style={labelStyle}>קבלן</span><input value={checklistForm.contractor ?? ''} onChange={(event) => setField('contractor', event.target.value)} style={inputStyle} /></label>
+        </div>
+        <label style={{ display: 'block', marginTop: 12 }}><span style={labelStyle}>הערות כלליות</span><textarea value={checklistForm.notes ?? ''} onChange={(event) => setField('notes', event.target.value)} style={{ ...inputStyle, minHeight: 84, resize: 'vertical' }} /></label>
+      </div>
+      <div style={{ ...cardStyle, background: '#fff' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div><h3 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>סעיפי בקרה</h3><div style={{ color: '#64748b', marginTop: 4 }}>בחירת האחראי מתבצעת בתוך כל סעיף. שם הבודק מתעדכן אוטומטית לפי אנשי הקשר של הפרויקט.</div></div>
+          <button type="button" style={styles.secondaryBtn} onClick={addChecklistItem}>הוסף שורה</button>
+        </div>
+        <div style={{ display: 'grid', gap: 14 }}>
+          {checklistForm.items.map((item: ChecklistItem & { attachments?: ChecklistAttachment[] }, index: number) => {
+            const requiredKind = getChecklistAttachmentRequirement(item.description);
+            const attachments = normalizeChecklistAttachments(item.attachments).filter((attachment) => !requiredKind || attachment.kind === requiredKind);
+            const autoName = resolveResponsibleName(item.responsible, projectName) || item.inspector || '';
+            return (
+              <div key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 16, padding: 14, background: '#f8fafc' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}><strong>שורה {index + 1}</strong><button type="button" onClick={() => removeChecklistItem(item.id)} style={{ ...styles.dangerBtn, padding: '8px 12px' }}>מחק שורה</button></div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                  <label style={{ gridColumn: 'span 2' }}><span style={labelStyle}>תיאור</span><input value={item.description ?? ''} onChange={(event) => updateChecklistItem(item.id, 'description', event.target.value)} style={inputStyle} /></label>
+                  <label><span style={labelStyle}>אחראי</span><select value={item.responsible || ''} onChange={(event) => updateChecklistItem(item.id, 'responsible', event.target.value)} style={inputStyle}>{RESPONSIBLE_ROLE_OPTIONS.map((role) => <option key={role || 'empty'} value={role}>{role || 'בחר גורם אחראי'}</option>)}</select></label>
+                  <label><span style={labelStyle}>שם בודק</span><input value={autoName} readOnly style={{ ...inputStyle, background: '#f1f5f9' }} /></label>
+                  <label><span style={labelStyle}>סטטוס</span><select value={item.status ?? 'לא נבדק'} onChange={(event) => updateChecklistItem(item.id, 'status', event.target.value)} style={inputStyle}><option value="לא נבדק">לא נבדק</option><option value="תקין">תקין</option><option value="לא תקין">לא תקין</option><option value="לא רלוונטי">לא רלוונטי</option></select></label>
+                  <label><span style={labelStyle}>תאריך ביצוע</span><input type="date" value={item.executionDate ?? ''} onChange={(event) => updateChecklistItem(item.id, 'executionDate', event.target.value)} style={inputStyle} /></label>
+                </div>
+                <label style={{ display: 'block', marginTop: 12 }}><span style={labelStyle}>הערות</span><input value={item.notes ?? ''} onChange={(event) => updateChecklistItem(item.id, 'notes', event.target.value)} style={inputStyle} /></label>
+                {requiredKind && (
+                  <div style={{ marginTop: 12, border: '1px dashed #94a3b8', borderRadius: 14, padding: 10, background: '#fff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ fontWeight: 900 }}>מסמך נדרש: {checklistAttachmentLabel(requiredKind)}</div>
+                      <label style={{ display: 'inline-block', cursor: 'pointer', border: '1px solid #0f172a', borderRadius: 10, padding: '8px 12px', fontWeight: 900, background: '#fff' }}>
+                        📎 צרף {checklistAttachmentLabel(requiredKind)}
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) onUploadAttachment(item.id, requiredKind, file); event.currentTarget.value = ''; }} />
+                      </label>
+                    </div>
+                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{attachments.length ? attachments.map((attachment) => <div key={attachment.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px' }}><span title={attachment.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>✅ {attachment.name}</span><button type="button" onClick={() => onRemoveAttachment(item.id, attachment.id)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: '#b91c1c', fontWeight: 900 }}>מחיקה</button></div>) : <span style={{ color: '#64748b' }}>טרם צורף מסמך</span>}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1188,21 +1273,7 @@ export default function Page() {
           {section === 'projects' && <ProjectsSection projects={projects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
-              {!guardedBody && (
-                <>
-                  <ChecklistResponsiblePanel
-                    items={checklistForm.items}
-                    projectName={projectName}
-                    onChangeResponsible={(itemId, responsible) => updateChecklistItem(itemId, 'responsible', responsible)}
-                  />
-                  <ChecklistAttachmentsPanel
-                    items={checklistForm.items}
-                    onUpload={uploadChecklistItemAttachment}
-                    onRemove={removeChecklistItemAttachment}
-                  />
-                </>
-              )}
-              <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} />
+              <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} />
             </>
           )}
           {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
