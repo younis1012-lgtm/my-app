@@ -1,16 +1,14 @@
-import type { ChecklistAttachment, ChecklistItem, ChecklistRecord } from '../types';
-import type { LabCertificateResults } from '../lib/labCertificateParser';
+import type { ChecklistItem, ChecklistRecord, ChecklistAttachment } from '../types';
 import { checklistTemplates } from '../checklistTemplates';
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 import LabCertificateScanButton from './LabCertificateScanButton';
+import type { LabCertificateResults } from '../lib/labCertificateParser';
 
-type ChecklistForm = Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'>;
-
-type Props = {
+type ChecklistsSectionProps = {
   guardedBody: React.ReactNode;
   editingChecklistId: string | null;
-  checklistForm: ChecklistForm;
-  setChecklistForm: React.Dispatch<React.SetStateAction<ChecklistForm>>;
+  checklistForm: Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'>;
+  setChecklistForm: React.Dispatch<React.SetStateAction<Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'>>>;
   checklistTemplateLabel: (value: any) => string;
   applyChecklistTemplate: (templateKey: any) => void;
   updateChecklistItem: (id: string, field: keyof ChecklistItem, value: string) => void;
@@ -20,68 +18,50 @@ type Props = {
   resetChecklistForm: () => void;
 };
 
-const normalizeAttachments = (value: unknown): ChecklistAttachment[] =>
-  Array.isArray(value)
-    ? value
-        .filter((item) => item && typeof item === 'object')
-        .map((item: any, index: number) => ({
-          id: String(item.id ?? `${Date.now()}-${index}`),
-          name: String(item.name ?? 'תעודת מעבדה'),
-          type: String(item.type ?? 'application/pdf'),
-          dataUrl: String(item.dataUrl ?? ''),
-          uploadedAt: String(item.uploadedAt ?? ''),
-          kind: item.kind === 'measurement' || item.kind === 'other' ? item.kind : 'lab',
-          labResults: item.labResults ?? item.results,
-        }))
-    : [];
+const attachmentLabel = (attachment: ChecklistAttachment) => {
+  if (attachment.labResults?.certificateNo) return `${attachment.name} · תעודה ${attachment.labResults.certificateNo}`;
+  return attachment.name;
+};
 
-const fileMetaFromScan = (
-  fileMeta: { name: string; type: string; dataUrl: string; uploadedAt: string } | undefined,
-  existing: ChecklistAttachment | undefined,
-  results: LabCertificateResults,
-  item: ChecklistItem
-): ChecklistAttachment => ({
-  id: existing?.id ?? crypto.randomUUID(),
-  name: fileMeta?.name || existing?.name || item.description || 'תעודת מעבדה',
-  type: fileMeta?.type || existing?.type || 'application/pdf',
-  dataUrl: fileMeta?.dataUrl || existing?.dataUrl || '',
-  uploadedAt: fileMeta?.uploadedAt || existing?.uploadedAt || new Date().toLocaleString('he-IL'),
-  kind: 'lab',
-  labResults: results,
-});
-
-export function ChecklistsSection(props: Props) {
-  const setItemAttachments = (itemId: string, attachments: ChecklistAttachment[]) => {
+export function ChecklistsSection(props: ChecklistsSectionProps) {
+  const updateItemAttachments = (itemId: string, attachments: ChecklistAttachment[]) => {
     props.setChecklistForm((prev) => ({
       ...prev,
-      items: prev.items.map((item) =>
-        item.id === itemId
-          ? ({
-              ...item,
-              attachments,
-            } as ChecklistItem)
-          : item
-      ),
+      items: prev.items.map((item) => (item.id === itemId ? { ...item, attachments } : item)),
     }));
   };
 
   const saveLabResultsToItem = (
     item: ChecklistItem,
     results: LabCertificateResults,
-    fileMeta?: { name: string; type: string; dataUrl: string; uploadedAt: string }
+    fileInfo?: { name: string; type: string; dataUrl: string; uploadedAt: string }
   ) => {
-    const attachments = normalizeAttachments((item as any).attachments);
-    const existingLab = attachments.find((attachment) => attachment.kind === 'lab');
-    const otherAttachments = attachments.filter((attachment) => attachment.kind !== 'lab');
-    const nextLab = fileMetaFromScan(fileMeta, existingLab, results, item);
+    const existing = Array.isArray(item.attachments) ? item.attachments : [];
+    const fileName = fileInfo?.name || results.certificateNo || 'תעודת מעבדה';
+    const uploadedAt = fileInfo?.uploadedAt || new Date().toLocaleString('he-IL');
 
-    // שומרים תעודת מעבדה אחת בלבד לכל שורת בקרה כדי למנוע כפילויות.
-    setItemAttachments(item.id, [...otherAttachments, nextLab]);
+    const labAttachment: ChecklistAttachment = {
+      id: existing.find((attachment) => attachment.kind === 'lab' && attachment.name === fileName)?.id || crypto.randomUUID(),
+      name: fileName,
+      type: fileInfo?.type || 'application/pdf',
+      dataUrl: fileInfo?.dataUrl || existing.find((attachment) => attachment.kind === 'lab' && attachment.name === fileName)?.dataUrl || '',
+      uploadedAt,
+      kind: 'lab',
+      labResults: results,
+    };
+
+    const withoutSameLab = existing.filter(
+      (attachment) => !(attachment.kind === 'lab' && attachment.name === labAttachment.name)
+    );
+
+    updateItemAttachments(item.id, [...withoutSameLab, labAttachment]);
   };
 
-  const removeLabAttachment = (item: ChecklistItem) => {
-    const attachments = normalizeAttachments((item as any).attachments).filter((attachment) => attachment.kind !== 'lab');
-    setItemAttachments(item.id, attachments);
+  const removeAttachment = (item: ChecklistItem, attachmentId: string) => {
+    updateItemAttachments(
+      item.id,
+      (item.attachments ?? []).filter((attachment) => attachment.id !== attachmentId)
+    );
   };
 
   return (
@@ -138,16 +118,14 @@ export function ChecklistsSection(props: Props) {
           <div style={styles.subHeader}>סעיפי בקרה</div>
 
           {props.checklistForm.items.map((item, index) => {
-            const attachments = normalizeAttachments((item as any).attachments);
-            const labAttachment = attachments.find((attachment) => attachment.kind === 'lab');
+            const labAttachments = (item.attachments ?? []).filter((attachment) => attachment.kind === 'lab');
+            const latestLab = labAttachments[labAttachments.length - 1];
 
             return (
               <div key={item.id} style={styles.rowCard}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontWeight: 800 }}>שורה {index + 1}</div>
-                  <button type="button" style={styles.dangerBtn} onClick={() => props.removeChecklistItem(item.id)}>
-                    מחק שורה
-                  </button>
+                  <button type="button" style={styles.dangerBtn} onClick={() => props.removeChecklistItem(item.id)}>מחק שורה</button>
                 </div>
 
                 <div style={styles.formGrid}>
@@ -176,33 +154,60 @@ export function ChecklistsSection(props: Props) {
                   </Field>
                 </div>
 
-                <div style={{ marginTop: 12, border: '1px dashed #94a3b8', borderRadius: 14, padding: 12, background: '#fff' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    marginTop: 14,
+                    border: '1px dashed #94a3b8',
+                    borderRadius: 14,
+                    padding: 12,
+                    background: '#fff',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <div style={{ fontWeight: 900 }}>
                       מסמך נדרש: תעודת מעבדה
-                      {labAttachment?.labResults ? <span style={{ color: '#166534', marginRight: 8 }}>✓ נסרקה ואושרה</span> : null}
+                      {latestLab?.labResults ? <span style={{ color: '#166534', marginRight: 8 }}>✓ נסרק ונשמר לריכוזים</span> : null}
                     </div>
 
                     <LabCertificateScanButton
-                      attachmentName={labAttachment?.name || item.description || 'תעודת מעבדה'}
-                      existingAttachment={labAttachment?.dataUrl ? labAttachment : undefined}
-                      initialResults={labAttachment?.labResults}
-                      onSave={(results, fileMeta) => saveLabResultsToItem(item, results, fileMeta)}
+                      attachmentName={latestLab?.name || item.description || 'תעודת מעבדה'}
+                      initialResults={latestLab?.labResults}
+                      onSave={(results, fileInfo) => saveLabResultsToItem(item, results, fileInfo)}
                     />
                   </div>
 
-                  {labAttachment ? (
-                    <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                      <span style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        ✅ {labAttachment.name}
-                      </span>
-                      <button type="button" onClick={() => removeLabAttachment(item)} style={{ border: 0, background: 'transparent', color: '#b91c1c', fontWeight: 900, cursor: 'pointer' }}>
-                        מחיקה
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 8, color: '#64748b', fontWeight: 700 }}>טרם צורפה תעודת מעבדה</div>
-                  )}
+                  <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                    {labAttachments.length ? (
+                      labAttachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 10,
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 10,
+                            padding: '7px 10px',
+                            background: '#f8fafc',
+                          }}
+                        >
+                          <span style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {attachment.labResults ? '✅' : '📎'} {attachmentLabel(attachment)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(item, attachment.id)}
+                            style={{ border: 0, background: 'transparent', color: '#b91c1c', fontWeight: 900, cursor: 'pointer' }}
+                          >
+                            מחיקה
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <span style={{ color: '#64748b' }}>טרם צורפה/נסרקה תעודת מעבדה</span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -211,15 +216,9 @@ export function ChecklistsSection(props: Props) {
           <ApprovalPanel value={props.checklistForm.approval} onChange={(approval) => props.setChecklistForm((prev) => ({ ...prev, approval }))} />
 
           <div style={styles.buttonRow}>
-            <button type="button" style={styles.secondaryBtn} onClick={props.addChecklistItem}>
-              הוסף שורה
-            </button>
-            <button type="button" style={styles.primaryBtn} onClick={props.saveChecklist}>
-              {props.editingChecklistId ? 'עדכן רשימה' : 'שמור רשימה'}
-            </button>
-            <button type="button" style={styles.secondaryBtn} onClick={props.resetChecklistForm}>
-              בטל / נקה
-            </button>
+            <button type="button" style={styles.secondaryBtn} onClick={props.addChecklistItem}>הוסף שורה</button>
+            <button type="button" style={styles.primaryBtn} onClick={props.saveChecklist}>{props.editingChecklistId ? 'עדכן רשימה' : 'שמור רשימה'}</button>
+            <button type="button" style={styles.secondaryBtn} onClick={props.resetChecklistForm}>בטל / נקה</button>
           </div>
         </>
       )}

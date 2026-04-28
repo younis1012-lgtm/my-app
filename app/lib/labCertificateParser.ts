@@ -7,8 +7,6 @@ export type LabCertificateResults = {
 
   sieve3?: number;
   sieve15?: number;
-  sieve1?: number;
-  sieve38?: number;
   sieve34?: number;
   sieve4?: number;
   sieve10?: number;
@@ -35,66 +33,95 @@ export type LabCertificateResults = {
   stone34?: number;
 };
 
-function normalizeText(text: string) {
-  return text
-    .replace(/\r/g, "\n")
-    .replace(/[\u200e\u200f]/g, "")
-    .replace(/\u00a0/g, " ");
-}
+const normalizeText = (text: string) =>
+  String(text ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-function getMatch(text: string, regex: RegExp) {
-  const match = text.match(regex);
-  return match?.[1]?.trim();
-}
-
-function getNumber(text: string, regex: RegExp) {
-  const value = getMatch(text, regex);
+const numberValue = (value?: string) => {
   if (!value) return undefined;
+  const cleaned = value.replace(",", ".").replace(/[^\d.-]/g, "");
+  if (!cleaned) return undefined;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
 
-  const cleaned = value
-    .replace(/,/g, ".")
-    .replace(/[^0-9.\-]/g, "");
+const firstMatch = (text: string, patterns: RegExp[]) => {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+};
 
-  const num = Number(cleaned);
-  return Number.isFinite(num) ? num : undefined;
-}
+const firstNumber = (text: string, patterns: RegExp[]) => numberValue(firstMatch(text, patterns));
+
+const numberAfterLabel = (text: string, labels: string[]) => {
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const patterns = [
+      new RegExp(`${escaped}\\s*[:=\\-]?\\s*([0-9]+(?:[.,][0-9]+)?)`, "i"),
+      new RegExp(`([0-9]+(?:[.,][0-9]+)?)\\s*${escaped}`, "i"),
+    ];
+    const value = firstNumber(text, patterns);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+};
 
 export function parseLabCertificateText(rawText: string): LabCertificateResults {
   const text = normalizeText(rawText);
 
+  const certificateNo =
+    firstMatch(text, [
+      /(?:מס(?:פר)?\.?\s*תעודה|תעודה\s*מס(?:פר)?|certificate\s*(?:no|number))\s*[:\-]?\s*([A-Za-z0-9./_-]{3,})/i,
+      /(?:^|\s)(\d{4,6})(?:\s|$)/,
+    ]) ?? "";
+
+  const samplingDate = firstMatch(text, [
+    /(?:תאריך\s*דגימה|sampling\s*date)\s*[:\-]?\s*([0-9]{1,2}[./-][0-9]{1,2}[./-][0-9]{2,4})/i,
+  ]);
+
+  const reportDate = firstMatch(text, [
+    /(?:תאריך\s*הוצאה|תאריך\s*דוח|report\s*date)\s*[:\-]?\s*([0-9]{1,2}[./-][0-9]{1,2}[./-][0-9]{2,4})/i,
+  ]);
+
+  const aashto = firstMatch(text, [
+    /(A-\d(?:-[a-z])?\s*\(?\d?\)?)/i,
+    /AASHTO\s*[:\-]?\s*([A-Za-z0-9()\- ]{2,20})/i,
+  ]);
+
   return {
-    certificateNo: getMatch(text, /(?:מס\.?\s*תעודה|מספר\s*תעודה|certificate\s*(?:no|number))[:\s]+([^\n]+)/i),
-    samplingDate: getMatch(text, /(?:תאריך\s*דגימה|sampling\s*date)[:\s]+([\d./-]+)/i),
-    reportDate: getMatch(text, /(?:תאריך\s*הוצאה|תאריך\s*דוח|report\s*date)[:\s]+([\d./-]+)/i),
-    materialSource: getMatch(text, /(?:מקור\s*החומר|material\s*source)[:\s]+([^\n]+)/i),
-    location: getMatch(text, /(?:מיקום|אתר|קטע|location)[:\s]+([^\n]+)/i),
+    certificateNo,
+    samplingDate,
+    reportDate,
+    materialSource: firstMatch(text, [/(?:מקור\s*החומר|material\s*source)\s*[:\-]?\s*([^:]{2,80})/i]),
+    location: firstMatch(text, [/(?:מיקום|מקום\s*נטילה|location)\s*[:\-]?\s*([^:]{2,80})/i]),
 
-    sieve3: getNumber(text, /(?:^|\s)3["”]?\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/m),
-    sieve15: getNumber(text, /(?:1\.5|1\s*1\/2)["”]?\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve1: getNumber(text, /(?:^|\s)1["”]\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/m),
-    sieve38: getNumber(text, /3\/8["”]?\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve34: getNumber(text, /3\/4["”]?\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve4: getNumber(text, /#\s*4\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve10: getNumber(text, /#\s*10\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve40: getNumber(text, /#\s*40\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    sieve200: getNumber(text, /#\s*200\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
+    sieve3: numberAfterLabel(text, ['3"', "3 in", "נפה 3"]),
+    sieve15: numberAfterLabel(text, ['1.5"', '1½"', "1.5", "נפה 1.5"]),
+    sieve34: numberAfterLabel(text, ['3/4"', "3/4", "נפה 3/4"]),
+    sieve4: numberAfterLabel(text, ["#4", "נפה 4"]),
+    sieve10: numberAfterLabel(text, ["#10", "נפה 10"]),
+    sieve40: numberAfterLabel(text, ["#40", "נפה 40"]),
+    sieve200: numberAfterLabel(text, ["#200", "נפה 200"]),
 
-    ll: getNumber(text, /(?:\bLL\b|גבול\s*נזילות)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    pl: getNumber(text, /(?:\bPL\b|גבול\s*פלסטיות)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    pi: getNumber(text, /(?:\bPI\b|אינדקס\s*פלסטיות)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
+    ll: numberAfterLabel(text, ["LL", "גבול נזילות"]),
+    pl: numberAfterLabel(text, ["PL", "גבול פלסטיות"]),
+    pi: numberAfterLabel(text, ["PI", "אינדקס פלסטיות"]),
 
-    sandEquivalent: getNumber(text, /(?:שווה\s*ערך\s*חול|sand\s*equivalent)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    specificGravity: getNumber(text, /(?:צפיפות\s*ממשית|specific\s*gravity)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    absorption: getNumber(text, /(?:ספיגות|absorption)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    losAngeles: getNumber(text, /(?:לוס\s*אנג(?:׳|')?לס|los\s*angeles)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
+    sandEquivalent: numberAfterLabel(text, ["שווה ערך חול", "sand equivalent", "SE"]),
+    specificGravity: numberAfterLabel(text, ['צפיפות ממשית', "specific gravity", "density"]),
+    absorption: numberAfterLabel(text, ["ספיגות", "absorption"]),
+    losAngeles: numberAfterLabel(text, ["לוס אנג'לס", "לוס אנגלס", "los angeles", "LA"]),
 
-    aashto: getMatch(text, /AASHTO\s*[:\-]?\s*([^\n\s]+)/i),
+    aashto,
 
-    maxDensity: getNumber(text, /(?:צפיפות\s*מקסימלית|max\s*density|maximum\s*density)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    optimumMoisture: getNumber(text, /(?:רטיבות\s*אופטימלית|optimum\s*moisture)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    totalMoisture: getNumber(text, /(?:רטיבות\s*כוללת|total\s*moisture)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
-    stone34: getNumber(text, /(?:אבן\s*3\/4|stone\s*3\/4)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)/i),
+    maxDensity: numberAfterLabel(text, ["צפיפות מקסימלית", "צפיפות מעבדתית", "max density"]),
+    optimumMoisture: numberAfterLabel(text, ["רטיבות אופטימלית", "optimum moisture", "OMC"]),
 
-    conclusion: getMatch(text, /(?:מסקנה|conclusion)[:\s]+([^\n]+)/i),
+    conclusion: firstMatch(text, [/(?:מסקנה|conclusion)\s*[:\-]?\s*([^:]{2,120})/i]),
   };
 }
