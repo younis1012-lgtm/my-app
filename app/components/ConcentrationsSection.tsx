@@ -226,7 +226,7 @@ const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
   return {
     sieve3: extractNumberByAliases(text, ['3"', "3 in", "sieve3", "נפה 3"]),
     sieve15: extractNumberByAliases(text, ['1.5"', "1.5", "sieve15", "נפה 1.5"]),
-        sieve34: extractNumberByAliases(text, ['3/4"', "3/4", "sieve34", "נפה 3/4"]),
+    sieve34: extractNumberByAliases(text, ["3/4", "3/4\"", "sieve34", "נפה 3/4"]),
     sieve4: extractNumberByAliases(text, ["#4", "נפה 4"]),
     sieve10: extractNumberByAliases(text, ["#10", "נפה 10"]),
     sieve40: extractNumberByAliases(text, ["#40", "נפה 40"]),
@@ -271,7 +271,7 @@ const subbaseACellMap: Record<string, string> = {
   distributionLocation: "G14",
   sieve3: "J14",
   sieve15: "K14",
-      sieve34: extractNumberByAliases(text, ['3/4"', "3/4", "sieve34", "נפה 3/4"]),
+  sieve34: "L14",
   sieve4: "M14",
   sieve10: "N14",
   sieve40: "O14",
