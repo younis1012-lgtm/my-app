@@ -1,90 +1,147 @@
 "use client";
 
-import React from "react";
-import * as pdfjsLib from "pdfjs-dist";
+import { useRef, useState } from "react";
+import { parseLabCertificateText, type LabCertificateResults } from "../lib/labCertificateParser";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+type FileInfo = {
+  name: string;
+  type: string;
+  dataUrl: string;
+  uploadedAt: string;
+};
 
 type Props = {
-  attachmentName: string;
-  initialResults?: any;
-  onSave: (
-    results: any,
-    fileInfo: {
-      name: string;
-      type: string;
-      dataUrl: string;
-      uploadedAt: string;
-    }
-  ) => void;
+  attachmentName?: string;
+  existingDataUrl?: string;
+  initialResults?: LabCertificateResults;
+  onSave: (results: LabCertificateResults, fileInfo?: FileInfo) => void;
 };
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+const dataUrlToArrayBuffer = async (dataUrl: string) => {
+  const response = await fetch(dataUrl);
+  return await response.arrayBuffer();
+};
+
+async function extractTextFromPdfBuffer(buffer: ArrayBuffer) {
+  const pdfjs = await import("pdfjs-dist");
+
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+
+  let text = "";
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+
+    text +=
+      content.items
+        .map((item: any) => ("str" in item ? item.str : ""))
+        .filter(Boolean)
+        .join(" ") + "\n";
+  }
+
+  return text;
+}
 
 export default function LabCertificateScanButton({
   attachmentName,
+  existingDataUrl,
+  initialResults,
   onSave,
 }: Props) {
-  const handleFileChange = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = useState(false);
 
+  const scanBuffer = async (buffer: ArrayBuffer, fileInfo?: FileInfo) => {
+    setBusy(true);
     try {
-      const arrayBuffer = await file.arrayBuffer();
+      const rawText = await extractTextFromPdfBuffer(buffer);
+      const parsed = parseLabCertificateText(rawText);
 
-      const pdf = await pdfjsLib.getDocument({
-        data: arrayBuffer,
-      }).promise;
-
-      let text = "";
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-
-        const strings = content.items.map((item: any) => item.str);
-        text += strings.join(" ");
-      }
-
-      // 🔍 parsing פשוט
-      const parsed = {
-        PI: text.match(/PI\s*[:\-]?\s*(\d+(\.\d+)?)/)?.[1],
-        density: text.match(/Density\s*[:\-]?\s*(\d+(\.\d+)?)/)?.[1],
-        certificateNo:
-          text.match(/Certificate\s*No\s*[:\-]?\s*(\d+)/)?.[1] ||
-          file.name,
-      };
-
-      // convert file to base64 (לשמירה)
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      onSave(parsed, {
-        name: file.name,
-        type: file.type,
-        dataUrl,
-        uploadedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error("PDF parse error:", err);
+      onSave(parsed, fileInfo);
+      alert("התעודה נסרקה ונשמרה לריכוזים.");
+    } catch (error) {
+      console.error(error);
+      alert("לא הצלחתי לסרוק את ה-PDF. אם זה צילום סרוק ולא PDF טקסטואלי, צריך OCR.");
+    } finally {
+      setBusy(false);
     }
   };
 
+  const handleExistingScan = async () => {
+    if (!existingDataUrl) {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    const buffer = await dataUrlToArrayBuffer(existingDataUrl);
+    await scanBuffer(buffer, {
+      name: attachmentName || "תעודת מעבדה",
+      type: "application/pdf",
+      dataUrl: existingDataUrl,
+      uploadedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+
+    const dataUrl = await readFileAsDataUrl(file);
+    const buffer = await file.arrayBuffer();
+
+    await scanBuffer(buffer, {
+      name: file.name,
+      type: file.type || "application/pdf",
+      dataUrl,
+      uploadedAt: new Date().toISOString(),
+    });
+  };
+
   return (
-    <div>
-      <label className="border px-3 py-2 rounded cursor-pointer">
-        📄 סרוק תעודה
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={handleFileChange}
-          style={{ display: "none" }}
-        />
-      </label>
-    </div>
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          void handleFile(event.target.files?.[0]);
+          event.currentTarget.value = "";
+        }}
+      />
+
+      <button
+        type="button"
+        onClick={() => void handleExistingScan()}
+        disabled={busy}
+        style={{
+          border: "1px solid #0f172a",
+          background: busy ? "#f1f5f9" : "#fff",
+          borderRadius: 10,
+          padding: "8px 12px",
+          fontWeight: 900,
+          cursor: busy ? "wait" : "pointer",
+          color: "#0f172a",
+        }}
+      >
+        {busy
+          ? "סורק תעודה..."
+          : initialResults?.certificateNo
+            ? "סרוק שוב תעודה"
+            : existingDataUrl
+              ? "סרוק תעודה מצורפת"
+              : "סרוק תעודה"}
+      </button>
+    </>
   );
 }

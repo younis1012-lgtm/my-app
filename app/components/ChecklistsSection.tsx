@@ -171,6 +171,7 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
 
                     <LabCertificateScanButton
                       attachmentName={latestLab?.name || item.description || 'תעודת מעבדה'}
+                      existingDataUrl={latestLab?.dataUrl}
                       initialResults={latestLab?.labResults}
                       onSave={(results, fileInfo) => saveLabResultsToItem(item, results, fileInfo)}
                     />
