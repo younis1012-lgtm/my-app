@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import JSZip from "jszip";
+import type { LabCertificateResults } from "../lib/labCertificateParser";
 
 type Props = {
   savedChecklists?: any[];
@@ -42,6 +43,7 @@ type ConcentrationRow = {
   certificateNo: string;
   fileName: string;
   uploadedAt: string;
+  labResults?: LabCertificateResults;
 };
 
 const templates: ConcentrationTemplate[] = [
@@ -136,6 +138,7 @@ const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate):
           certificateNo: extractCertificateNo(attachment?.name),
           fileName: String(attachment?.name ?? ""),
           uploadedAt: String(attachment?.uploadedAt ?? ""),
+          labResults: attachment?.labResults ?? attachment?.results ?? item?.labResults ?? item?.results,
         });
       });
     });
@@ -198,7 +201,43 @@ const extractNumberByAliases = (text: string, aliases: string[]) => {
   return undefined;
 };
 
+
+const numberFromResult = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const subbaseValuesFromLabResults = (results?: LabCertificateResults): SubbaseAValues | null => {
+  if (!results) return null;
+  return {
+    sieve3: numberFromResult(results.sieve3),
+    sieve15: numberFromResult(results.sieve15),
+    sieve34: numberFromResult(results.sieve34),
+    sieve4: numberFromResult(results.sieve4),
+    sieve10: numberFromResult(results.sieve10),
+    sieve40: numberFromResult(results.sieve40),
+    sieve200: numberFromResult(results.sieve200),
+    ll: numberFromResult(results.ll),
+    pl: numberFromResult(results.pl),
+    pi: numberFromResult(results.pi),
+    swelling: numberFromResult(results.sandEquivalent),
+    density: numberFromResult(results.specificGravity),
+    absorption: numberFromResult(results.absorption),
+    losAngeles: numberFromResult(results.losAngeles),
+    aashto: results.aashto ?? "",
+    maxDensity: numberFromResult(results.maxDensity),
+    optimumMoisture: numberFromResult(results.optimumMoisture),
+  };
+};
+
 const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
+  const fromSavedResults = subbaseValuesFromLabResults(row.labResults);
+  if (fromSavedResults) return fromSavedResults;
+
   const text = [row.notes, row.itemDescription, row.fileName, row.title, row.category].join(" ");
   return {
     sieve3: extractNumberByAliases(text, ['3"', "3 in", "sieve3", "נפה 3"]),
@@ -226,51 +265,6 @@ const valueOrDefault = (value: unknown, fallback: string | number = ""): string 
   if (typeof value === "number" || typeof value === "string") return value;
   return String(value);
 };
-
-const SUBBASE_A_KNOWN_CERTIFICATE_VALUES: Record<string, SubbaseAValues & {
-  sampleDate?: string;
-  materialSource?: string;
-  samplingLocation?: string;
-  spreadingLocation?: string;
-  materialStatus?: string;
-}> = {
-  "24403": {
-    // Values read from laboratory certificate 24403.
-    sieve3: 100,
-    sieve15: 100,
-    sieve34: 94,
-    sieve4: 30,
-    sieve10: 23,
-    sieve40: 15,
-    sieve200: 11,
-    ll: "ב״פ",
-    pl: "ב״פ",
-    pi: "ב״פ",
-    swelling: 34,
-    density: 2.556,
-    absorption: 3.9,
-    losAngeles: 31,
-    aashto: "A-1-a (0)",
-    maxDensity: 2193,
-    optimumMoisture: 8.4,
-    sampleDate: "15/04/2026",
-    materialSource: "מחצבה גולני",
-    samplingLocation: "ערמה באתר",
-    spreadingLocation: "כביש 806 צלמון שלב א׳",
-    materialStatus: "OK",
-  },
-};
-
-const mergeKnownSubbaseAValues = (certificateNo: string, parsed: SubbaseAValues): SubbaseAValues & {
-  sampleDate?: string;
-  materialSource?: string;
-  samplingLocation?: string;
-  spreadingLocation?: string;
-  materialStatus?: string;
-} => ({
-  ...(SUBBASE_A_KNOWN_CERTIFICATE_VALUES[certificateNo] ?? {}),
-  ...Object.fromEntries(Object.entries(parsed).filter(([, value]) => value !== undefined && value !== "")),
-});
 
 const evaluateSubbaseA = (v: SubbaseAValues) => {
   const checks: Array<boolean | null> = [
@@ -351,10 +345,9 @@ const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
 };
 
 const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectName: string): Record<string, string | number> => {
+  const values = row ? parseSubbaseAValues(row) : {};
   const certificateNo = row?.certificateNo || "24403";
-  const values = mergeKnownSubbaseAValues(certificateNo, row ? parseSubbaseAValues(row) : {});
-  const result = values.materialStatus || evaluateSubbaseA(values);
-
+  const result = evaluateSubbaseA(values);
   return {
     J4: currentProjectName || row?.title || "כביש 806 צלמון שלב א׳",
     J5: "א.ו.ג.ן. מהנדסים בע\"מ",
@@ -362,22 +355,22 @@ const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectNam
     A15: 1,
     B15: row?.inspector || row?.responsible || "QC",
     C15: row?.checklistNo || 1,
-    D15: values.sampleDate || row?.executionDate || row?.date || "15/04/2026",
-    E15: values.materialSource || row?.notes || "מחצבה גולני",
-    F15: values.samplingLocation || row?.location || "ערמה באתר",
-    G15: values.spreadingLocation || currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
+    D15: row?.executionDate || row?.date || "",
+    E15: row?.notes || "גולני",
+    F15: row?.location || "מערום בשטח",
+    G15: currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
     H15: "",
     I15: "",
-    J15: valueOrDefault(values.sieve3, ""),
-    K15: valueOrDefault(values.sieve15, ""),
-    L15: valueOrDefault(values.sieve34, ""),
-    M15: valueOrDefault(values.sieve4, ""),
-    N15: valueOrDefault(values.sieve10, ""),
-    O15: valueOrDefault(values.sieve40, ""),
-    P15: valueOrDefault(values.sieve200, ""),
-    Q15: valueOrDefault(values.ll, ""),
-    R15: valueOrDefault(values.pl, ""),
-    S15: valueOrDefault(values.pi, ""),
+J15: String(valueOrDefault(values.sieve3, "")),
+K15: String(valueOrDefault(values.sieve15, "")),
+L15: String(valueOrDefault(values.sieve34, "")),
+M15: String(valueOrDefault(values.sieve4, "")),
+    N15: String(valueOrDefault(values.sieve10, "")),
+O15: String(valueOrDefault(values.sieve40, "")),
+P15: String(valueOrDefault(values.sieve200, "")),
+Q15: String(valueOrDefault(values.ll, "")),
+R15: String(valueOrDefault(values.pl, "")),
+S15: String(valueOrDefault(values.pi, "")),
     T15: valueOrDefault(values.swelling, ""),
     U15: valueOrDefault(values.density, ""),
     V15: valueOrDefault(values.absorption, ""),
