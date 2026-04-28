@@ -3,18 +3,39 @@
 import { useRef, useState } from "react";
 import { parseLabCertificateText, type LabCertificateResults } from "../lib/labCertificateParser";
 
-type Props = {
-  attachmentName?: string;
-  initialResults?: LabCertificateResults;
-  onSave: (results: LabCertificateResults) => void;
+type AttachmentLike = {
+  name: string;
+  type?: string;
+  dataUrl?: string;
+  uploadedAt?: string;
 };
 
-async function extractTextFromPdf(file: File) {
+type SavedFileMeta = {
+  name: string;
+  type: string;
+  dataUrl: string;
+  uploadedAt: string;
+};
+
+type Props = {
+  attachmentName?: string;
+  existingAttachment?: AttachmentLike;
+  initialResults?: LabCertificateResults;
+  onSave: (results: LabCertificateResults, fileMeta?: SavedFileMeta) => void;
+};
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("לא ניתן לקרוא את הקובץ"));
+    reader.readAsDataURL(file);
+  });
+
+async function extractTextFromPdfBuffer(buffer: ArrayBuffer) {
   const pdfjs = await import("pdfjs-dist");
-  // עובד בדפדפן/Vercel ללא קובץ worker מקומי
   pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
-  const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
 
   let text = "";
@@ -29,6 +50,17 @@ async function extractTextFromPdf(file: File) {
   }
 
   return text;
+}
+
+async function extractTextFromPdf(file: File) {
+  const buffer = await file.arrayBuffer();
+  return extractTextFromPdfBuffer(buffer);
+}
+
+async function extractTextFromDataUrl(dataUrl: string) {
+  const response = await fetch(dataUrl);
+  const buffer = await response.arrayBuffer();
+  return extractTextFromPdfBuffer(buffer);
 }
 
 const fieldLabels: Array<[keyof LabCertificateResults, string]> = [
@@ -57,26 +89,57 @@ const fieldLabels: Array<[keyof LabCertificateResults, string]> = [
   ["conclusion", "מסקנה"],
 ];
 
-export default function LabCertificateScanButton({ attachmentName, initialResults, onSave }: Props) {
+export default function LabCertificateScanButton({ attachmentName, existingAttachment, initialResults, onSave }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<LabCertificateResults>(initialResults ?? {});
+  const [pendingFileMeta, setPendingFileMeta] = useState<SavedFileMeta | undefined>(undefined);
+
+  const scanRawText = (rawText: string) => {
+    const parsed = parseLabCertificateText(rawText);
+    setResults(parsed);
+    setOpen(true);
+  };
 
   const handleFile = async (file?: File) => {
     if (!file) return;
     setBusy(true);
     try {
-      const rawText = await extractTextFromPdf(file);
-      const parsed = parseLabCertificateText(rawText);
-      setResults(parsed);
-      setOpen(true);
+      const [rawText, dataUrl] = await Promise.all([extractTextFromPdf(file), readFileAsDataUrl(file)]);
+      setPendingFileMeta({
+        name: file.name,
+        type: file.type || "application/pdf",
+        dataUrl,
+        uploadedAt: new Date().toLocaleString("he-IL"),
+      });
+      scanRawText(rawText);
     } catch (error) {
       console.error(error);
       alert("לא הצלחתי לסרוק את ה-PDF. ודא שהתעודה היא PDF טקסטואלי ולא צילום סרוק בלבד.");
     } finally {
       setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const handleClick = async () => {
+    if (existingAttachment?.dataUrl) {
+      setBusy(true);
+      try {
+        setPendingFileMeta(undefined);
+        const rawText = await extractTextFromDataUrl(existingAttachment.dataUrl);
+        scanRawText(rawText);
+      } catch (error) {
+        console.error(error);
+        alert("לא הצלחתי לסרוק את התעודה המצורפת. אפשר למחוק אותה ולצרף PDF מחדש.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    fileInputRef.current?.click();
   };
 
   const updateField = (key: keyof LabCertificateResults, value: string) => {
@@ -108,6 +171,14 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
     }));
   };
 
+  const buttonText = busy
+    ? "סורק תעודה..."
+    : initialResults?.certificateNo
+      ? "סריקה קיימת ✓"
+      : existingAttachment?.dataUrl
+        ? "סרוק תעודה מצורפת"
+        : "סרוק / צרף תעודה";
+
   return (
     <>
       <input
@@ -120,18 +191,18 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
 
       <button
         type="button"
-        onClick={() => fileInputRef.current?.click()}
+        onClick={handleClick}
         disabled={busy}
         style={{
-          border: "1px solid #cbd5e1",
+          border: "1px solid #0f172a",
           background: busy ? "#f1f5f9" : "#fff",
           borderRadius: 10,
-          padding: "8px 10px",
+          padding: "8px 12px",
           fontWeight: 900,
           cursor: busy ? "wait" : "pointer",
         }}
       >
-        {busy ? "סורק תעודה..." : initialResults?.certificateNo ? "סריקה קיימת ✓" : "סרוק תעודה"}
+        {buttonText}
       </button>
 
       {open ? (
@@ -151,7 +222,7 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>בדיקת תוצאות סריקת תעודה</h2>
-                <div style={{ color: "#64748b", marginTop: 4 }}>{attachmentName || "תעודת מעבדה"}</div>
+                <div style={{ color: "#64748b", marginTop: 4 }}>{attachmentName || existingAttachment?.name || "תעודת מעבדה"}</div>
               </div>
               <button type="button" onClick={() => setOpen(false)} style={{ border: 0, background: "#fee2e2", color: "#991b1b", borderRadius: 10, padding: "8px 12px", fontWeight: 900 }}>
                 סגור
@@ -159,7 +230,7 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
             </div>
 
             <div style={{ marginTop: 14, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e3a8a", borderRadius: 12, padding: 12, fontWeight: 800 }}>
-              המערכת חילצה נתונים מה-PDF. בדוק/תקן במידת הצורך ואז לחץ "אשר ושמור". הנתונים יישמרו לתעודה וישמשו את הריכוזים.
+              המערכת חילצה נתונים מה-PDF. בדוק/תקן במידת הצורך ואז לחץ "אשר ושמור". הנתונים יישמרו לשורת רשימת התיוג וישמשו את הריכוזים.
             </div>
 
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
@@ -179,7 +250,7 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
               <button
                 type="button"
                 onClick={() => {
-                  onSave(results);
+                  onSave(results, pendingFileMeta);
                   setOpen(false);
                 }}
                 style={{ border: 0, background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900 }}
