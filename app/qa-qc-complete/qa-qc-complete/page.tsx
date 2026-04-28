@@ -74,19 +74,23 @@ const readLocalCurrentProjectId = () => typeof window === 'undefined' ? null : w
 const writeLocalCurrentProjectId = (projectId: string | null) => { if (typeof window === 'undefined') return; projectId ? window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, projectId) : window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY); };
 
 async function selectTable(table: string, orderColumn?: string) {
-  const baseQuery = supabase.from(table).select('*');
+  if (!supabase) {
+    return { data: null, error: new Error('Supabase not initialized') };
+  }
+
+  const baseQuery = supabase!.from(table).select('*');
   if (!orderColumn) return await baseQuery;
-  const ordered = await supabase.from(table).select('*').order(orderColumn, { ascending: false });
+  const ordered = await supabase!.from(table).select('*').order(orderColumn, { ascending: false });
   if (!ordered.error) return ordered;
   if (isMissingColumnError(ordered.error, orderColumn)) return await baseQuery;
   return ordered;
 }
 
 async function saveWithApprovalFallback(table: string, payload: Record<string, any>, mode: 'insert' | 'update', id?: string) {
-  let result = mode === 'insert' ? await supabase.from(table).insert(payload) : await supabase.from(table).update(payload).eq('id', id);
+  let result = mode === 'insert' ? await supabase!.from(table).insert(payload) : await supabase!.from(table).update(payload).eq('id', id);
   if (result.error && isMissingColumnError(result.error, 'approval')) {
     const { approval, ...withoutApproval } = payload;
-    result = mode === 'insert' ? await supabase.from(table).insert(withoutApproval) : await supabase.from(table).update(withoutApproval).eq('id', id);
+    result = mode === 'insert' ? await supabase!.from(table).insert(withoutApproval) : await supabase!.from(table).update(withoutApproval).eq('id', id);
   }
   if (result.error) throw new Error(errorText(result.error) || 'שגיאה בשמירה מול Supabase');
 }
@@ -206,8 +210,8 @@ export default function Page() {
     const project: Project = { id, name: newProjectName.trim(), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
-        await supabase.from('projects').update({ is_active: false }).neq('id', id);
-        const result = await supabase.from('projects').insert({ id, name: project.name, description: project.description, manager: project.manager, is_active: true, created_at: nowIso() });
+        await supabase!.from('projects').update({ is_active: false }).neq('id', id);
+        const result = await supabase!.from('projects').insert({ id, name: project.name, description: project.description, manager: project.manager, is_active: true, created_at: nowIso() });
         if (result.error) throw result.error;
         await refreshCloudData();
       } else {
@@ -218,10 +222,10 @@ export default function Page() {
     setNewProjectName(''); setNewProjectDescription(''); setNewProjectManager('');
   };
 
-  const renameProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
-  const updateProjectMeta = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
-  const setActiveProject = async (projectId: string) => await withSaving(async () => cloudEnabled ? (await supabase.from('projects').update({ is_active: false }).neq('id', projectId), await supabase.from('projects').update({ is_active: true }).eq('id', projectId), await refreshCloudData()) : (setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId }))), setCurrentProjectId(projectId)));
-  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase.from('checklists').delete().eq('project_id', projectId); await supabase.from('nonconformances').delete().eq('project_id', projectId); await supabase.from('trial_sections').delete().eq('project_id', projectId); await supabase.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
+  const renameProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
+  const updateProjectMeta = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
+  const setActiveProject = async (projectId: string) => await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ is_active: false }).neq('id', projectId), await supabase!.from('projects').update({ is_active: true }).eq('id', projectId), await refreshCloudData()) : (setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId }))), setCurrentProjectId(projectId)));
+  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => ({ ...createDefaultChecklist(templateKey), location: prev.location, date: prev.date, contractor: prev.contractor, notes: prev.notes, approval: prev.approval }));
   const updateChecklistItem = (id: string, field: keyof ChecklistItem, value: string) => setChecklistForm((prev) => ({ ...prev, items: prev.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
@@ -246,7 +250,7 @@ export default function Page() {
     resetChecklistForm();
   };
   const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
-  const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
+  const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
   const saveNonconformance = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
@@ -263,7 +267,7 @@ export default function Page() {
     resetNonconformanceEditor();
   };
   const loadNonconformance = (record: NonconformanceRecord) => { setSection('nonconformances'); setEditingNonconformanceId(record.id); setNonconformanceForm({ title: record.title, location: record.location, date: record.date, raisedBy: record.raisedBy, severity: record.severity, status: record.status, description: record.description, actionRequired: record.actionRequired, notes: record.notes, approval: normalizeApproval(record.approval) }); };
-  const deleteNonconformance = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('nonconformances').delete().eq('id', id), await refreshCloudData()) : setSavedNonconformances((prev) => prev.filter((item) => item.id !== id)));
+  const deleteNonconformance = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('nonconformances').delete().eq('id', id), await refreshCloudData()) : setSavedNonconformances((prev) => prev.filter((item) => item.id !== id)));
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
@@ -280,7 +284,7 @@ export default function Page() {
     resetTrialSectionEditor();
   };
   const loadTrialSection = (record: TrialSectionRecord) => { setSection('trialSections'); setEditingTrialSectionId(record.id); setTrialSectionForm({ title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approvedBy: record.approvedBy, status: record.status, notes: record.notes, approval: normalizeApproval(record.approval) }); };
-  const deleteTrialSection = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('trial_sections').delete().eq('id', id), await refreshCloudData()) : setSavedTrialSections((prev) => prev.filter((item) => item.id !== id)));
+  const deleteTrialSection = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('trial_sections').delete().eq('id', id), await refreshCloudData()) : setSavedTrialSections((prev) => prev.filter((item) => item.id !== id)));
 
   const currentPreliminaryForm = preliminaryTab === 'suppliers' ? supplierPreliminaryForm : preliminaryTab === 'subcontractors' ? subcontractorPreliminaryForm : materialPreliminaryForm;
   const savePreliminary = async (subtype: PreliminaryTab) => {
@@ -299,7 +303,7 @@ export default function Page() {
     resetPreliminaryEditor();
   };
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
-  const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
+  const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: projects.length }, { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length }, { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length }, { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length }, { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length }];
