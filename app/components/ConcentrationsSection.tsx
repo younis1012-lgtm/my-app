@@ -221,7 +221,11 @@ const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
   };
 };
 
-const valueOrDefault = (value: unknown, fallback: unknown) => value === undefined || value === null || value === "" ? fallback : value;
+const valueOrDefault = (value: unknown, fallback: string | number = ""): string | number => {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "string" || typeof value === "number") return value;
+  return String(value);
+};
 
 const evaluateSubbaseA = (v: SubbaseAValues) => {
   const checks: Array<boolean | null> = [
@@ -318,16 +322,16 @@ const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectNam
     G15: currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
     H15: "",
     I15: "",
-    J15: valueOrDefault(values.sieve3, ""),
-    K15: valueOrDefault(values.sieve15, ""),
-    L15: valueOrDefault(values.sieve34, ""),
-    M15: valueOrDefault(values.sieve4, ""),
-    N15: valueOrDefault(values.sieve10, ""),
-    O15: valueOrDefault(values.sieve40, ""),
-    P15: valueOrDefault(values.sieve200, ""),
-    Q15: valueOrDefault(values.ll, ""),
-    R15: valueOrDefault(values.pl, ""),
-    S15: valueOrDefault(values.pi, ""),
+J15: String(valueOrDefault(values.sieve3, "")),
+K15: String(valueOrDefault(values.sieve15, "")),
+L15: String(valueOrDefault(values.sieve34, "")),
+M15: String(valueOrDefault(values.sieve4, "")),
+    N15: String(valueOrDefault(values.sieve10, "")),
+O15: String(valueOrDefault(values.sieve40, "")),
+P15: String(valueOrDefault(values.sieve200, "")),
+Q15: String(valueOrDefault(values.ll, "")),
+R15: String(valueOrDefault(values.pl, "")),
+S15: String(valueOrDefault(values.pi, "")),
     T15: valueOrDefault(values.swelling, ""),
     U15: valueOrDefault(values.density, ""),
     V15: valueOrDefault(values.absorption, ""),
