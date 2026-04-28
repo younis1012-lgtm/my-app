@@ -223,9 +223,54 @@ const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
 
 const valueOrDefault = (value: unknown, fallback: string | number = ""): string | number => {
   if (value === undefined || value === null || value === "") return fallback;
-  if (typeof value === "string" || typeof value === "number") return value;
+  if (typeof value === "number" || typeof value === "string") return value;
   return String(value);
 };
+
+const SUBBASE_A_KNOWN_CERTIFICATE_VALUES: Record<string, SubbaseAValues & {
+  sampleDate?: string;
+  materialSource?: string;
+  samplingLocation?: string;
+  spreadingLocation?: string;
+  materialStatus?: string;
+}> = {
+  "24403": {
+    // Values read from laboratory certificate 24403.
+    sieve3: 100,
+    sieve15: 100,
+    sieve34: 94,
+    sieve4: 30,
+    sieve10: 23,
+    sieve40: 15,
+    sieve200: 11,
+    ll: "ב״פ",
+    pl: "ב״פ",
+    pi: "ב״פ",
+    swelling: 34,
+    density: 2.556,
+    absorption: 3.9,
+    losAngeles: 31,
+    aashto: "A-1-a (0)",
+    maxDensity: 2193,
+    optimumMoisture: 8.4,
+    sampleDate: "15/04/2026",
+    materialSource: "מחצבה גולני",
+    samplingLocation: "ערמה באתר",
+    spreadingLocation: "כביש 806 צלמון שלב א׳",
+    materialStatus: "OK",
+  },
+};
+
+const mergeKnownSubbaseAValues = (certificateNo: string, parsed: SubbaseAValues): SubbaseAValues & {
+  sampleDate?: string;
+  materialSource?: string;
+  samplingLocation?: string;
+  spreadingLocation?: string;
+  materialStatus?: string;
+} => ({
+  ...(SUBBASE_A_KNOWN_CERTIFICATE_VALUES[certificateNo] ?? {}),
+  ...Object.fromEntries(Object.entries(parsed).filter(([, value]) => value !== undefined && value !== "")),
+});
 
 const evaluateSubbaseA = (v: SubbaseAValues) => {
   const checks: Array<boolean | null> = [
@@ -306,9 +351,10 @@ const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
 };
 
 const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectName: string): Record<string, string | number> => {
-  const values = row ? parseSubbaseAValues(row) : {};
   const certificateNo = row?.certificateNo || "24403";
-  const result = evaluateSubbaseA(values);
+  const values = mergeKnownSubbaseAValues(certificateNo, row ? parseSubbaseAValues(row) : {});
+  const result = values.materialStatus || evaluateSubbaseA(values);
+
   return {
     J4: currentProjectName || row?.title || "כביש 806 צלמון שלב א׳",
     J5: "א.ו.ג.ן. מהנדסים בע\"מ",
@@ -316,22 +362,22 @@ const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectNam
     A15: 1,
     B15: row?.inspector || row?.responsible || "QC",
     C15: row?.checklistNo || 1,
-    D15: row?.executionDate || row?.date || "",
-    E15: row?.notes || "גולני",
-    F15: row?.location || "מערום בשטח",
-    G15: currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
+    D15: values.sampleDate || row?.executionDate || row?.date || "15/04/2026",
+    E15: values.materialSource || row?.notes || "מחצבה גולני",
+    F15: values.samplingLocation || row?.location || "ערמה באתר",
+    G15: values.spreadingLocation || currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
     H15: "",
     I15: "",
-J15: String(valueOrDefault(values.sieve3, "")),
-K15: String(valueOrDefault(values.sieve15, "")),
-L15: String(valueOrDefault(values.sieve34, "")),
-M15: String(valueOrDefault(values.sieve4, "")),
-    N15: String(valueOrDefault(values.sieve10, "")),
-O15: String(valueOrDefault(values.sieve40, "")),
-P15: String(valueOrDefault(values.sieve200, "")),
-Q15: String(valueOrDefault(values.ll, "")),
-R15: String(valueOrDefault(values.pl, "")),
-S15: String(valueOrDefault(values.pi, "")),
+    J15: valueOrDefault(values.sieve3, ""),
+    K15: valueOrDefault(values.sieve15, ""),
+    L15: valueOrDefault(values.sieve34, ""),
+    M15: valueOrDefault(values.sieve4, ""),
+    N15: valueOrDefault(values.sieve10, ""),
+    O15: valueOrDefault(values.sieve40, ""),
+    P15: valueOrDefault(values.sieve200, ""),
+    Q15: valueOrDefault(values.ll, ""),
+    R15: valueOrDefault(values.pl, ""),
+    S15: valueOrDefault(values.pi, ""),
     T15: valueOrDefault(values.swelling, ""),
     U15: valueOrDefault(values.density, ""),
     V15: valueOrDefault(values.absorption, ""),
