@@ -32,9 +32,7 @@ const dataUrlToArrayBuffer = async (dataUrl: string) => {
 
 async function extractTextFromPdfBuffer(buffer: ArrayBuffer) {
   const pdfjs = await import("pdfjs-dist");
-
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
 
@@ -42,7 +40,6 @@ async function extractTextFromPdfBuffer(buffer: ArrayBuffer) {
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo);
     const content = await page.getTextContent();
-
     text +=
       content.items
         .map((item: any) => ("str" in item ? item.str : ""))
@@ -67,18 +64,30 @@ export default function LabCertificateScanButton({
     try {
       const rawText = await extractTextFromPdfBuffer(buffer);
       const parsed = parseLabCertificateText(rawText);
-
       onSave(parsed, fileInfo);
-      alert("התעודה נסרקה ונשמרה לריכוזים.");
+      alert("תעודת המעבדה צורפה, נקלטה ונשמרה לריכוזים.");
     } catch (error) {
       console.error(error);
-      alert("לא הצלחתי לסרוק את ה-PDF. אם זה צילום סרוק ולא PDF טקסטואלי, צריך OCR.");
+      alert("התעודה צורפה, אבל לא הצלחתי לקרוא ממנה נתונים. אם זה צילום סרוק ולא PDF טקסטואלי, צריך OCR.");
     } finally {
       setBusy(false);
     }
   };
 
-  const handleExistingScan = async () => {
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    const buffer = await file.arrayBuffer();
+
+    await scanBuffer(buffer, {
+      name: file.name,
+      type: file.type || "application/pdf",
+      dataUrl,
+      uploadedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleClick = async () => {
     if (!existingDataUrl) {
       fileInputRef.current?.click();
       return;
@@ -93,19 +102,13 @@ export default function LabCertificateScanButton({
     });
   };
 
-  const handleFile = async (file?: File) => {
-    if (!file) return;
-
-    const dataUrl = await readFileAsDataUrl(file);
-    const buffer = await file.arrayBuffer();
-
-    await scanBuffer(buffer, {
-      name: file.name,
-      type: file.type || "application/pdf",
-      dataUrl,
-      uploadedAt: new Date().toISOString(),
-    });
-  };
+  const buttonText = busy
+    ? "קולט תעודה..."
+    : initialResults?.certificateNo
+      ? "תעודה נקלטה ✓"
+      : existingDataUrl
+        ? "קלוט תעודה מצורפת"
+        : "צרף תעודת מעבדה";
 
   return (
     <>
@@ -122,7 +125,7 @@ export default function LabCertificateScanButton({
 
       <button
         type="button"
-        onClick={() => void handleExistingScan()}
+        onClick={() => void handleClick()}
         disabled={busy}
         style={{
           border: "1px solid #0f172a",
@@ -133,14 +136,9 @@ export default function LabCertificateScanButton({
           cursor: busy ? "wait" : "pointer",
           color: "#0f172a",
         }}
+        title="בעת בחירת PDF, המערכת קולטת אוטומטית את נתוני התעודה לריכוזים"
       >
-        {busy
-          ? "סורק תעודה..."
-          : initialResults?.certificateNo
-            ? "סרוק שוב תעודה"
-            : existingDataUrl
-              ? "סרוק תעודה מצורפת"
-              : "סרוק תעודה"}
+        📎 {buttonText}
       </button>
     </>
   );

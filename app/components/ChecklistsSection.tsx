@@ -206,7 +206,7 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
                         </div>
                       ))
                     ) : (
-                      <span style={{ color: '#64748b' }}>טרם צורפה/נסרקה תעודת מעבדה</span>
+                      <span style={{ color: '#64748b' }}>טרם צורפה תעודת מעבדה</span>
                     )}
                   </div>
                 </div>
