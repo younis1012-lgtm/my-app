@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { parseLabCertificateText, type LabCertificateResults } from "../lib/labCertificateParser";
 
-type SavedFileInfo = {
+type FileInfo = {
   name: string;
   type: string;
   dataUrl: string;
@@ -13,8 +13,66 @@ type SavedFileInfo = {
 type Props = {
   attachmentName?: string;
   initialResults?: LabCertificateResults;
-  onSave: (results: LabCertificateResults, fileInfo?: SavedFileInfo) => void;
+  onSave?: (results: LabCertificateResults, fileInfo?: FileInfo) => void;
+  onScanResult?: (data: LabCertificateResults) => void;
 };
+
+const numericFields = new Set<string>([
+  "sieve3",
+  "sieve15",
+  "sieve1",
+  "sieve38",
+  "sieve34",
+  "sieve4",
+  "sieve10",
+  "sieve40",
+  "sieve200",
+  "ll",
+  "pl",
+  "pi",
+  "sandEquivalent",
+  "specificGravity",
+  "absorption",
+  "losAngeles",
+  "maxDensity",
+  "optimumMoisture",
+  "totalMoisture",
+  "stone34",
+]);
+
+const fieldLabels: Array<[keyof LabCertificateResults, string]> = [
+  ["certificateNo", "מס׳ תעודה"],
+  ["samplingDate", "תאריך דגימה"],
+  ["reportDate", "תאריך הוצאה"],
+  ["materialSource", "מקור החומר"],
+  ["location", "מיקום / מקום נטילה"],
+  ["sieve3", 'נפה 3"'],
+  ["sieve15", 'נפה 1.5"'],
+  ["sieve34", 'נפה 3/4"'],
+  ["sieve4", "#4"],
+  ["sieve10", "#10"],
+  ["sieve40", "#40"],
+  ["sieve200", "#200"],
+  ["ll", "LL"],
+  ["pl", "PL"],
+  ["pi", "PI"],
+  ["sandEquivalent", "שווה ערך חול"],
+  ["specificGravity", "צפיפות ממשית"],
+  ["absorption", "ספיגות"],
+  ["losAngeles", "לוס אנג׳לס"],
+  ["aashto", "מיון AASHTO"],
+  ["maxDensity", "צפיפות מקסימלית"],
+  ["optimumMoisture", "רטיבות אופטימלית"],
+  ["conclusion", "מסקנה"],
+];
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("לא ניתן לקרוא את הקובץ"));
+    reader.readAsDataURL(file);
+  });
 
 async function extractTextFromPdf(file: File) {
   const pdfjs = await import("pdfjs-dist");
@@ -37,46 +95,16 @@ async function extractTextFromPdf(file: File) {
   return text;
 }
 
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("לא ניתן לקרוא את הקובץ"));
-    reader.readAsDataURL(file);
-  });
-
-const fieldLabels: Array<[keyof LabCertificateResults, string]> = [
-  ["certificateNo", "מס׳ תעודה"],
-  ["samplingDate", "תאריך דגימה"],
-  ["reportDate", "תאריך הוצאה"],
-  ["materialSource", "מקור החומר"],
-  ["location", "מיקום/קטע"],
-  ["sieve3", '3"'],
-  ["sieve15", '1.5"'],
-  ["sieve34", '3/4"'],
-  ["sieve4", "#4"],
-  ["sieve10", "#10"],
-  ["sieve40", "#40"],
-  ["sieve200", "#200"],
-  ["ll", "LL"],
-  ["pl", "PL"],
-  ["pi", "PI"],
-  ["sandEquivalent", "שווה ערך חול"],
-  ["specificGravity", "צפיפות ממשית"],
-  ["absorption", "ספיגות"],
-  ["losAngeles", "לוס אנג׳לס"],
-  ["aashto", "מיון AASHTO"],
-  ["maxDensity", "צפיפות מקסימלית"],
-  ["optimumMoisture", "רטיבות אופטימלית"],
-  ["conclusion", "מסקנה"],
-];
-
-export default function LabCertificateScanButton({ attachmentName, initialResults, onSave }: Props) {
+export default function LabCertificateScanButton({ attachmentName, initialResults, onSave, onScanResult }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<LabCertificateResults>(initialResults ?? {});
-  const [fileInfo, setFileInfo] = useState<SavedFileInfo | undefined>(undefined);
+  const [pendingFileInfo, setPendingFileInfo] = useState<FileInfo | undefined>(undefined);
+
+  useEffect(() => {
+    setResults(initialResults ?? {});
+  }, [initialResults]);
 
   const handleFile = async (file?: File) => {
     if (!file) return;
@@ -84,18 +112,20 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
     try {
       const [rawText, dataUrl] = await Promise.all([extractTextFromPdf(file), fileToDataUrl(file)]);
       const parsed = parseLabCertificateText(rawText);
-      const nextFileInfo: SavedFileInfo = {
+      const fileInfo: FileInfo = {
         name: file.name,
         type: file.type || "application/pdf",
         dataUrl,
         uploadedAt: new Date().toLocaleString("he-IL"),
       };
+
       setResults(parsed);
-      setFileInfo(nextFileInfo);
+      setPendingFileInfo(fileInfo);
       setOpen(true);
+      onScanResult?.(parsed);
     } catch (error) {
-      console.error(error);
-      alert("לא הצלחתי לסרוק את ה-PDF. ודא שהתעודה היא PDF טקסטואלי ולא צילום סרוק בלבד.");
+      console.error("PDF parse error:", error);
+      alert("לא הצלחתי לסרוק את ה-PDF. אם זו תמונה סרוקה ולא PDF טקסטואלי, צריך OCR או הזנה ידנית.");
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -103,32 +133,16 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
   };
 
   const updateField = (key: keyof LabCertificateResults, value: string) => {
-    const numericKeys = new Set([
-      "sieve3",
-      "sieve15",
-      "sieve1",
-      "sieve38",
-      "sieve34",
-      "sieve4",
-      "sieve10",
-      "sieve40",
-      "sieve200",
-      "ll",
-      "pl",
-      "pi",
-      "sandEquivalent",
-      "specificGravity",
-      "absorption",
-      "losAngeles",
-      "maxDensity",
-      "optimumMoisture",
-      "totalMoisture",
-      "stone34",
-    ]);
     setResults((prev) => ({
       ...prev,
-      [key]: numericKeys.has(String(key)) && value !== "" ? Number(value) : value,
+      [key]: numericFields.has(String(key)) && value !== "" ? Number(value.replace(",", ".")) : value,
     }));
+  };
+
+  const saveResults = () => {
+    onSave?.(results, pendingFileInfo);
+    onScanResult?.(results);
+    setOpen(false);
   };
 
   return (
@@ -152,9 +166,10 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
           padding: "8px 12px",
           fontWeight: 900,
           cursor: busy ? "wait" : "pointer",
+          color: "#0f172a",
         }}
       >
-        {busy ? "סורק תעודה..." : initialResults?.certificateNo ? "סריקה קיימת ✓ / סרוק מחדש" : "סרוק תעודה"}
+        {busy ? "סורק תעודה..." : initialResults?.certificateNo ? "סרוק מחדש" : "סרוק תעודה"}
       </button>
 
       {open ? (
@@ -174,15 +189,15 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>בדיקת תוצאות סריקת תעודה</h2>
-                <div style={{ color: "#64748b", marginTop: 4 }}>{fileInfo?.name || attachmentName || "תעודת מעבדה"}</div>
+                <div style={{ color: "#64748b", marginTop: 4 }}>{pendingFileInfo?.name || attachmentName || "תעודת מעבדה"}</div>
               </div>
               <button type="button" onClick={() => setOpen(false)} style={{ border: 0, background: "#fee2e2", color: "#991b1b", borderRadius: 10, padding: "8px 12px", fontWeight: 900 }}>
                 סגור
               </button>
             </div>
 
-            <div style={{ marginTop: 14, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e3a8a", borderRadius: 12, padding: 12, fontWeight: 800 }}>
-              המערכת חילצה נתונים מה-PDF. בדוק/תקן במידת הצורך ואז לחץ "אשר ושמור". הנתונים יישמרו לשורת רשימת התיוג וישמשו את הריכוזים.
+            <div style={{ marginTop: 14, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e3a8a", borderRadius: 12, padding: 12, fontWeight: 800, lineHeight: 1.6 }}>
+              המערכת חילצה נתונים מה-PDF. בדוק/תקן במידת הצורך ואז לחץ "אשר ושמור". הנתונים יישמרו בשורת רשימת התיוג וישמשו את הריכוזים.
             </div>
 
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
@@ -198,16 +213,9 @@ export default function LabCertificateScanButton({ attachmentName, initialResult
               ))}
             </div>
 
-            <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-start" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  onSave(results, fileInfo);
-                  setOpen(false);
-                }}
-                style={{ border: 0, background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900 }}
-              >
-                אשר ושמור לרשימת התיוג
+            <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-start", flexWrap: "wrap" }}>
+              <button type="button" onClick={saveResults} style={{ border: 0, background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900 }}>
+                אשר ושמור לריכוזים
               </button>
               <button type="button" onClick={() => setOpen(false)} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 12, padding: "12px 18px", fontWeight: 900 }}>
                 ביטול
