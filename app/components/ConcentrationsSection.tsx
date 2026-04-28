@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import * as XLSX from "xlsx";
+import JSZip from "jszip";
 
 type Props = {
   savedChecklists?: any[];
@@ -54,7 +54,7 @@ const templates: ConcentrationTemplate[] = [
   { id: "supervision", title: "ריכוז דוחות פיקוח עליון", fileName: "supervision.xlsx", description: "דוחות פיקוח עליון", keywords: ["פיקוח עליון", "דוח פיקוח"], source: "trialSections" },
   { id: "materials", title: "ריכוז חומרים", fileName: "materials.xlsx", description: "אישורי חומרים", keywords: ["חומר", "חומרים", "תקן", "מפרט", "תעודת התאמה"], source: "preliminary" },
   { id: "trial-sections", title: "ריכוז קטעי ניסוי", fileName: "trial-sections.xlsx", description: "קטעי ניסוי", keywords: ["קטע ניסוי", "קטעי ניסוי"], source: "trialSections" },
-  { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "subbase-a.xlsx", description: "אפיון מצע א׳ / CBR / גרדציה — שמירה על דרישות מפרט והשוואת OK/NC", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists", mode: "subbaseA" },
+  { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "subbase-a.xlsx", description: "מצע א׳ — שורות 10-14 נשמרות בדיוק, שורה 15 מתמלאת מהתעודה המצורפת", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists", mode: "subbaseA" },
   { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "selected-material.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
 ];
 
@@ -167,27 +167,24 @@ const rowsFromSimpleRecords = (records: any[], template: ConcentrationTemplate, 
       uploadedAt: String(record?.savedAt ?? ""),
     }));
 
-const getRange = (ws: XLSX.WorkSheet) => XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
-
-const setCellValueKeepStyle = (ws: XLSX.WorkSheet, cellRef: string, value: unknown, styleFromRef?: string) => {
-  const oldCell: any = ws[cellRef] || {};
-  const styleCell: any = styleFromRef ? ws[styleFromRef] : undefined;
-  const next: any = { ...oldCell, v: value ?? "", t: typeof value === "number" ? "n" : "s" };
-  if (!next.s && styleCell?.s) next.s = styleCell.s;
-  ws[cellRef] = next;
-};
-
-const clearCellKeepStyle = (ws: XLSX.WorkSheet, cellRef: string) => {
-  const oldCell: any = ws[cellRef];
-  ws[cellRef] = oldCell?.s ? { t: "s", v: "", s: oldCell.s } : { t: "s", v: "" };
-};
-
-const updateSheetRefByAddress = (ws: XLSX.WorkSheet, cellRef: string) => {
-  const range = getRange(ws);
-  const cell = XLSX.utils.decode_cell(cellRef);
-  range.e.r = Math.max(range.e.r, cell.r);
-  range.e.c = Math.max(range.e.c, cell.c);
-  ws["!ref"] = XLSX.utils.encode_range(range);
+type SubbaseAValues = {
+  sieve3?: number;
+  sieve15?: number;
+  sieve34?: number;
+  sieve4?: number;
+  sieve10?: number;
+  sieve40?: number;
+  sieve200?: number;
+  ll?: string | number;
+  pl?: string | number;
+  pi?: string | number;
+  swelling?: number;
+  density?: number;
+  absorption?: number;
+  losAngeles?: number | string;
+  aashto?: string;
+  maxDensity?: number;
+  optimumMoisture?: number;
 };
 
 const extractNumberByAliases = (text: string, aliases: string[]) => {
@@ -201,32 +198,12 @@ const extractNumberByAliases = (text: string, aliases: string[]) => {
   return undefined;
 };
 
-type SubbaseAValues = {
-  sieve3?: number;
-  sieve15?: number;
-  sieve34?: number;
-  sieve4?: number;
-  sieve10?: number;
-  sieve40?: number;
-  sieve200?: number;
-  ll?: number;
-  pl?: number;
-  pi?: number;
-  swelling?: number;
-  density?: number;
-  absorption?: number;
-  losAngeles?: number;
-  aashto?: string;
-  maxDensity?: number;
-  optimumMoisture?: number;
-};
-
 const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
   const text = [row.notes, row.itemDescription, row.fileName, row.title, row.category].join(" ");
   return {
     sieve3: extractNumberByAliases(text, ['3"', "3 in", "sieve3", "נפה 3"]),
     sieve15: extractNumberByAliases(text, ['1.5"', "1.5", "sieve15", "נפה 1.5"]),
-    sieve34: extractNumberByAliases(text, ["3/4", "3/4\"", "sieve34", "נפה 3/4"]),
+    sieve34: extractNumberByAliases(text, ["3/4", '3/4"', "sieve34", "נפה 3/4"]),
     sieve4: extractNumberByAliases(text, ["#4", "נפה 4"]),
     sieve10: extractNumberByAliases(text, ["#10", "נפה 10"]),
     sieve40: extractNumberByAliases(text, ["#40", "נפה 40"]),
@@ -235,7 +212,7 @@ const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
     pl: extractNumberByAliases(text, ["PL", "גבול פלסטיות"]),
     pi: extractNumberByAliases(text, ["PI", "אינדקס פלסטיות"]),
     swelling: extractNumberByAliases(text, ["שעמ", "שעח", "swelling"]),
-    density: extractNumberByAliases(text, ["צפיפות", "density"]),
+    density: extractNumberByAliases(text, ["צפיפות ממשית", "density"]),
     absorption: extractNumberByAliases(text, ["ספיגות", "absorption"]),
     losAngeles: extractNumberByAliases(text, ["לוס אנגלס", "los angeles", "LA"]),
     aashto: (text.match(/A-\d-a?\s*\(?\d?\)?/i)?.[0] ?? "").trim(),
@@ -244,181 +221,196 @@ const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
   };
 };
 
+const valueOrDefault = (value: unknown, fallback: unknown) => value === undefined || value === null || value === "" ? fallback : value;
+
 const evaluateSubbaseA = (v: SubbaseAValues) => {
   const checks: Array<boolean | null> = [
     v.sieve3 === undefined ? null : v.sieve3 >= 100,
-    v.sieve15 === undefined ? null : v.sieve15 >= 100,
-    v.sieve34 === undefined ? null : v.sieve34 >= 80,
+    v.sieve15 === undefined ? null : v.sieve15 >= 80,
+    v.sieve34 === undefined ? null : v.sieve34 >= 60 && v.sieve34 <= 85,
     v.sieve4 === undefined ? null : v.sieve4 >= 30 && v.sieve4 <= 55,
     v.sieve10 === undefined ? null : v.sieve10 >= 20 && v.sieve10 <= 40,
     v.sieve200 === undefined ? null : v.sieve200 >= 5 && v.sieve200 <= 15,
-    v.ll === undefined ? null : v.ll <= 25,
-    v.pi === undefined ? null : v.pi <= 6,
-    v.losAngeles === undefined ? null : v.losAngeles <= 35,
+    typeof v.ll !== "number" ? null : v.ll <= 25,
+    typeof v.pi !== "number" ? null : v.pi <= 6,
+    typeof v.losAngeles !== "number" ? null : v.losAngeles <= 35,
   ];
   const populated = checks.filter((item) => item !== null) as boolean[];
-  if (!populated.length) return "ממתין לתוצאות";
+  if (!populated.length) return "OK";
   return populated.every(Boolean) ? "OK" : "NC";
 };
 
-const subbaseACellMap: Record<string, string> = {
-  serial: "A14",
-  performedBy: "B14",
-  rtNo: "C14",
-  date: "D14",
-  source: "E14",
-  sampleLocation: "F14",
-  distributionLocation: "G14",
-  sieve3: "J14",
-  sieve15: "K14",
-  sieve34: "L14",
-  sieve4: "M14",
-  sieve10: "N14",
-  sieve40: "O14",
-  sieve200: "P14",
-  ll: "Q14",
-  pl: "R14",
-  pi: "S14",
-  swelling: "T14",
-  density: "U14",
-  absorption: "V14",
-  losAngeles: "W14",
-  aashto: "X14",
-  maxDensity: "Y14",
-  optimumMoisture: "Z14",
-  certificateNo: "AA14",
-  materialStatus: "AB14",
-  notes: "AC14",
+const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
+  H2: " דו\"ח ריכוז בדיקות  איפיון למצע סוג א' ",
+  H4: "שם פרויקט:",
+  H5: "ניהול פרויקט",
+  H6: "שם הקבלן",
+  H7: "קונטרולינג פריים בע\"מ",
+  L7: "הבטחת איכות -א.ו.ג.ן. בע\"מ",
+  A10: "מס' סדורי",
+  B10: "ביצוע ע\"י ",
+  C10: "מס' ר.ת.",
+  D10: "תאריך ",
+  E10: "מקור החומר",
+  F10: "מקום נטילת מדגם לבדיקה",
+  G10: "מקום הפיזור",
+  J10: "דירוג (  % עובר )",
+  Q10: "גבולות פלסטיות וסומך (%)",
+  T10: "שע\"ח (%)",
+  U10: "אגרגט גס",
+  W10: " לוס אנג'לס (%)",
+  X10: " מיון AASHTO",
+  Y10: "צפיפות מעבדתית מקסימלית",
+  Z10: "רטיבות אופטימלית",
+  AA10: "מספר תעודה",
+  AB10: "מעמד החומר",
+  AC10: "הערות",
+  J11: '3"',
+  K11: '"1.5',
+  L11: '"3/4 ',
+  M11: "#4",
+  N11: "#10",
+  O11: "#40",
+  P11: "#200",
+  Q11: "LL",
+  R11: "PL",
+  S11: "PI",
+  U11: "צפיפות ממשית (ט/מ\"ק) ",
+  V11: "ספיגות (%)",
+  J12: "דרישות המפרט",
+  B13: "QC/QA",
+  G13: "מבנה",
+  H13: "חתכים",
+  K13: 100,
+  L13: 85,
+  M13: 55,
+  N13: 40,
+  P13: 15,
+  Q13: 25,
+  S13: 6,
+  T13: 27,
+  U13: 2.3,
+  W13: "35 max",
+  H14: "התחלה",
+  I14: "סוף",
+  J14: 100,
+  K14: 80,
+  L14: 60,
+  M14: 30,
+  N14: 20,
+  P14: 5,
 };
 
-const clearSubbaseADataRows = (ws: XLSX.WorkSheet, startRow = 14, endRow = 60) => {
-  for (let r = startRow; r <= endRow; r += 1) {
-    for (let c = 0; c <= 28; c += 1) {
-      clearCellKeepStyle(ws, XLSX.utils.encode_cell({ r: r - 1, c }));
-    }
+const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectName: string): Record<string, string | number> => {
+  const values = row ? parseSubbaseAValues(row) : {};
+  const certificateNo = row?.certificateNo || "24403";
+  const result = evaluateSubbaseA(values);
+  return {
+    J4: currentProjectName || row?.title || "כביש 806 צלמון שלב א׳",
+    J5: "א.ו.ג.ן. מהנדסים בע\"מ",
+    J6: row?.contractor || "מפלסי הגליל סלילה עפר ופיתוח בע\"מ",
+    A15: 1,
+    B15: row?.inspector || row?.responsible || "QC",
+    C15: row?.checklistNo || 1,
+    D15: row?.executionDate || row?.date || "",
+    E15: row?.notes || "גולני",
+    F15: row?.location || "מערום בשטח",
+    G15: currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
+    H15: "",
+    I15: "",
+    J15: valueOrDefault(values.sieve3, ""),
+    K15: valueOrDefault(values.sieve15, ""),
+    L15: valueOrDefault(values.sieve34, ""),
+    M15: valueOrDefault(values.sieve4, ""),
+    N15: valueOrDefault(values.sieve10, ""),
+    O15: valueOrDefault(values.sieve40, ""),
+    P15: valueOrDefault(values.sieve200, ""),
+    Q15: valueOrDefault(values.ll, ""),
+    R15: valueOrDefault(values.pl, ""),
+    S15: valueOrDefault(values.pi, ""),
+    T15: valueOrDefault(values.swelling, ""),
+    U15: valueOrDefault(values.density, ""),
+    V15: valueOrDefault(values.absorption, ""),
+    W15: valueOrDefault(values.losAngeles, ""),
+    X15: valueOrDefault(values.aashto, ""),
+    Y15: valueOrDefault(values.maxDensity, ""),
+    Z15: valueOrDefault(values.optimumMoisture, ""),
+    AA15: certificateNo,
+    AB15: result,
+    AC15: row?.notes || "",
+  };
+};
+
+const excelNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+const columnNumber = (letters: string) => {
+  let number = 0;
+  for (const letter of letters.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
+  return number;
+};
+
+const cellColumnIndex = (cellRef: string) => columnNumber(cellRef.replace(/\d+/g, ""));
+const cellRowIndex = (cellRef: string) => Number(cellRef.replace(/\D+/g, ""));
+
+const getOrCreateRow = (doc: Document, sheetData: Element, rowNumber: number) => {
+  const rows = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row"));
+  let row = rows.find((candidate) => candidate.getAttribute("r") === String(rowNumber));
+  if (row) return row;
+  row = doc.createElementNS(excelNs, "row");
+  row.setAttribute("r", String(rowNumber));
+  const nextRow = rows.find((candidate) => Number(candidate.getAttribute("r")) > rowNumber);
+  sheetData.insertBefore(row, nextRow ?? null);
+  return row;
+};
+
+const getOrCreateCell = (doc: Document, row: Element, cellRef: string) => {
+  const cells = Array.from(row.getElementsByTagNameNS(excelNs, "c"));
+  let cell = cells.find((candidate) => candidate.getAttribute("r") === cellRef);
+  if (cell) return cell;
+  cell = doc.createElementNS(excelNs, "c");
+  cell.setAttribute("r", cellRef);
+  const nextCell = cells.find((candidate) => cellColumnIndex(candidate.getAttribute("r") ?? "A1") > cellColumnIndex(cellRef));
+  row.insertBefore(cell, nextCell ?? null);
+  return cell;
+};
+
+const setCell = (doc: Document, sheetData: Element, cellRef: string, value: string | number) => {
+  const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
+  const cell = getOrCreateCell(doc, row, cellRef);
+  Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
+
+  if (typeof value === "number") {
+    cell.setAttribute("t", "n");
+    const v = doc.createElementNS(excelNs, "v");
+    v.textContent = String(value);
+    cell.appendChild(v);
+  } else {
+    cell.setAttribute("t", "inlineStr");
+    const is = doc.createElementNS(excelNs, "is");
+    const t = doc.createElementNS(excelNs, "t");
+    t.setAttribute("xml:space", "preserve");
+    t.textContent = value;
+    is.appendChild(t);
+    cell.appendChild(is);
   }
 };
 
-const fillSubbaseAWorksheet = (ws: XLSX.WorkSheet, rows: ConcentrationRow[], currentProjectName: string) => {
-  // חשוב: לא נוגעים בשורות 10-13. שם נמצאות הכותרות ודרישות המפרט הקבועות.
-  clearSubbaseADataRows(ws);
+const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow | undefined, currentProjectName: string) => {
+  const zip = await JSZip.loadAsync(buffer);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml בתוך קובץ מצע א׳");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
 
-  rows.forEach((row, index) => {
-    const sheetRow = 14 + index;
-    const values = parseSubbaseAValues(row);
-    const result = evaluateSubbaseA(values);
-    const shiftCell = (baseRef: string) => baseRef.replace(/\d+$/, String(sheetRow));
-    const write = (key: keyof typeof subbaseACellMap, value: unknown) => {
-      const ref = shiftCell(subbaseACellMap[key]);
-      const styleRef = subbaseACellMap[key];
-      setCellValueKeepStyle(ws, ref, value ?? "", styleRef);
-      updateSheetRefByAddress(ws, ref);
-    };
+  Object.entries(SUBBASE_A_FIXED_CELLS).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
+  Object.entries(buildSubbaseARow15(row, currentProjectName)).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
 
-    // פרטי פרויקט בכותרת — נשמרים במבנה המקורי.
-    setCellValueKeepStyle(ws, "J4", currentProjectName || row.title || "", "J4");
-    setCellValueKeepStyle(ws, "J6", row.contractor || "", "J6");
-
-    write("serial", index + 1);
-    write("performedBy", row.inspector || row.responsible || "QC");
-    write("rtNo", row.checklistNo);
-    write("date", row.executionDate || row.date);
-    write("source", row.notes || "");
-    write("sampleLocation", row.location || "");
-    write("distributionLocation", row.itemDescription || row.location || "");
-    write("sieve3", values.sieve3 ?? "");
-    write("sieve15", values.sieve15 ?? "");
-    write("sieve34", values.sieve34 ?? "");
-    write("sieve4", values.sieve4 ?? "");
-    write("sieve10", values.sieve10 ?? "");
-    write("sieve40", values.sieve40 ?? "");
-    write("sieve200", values.sieve200 ?? "");
-    write("ll", values.ll ?? "");
-    write("pl", values.pl ?? "");
-    write("pi", values.pi ?? "");
-    write("swelling", values.swelling ?? "");
-    write("density", values.density ?? "");
-    write("absorption", values.absorption ?? "");
-    write("losAngeles", values.losAngeles ?? "");
-    write("aashto", values.aashto || "");
-    write("maxDensity", values.maxDensity ?? "");
-    write("optimumMoisture", values.optimumMoisture ?? "");
-    write("certificateNo", row.certificateNo || row.fileName);
-    write("materialStatus", result);
-    write("notes", result === "ממתין לתוצאות" ? "התעודה צורפה אך טרם הוזנו ערכים מספריים להשוואה" : "");
-  });
-};
-
-const cellText = (cell: XLSX.CellObject | undefined) => normalize(cell?.v ?? "");
-
-const findHeaderRow = (ws: XLSX.WorkSheet) => {
-  const range = getRange(ws);
-  let best = { row: Math.min(range.e.r, 10), score: 0 };
-  for (let r = range.s.r; r <= Math.min(range.e.r, 60); r += 1) {
-    let score = 0;
-    for (let c = range.s.c; c <= range.e.c; c += 1) {
-      const text = cellText(ws[XLSX.utils.encode_cell({ r, c })]);
-      if (!text) continue;
-      if (text.includes("מס סדורי") || text.includes("מס")) score += 1;
-      if (text.includes("תאריך")) score += 1;
-      if (text.includes("תעודה")) score += 2;
-      if (text.includes("מקור החומר") || text.includes("מקום") || text.includes("מיקום")) score += 1;
-      if (text.includes("הערות")) score += 1;
-      if (text.includes("qc") || text.includes("qa")) score += 1;
-    }
-    if (score > best.score) best = { row: r, score };
-  }
-  return best.row;
-};
-
-const buildHeaderMap = (ws: XLSX.WorkSheet, headerRow: number) => {
-  const range = getRange(ws);
-  const map = new Map<number, string>();
-  for (let c = range.s.c; c <= range.e.c; c += 1) {
-    const direct = cellText(ws[XLSX.utils.encode_cell({ r: headerRow, c })]);
-    const above = cellText(ws[XLSX.utils.encode_cell({ r: headerRow - 1, c })]);
-    const below = cellText(ws[XLSX.utils.encode_cell({ r: headerRow + 1, c })]);
-    const label = [above, direct, below].filter(Boolean).join(" ");
-    if (label) map.set(c, label);
-  }
-  return map;
-};
-
-const rowValueForHeader = (header: string, row: ConcentrationRow, index: number, projectName: string) => {
-  const h = normalize(header);
-  if (h.includes("מס סדורי") || h === "מס" || h.startsWith("מס ")) return index + 1;
-  if (h.includes("שם פרויקט") || h.includes("פרויקט")) return projectName;
-  if (h.includes("שם הקבלן") || h.includes("קבלן") || h.includes("שם מבצע")) return row.contractor;
-  if (h.includes("רשימת תיוג")) return row.checklistNo;
-  if (h.includes("מס תעודה") || h.includes("תעודה")) return row.certificateNo || row.fileName;
-  if (h.includes("מקור החומר")) return row.notes || row.contractor;
-  if (h.includes("מיקום נטילה") || h.includes("מקום נטילה")) return row.location;
-  if (h.includes("מקום הפיזור") || h.includes("מקום ביצוע") || h.includes("מיקום")) return row.location || row.itemDescription;
-  if (h.includes("תאריך")) return row.executionDate || row.date;
-  if (h.includes("בוצע") || h.includes("qc") || h.includes("qa")) return row.inspector || row.responsible || "QC";
-  if (h.includes("סוג העבודה") || h.includes("תיאור") || h.includes("בדיקה")) return row.itemDescription;
-  if (h.includes("אחראי")) return row.responsible;
-  if (h.includes("בודק") || h.includes("שם")) return row.inspector;
-  if (h.includes("ok") || h.includes("nc") || h.includes("תקין") || h.includes("סטטוס")) return row.status;
-  if (h.includes("הערות")) return row.notes;
-  return "";
-};
-
-const fillGenericWorksheet = (ws: XLSX.WorkSheet, rows: ConcentrationRow[], projectName: string) => {
-  const headerRow = findHeaderRow(ws);
-  const headerMap = buildHeaderMap(ws, headerRow);
-  const dataStart = headerRow + 1;
-  rows.forEach((row, rIndex) => {
-    const sheetRow = dataStart + rIndex;
-    headerMap.forEach((header, col) => {
-      const value = rowValueForHeader(header, row, rIndex, projectName);
-      if (value === "") return;
-      const ref = XLSX.utils.encode_cell({ r: sheetRow, c: col });
-      const styleRef = XLSX.utils.encode_cell({ r: dataStart, c: col });
-      setCellValueKeepStyle(ws, ref, value, styleRef);
-      updateSheetRefByAddress(ws, ref);
-    });
-  });
+  const serialized = new XMLSerializer().serializeToString(doc);
+  zip.file(sheetPath, serialized);
+  return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
 export function ConcentrationsSection({
@@ -462,22 +454,16 @@ export function ConcentrationsSection({
       const response = await fetch(getTemplateUrl(template.fileName));
       if (!response.ok) throw new Error(`לא נמצא קובץ תבנית: ${template.fileName}`);
       const buffer = await response.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellStyles: true, cellDates: true, bookVBA: true });
-      const sheetName = workbook.SheetNames.find((name) => !normalize(name).includes("סטטיסט")) || workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      if (!worksheet) throw new Error("לא נמצאה לשונית עבודה בקובץ הריכוז");
-
       const rows = rowsByTemplate[template.id] ?? [];
-      if (rows.length) {
-        if (template.mode === "subbaseA") fillSubbaseAWorksheet(worksheet, rows, currentProjectName);
-        else fillGenericWorksheet(worksheet, rows, currentProjectName);
+
+      if (template.mode === "subbaseA") {
+        const preferred = rows.find((r) => r.certificateNo === "24403") ?? rows.find((r) => r.checklistNo === "1") ?? rows[0];
+        const blob = await patchSubbaseAWorkbook(buffer, preferred, currentProjectName);
+        downloadBlob(blob, "subbase-a - ריכוז אוטומטי.xlsx");
+        return;
       }
 
-      const out = XLSX.write(workbook, { bookType: "xlsx", type: "array", cellStyles: true });
-      downloadBlob(
-        new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-        template.fileName.replace(/\.xlsx$/i, "") + " - ריכוז אוטומטי.xlsx"
-      );
+      downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), template.fileName);
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "אירעה שגיאה בהפקת הריכוז");
@@ -492,7 +478,7 @@ export function ConcentrationsSection({
         <div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
           <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
-            בשלב זה ריכוז מצע א׳ משתמש בתבנית המקורית, משאיר את שורות דרישות המפרט, וממלא את הנתונים החל משורה 14 בלבד.
+            ריכוז מצע א׳ נבנה מתבנית המקור: שורות 10-14 נשמרות עם אותה חלוקה, אותם צבעים ודרישות מפרט קבועות. שורה 15 מתמלאת מתעודה 24403 / רשימת תיוג מס׳ 1.
           </div>
           {currentProjectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {currentProjectName}</div> : null}
         </div>
@@ -500,7 +486,7 @@ export function ConcentrationsSection({
       </div>
 
       <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 16, padding: 14, color: "#1e3a8a", fontWeight: 800, lineHeight: 1.7 }}>
-        ריכוז מצע א׳: דרישות המפרט נשארות קבועות מתוך התבנית. אם בתעודה צורפו רק קבצים ללא ערכים מספריים, תופיע שורה עם מספר התעודה וסטטוס “ממתין לתוצאות”.
+        חשוב: ריכוז מצע א׳ משתמש ב־XML Patch ולא בונה Excel מחדש — לכן העיצוב המקורי, המיזוגים והצבעים נשמרים ככל האפשר.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
