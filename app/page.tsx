@@ -44,6 +44,50 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
+const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
+
+type ProjectLegend = {
+  projectName: string;
+  projectManagement: string;
+  contractor: string;
+  qualityAssurance: string;
+  qualityControl: string;
+  workManager: string;
+  surveyor: string;
+  supervisor: string;
+};
+
+const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
+  const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
+  return {
+    projectName: String(raw.projectName ?? fallbackProjectName ?? '').trim(),
+    projectManagement: String(raw.projectManagement ?? '').trim(),
+    contractor: String(raw.contractor ?? '').trim(),
+    qualityAssurance: String(raw.qualityAssurance ?? '').trim(),
+    qualityControl: String(raw.qualityControl ?? '').trim(),
+    workManager: String(raw.workManager ?? '').trim(),
+    surveyor: String(raw.surveyor ?? '').trim(),
+    supervisor: String(raw.supervisor ?? '').trim(),
+  };
+};
+
+const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
+  legend?.projectName &&
+  legend?.projectManagement &&
+  legend?.contractor &&
+  legend?.qualityAssurance &&
+  legend?.qualityControl
+);
+
+const projectLegendToProfile = (legend: ProjectLegend): ProjectProfile => ({
+  projectName: legend.projectName,
+  contractor: legend.contractor,
+  projectManager: legend.projectManagement,
+  qaCompany: legend.qualityAssurance,
+  qualityControl: legend.qualityControl,
+  workManager: legend.workManager,
+  surveyor: legend.surveyor,
+});
 
 type ProjectAccess = {
   username: string;
@@ -674,6 +718,49 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 }
 
 
+function ProjectLegendPanel({
+  legend,
+  missing,
+  onChange,
+}: {
+  legend: ProjectLegend;
+  missing: boolean;
+  onChange: (field: keyof ProjectLegend, value: string) => void;
+}) {
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
+  const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
+  const fields: Array<{ key: keyof ProjectLegend; label: string; required?: boolean }> = [
+    { key: 'projectName', label: 'שם פרויקט', required: true },
+    { key: 'projectManagement', label: 'ניהול פרויקט', required: true },
+    { key: 'contractor', label: 'שם הקבלן', required: true },
+    { key: 'qualityAssurance', label: 'הבטחת איכות', required: true },
+    { key: 'qualityControl', label: 'בקרת איכות', required: true },
+    { key: 'workManager', label: 'מנהל עבודה' },
+    { key: 'surveyor', label: 'מודד' },
+    { key: 'supervisor', label: 'מפקח' },
+  ];
+  return (
+    <section style={{ border: missing ? '1px solid #fecaca' : '1px solid #cbd5e1', background: missing ? '#fff7ed' : '#f8fafc', borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'start', marginBottom: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>מקרא / פרטי פרויקט</div>
+          <div style={{ color: '#475569', marginTop: 4 }}>הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט הפעיל.</div>
+        </div>
+        {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {fields.map((field) => (
+          <label key={field.key} style={labelStyle}>
+            {field.label}{field.required ? ' *' : ''}
+            <input value={legend[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
+          </label>
+        ))}
+      </div>
+      {missing ? <div style={{ marginTop: 12, color: '#991b1b', fontWeight: 900 }}>יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות לפני עבודה ברשימות / ריכוזים / טפסים.</div> : null}
+    </section>
+  );
+}
+
 function PasswordField({
   value,
   onChange,
@@ -881,6 +968,7 @@ export default function Page() {
   const [authReady, setAuthReady] = useState(false);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
+  const [projectLegends, setProjectLegends] = useState<Record<string, ProjectLegend>>({});
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -1116,8 +1204,25 @@ export default function Page() {
   }, [loaded, projectAccess, projects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
-  const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name]);
-  const projectName = !loaded ? 'טוען...' : currentProjectProfile?.projectName ?? currentProject?.name ?? 'לא נבחר פרויקט';
+  const currentProjectLegend = useMemo(
+    () => currentProject ? normalizeProjectLegend(projectLegends[currentProject.id], currentProject.name) : normalizeProjectLegend(null, ''),
+    [projectLegends, currentProject]
+  );
+  const currentProjectProfile = useMemo(
+    () => isProjectLegendComplete(currentProjectLegend) ? projectLegendToProfile(currentProjectLegend) : getProjectProfile(currentProject?.name),
+    [currentProjectLegend, currentProject?.name]
+  );
+  const projectName = !loaded ? 'טוען...' : currentProjectLegend.projectName || currentProjectProfile?.projectName || currentProject?.name || 'לא נבחר פרויקט';
+  const projectLegendMissing = Boolean(currentProject && !isProjectLegendComplete(currentProjectLegend));
+  const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
+    if (!currentProject) return;
+    setProjectLegends((prev) => {
+      const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
+      const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
+      if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
   const getStoredChecklistSequence = (projectId: string) => {
@@ -1396,7 +1501,7 @@ export default function Page() {
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
-  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
+  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : projectLegendMissing && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [
     ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
@@ -1669,13 +1774,13 @@ export default function Page() {
   const nonconformanceExportHtml = () => `${baseRows([
     ['כותרת', nonconformanceForm.title],
     ['מיקום', nonconformanceForm.location],
-    ['תאריך פתיחה', nonconformanceForm.date],
+    ['תאריך', nonconformanceForm.date],
     ['נפתח על ידי', nonconformanceForm.raisedBy],
     ['חומרה', nonconformanceForm.severity],
     ['סטטוס', nonconformanceForm.status],
     ['תיאור אי ההתאמה', nonconformanceForm.description, 100],
     ['פעולה נדרשת / מתקנת', nonconformanceForm.actionRequired, 100],
-    ['פירוט ביצוע פעולה מתקנת', nonconformanceForm.notes, 80],
+    ['הערות', nonconformanceForm.notes, 80],
   ])}${attachmentsList((nonconformanceForm as any).images)}${signaturesTable(nonconformanceForm.approval)}`;
 
   const trialSectionExportHtml = () => {
@@ -1839,6 +1944,14 @@ export default function Page() {
         />
       ) : null}
 
+      {currentProject ? (
+        <ProjectLegendPanel
+          legend={currentProjectLegend}
+          missing={projectLegendMissing}
+          onChange={updateProjectLegendField}
+        />
+      ) : null}
+
       <div style={styles.navRow}>{navItems.map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key)}>{label}</button>)}</div>
 
       <div style={styles.layout}>
@@ -1860,7 +1973,7 @@ export default function Page() {
           {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
-          {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} />}
+          {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} projectMeta={{ projectName: currentProjectLegend.projectName, projectManager: currentProjectLegend.projectManagement, contractor: currentProjectLegend.contractor, qualityAssurance: currentProjectLegend.qualityAssurance, qualityControl: currentProjectLegend.qualityControl }} />}
         </main>
 
         <SavedRecordsSidebar projectName={projectName} searchTerm={recordsSearchTerm} onSearchTermChange={setRecordsSearchTerm} checklistTemplateLabel={checklistTemplateLabel} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} onOpenChecklist={loadChecklist} onDeleteChecklist={deleteChecklist} onOpenNonconformance={loadNonconformance} onDeleteNonconformance={deleteNonconformance} onOpenTrialSection={loadTrialSection} onDeleteTrialSection={deleteTrialSection} onOpenPreliminary={loadPreliminary} onDeletePreliminary={deletePreliminary} />
