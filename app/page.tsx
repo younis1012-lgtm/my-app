@@ -80,7 +80,23 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     displayName: 'משתמש פרויקט 909',
     role: 'user',
     code: '909',
-    projectName: 'שם הפרויקט כפי שמופיע במערכת',
+    projectName: '909',
+  },
+  {
+    username: 'user784',
+    password: '784',
+    displayName: 'משתמש פרויקט 784',
+    role: 'user',
+    code: '784',
+    projectName: '784',
+  },
+  {
+    username: 'user781',
+    password: '781',
+    displayName: 'משתמש פרויקט 781',
+    role: 'user',
+    code: '781',
+    projectName: '781',
   },
 ];
 
@@ -104,6 +120,22 @@ const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: 
     (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
   );
 
+const mergeDefaultAccessUsers = (users: ProjectAccess[]) => {
+  const merged = [...users];
+
+  for (const defaultUser of DEFAULT_PROJECT_ACCESS_LIST) {
+    const exists = merged.some(
+      (user) =>
+        normalizeAccessValue(user.username) === normalizeAccessValue(defaultUser.username) ||
+        (!!defaultUser.code && normalizeAccessValue(user.code) === normalizeAccessValue(defaultUser.code))
+    );
+
+    if (!exists) merged.push(defaultUser);
+  }
+
+  return merged;
+};
+
 const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
   const normalized = value
@@ -118,7 +150,8 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
     }))
     .filter((item) => item.username && item.password);
 
-  return normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
+  const withAdmin = normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
+  return mergeDefaultAccessUsers(withAdmin);
 };
 
 const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
@@ -789,9 +822,8 @@ export default function Page() {
 
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
-    // לא מתחברים אוטומטית ממשתמש קודם.
-    // גם אם נשלח קישור כמו ?project=784 — הוא רק ממלא את השדה,
-    // והמשתמש עדיין חייב להקליד סיסמה וללחוץ כניסה.
+    // אבטחה ונוחות עבודה: קישור לפרויקט רק ממלא את השדה.
+    // אין כניסה אוטומטית מפרויקט או ממשתמש שנשמר בעבר — תמיד נדרשת סיסמה.
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setProjectAccess(null);
     setAuthReady(true);
@@ -806,8 +838,7 @@ export default function Page() {
     }
     setLoginError('');
     setProjectAccess(access);
-    // לא שומרים התחברות אוטומטית, כדי שבכל פתיחת קישור יופיע מסך כניסה.
-    if (typeof window !== 'undefined') window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.username);
     setSection('home');
   };
 
