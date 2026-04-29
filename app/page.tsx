@@ -59,24 +59,29 @@ type ProjectLegend = {
 
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
   const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
+
+  // חשוב: לא עושים trim בזמן הקלדה.
+  // אחרת רווח בסוף מילה נמחק מיד, ולא ניתן להקליד שם עם כמה מילים.
   return {
-    projectName: String(raw.projectName ?? fallbackProjectName ?? '').trim(),
-    projectManagement: String(raw.projectManagement ?? '').trim(),
-    contractor: String(raw.contractor ?? '').trim(),
-    qualityAssurance: String(raw.qualityAssurance ?? '').trim(),
-    qualityControl: String(raw.qualityControl ?? '').trim(),
-    workManager: String(raw.workManager ?? '').trim(),
-    surveyor: String(raw.surveyor ?? '').trim(),
-    supervisor: String(raw.supervisor ?? '').trim(),
+    projectName: String(raw.projectName ?? fallbackProjectName ?? ''),
+    projectManagement: String(raw.projectManagement ?? ''),
+    contractor: String(raw.contractor ?? ''),
+    qualityAssurance: String(raw.qualityAssurance ?? ''),
+    qualityControl: String(raw.qualityControl ?? ''),
+    workManager: String(raw.workManager ?? ''),
+    surveyor: String(raw.surveyor ?? ''),
+    supervisor: String(raw.supervisor ?? ''),
   };
 };
 
+const hasText = (value: unknown) => String(value ?? '').trim().length > 0;
+
 const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
-  legend?.projectName &&
-  legend?.projectManagement &&
-  legend?.contractor &&
-  legend?.qualityAssurance &&
-  legend?.qualityControl
+  hasText(legend?.projectName) &&
+  hasText(legend?.projectManagement) &&
+  hasText(legend?.contractor) &&
+  hasText(legend?.qualityAssurance) &&
+  hasText(legend?.qualityControl)
 );
 
 const projectLegendToProfile = (legend: ProjectLegend): ProjectProfile => ({
