@@ -28,6 +28,7 @@ type ProjectProfile = {
   qualityControl: string;
   workManager: string;
   surveyor: string;
+  supervisor?: string;
 };
 
 const PROJECT_PROFILES: ProjectProfile[] = [
@@ -42,8 +43,69 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
+type ProjectTeam = {
+  qualityControl: string;
+  workManager: string;
+  surveyor: string;
+  managementCompany: string;
+  supervisor: string;
+  qualityAssurance: string;
+};
+
+const createEmptyProjectTeam = (): ProjectTeam => ({
+  qualityControl: '',
+  workManager: '',
+  surveyor: '',
+  managementCompany: '',
+  supervisor: '',
+  qualityAssurance: '',
+});
+
+const normalizeProjectTeams = (value: unknown): Record<string, ProjectTeam> => {
+  if (!value || typeof value !== 'object') return {};
+  const source = value as Record<string, any>;
+  return Object.fromEntries(
+    Object.entries(source).map(([key, team]) => [
+      key,
+      {
+        qualityControl: String(team?.qualityControl ?? ''),
+        workManager: String(team?.workManager ?? ''),
+        surveyor: String(team?.surveyor ?? ''),
+        managementCompany: String(team?.managementCompany ?? ''),
+        supervisor: String(team?.supervisor ?? ''),
+        qualityAssurance: String(team?.qualityAssurance ?? ''),
+      },
+    ])
+  );
+};
+
+const projectTeamStorageKeyForName = (projectName: unknown) => normalizeHebrewProjectName(projectName);
+
+const projectTeamComplete = (team: ProjectTeam | undefined) =>
+  Boolean(
+    team?.qualityControl?.trim() &&
+    team?.workManager?.trim() &&
+    team?.surveyor?.trim() &&
+    team?.managementCompany?.trim() &&
+    team?.supervisor?.trim() &&
+    team?.qualityAssurance?.trim()
+  );
+
+const profileFromProjectTeam = (projectName: string, team: ProjectTeam): ProjectProfile => ({
+  projectName,
+  contractor: '',
+  projectManager: team.managementCompany,
+  qaCompany: team.qualityAssurance,
+  qualityControl: team.qualityControl,
+  workManager: team.workManager,
+  surveyor: team.surveyor,
+  supervisor: team.supervisor,
+});
+
+
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
+const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
 
 type ProjectAccess = {
   username: string;
@@ -173,6 +235,16 @@ const normalizeHebrewProjectName = (value: unknown) =>
 
 const getProjectProfile = (projectName: unknown): ProjectProfile | undefined => {
   const normalized = normalizeHebrewProjectName(projectName);
+
+  if (typeof window !== 'undefined' && normalized) {
+    try {
+      const stored = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
+      const teams = normalizeProjectTeams(stored ? JSON.parse(stored) : {});
+      const team = teams[projectTeamStorageKeyForName(normalized)];
+      if (team && projectTeamComplete(team)) return profileFromProjectTeam(normalized, team);
+    } catch {}
+  }
+
   return PROJECT_PROFILES.find((profile) => {
     const profileName = normalizeHebrewProjectName(profile.projectName);
     return normalized === profileName || (normalized.includes('806') && normalized.includes('צלמון'));
@@ -187,8 +259,9 @@ const resolveResponsibleName = (responsible: unknown, projectName: unknown) => {
   if (role.includes('בקרת איכות') || role.includes('בקר איכות')) return profile.qualityControl;
   if (role.includes('מנהל עבודה')) return profile.workManager;
   if (role.includes('מודד')) return profile.surveyor;
+  if (role.includes('מפקח')) return profile.supervisor || profile.projectManager;
   if (role.includes('הבטחת איכות')) return profile.qaCompany;
-  if (role.includes('ניהול פרויקט') || role.includes('מנהל פרויקט')) return profile.projectManager;
+  if (role.includes('ניהול פרויקט') || role.includes('מנהל פרויקט') || role.includes('חברת ניהול')) return profile.projectManager;
 
   return '';
 };
@@ -463,6 +536,8 @@ const RESPONSIBLE_ROLE_OPTIONS = [
   'מנהל עבודה',
   'מודד',
   'הבטחת איכות',
+  'חברת ניהול',
+  'מפקח',
   'ניהול פרויקט',
 ];
 
@@ -772,6 +847,51 @@ function UserAccessPanel({
   );
 }
 
+function ProjectTeamPanel({
+  projectName,
+  team,
+  onChangeTeam,
+}: {
+  projectName: string;
+  team: ProjectTeam;
+  onChangeTeam: (field: keyof ProjectTeam, value: string) => void;
+}) {
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
+  const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
+  const fields: Array<[keyof ProjectTeam, string, string]> = [
+    ['qualityControl', 'שם בקרת איכות', 'לדוגמה: יונס אברהים'],
+    ['workManager', 'שם מנהל עבודה', 'לדוגמה: חוסיין מריסאת'],
+    ['surveyor', 'שם מודד', 'לדוגמה: באסל שקארה'],
+    ['managementCompany', 'שם חברת ניהול', 'לדוגמה: חברת ניהול הפרויקט'],
+    ['supervisor', 'שם מפקח', 'לדוגמה: מפקח הפרויקט'],
+    ['qualityAssurance', 'שם הבטחת איכות', 'לדוגמה: חברת הבטחת איכות'],
+  ];
+  const complete = projectTeamComplete(team);
+
+  return (
+    <div style={{ border: complete ? '1px solid #bbf7d0' : '1px solid #fecaca', background: complete ? '#f0fdf4' : '#fff7ed', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>אנשי צוות והרשאות עבודה לפרויקט</div>
+          <div style={{ color: '#475569', marginTop: 4 }}>פרויקט: {projectName}. לפני מילוי רשימות תיוג, אי התאמות, קטעי ניסוי ובקרה מקדימה יש להשלים את כל בעלי התפקידים.</div>
+        </div>
+        <div style={{ borderRadius: 999, padding: '6px 10px', fontWeight: 950, background: complete ? '#dcfce7' : '#fee2e2', color: complete ? '#166534' : '#991b1b' }}>
+          {complete ? 'הושלם' : 'חסר מידע'}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+        {fields.map(([field, label, placeholder]) => (
+          <label key={field} style={labelStyle}>
+            {label}
+            <input value={team[field] ?? ''} onChange={(event) => onChangeTeam(field, event.target.value)} placeholder={placeholder} style={inputStyle} />
+          </label>
+        ))}
+      </div>
+      {!complete ? <div style={{ color: '#9a3412', fontWeight: 900, marginTop: 12 }}>יש להשלים את כל השדות כדי לפתוח ולמלא טפסים בפרויקט.</div> : null}
+    </div>
+  );
+}
+
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
@@ -802,6 +922,8 @@ export default function Page() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showProjectTeamManagement, setShowProjectTeamManagement] = useState(false);
+  const [projectTeams, setProjectTeams] = useState<Record<string, ProjectTeam>>({});
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -819,6 +941,13 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
+
+    try {
+      const storedTeams = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
+      setProjectTeams(normalizeProjectTeams(storedTeams ? JSON.parse(storedTeams) : {}));
+    } catch {
+      setProjectTeams({});
+    }
 
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
@@ -1003,8 +1132,23 @@ export default function Page() {
   }, [loaded, projectAccess, projects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
-  const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name]);
+  const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name, projectTeams]);
   const projectName = !loaded ? 'טוען...' : currentProjectProfile?.projectName ?? currentProject?.name ?? 'לא נבחר פרויקט';
+  const currentProjectTeamKey = currentProject ? projectTeamStorageKeyForName(currentProject.name) : '';
+  const currentProjectTeam = currentProjectTeamKey ? (projectTeams[currentProjectTeamKey] ?? createEmptyProjectTeam()) : createEmptyProjectTeam();
+  const isCurrentProjectTeamComplete = projectTeamComplete(currentProjectTeam);
+  const updateCurrentProjectTeam = (field: keyof ProjectTeam, value: string) => {
+    if (!currentProjectTeamKey) return;
+    const nextTeams = {
+      ...projectTeams,
+      [currentProjectTeamKey]: {
+        ...currentProjectTeam,
+        [field]: value,
+      },
+    };
+    setProjectTeams(nextTeams);
+    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_TEAMS_STORAGE_KEY, JSON.stringify(nextTeams));
+  };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
   const getStoredChecklistSequence = (projectId: string) => {
@@ -1281,7 +1425,12 @@ export default function Page() {
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
-  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
+  const requiresProjectTeam = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
+  const guardedBody = !currentProject && section !== 'home' && section !== 'projects'
+    ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
+    : currentProject && requiresProjectTeam && !isCurrentProjectTeamComplete
+      ? <div style={styles.emptyBox}>יש להשלים תחילה את אנשי צוות הפרויקט: בקרת איכות, מנהל עבודה, מודד, חברת ניהול, מפקח והבטחת איכות.</div>
+      : null;
   const homeModules = [
     ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
@@ -1700,6 +1849,7 @@ export default function Page() {
               {!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {currentProject ? <button type="button" onClick={() => setShowProjectTeamManagement((prev) => !prev)} style={{ border: '1px solid #cbd5e1', background: showProjectTeamManagement ? '#0f172a' : '#fff', color: showProjectTeamManagement ? '#fff' : '#0f172a', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>אנשי צוות פרויקט</button> : null}
               {isAdminAccess(projectAccess) ? <button type="button" onClick={() => setShowUserManagement((prev) => !prev)} style={{ border: '1px solid #cbd5e1', background: showUserManagement ? '#0f172a' : '#fff', color: showUserManagement ? '#fff' : '#0f172a', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>ניהול משתמשים</button> : null}
               <button type="button" onClick={logoutProject} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>יציאה</button>
             </div>
@@ -1714,6 +1864,14 @@ export default function Page() {
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
           onResetDefaults={resetAccessUsersToDefaults}
+        />
+      ) : null}
+
+      {currentProject && (showProjectTeamManagement || !isCurrentProjectTeamComplete) ? (
+        <ProjectTeamPanel
+          projectName={projectName}
+          team={currentProjectTeam}
+          onChangeTeam={updateCurrentProjectTeam}
         />
       ) : null}
 
