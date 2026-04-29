@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, PersistedData } from './types';
 import { buildChecklistItemsFromTemplate, checklistTemplates, defaultProjects, normalizeChecklistTemplateKey } from './checklistTemplates';
 import { styles } from './components/common';
@@ -114,6 +114,7 @@ type ProjectAccess = {
   role: 'admin' | 'user';
   code?: string;
   projectName?: string | null;
+  signatureDataUrl?: string;
 };
 
 // כאן מגדירים משתמשים והרשאות.
@@ -209,6 +210,7 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
       role: item.role === 'admin' ? 'admin' : 'user',
       code: item.code ? String(item.code).trim() : undefined,
       projectName: item.role === 'admin' ? null : String(item.projectName ?? '').trim(),
+      signatureDataUrl: String(item.signatureDataUrl ?? ''),
     }))
     .filter((item) => item.username && item.password);
 
@@ -715,6 +717,141 @@ function PasswordField({
   );
 }
 
+function SignatureField({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (value: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = '#0f172a';
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+
+    if (!value) return;
+    const image = new Image();
+    image.onload = () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      context.strokeStyle = '#0f172a';
+      context.lineWidth = 2;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+    };
+    image.src = value;
+  }, [value]);
+
+  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+
+  const saveCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    onChange(canvas.toDataURL('image/png'));
+  };
+
+  const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    drawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    const point = getPoint(event);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  };
+
+  const draw = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return;
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    const point = getPoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  };
+
+  const stopDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    const canvas = canvasRef.current;
+    if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    saveCanvas();
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (canvas && context) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    onChange('');
+  };
+
+  const uploadSignature = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => onChange(String(reader.result ?? ''));
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 6, minWidth: 230 }}>
+      <canvas
+        ref={canvasRef}
+        width={220}
+        height={74}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        style={{ width: 220, height: 74, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, cursor: 'crosshair', touchAction: 'none' }}
+        title="חתום כאן עם העכבר או האצבע"
+      />
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ border: '1px solid #cbd5e1', borderRadius: 9, padding: '6px 8px', cursor: 'pointer', fontWeight: 800, background: '#fff', fontSize: 12 }}>
+          העלה חתימה
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) uploadSignature(file);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+        <button type="button" onClick={clearSignature} style={{ border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 9, padding: '6px 8px', cursor: 'pointer', fontWeight: 900, fontSize: 12 }}>
+          נקה חתימה
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProjectLoginScreen({
   username,
   password,
@@ -795,7 +932,7 @@ function UserAccessPanel({
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1220 }}>
           <thead>
             <tr>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם לתצוגה</th>
@@ -804,6 +941,7 @@ function UserAccessPanel({
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>סוג הרשאה</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>קוד / קישור</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם פרויקט למשתמש רגיל</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>חתימה דיגיטלית</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>פעולות</th>
             </tr>
           </thead>
@@ -834,6 +972,9 @@ function UserAccessPanel({
                   </td>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 260 }}>
                     <input disabled={isAdmin} value={isAdmin ? 'כל הפרויקטים' : user.projectName ?? ''} onChange={(e) => onChangeUser(index, 'projectName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, background: isAdmin ? '#f1f5f9' : '#fff' }} />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 240 }}>
+                    <SignatureField value={user.signatureDataUrl ?? ''} onChange={(value) => onChangeUser(index, 'signatureDataUrl', value)} />
                   </td>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, textAlign: 'center' }}>
                     <button type="button" disabled={users.length <= 1 || isAdmin} onClick={() => onRemoveUser(index)} style={{ ...styles.dangerBtn, opacity: users.length <= 1 || isAdmin ? 0.45 : 1 }}>
