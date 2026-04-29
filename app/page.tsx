@@ -43,6 +43,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
+const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 
 type ProjectAccess = {
   username: string;
@@ -56,7 +57,7 @@ type ProjectAccess = {
 // כאן מגדירים משתמשים והרשאות.
 // מנהל מערכת רואה את כל הפרויקטים.
 // משתמש רגיל רואה רק את הפרויקט שהוגדר לו.
-const PROJECT_ACCESS_LIST: ProjectAccess[] = [
+const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
   {
     username: 'admin',
     password: 'admin123',
@@ -73,15 +74,14 @@ const PROJECT_ACCESS_LIST: ProjectAccess[] = [
     code: '806',
     projectName: 'כביש 806 צלמון שלב א׳',
   },
-  // דוגמה להוספת משתמש לפרויקט נוסף:
-  // {
-  //   username: 'user909',
-  //   password: '909',
-  //   displayName: 'משתמש פרויקט 909',
-  //   role: 'user',
-  //   code: '909',
-  //   projectName: 'שם הפרויקט כפי שמופיע במערכת',
-  // },
+  {
+    username: 'user909',
+    password: '909',
+    displayName: 'משתמש פרויקט 909',
+    role: 'user',
+    code: '909',
+    projectName: 'שם הפרויקט כפי שמופיע במערכת',
+  },
 ];
 
 const normalizeAccessValue = (value: unknown) =>
@@ -96,13 +96,30 @@ const accessLoginMatches = (access: ProjectAccess, value: string) => {
   return normalizeAccessValue(access.username) === normalized || normalizeAccessValue(access.code) === normalized;
 };
 
-const findProjectAccessByCode = (value: string) =>
-  PROJECT_ACCESS_LIST.find((access) => accessLoginMatches(access, value));
+const findProjectAccessByCode = (users: ProjectAccess[], value: string) =>
+  users.find((access) => accessLoginMatches(access, value));
 
-const findProjectAccessByCredentials = (usernameOrCode: string, password: string) =>
-  PROJECT_ACCESS_LIST.find(
+const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: string, password: string) =>
+  users.find(
     (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
   );
+
+const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
+  if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
+  const normalized = value
+    .filter((item) => item && typeof item === 'object')
+    .map((item: any): ProjectAccess => ({
+      username: String(item.username ?? '').trim(),
+      password: String(item.password ?? ''),
+      displayName: String(item.displayName ?? item.username ?? 'משתמש').trim(),
+      role: item.role === 'admin' ? 'admin' : 'user',
+      code: item.code ? String(item.code).trim() : undefined,
+      projectName: item.role === 'admin' ? null : String(item.projectName ?? '').trim(),
+    }))
+    .filter((item) => item.username && item.password);
+
+  return normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
+};
 
 const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
 
@@ -555,6 +572,41 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 }
 
 
+function PasswordField({
+  value,
+  onChange,
+  placeholder = 'סיסמה',
+  autoComplete,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        type={visible ? 'text' : 'password'}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 44px 12px 14px', fontWeight: 800, fontSize: 16 }}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((prev) => !prev)}
+        aria-label={visible ? 'הסתר סיסמה' : 'הצג סיסמה'}
+        title={visible ? 'הסתר סיסמה' : 'הצג סיסמה'}
+        style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', cursor: 'pointer', fontSize: 20, padding: 4 }}
+      >
+        {visible ? '🙈' : '👁️'}
+      </button>
+    </div>
+  );
+}
+
 function ProjectLoginScreen({
   username,
   password,
@@ -585,19 +637,14 @@ function ProjectLoginScreen({
             onChange={(event) => onUsernameChange(event.target.value)}
             placeholder="לדוגמה: admin או 806"
             autoFocus
+            autoComplete="username"
             style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
           />
         </label>
 
         <label style={{ display: 'grid', gap: 7, marginBottom: 16, fontWeight: 900 }}>
           סיסמה
-          <input
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            type="password"
-            placeholder="סיסמה"
-            style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
-          />
+          <PasswordField value={password} onChange={onPasswordChange} autoComplete="current-password" />
         </label>
 
         {error ? <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 12, padding: 10, fontWeight: 900, marginBottom: 14 }}>{error}</div> : null}
@@ -606,6 +653,88 @@ function ProjectLoginScreen({
           כניסה למערכת
         </button>
       </form>
+    </div>
+  );
+}
+
+function UserAccessPanel({
+  users,
+  onChangeUser,
+  onAddUser,
+  onRemoveUser,
+  onResetDefaults,
+}: {
+  users: ProjectAccess[];
+  onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
+  onAddUser: () => void;
+  onRemoveUser: (index: number) => void;
+  onResetDefaults: () => void;
+}) {
+  return (
+    <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>ניהול משתמשים והרשאות</div>
+          <div style={{ color: '#64748b', marginTop: 4 }}>מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט שהוגדר לו.</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>הוסף משתמש</button>
+          <button type="button" onClick={onResetDefaults} style={{ ...styles.secondaryBtn }}>איפוס ברירת מחדל</button>
+        </div>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+          <thead>
+            <tr>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם לתצוגה</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם משתמש</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>סיסמה</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>סוג הרשאה</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>קוד / קישור</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם פרויקט למשתמש רגיל</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user, index) => {
+              const isAdmin = user.role === 'admin';
+              const projectLink = typeof window !== 'undefined' && user.code ? `${window.location.origin}/?project=${encodeURIComponent(user.code)}` : user.code ?? '';
+              return (
+                <tr key={`${user.username}-${index}`}>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8 }}>
+                    <input value={user.displayName} onChange={(e) => onChangeUser(index, 'displayName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800 }} />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8 }}>
+                    <input value={user.username} onChange={(e) => onChangeUser(index, 'username', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, direction: 'ltr' }} />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 190 }}>
+                    <PasswordField value={user.password} onChange={(value) => onChangeUser(index, 'password', value)} autoComplete="new-password" />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8 }}>
+                    <select value={user.role} onChange={(e) => onChangeUser(index, 'role', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 900 }}>
+                      <option value="admin">מנהל מערכת</option>
+                      <option value="user">משתמש פרויקט</option>
+                    </select>
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 210 }}>
+                    <input value={user.code ?? ''} onChange={(e) => onChangeUser(index, 'code', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, direction: 'ltr' }} />
+                    {!isAdmin && projectLink ? <div style={{ color: '#64748b', marginTop: 6, fontSize: 12, direction: 'ltr', textAlign: 'left' }}>{projectLink}</div> : null}
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 260 }}>
+                    <input disabled={isAdmin} value={isAdmin ? 'כל הפרויקטים' : user.projectName ?? ''} onChange={(e) => onChangeUser(index, 'projectName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, background: isAdmin ? '#f1f5f9' : '#fff' }} />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, textAlign: 'center' }}>
+                    <button type="button" disabled={users.length <= 1 || isAdmin} onClick={() => onRemoveUser(index)} style={{ ...styles.dangerBtn, opacity: users.length <= 1 || isAdmin ? 0.45 : 1 }}>
+                      מחיקה
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -638,6 +767,8 @@ export default function Page() {
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
   const [authReady, setAuthReady] = useState(false);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
+  const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
+  const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -646,10 +777,20 @@ export default function Page() {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const projectCodeFromLink = params.get('project');
+
+    let users = DEFAULT_PROJECT_ACCESS_LIST;
+    try {
+      const storedUsers = window.localStorage.getItem(ACCESS_USERS_STORAGE_KEY);
+      users = storedUsers ? normalizeProjectAccessList(JSON.parse(storedUsers)) : DEFAULT_PROJECT_ACCESS_LIST;
+    } catch {
+      users = DEFAULT_PROJECT_ACCESS_LIST;
+    }
+    setAccessUsers(users);
+
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
     const savedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    const savedAccess = savedUser ? findProjectAccessByCode(savedUser) : undefined;
+    const savedAccess = savedUser ? findProjectAccessByCode(users, savedUser) : undefined;
     if (savedAccess) {
       setProjectAccess(savedAccess);
       setLoginCode(savedAccess.username);
@@ -659,7 +800,7 @@ export default function Page() {
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const access = findProjectAccessByCredentials(loginCode, loginPassword);
+    const access = findProjectAccessByCredentials(accessUsers, loginCode, loginPassword);
     if (!access) {
       setLoginError('שם משתמש או סיסמה אינם נכונים');
       return;
@@ -676,6 +817,54 @@ export default function Page() {
     setLoginPassword('');
     setLoginError('');
     setSection('home');
+  };
+
+  const persistAccessUsers = (nextUsers: ProjectAccess[]) => {
+    const normalized = normalizeProjectAccessList(nextUsers);
+    setAccessUsers(normalized);
+    if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
+
+    if (projectAccess) {
+      const updatedCurrentUser = normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
+      if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
+    }
+  };
+
+  const updateAccessUser = (index: number, field: keyof ProjectAccess, value: string) => {
+    const nextUsers = accessUsers.map((user, userIndex) => {
+      if (userIndex !== index) return user;
+      const updated: ProjectAccess = { ...user, [field]: value } as ProjectAccess;
+      if (field === 'role' && value === 'admin') updated.projectName = null;
+      if (field === 'role' && value === 'user' && !updated.projectName) updated.projectName = projects[0]?.name ?? '';
+      return updated;
+    });
+    persistAccessUsers(nextUsers);
+  };
+
+  const addAccessUser = () => {
+    persistAccessUsers([
+      ...accessUsers,
+      {
+        username: `user${accessUsers.length + 1}`,
+        password: '1234',
+        displayName: `משתמש ${accessUsers.length + 1}`,
+        role: 'user',
+        code: String(accessUsers.length + 1),
+        projectName: projects[0]?.name ?? '',
+      },
+    ]);
+  };
+
+  const removeAccessUser = (index: number) => {
+    const user = accessUsers[index];
+    if (!user || user.role === 'admin') return;
+    if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
+    persistAccessUsers(accessUsers.filter((_, userIndex) => userIndex !== index));
+  };
+
+  const resetAccessUsersToDefaults = () => {
+    if (!window.confirm('לאפס את רשימת המשתמשים לברירת המחדל?')) return;
+    persistAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
   };
 
   const loadPersistedData = (raw: string | null) => {
@@ -1479,10 +1668,23 @@ export default function Page() {
               {isSaving && <div style={{ color: '#475569', marginTop: 6 }}>שומר נתונים...</div>}
               {!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}
             </div>
-            <button type="button" onClick={logoutProject} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>יציאה</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {isAdminAccess(projectAccess) ? <button type="button" onClick={() => setShowUserManagement((prev) => !prev)} style={{ border: '1px solid #cbd5e1', background: showUserManagement ? '#0f172a' : '#fff', color: showUserManagement ? '#fff' : '#0f172a', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>ניהול משתמשים</button> : null}
+              <button type="button" onClick={logoutProject} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>יציאה</button>
+            </div>
           </div>
         </div>
       </header>
+
+      {isAdminAccess(projectAccess) && showUserManagement ? (
+        <UserAccessPanel
+          users={accessUsers}
+          onChangeUser={updateAccessUser}
+          onAddUser={addAccessUser}
+          onRemoveUser={removeAccessUser}
+          onResetDefaults={resetAccessUsersToDefaults}
+        />
+      ) : null}
 
       <div style={styles.navRow}>{navItems.map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key)}>{label}</button>)}</div>
 
