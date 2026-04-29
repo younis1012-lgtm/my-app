@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, PersistedData } from './types';
+import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, RFIRecord, SupervisionReportRecord, PersistedData } from './types';
 import { buildChecklistItemsFromTemplate, checklistTemplates, defaultProjects, normalizeChecklistTemplateKey } from './checklistTemplates';
 import { styles } from './components/common';
 import { SavedRecordsSidebar } from './components/SavedRecordsSidebar';
@@ -11,13 +11,15 @@ import { NonconformancesSection } from './components/NonconformancesSection';
 import { TrialSectionsSection } from './components/TrialSectionsSection';
 import { PreliminarySection } from './components/PreliminarySection';
 import { ConcentrationsSection } from './components/ConcentrationsSection';
+import { RFISection } from './components/RFISection';
+import { SupervisionReportsSection } from './components/SupervisionReportsSection';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 const STORAGE_KEY = 'yk-quality-stage4-multifile';
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 
-type AppSection = Section | 'concentrations';
+type AppSection = Section | 'concentrations' | 'rfi' | 'supervisionReports';
 
 
 type ProjectProfile = {
@@ -45,6 +47,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
+const EXTRA_RECORDS_STORAGE_KEY = `${STORAGE_KEY}-rfi-supervision`;
 
 type ProjectLegend = {
   projectName: string;
@@ -383,6 +386,8 @@ const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistIte
 const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ checklistNo: undefined, templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
 const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createNonconformanceApproval() } as any);
 const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', spec: '', result: '', approvedBy: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createQualityControlApproval() } as any);
+const createDefaultRFI = (): Omit<RFIRecord, 'id' | 'projectId' | 'savedAt'> => ({ rfiNumber: '', subject: '', structure: '', location: '', activity: '', relevantPlans: '', fromSection: '', toSection: '', dateOpened: new Date().toISOString().slice(0, 10), requestedBy: '', description: '', costImpact: 'לא ידוע', scheduleImpact: 'לא ידוע', designerResponse: '', responseDate: '', closingSummary: '', closedAt: '', status: 'טיוטה', images: [] as StoredAttachment[], approval: createQualityControlApproval() } as any);
+const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, 'id' | 'projectId' | 'savedAt'> => ({ reportNo: '', title: '', date: new Date().toISOString().slice(0, 10), inspector: '', location: '', subject: '', findings: '', instructions: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createQualityControlApproval() } as any);
 const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({ subtype, title: subtype === 'suppliers' ? 'בקרה מקדימה - ספקים' : subtype === 'subcontractors' ? 'בקרה מקדימה - קבלנים' : 'בקרה מקדימה - חומרים', date: '', status: 'טיוטה', supplier: subtype === 'suppliers' ? { supplierName: '', suppliedMaterial: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, subcontractor: subtype === 'subcontractors' ? { subcontractorName: '', field: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, material: subtype === 'materials' ? { materialName: '', source: '', usage: '', certificateNo: '', notes: '' } : undefined, approval: createQualityControlApproval() });
 
 const isSupabaseHeaderEncodingError = (error: unknown) => String(error ?? '').includes(SUPABASE_HEADER_ERROR_FRAGMENT);
@@ -955,6 +960,8 @@ export default function Page() {
   const [checklistForm, setChecklistForm] = useState(createDefaultChecklist());
   const [nonconformanceForm, setNonconformanceForm] = useState(createDefaultNonconformance());
   const [trialSectionForm, setTrialSectionForm] = useState(createDefaultTrialSection());
+  const [rfiForm, setRFIForm] = useState(createDefaultRFI());
+  const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
   const [supplierPreliminaryForm, setSupplierPreliminaryForm] = useState(createDefaultPreliminary('suppliers'));
   const [subcontractorPreliminaryForm, setSubcontractorPreliminaryForm] = useState(createDefaultPreliminary('subcontractors'));
   const [materialPreliminaryForm, setMaterialPreliminaryForm] = useState(createDefaultPreliminary('materials'));
@@ -962,10 +969,14 @@ export default function Page() {
   const [savedNonconformances, setSavedNonconformances] = useState<NonconformanceRecord[]>([]);
   const [savedTrialSections, setSavedTrialSections] = useState<TrialSectionRecord[]>([]);
   const [savedPreliminary, setSavedPreliminary] = useState<PreliminaryRecord[]>([]);
+  const [savedRFIs, setSavedRFIs] = useState<RFIRecord[]>([]);
+  const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
   const [editingNonconformanceId, setEditingNonconformanceId] = useState<string | null>(null);
   const [editingTrialSectionId, setEditingTrialSectionId] = useState<string | null>(null);
   const [editingPreliminaryId, setEditingPreliminaryId] = useState<string | null>(null);
+  const [editingRFIId, setEditingRFIId] = useState<string | null>(null);
+  const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [recordsSearchTerm, setRecordsSearchTerm] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -1114,10 +1125,31 @@ export default function Page() {
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedPreliminary((parsed.savedPreliminary ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
+      setSavedRFIs(((parsed as any).savedRFIs ?? []).map((item: any) => ({ ...item, approval: normalizeApproval(item.approval), images: normalizeAttachments(item.images) })));
+      setSavedSupervisionReports(((parsed as any).savedSupervisionReports ?? []).map((item: any) => ({ ...item, approval: normalizeApproval(item.approval), images: normalizeAttachments(item.images) })));
     } catch (error) {
       console.error('Failed to parse local saved data', error);
     }
   };
+
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(EXTRA_RECORDS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setSavedRFIs((parsed.savedRFIs ?? []).map((item: any) => ({ ...item, approval: normalizeApproval(item.approval), images: normalizeAttachments(item.images) })));
+      setSavedSupervisionReports((parsed.savedSupervisionReports ?? []).map((item: any) => ({ ...item, approval: normalizeApproval(item.approval), images: normalizeAttachments(item.images) })));
+    } catch (error) {
+      console.error('Failed to parse RFI / supervision saved data', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || typeof window === 'undefined') return;
+    window.localStorage.setItem(EXTRA_RECORDS_STORAGE_KEY, JSON.stringify({ savedRFIs, savedSupervisionReports }));
+  }, [savedRFIs, savedSupervisionReports, loaded]);
 
   const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null) => {
     const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: row.name ?? '', description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
@@ -1171,7 +1203,9 @@ export default function Page() {
         savedNonconformances,
         savedTrialSections,
         savedPreliminary,
-      };
+        savedRFIs,
+        savedSupervisionReports,
+      } as any;
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
       console.warn('Local storage quota exceeded. Clearing local cache and continuing without crash.', error);
@@ -1179,7 +1213,7 @@ export default function Page() {
         window.localStorage.removeItem(STORAGE_KEY);
       } catch {}
     }
-  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded, cloudEnabled]);
+  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRFIs, savedSupervisionReports, loaded, cloudEnabled]);
   useEffect(() => { if (loaded) writeLocalCurrentProjectId(currentProjectId); }, [currentProjectId, loaded]);
 
   const refreshCloudData = async () => {
@@ -1270,6 +1304,8 @@ export default function Page() {
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
+  const projectRFIs = useMemo(() => savedRFIs.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.rfiNumber, item.subject, item.location, item.status, item.description, item.designerResponse].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedRFIs, currentProjectId, normalizedSearchTerm]);
+  const projectSupervisionReports = useMemo(() => savedSupervisionReports.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.reportNo, item.title, item.location, item.status, item.findings, item.instructions].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedSupervisionReports, currentProjectId, normalizedSearchTerm]);
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? '');
@@ -1323,6 +1359,8 @@ export default function Page() {
     if (preliminaryTab === 'subcontractors') setSubcontractorPreliminaryForm({ ...createDefaultPreliminary('subcontractors'), title: nextPreliminaryTitle('subcontractors') });
     if (preliminaryTab === 'materials') setMaterialPreliminaryForm({ ...createDefaultPreliminary('materials'), title: nextPreliminaryTitle('materials') });
   };
+  const resetRFIEditor = () => { setEditingRFIId(null); setRFIForm(createDefaultRFI()); };
+  const resetSupervisionReportEditor = () => { setEditingSupervisionReportId(null); setSupervisionReportForm(createDefaultSupervisionReport()); };
 
   const addProject = async () => {
     if (!isAdminAccess(projectAccess)) return alert('אין הרשאה להוסיף פרויקטים במשתמש פרויקט');
@@ -1506,12 +1544,34 @@ export default function Page() {
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
+  const saveRFI = () => {
+    if (!currentProjectId) return alert('יש לבחור פרויקט');
+    if (rfiForm.status === 'סגור' && !String((rfiForm as any).designerResponse ?? '').trim()) return alert('לא ניתן לסגור RFI ללא התייחסות מתכנן');
+    const record: RFIRecord = { id: editingRFIId ?? crypto.randomUUID(), projectId: currentProjectId, ...(rfiForm as any), savedAt: nowLocal() };
+    setSavedRFIs((prev) => editingRFIId ? prev.map((item) => item.id === editingRFIId ? record : item) : [record, ...prev]);
+    resetRFIEditor();
+  };
+  const loadRFI = (record: RFIRecord) => { setSection('rfi'); setEditingRFIId(record.id); setRFIForm({ rfiNumber: record.rfiNumber, subject: record.subject, structure: record.structure, location: record.location, activity: record.activity, relevantPlans: record.relevantPlans, fromSection: record.fromSection, toSection: record.toSection, dateOpened: record.dateOpened, requestedBy: record.requestedBy, description: record.description, costImpact: record.costImpact, scheduleImpact: record.scheduleImpact, designerResponse: record.designerResponse, responseDate: record.responseDate, closingSummary: record.closingSummary, closedAt: record.closedAt, status: record.status, images: normalizeAttachments((record as any).images), approval: normalizeApproval(record.approval) } as any); };
+  const deleteRFI = async (id: string) => setSavedRFIs((prev) => prev.filter((item) => item.id !== id));
+
+  const saveSupervisionReport = () => {
+    if (!currentProjectId) return alert('יש לבחור פרויקט');
+    const record: SupervisionReportRecord = { id: editingSupervisionReportId ?? crypto.randomUUID(), projectId: currentProjectId, ...(supervisionReportForm as any), savedAt: nowLocal() };
+    setSavedSupervisionReports((prev) => editingSupervisionReportId ? prev.map((item) => item.id === editingSupervisionReportId ? record : item) : [record, ...prev]);
+    resetSupervisionReportEditor();
+  };
+  const loadSupervisionReport = (record: SupervisionReportRecord) => { setSection('supervisionReports'); setEditingSupervisionReportId(record.id); setSupervisionReportForm({ reportNo: record.reportNo, title: record.title, date: record.date, inspector: record.inspector, location: record.location, subject: record.subject, findings: record.findings, instructions: record.instructions, status: record.status, notes: record.notes, images: normalizeAttachments((record as any).images), approval: normalizeApproval(record.approval) } as any); };
+  const deleteSupervisionReport = async (id: string) => setSavedSupervisionReports((prev) => prev.filter((item) => item.id !== id));
+
+
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : projectLegendMissing && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [
     ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
     { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length },
     { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length },
+    { key: 'rfi', title: 'RFI', icon: '📨', description: 'שאלות למתכנן, התייחסות וסגירה מבוקרת', count: projectRFIs.length },
+    { key: 'supervisionReports', title: 'דוחות פיקוח עליון', icon: '🏗️', description: 'ניהול דוחות, הנחיות וממצאים מהפיקוח העליון', count: projectSupervisionReports.length },
     { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length },
     { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 },
   ];
@@ -1605,6 +1665,8 @@ export default function Page() {
     if (section === 'checklists') return checklistForm.title || 'רשימת תיוג';
     if (section === 'nonconformances') return nonconformanceForm.title || 'אי התאמה';
     if (section === 'trialSections') return trialSectionForm.title || 'קטע ניסוי';
+    if (section === 'rfi') return rfiForm.subject || rfiForm.rfiNumber || 'RFI';
+    if (section === 'supervisionReports') return supervisionReportForm.title || 'דוח פיקוח עליון';
     if (section === 'preliminary') return currentPreliminaryForm.title || 'בקרה מקדימה';
     return 'טופס';
   };
@@ -1835,6 +1897,41 @@ export default function Page() {
     </table>`;
   };
 
+
+  const rfiExportHtml = () => `${baseRows([
+    ['מספר RFI', (rfiForm as any).rfiNumber],
+    ['סטטוס RFI', (rfiForm as any).status],
+    ['נושא / כותרת', (rfiForm as any).subject],
+    ['מבנה', (rfiForm as any).structure],
+    ['תאריך פתיחה', (rfiForm as any).dateOpened],
+    ['מיקום', (rfiForm as any).location],
+    ['פעילות עבודה', (rfiForm as any).activity],
+    ['תוכניות רלוונטיות', (rfiForm as any).relevantPlans],
+    ['מחתך', (rfiForm as any).fromSection],
+    ['עד חתך', (rfiForm as any).toSection],
+    ['נפתח על ידי', (rfiForm as any).requestedBy],
+    ['השפעה תקציבית', (rfiForm as any).costImpact],
+    ['השפעה על לוח זמנים', (rfiForm as any).scheduleImpact],
+    ['תיאור הבקשה', (rfiForm as any).description, 100],
+    ['התייחסות / תשובת מתכנן', (rfiForm as any).designerResponse, 100],
+    ['תאריך קבלת התייחסות', (rfiForm as any).responseDate],
+    ['תאריך סגירה', (rfiForm as any).closedAt],
+    ['סיכום סגירת RFI', (rfiForm as any).closingSummary, 80],
+  ])}${attachmentsList((rfiForm as any).images)}${signaturesTable((rfiForm as any).approval)}`;
+
+  const supervisionReportExportHtml = () => `${baseRows([
+    ['מספר דוח', (supervisionReportForm as any).reportNo],
+    ['כותרת', (supervisionReportForm as any).title],
+    ['תאריך', (supervisionReportForm as any).date],
+    ['מפקח / עורך הדוח', (supervisionReportForm as any).inspector],
+    ['מיקום', (supervisionReportForm as any).location],
+    ['סטטוס', (supervisionReportForm as any).status],
+    ['נושא הפיקוח', (supervisionReportForm as any).subject, 80],
+    ['ממצאים', (supervisionReportForm as any).findings, 100],
+    ['הנחיות / דרישות לביצוע', (supervisionReportForm as any).instructions, 100],
+    ['הערות', (supervisionReportForm as any).notes, 80],
+  ])}${attachmentsList((supervisionReportForm as any).images)}${signaturesTable((supervisionReportForm as any).approval)}`;
+
   const preliminaryRows = () => {
     if (preliminaryTab === 'suppliers') {
       const s = supplierPreliminaryForm.supplier ?? {} as any;
@@ -1862,6 +1959,8 @@ export default function Page() {
     const body = section === 'checklists' ? checklistExportHtml(forcedChecklistNo)
       : section === 'nonconformances' ? nonconformanceExportHtml()
       : section === 'trialSections' ? trialSectionExportHtml()
+      : section === 'rfi' ? rfiExportHtml()
+      : section === 'supervisionReports' ? supervisionReportExportHtml()
       : section === 'preliminary' ? preliminaryRows()
       : '';
     const header = exportCompanyHeader();
@@ -1895,10 +1994,10 @@ export default function Page() {
     setTimeout(() => printWindow.print(), 300);
   };
 
-  const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
+  const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary', 'rfi', 'supervisionReports'].includes(section);
   const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
-    ? [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
-    : [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+    ? [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
 
   if (!authReady) {
     return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
@@ -1968,7 +2067,7 @@ export default function Page() {
               <button type="button" style={styles.secondaryBtn} onClick={exportWord}>הורד Word</button>
             </div>
           )}
-          {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
+          {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} projectRFIs={projectRFIs} projectSupervisionReports={projectSupervisionReports} homeModules={homeModules} setSection={setSection as any} />}
           {section === 'projects' && isAdminAccess(projectAccess) && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
@@ -1977,11 +2076,13 @@ export default function Page() {
           )}
           {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
+          {section === 'rfi' && <RFISection guardedBody={guardedBody} editingRFIId={editingRFIId} rfiForm={rfiForm} setRFIForm={setRFIForm} saveRFI={saveRFI} resetRFIEditor={resetRFIEditor} />}
+          {section === 'supervisionReports' && <SupervisionReportsSection guardedBody={guardedBody} editingSupervisionReportId={editingSupervisionReportId} supervisionReportForm={supervisionReportForm} setSupervisionReportForm={setSupervisionReportForm} saveSupervisionReport={saveSupervisionReport} resetSupervisionReportEditor={resetSupervisionReportEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
           {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} projectMeta={{ projectName: currentProjectLegend.projectName, projectManager: currentProjectLegend.projectManagement, contractor: currentProjectLegend.contractor, qualityAssurance: currentProjectLegend.qualityAssurance, qualityControl: currentProjectLegend.qualityControl }} />}
         </main>
 
-        <SavedRecordsSidebar projectName={projectName} searchTerm={recordsSearchTerm} onSearchTermChange={setRecordsSearchTerm} checklistTemplateLabel={checklistTemplateLabel} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} onOpenChecklist={loadChecklist} onDeleteChecklist={deleteChecklist} onOpenNonconformance={loadNonconformance} onDeleteNonconformance={deleteNonconformance} onOpenTrialSection={loadTrialSection} onDeleteTrialSection={deleteTrialSection} onOpenPreliminary={loadPreliminary} onDeletePreliminary={deletePreliminary} />
+        <SavedRecordsSidebar projectName={projectName} searchTerm={recordsSearchTerm} onSearchTermChange={setRecordsSearchTerm} checklistTemplateLabel={checklistTemplateLabel} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} projectRFIs={projectRFIs} projectSupervisionReports={projectSupervisionReports} onOpenChecklist={loadChecklist} onDeleteChecklist={deleteChecklist} onOpenNonconformance={loadNonconformance} onDeleteNonconformance={deleteNonconformance} onOpenTrialSection={loadTrialSection} onDeleteTrialSection={deleteTrialSection} onOpenPreliminary={loadPreliminary} onDeletePreliminary={deletePreliminary} onOpenRFI={loadRFI} onDeleteRFI={deleteRFI} onOpenSupervisionReport={loadSupervisionReport} onDeleteSupervisionReport={deleteSupervisionReport} />
       </div>
     </div>
   );

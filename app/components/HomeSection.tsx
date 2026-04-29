@@ -7,6 +7,8 @@ export function HomeSection({
   projectNonconformances,
   projectTrialSections,
   projectPreliminary,
+  projectRFIs = [],
+  projectSupervisionReports = [],
   homeModules,
   setSection
 }: {
@@ -15,6 +17,8 @@ export function HomeSection({
   projectNonconformances: any[];
   projectTrialSections: any[];
   projectPreliminary: any[];
+  projectRFIs?: any[];
+  projectSupervisionReports?: any[];
   homeModules: { key: string; title: string; icon: string; description: string; count: number }[];
   setSection: (section: Section) => void;
 }) {
@@ -29,6 +33,8 @@ export function HomeSection({
           ['רשימות תיוג', projectChecklists.length],
           ['אי תאמות', projectNonconformances.length],
           ['קטעי ניסוי', projectTrialSections.length],
+          ['RFI', projectRFIs.length],
+          ['פיקוח עליון', projectSupervisionReports.length],
           ['בקרה מקדימה', projectPreliminary.length]
         ].map(([label, value]) => (
           <div key={String(label)} style={styles.statCard}>
