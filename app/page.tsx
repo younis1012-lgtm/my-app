@@ -59,24 +59,29 @@ type ProjectLegend = {
 
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
   const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
+
+  // חשוב: לא עושים trim בזמן הקלדה.
+  // אחרת רווח בסוף מילה נמחק מיד, ולא ניתן להקליד שם עם כמה מילים.
   return {
-    projectName: String(raw.projectName ?? fallbackProjectName ?? '').trim(),
-    projectManagement: String(raw.projectManagement ?? '').trim(),
-    contractor: String(raw.contractor ?? '').trim(),
-    qualityAssurance: String(raw.qualityAssurance ?? '').trim(),
-    qualityControl: String(raw.qualityControl ?? '').trim(),
-    workManager: String(raw.workManager ?? '').trim(),
-    surveyor: String(raw.surveyor ?? '').trim(),
-    supervisor: String(raw.supervisor ?? '').trim(),
+    projectName: String(raw.projectName ?? fallbackProjectName ?? ''),
+    projectManagement: String(raw.projectManagement ?? ''),
+    contractor: String(raw.contractor ?? ''),
+    qualityAssurance: String(raw.qualityAssurance ?? ''),
+    qualityControl: String(raw.qualityControl ?? ''),
+    workManager: String(raw.workManager ?? ''),
+    surveyor: String(raw.surveyor ?? ''),
+    supervisor: String(raw.supervisor ?? ''),
   };
 };
 
+const hasText = (value: unknown) => String(value ?? '').trim().length > 0;
+
 const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
-  legend?.projectName &&
-  legend?.projectManagement &&
-  legend?.contractor &&
-  legend?.qualityAssurance &&
-  legend?.qualityControl
+  hasText(legend?.projectName) &&
+  hasText(legend?.projectManagement) &&
+  hasText(legend?.contractor) &&
+  hasText(legend?.qualityAssurance) &&
+  hasText(legend?.qualityControl)
 );
 
 const projectLegendToProfile = (legend: ProjectLegend): ProjectProfile => ({
@@ -721,11 +726,25 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 function ProjectLegendPanel({
   legend,
   missing,
+  projects,
+  currentProjectId,
+  message,
+  onSelectProject,
   onChange,
+  onSave,
+  onAdd,
+  onDelete,
 }: {
   legend: ProjectLegend;
   missing: boolean;
+  projects: Project[];
+  currentProjectId: string | null;
+  message: string;
+  onSelectProject: (projectId: string) => void;
   onChange: (field: keyof ProjectLegend, value: string) => void;
+  onSave: () => void;
+  onAdd: () => void;
+  onDelete: () => void;
 }) {
   const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
@@ -747,6 +766,20 @@ function ProjectLegendPanel({
           <div style={{ color: '#475569', marginTop: 4 }}>הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט הפעיל.</div>
         </div>
         {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
+        <label style={labelStyle}>
+          בחירת פרויקט פעיל
+          <select value={currentProjectId ?? ''} onChange={(event) => onSelectProject(event.target.value)} style={inputStyle}>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name || 'פרויקט ללא שם'}</option>)}
+          </select>
+        </label>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+          <button type="button" style={styles.primaryBtn} onClick={onSave}>שמירה / עדכון</button>
+          <button type="button" style={styles.secondaryBtn} onClick={onAdd}>הוספת פרויקט</button>
+          <button type="button" style={styles.dangerBtn} onClick={onDelete}>מחיקה</button>
+        </div>
+        {message ? <div style={{ alignSelf: 'end', color: '#166534', fontWeight: 900 }}>{message}</div> : null}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {fields.map((field) => (
@@ -969,6 +1002,7 @@ export default function Page() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [projectLegends, setProjectLegends] = useState<Record<string, ProjectLegend>>({});
+  const [projectLegendMessage, setProjectLegendMessage] = useState('');
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -998,6 +1032,16 @@ export default function Page() {
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
     setAuthReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem(PROJECT_LEGEND_STORAGE_KEY);
+      if (stored) setProjectLegends(JSON.parse(stored));
+    } catch (error) {
+      console.warn('Failed to load project legend data', error);
+    }
   }, []);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1216,12 +1260,85 @@ export default function Page() {
   const projectLegendMissing = Boolean(currentProject && !isProjectLegendComplete(currentProjectLegend));
   const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
     if (!currentProject) return;
+    setProjectLegendMessage('');
     setProjectLegends((prev) => {
       const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
       const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
       if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+  };
+
+  const saveCurrentProjectLegend = async () => {
+    if (!currentProject) return;
+    const legend = normalizeProjectLegend(projectLegends[currentProject.id], currentProject.name);
+    if (!isProjectLegendComplete(legend)) {
+      alert('יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות.');
+      return;
+    }
+
+    const nextLegends = { ...projectLegends, [currentProject.id]: legend };
+    setProjectLegends(nextLegends);
+    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = await supabase!.from('projects').update({
+          name: legend.projectName.trim(),
+          description: currentProject.description ?? '',
+          manager: legend.projectManagement.trim(),
+        }).eq('id', currentProject.id);
+        if (result.error) throw result.error;
+        await refreshCloudData();
+      } else {
+        setProjects((prev) => prev.map((project) => project.id === currentProject.id ? { ...project, name: legend.projectName.trim(), manager: legend.projectManagement.trim() } : project));
+      }
+    });
+    setProjectLegendMessage('פרטי הפרויקט נשמרו בהצלחה');
+  };
+
+  const addProjectFromLegend = async () => {
+    if (!isAdminAccess(projectAccess)) return alert('רק מנהל מערכת יכול להוסיף פרויקט');
+    const id = crypto.randomUUID();
+    const name = 'פרויקט חדש';
+    const project: Project = { id, name, description: '', manager: '', isActive: true, createdAt: nowLocal() };
+    const blankLegend = normalizeProjectLegend({ projectName: name }, name);
+    const nextLegends = { ...projectLegends, [id]: blankLegend };
+    setProjectLegends(nextLegends);
+    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await supabase!.from('projects').update({ is_active: false }).neq('id', id);
+        const result = await supabase!.from('projects').insert({ id, name, description: '', manager: '', is_active: true, created_at: nowIso() });
+        if (result.error) throw result.error;
+        await refreshCloudData();
+      } else {
+        setProjects((prev) => [...prev.map((p) => ({ ...p, isActive: false })), project]);
+      }
+      setCurrentProjectId(id);
+      writeLocalCurrentProjectId(id);
+    });
+    setProjectLegendMessage('נוסף פרויקט חדש — מלא את הפרטים ולחץ שמירה / עדכון');
+  };
+
+  const deleteCurrentProjectWithLegend = async () => {
+    if (!currentProject) return;
+    const relatedRecordsCount = [
+      ...savedChecklists.filter((item) => item.projectId === currentProject.id),
+      ...savedNonconformances.filter((item) => item.projectId === currentProject.id),
+      ...savedTrialSections.filter((item) => item.projectId === currentProject.id),
+      ...savedPreliminary.filter((item) => item.projectId === currentProject.id),
+    ].length;
+    const extraWarning = relatedRecordsCount ? `\nשים לב: קיימות ${relatedRecordsCount} רשומות בפרויקט. המחיקה תמחק גם אותן.` : '';
+    if (!window.confirm(`למחוק את הפרויקט "${currentProject.name}"?${extraWarning}`)) return;
+
+    const nextLegends = { ...projectLegends };
+    delete nextLegends[currentProject.id];
+    setProjectLegends(nextLegends);
+    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+    await deleteProject(currentProject.id);
+    setProjectLegendMessage('הפרויקט נמחק');
   };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
@@ -1268,66 +1385,20 @@ export default function Page() {
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? '');
-    const match =
-      text.match(/מס[׳'’`]?\s*(\d+)/) ??
-      text.match(/No[.\s:-]*(\d+)/i) ??
-      text.match(/#\s*(\d+)/) ??
-      text.match(/(?:^|\s)(\d+)(?:\s|$)/);
+    const match = text.match(/מס[׳'’`]?\s*(\d+)/) ?? text.match(/#\s*(\d+)/) ?? text.match(/(?:^|\s)(\d+)(?:\s|$)/);
     return match ? Number(match[1]) || 0 : 0;
   };
-
-  // מספור סידורי נפרד לכל סוג טופס ולכל פרויקט.
-  // חשוב: רשימות תיוג לא משתמשות במנגנון הזה ולא שונו.
-  type FormSequenceKind =
-    | 'rfi'
-    | 'nonconformances'
-    | 'trialSections'
-    | 'preliminary-suppliers'
-    | 'preliminary-subcontractors'
-    | 'preliminary-materials';
-
-  const formSequenceStorageKey = (kind: FormSequenceKind) =>
-    `${STORAGE_KEY}-form-sequence-${currentProjectId || 'no-project'}-${kind}`;
-
-  const getStoredFormSequence = (kind: FormSequenceKind) => {
-    if (typeof window === 'undefined') return 0;
-    return Number(window.localStorage.getItem(formSequenceStorageKey(kind)) ?? 0) || 0;
-  };
-
-  const setStoredFormSequence = (kind: FormSequenceKind, value: number) => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(formSequenceStorageKey(kind), String(value));
-  };
-
-  const maxSavedSequentialNo = (
-    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
-    subtype?: PreliminaryTab
-  ) =>
+  const nextSequentialNo = (records: Array<{ title?: string; projectId?: string; subtype?: string }>, subtype?: PreliminaryTab) =>
     records
       .filter((item) => item.projectId === currentProjectId)
       .filter((item) => !subtype || item.subtype === subtype)
-      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
-
-  const nextSequentialNo = (
-    kind: FormSequenceKind,
-    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
-    subtype?: PreliminaryTab
-  ) => Math.max(getStoredFormSequence(kind), maxSavedSequentialNo(records, subtype)) + 1;
-
-  const rememberSequentialNo = (kind: FormSequenceKind, title: unknown) => {
-    const number = extractSequentialNo(title);
-    if (!number) return;
-    setStoredFormSequence(kind, Math.max(getStoredFormSequence(kind), number));
-  };
-
+      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0) + 1;
   const numberedTitle = (base: string, number: number) => `${base} מס׳ ${number}`;
   const titleHasNumber = (title: unknown) => extractSequentialNo(title) > 0;
-  const nextRfiTitle = () => numberedTitle('RFI', nextSequentialNo('rfi', []));
-  const nextNonconformanceTitle = () => numberedTitle('אי התאמה', nextSequentialNo('nonconformances', savedNonconformances as any));
-  const nextTrialSectionTitle = () => numberedTitle('קטע ניסוי', nextSequentialNo('trialSections', savedTrialSections as any));
+  const nextNonconformanceTitle = () => numberedTitle('אי התאמה', nextSequentialNo(savedNonconformances as any));
+  const nextTrialSectionTitle = () => numberedTitle('קטע ניסוי', nextSequentialNo(savedTrialSections as any));
   const preliminaryBaseTitle = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'אישור ספקים' : subtype === 'subcontractors' ? 'אישור קבלנים' : 'אישור חומרים';
-  const preliminarySequenceKind = (subtype: PreliminaryTab): FormSequenceKind => `preliminary-${subtype}` as FormSequenceKind;
-  const nextPreliminaryTitle = (subtype: PreliminaryTab) => numberedTitle(preliminaryBaseTitle(subtype), nextSequentialNo(preliminarySequenceKind(subtype), savedPreliminary as any, subtype));
+  const nextPreliminaryTitle = (subtype: PreliminaryTab) => numberedTitle(preliminaryBaseTitle(subtype), nextSequentialNo(savedPreliminary as any, subtype));
 
 
   useEffect(() => {
@@ -1497,7 +1568,6 @@ export default function Page() {
     const validation = validateApproval(nonconformanceForm.approval); if (validation) return alert(validation);
     const id = editingNonconformanceId ?? crypto.randomUUID();
     const title = editingNonconformanceId || titleHasNumber(nonconformanceForm.title) ? nonconformanceForm.title : nextNonconformanceTitle();
-    rememberSequentialNo('nonconformances', title);
     const record: NonconformanceRecord = { id, projectId: currentProjectId, ...nonconformanceForm, title, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -1516,7 +1586,6 @@ export default function Page() {
     const validation = validateApproval(trialSectionForm.approval); if (validation) return alert(validation);
     const id = editingTrialSectionId ?? crypto.randomUUID();
     const title = editingTrialSectionId || titleHasNumber(trialSectionForm.title) ? trialSectionForm.title : nextTrialSectionTitle();
-    rememberSequentialNo('trialSections', title);
     const record: TrialSectionRecord = { id, projectId: currentProjectId, ...trialSectionForm, title, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -1537,7 +1606,6 @@ export default function Page() {
     const validation = validateApproval(form.approval); if (validation) return alert(validation);
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title = editingPreliminaryId || titleHasNumber(form.title) ? form.title : nextPreliminaryTitle(subtype);
-    rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const record: PreliminaryRecord = { id, projectId: currentProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -1997,7 +2065,14 @@ export default function Page() {
         <ProjectLegendPanel
           legend={currentProjectLegend}
           missing={projectLegendMissing}
+          projects={accessibleProjects}
+          currentProjectId={currentProjectId}
+          message={projectLegendMessage}
+          onSelectProject={setActiveProject}
           onChange={updateProjectLegendField}
+          onSave={saveCurrentProjectLegend}
+          onAdd={addProjectFromLegend}
+          onDelete={deleteCurrentProjectWithLegend}
         />
       ) : null}
 
