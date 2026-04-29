@@ -859,12 +859,12 @@ function ProjectTeamPanel({
   const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
   const fields: Array<[keyof ProjectTeam, string, string]> = [
-    ['qualityControl', 'שם בקרת איכות', 'לדוגמה: יונס אברהים'],
-    ['workManager', 'שם מנהל עבודה', 'לדוגמה: חוסיין מריסאת'],
-    ['surveyor', 'שם מודד', 'לדוגמה: באסל שקארה'],
-    ['managementCompany', 'שם חברת ניהול', 'לדוגמה: חברת ניהול הפרויקט'],
-    ['supervisor', 'שם מפקח', 'לדוגמה: מפקח הפרויקט'],
-    ['qualityAssurance', 'שם הבטחת איכות', 'לדוגמה: חברת הבטחת איכות'],
+    ['qualityControl', 'שם בקרת איכות', ''],
+    ['workManager', 'שם מנהל עבודה', ''],
+    ['surveyor', 'שם מודד', ''],
+    ['managementCompany', 'שם חברת ניהול', ''],
+    ['supervisor', 'שם מפקח', ''],
+    ['qualityAssurance', 'שם הבטחת איכות', ''],
   ];
   const complete = projectTeamComplete(team);
 
