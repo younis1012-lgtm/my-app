@@ -35,13 +35,36 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
         .filter((item) => item.dataUrl)
     : [];
 
-const downloadTrialTemplate = () => {
+const cleanFileName = (value: unknown, fallback: string) =>
+  String(value ?? fallback)
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim() || fallback;
+
+const htmlEscape = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const formatDate = (value: unknown) => {
+  const text = String(value ?? '');
+  if (!text) return '';
+  const parts = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return parts ? `${parts[3]}.${parts[2]}.${parts[1]}` : text;
+};
+
+const downloadTextFile = (content: string, fileName: string, type: string) => {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = '/templates/trial-section.doc';
-  link.download = 'דוח קטע ניסוי.doc';
+  link.href = url;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
+  URL.revokeObjectURL(url);
 };
 
 function AttachmentsField({
@@ -74,7 +97,7 @@ function AttachmentsField({
           event.currentTarget.value = '';
         }}
       />
-      <div style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>ניתן לצרף את דוח קטע הניסוי המלא לאחר מילוי, וגם תמונות, PDF, Word ו-Excel.</div>
+      <div style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>ניתן לצרף תמונות, PDF, Word ו-Excel.</div>
       {attachments.length > 0 && (
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           {attachments.map((file, index) => (
@@ -91,6 +114,151 @@ function AttachmentsField({
   );
 }
 
+const trialFieldGroups = [
+  {
+    title: 'פרטי הפרויקט',
+    fields: [
+      ['projectName', 'שם הפרויקט'],
+      ['managementCompany', 'חברת ניהול'],
+      ['mainContractor', 'קבלן ראשי'],
+      ['qualityControlCompany', 'חברת בקרת איכות'],
+    ],
+  },
+  {
+    title: 'פרטי קטע הניסוי',
+    fields: [
+      ['sectionNo', "קטע מס'"],
+      ['proofForActivityType', 'הוכחת היכולת לפעולה מסוג'],
+      ['elementName', 'שם האלמנט'],
+      ['subElement', 'תת אלמנט'],
+      ['chainageSide', 'מחתך עד חתך/צד'],
+    ],
+  },
+  {
+    title: 'שלבי ביצוע קטע ניסוי',
+    fields: [
+      ['participants', 'משתתפים בקטע ניסוי'],
+      ['materialsForUse', 'חומרים לשימוש'],
+      ['equipmentForUse', 'הכלים בהם משתמשים'],
+      ['executionDate', 'תאריך ביצוע', 'date'],
+      ['trialDescription', 'תיאור קטע ניסוי', 'textarea'],
+      ['trialConclusions', 'מסקנות קטע ניסוי', 'textarea'],
+      ['correctiveAction', 'פעולה מתקנת (במידה ונדרשת)', 'textarea'],
+    ],
+  },
+  {
+    title: 'אישור',
+    fields: [
+      ['approvalDate', 'תאריך אישור', 'date'],
+      ['signature', 'חתימה'],
+    ],
+  },
+] as const;
+
+const getTrialValue = (form: any, key: string) => {
+  const aliases: Record<string, string[]> = {
+    sectionNo: ['title'],
+    executionDate: ['date'],
+    trialDescription: ['spec'],
+    trialConclusions: ['result'],
+    correctiveAction: ['notes'],
+    mainContractor: ['contractor'],
+    signature: ['approvedBy'],
+  };
+  const direct = form?.[key];
+  if (direct !== undefined && direct !== null && direct !== '') return direct;
+  for (const alias of aliases[key] ?? []) {
+    const value = form?.[alias];
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+};
+
+const updateTrialField = (setTrialSectionForm: any, key: string, value: string) => {
+  const legacyMap: Record<string, string> = {
+    sectionNo: 'title',
+    executionDate: 'date',
+    trialDescription: 'spec',
+    trialConclusions: 'result',
+    correctiveAction: 'notes',
+    mainContractor: 'contractor',
+    signature: 'approvedBy',
+  };
+
+  setTrialSectionForm((prev: any) => ({
+    ...prev,
+    [key]: value,
+    ...(legacyMap[key] ? { [legacyMap[key]]: value } : {}),
+  }));
+};
+
+const buildTrialWordHtml = (form: any) => {
+  const value = (key: string) => htmlEscape(key.toLowerCase().includes('date') ? formatDate(getTrialValue(form, key)) : getTrialValue(form, key));
+  const rows = [
+    ['שם הפרויקט', value('projectName'), 'חברת ניהול', value('managementCompany')],
+    ['קבלן ראשי', value('mainContractor'), 'חברת בקרת איכות', value('qualityControlCompany')],
+    ["קטע מס'", value('sectionNo'), 'הוכחת היכולת לפעולה מסוג', value('proofForActivityType')],
+    ['שם האלמנט', value('elementName'), 'תת אלמנט', value('subElement')],
+    ['מחתך עד חתך/צד', value('chainageSide'), 'תאריך ביצוע', value('executionDate')],
+  ];
+
+  const bigRows = [
+    ['משתתפים בקטע ניסוי', value('participants')],
+    ['חומרים לשימוש', value('materialsForUse')],
+    ['הכלים בהם משתמשים', value('equipmentForUse')],
+    ['תיאור קטע ניסוי', value('trialDescription')],
+    ['מסקנות קטע ניסוי', value('trialConclusions')],
+    ['פעולה מתקנת (במידה ונדרשת)', value('correctiveAction')],
+  ];
+
+  return `<!doctype html>
+<html dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>דוח קטע ניסוי</title>
+<style>
+@page { size: A4 landscape; margin: 1.2cm; }
+body { direction: rtl; font-family: Arial, sans-serif; color:#0f172a; font-size:12px; }
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+td, th { border: 1px solid #111827; padding: 6px 8px; vertical-align: top; }
+.header td { height: 42px; text-align:center; font-weight:700; }
+.label { background:#f8fafc; font-weight:700; width:18%; }
+.value { min-height:22px; white-space:pre-wrap; }
+.big td { height:58px; }
+.signature td { height:42px; }
+</style>
+</head>
+<body>
+<table class="header">
+<tr>
+<td style="width:90px"></td>
+<td style="font-size:18px">דוח קטע ניסוי</td>
+<td style="width:80px">מהדורה</td>
+<td style="width:120px">תאריך</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>0</td>
+<td>${value('approvalDate') || value('executionDate')}</td>
+</tr>
+</table>
+<br/>
+<table>
+${rows.map(([a,b,c,d]) => `<tr><td class="label">${a}</td><td class="value">${b}</td><td class="label">${c}</td><td class="value">${d}</td></tr>`).join('')}
+</table>
+<br/>
+<table class="big">
+${bigRows.map(([a,b]) => `<tr><td class="label" style="width:25%">${a}</td><td class="value">${b}</td></tr>`).join('')}
+</table>
+<br/>
+<table class="signature">
+<tr><td class="label">תאריך אישור</td><td>${value('approvalDate')}</td><td class="label">חתימה</td><td>${value('signature')}</td></tr>
+</table>
+</body>
+</html>`;
+};
+
 export function TrialSectionsSection(props: {
   guardedBody: React.ReactNode;
   editingTrialSectionId: string | null;
@@ -99,35 +267,67 @@ export function TrialSectionsSection(props: {
   saveTrialSection: () => void;
   resetTrialSectionEditor: () => void;
 }) {
+  const downloadFilledTrialWord = () => {
+    const html = buildTrialWordHtml(props.trialSectionForm as any);
+    const fileName = `${cleanFileName(getTrialValue(props.trialSectionForm, 'sectionNo'), 'דוח קטע ניסוי')}.doc`;
+    downloadTextFile(html, fileName, 'application/msword;charset=utf-8');
+  };
+
   return (
     <div>
       <h2 style={styles.sectionTitle}>קטעי ניסוי</h2>
       {props.guardedBody || (
         <>
           <FormModeBanner isEditing={Boolean(props.editingTrialSectionId)} />
-
           <div style={{ ...styles.card, marginBottom: 12, background: '#f8fafc' }}>
-            <div style={{ fontWeight: 900, marginBottom: 8 }}>עבודה לפי דוח קטע ניסוי מקורי</div>
-            <div style={{ color: '#475569', lineHeight: 1.6, marginBottom: 10 }}>
-              הורד את קובץ ה-Word המקורי, מלא אותו בדיוק לפי התבנית, ולאחר מכן צרף אותו כאן ושמור את הרשומה במערכת.
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>טופס קטע ניסוי לפי קובץ Word המקורי</div>
+            <div style={{ color: '#475569', lineHeight: 1.6 }}>
+              שלבי הביצוע והשדות במסך זה נלקחו מטופס קטע הניסוי. לאחר מילוי ושמירה ניתן להוריד דוח Word מלא מתוך המערכת.
             </div>
-            <button type="button" style={styles.primaryBtn} onClick={downloadTrialTemplate}>
-              הורד דוח קטע ניסוי Word
-            </button>
           </div>
 
-          <div style={styles.formGrid}>
-            <Field label="שם קטע"><input style={styles.input} value={props.trialSectionForm.title} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
-            <Field label="מיקום"><input style={styles.input} value={props.trialSectionForm.location} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, location: e.target.value }))} /></Field>
-            <Field label="תאריך"><input type="date" style={styles.input} value={props.trialSectionForm.date} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
-            <Field label="מאושר על ידי"><input style={styles.input} value={props.trialSectionForm.approvedBy} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, approvedBy: e.target.value }))} /></Field>
-            <Field label="סטטוס"><select style={styles.input} value={props.trialSectionForm.status} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">טיוטה</option><option value="אושר">אושר</option><option value="נדחה">נדחה</option></select></Field>
-            <Field label="הערות פנימיות" full><textarea style={styles.textarea} value={props.trialSectionForm.notes} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
-          </div>
+          {trialFieldGroups.map((group) => (
+            <div key={group.title} style={{ ...styles.card, marginBottom: 12 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, fontWeight: 900 }}>{group.title}</h3>
+              <div style={styles.formGrid}>
+                {group.fields.map(([key, label, kind]) => (
+                  <Field key={key} label={label} full={kind === 'textarea'}>
+                    {kind === 'textarea' ? (
+                      <textarea
+                        style={styles.textarea}
+                        value={String(getTrialValue(props.trialSectionForm, key))}
+                        onChange={(e) => updateTrialField(props.setTrialSectionForm, key, e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        type={kind === 'date' ? 'date' : 'text'}
+                        style={styles.input}
+                        value={String(getTrialValue(props.trialSectionForm, key))}
+                        onChange={(e) => updateTrialField(props.setTrialSectionForm, key, e.target.value)}
+                      />
+                    )}
+                  </Field>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <Field label="סטטוס">
+            <select style={styles.input} value={props.trialSectionForm.status} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as any }))}>
+              <option value="טיוטה">טיוטה</option>
+              <option value="אושר">אושר</option>
+              <option value="נדחה">נדחה</option>
+            </select>
+          </Field>
 
           <AttachmentsField value={(props.trialSectionForm as any).images} onChange={(images) => props.setTrialSectionForm((prev) => ({ ...prev, images } as any))} />
           <ApprovalPanel value={props.trialSectionForm.approval} onChange={(approval) => props.setTrialSectionForm((prev) => ({ ...prev, approval }))} />
-          <div style={styles.buttonRow}><button style={styles.primaryBtn} onClick={props.saveTrialSection}>{props.editingTrialSectionId ? 'עדכן קטע ניסוי' : 'שמור קטע ניסוי'}</button><button style={styles.secondaryBtn} onClick={props.resetTrialSectionEditor}>בטל / נקה</button></div>
+
+          <div style={styles.buttonRow}>
+            <button style={styles.primaryBtn} onClick={props.saveTrialSection}>{props.editingTrialSectionId ? 'עדכן קטע ניסוי' : 'שמור קטע ניסוי'}</button>
+            <button style={styles.secondaryBtn} type="button" onClick={downloadFilledTrialWord}>הורד Word מלא</button>
+            <button style={styles.secondaryBtn} onClick={props.resetTrialSectionEditor}>בטל / נקה</button>
+          </div>
         </>
       )}
     </div>
