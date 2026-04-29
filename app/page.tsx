@@ -1669,13 +1669,13 @@ export default function Page() {
   const nonconformanceExportHtml = () => `${baseRows([
     ['כותרת', nonconformanceForm.title],
     ['מיקום', nonconformanceForm.location],
-    ['תאריך', nonconformanceForm.date],
+    ['תאריך פתיחה', nonconformanceForm.date],
     ['נפתח על ידי', nonconformanceForm.raisedBy],
     ['חומרה', nonconformanceForm.severity],
     ['סטטוס', nonconformanceForm.status],
     ['תיאור אי ההתאמה', nonconformanceForm.description, 100],
     ['פעולה נדרשת / מתקנת', nonconformanceForm.actionRequired, 100],
-    ['הערות', nonconformanceForm.notes, 80],
+    ['פירוט ביצוע פעולה מתקנת', nonconformanceForm.notes, 80],
   ])}${attachmentsList((nonconformanceForm as any).images)}${signaturesTable(nonconformanceForm.approval)}`;
 
   const trialSectionExportHtml = () => {

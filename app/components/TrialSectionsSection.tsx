@@ -35,6 +35,15 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
         .filter((item) => item.dataUrl)
     : [];
 
+const downloadTrialTemplate = () => {
+  const link = document.createElement('a');
+  link.href = '/templates/trial-section.doc';
+  link.download = 'דוח קטע ניסוי.doc';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+};
+
 function AttachmentsField({
   value,
   onChange,
@@ -65,7 +74,7 @@ function AttachmentsField({
           event.currentTarget.value = '';
         }}
       />
-      <div style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>ניתן לצרף תמונות, PDF, Word ו-Excel.</div>
+      <div style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>ניתן לצרף את דוח קטע הניסוי המלא לאחר מילוי, וגם תמונות, PDF, Word ו-Excel.</div>
       {attachments.length > 0 && (
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           {attachments.map((file, index) => (
@@ -96,16 +105,26 @@ export function TrialSectionsSection(props: {
       {props.guardedBody || (
         <>
           <FormModeBanner isEditing={Boolean(props.editingTrialSectionId)} />
+
+          <div style={{ ...styles.card, marginBottom: 12, background: '#f8fafc' }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>עבודה לפי דוח קטע ניסוי מקורי</div>
+            <div style={{ color: '#475569', lineHeight: 1.6, marginBottom: 10 }}>
+              הורד את קובץ ה-Word המקורי, מלא אותו בדיוק לפי התבנית, ולאחר מכן צרף אותו כאן ושמור את הרשומה במערכת.
+            </div>
+            <button type="button" style={styles.primaryBtn} onClick={downloadTrialTemplate}>
+              הורד דוח קטע ניסוי Word
+            </button>
+          </div>
+
           <div style={styles.formGrid}>
             <Field label="שם קטע"><input style={styles.input} value={props.trialSectionForm.title} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
             <Field label="מיקום"><input style={styles.input} value={props.trialSectionForm.location} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, location: e.target.value }))} /></Field>
             <Field label="תאריך"><input type="date" style={styles.input} value={props.trialSectionForm.date} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
             <Field label="מאושר על ידי"><input style={styles.input} value={props.trialSectionForm.approvedBy} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, approvedBy: e.target.value }))} /></Field>
-            <Field label="מפרט" full><textarea style={styles.textarea} value={props.trialSectionForm.spec} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, spec: e.target.value }))} /></Field>
-            <Field label="תוצאה" full><textarea style={styles.textarea} value={props.trialSectionForm.result} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, result: e.target.value }))} /></Field>
             <Field label="סטטוס"><select style={styles.input} value={props.trialSectionForm.status} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">טיוטה</option><option value="אושר">אושר</option><option value="נדחה">נדחה</option></select></Field>
-            <Field label="הערות" full><textarea style={styles.textarea} value={props.trialSectionForm.notes} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
+            <Field label="הערות פנימיות" full><textarea style={styles.textarea} value={props.trialSectionForm.notes} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
           </div>
+
           <AttachmentsField value={(props.trialSectionForm as any).images} onChange={(images) => props.setTrialSectionForm((prev) => ({ ...prev, images } as any))} />
           <ApprovalPanel value={props.trialSectionForm.approval} onChange={(approval) => props.setTrialSectionForm((prev) => ({ ...prev, approval }))} />
           <div style={styles.buttonRow}><button style={styles.primaryBtn} onClick={props.saveTrialSection}>{props.editingTrialSectionId ? 'עדכן קטע ניסוי' : 'שמור קטע ניסוי'}</button><button style={styles.secondaryBtn} onClick={props.resetTrialSectionEditor}>בטל / נקה</button></div>

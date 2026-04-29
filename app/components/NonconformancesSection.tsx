@@ -35,6 +35,15 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
         .filter((item) => item.dataUrl)
     : [];
 
+const downloadNonconformanceTemplate = () => {
+  const link = document.createElement('a');
+  link.href = '/templates/nonconformance-form.xlsx';
+  link.download = 'טופס אי התאמה.xlsx';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+};
+
 function AttachmentsField({
   value,
   onChange,
@@ -96,16 +105,27 @@ export function NonconformancesSection(props: {
       {props.guardedBody || (
         <>
           <FormModeBanner isEditing={Boolean(props.editingNonconformanceId)} />
+
+          <div style={{ ...styles.card, marginBottom: 12, background: '#f8fafc' }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>טופס אי התאמה מקורי</div>
+            <div style={{ color: '#475569', lineHeight: 1.6, marginBottom: 10 }}>
+              ניתן להוריד את קובץ האקסל המקורי של טופס אי התאמה ולצרף אותו לאחר מילוי.
+            </div>
+            <button type="button" style={styles.secondaryBtn} onClick={downloadNonconformanceTemplate}>
+              הורד טופס אי התאמה Excel
+            </button>
+          </div>
+
           <div style={styles.formGrid}>
             <Field label="כותרת"><input style={styles.input} value={props.nonconformanceForm.title} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
             <Field label="מיקום"><input style={styles.input} value={props.nonconformanceForm.location} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, location: e.target.value }))} /></Field>
-            <Field label="תאריך"><input type="date" style={styles.input} value={props.nonconformanceForm.date} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
+            <Field label="תאריך פתיחה"><input type="date" style={styles.input} value={props.nonconformanceForm.date} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
             <Field label="נפתח על ידי"><input style={styles.input} value={props.nonconformanceForm.raisedBy} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, raisedBy: e.target.value }))} /></Field>
             <Field label="חומרה"><select style={styles.input} value={props.nonconformanceForm.severity} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, severity: e.target.value as any }))}><option value="נמוכה">נמוכה</option><option value="בינונית">בינונית</option><option value="גבוהה">גבוהה</option></select></Field>
             <Field label="סטטוס"><select style={styles.input} value={props.nonconformanceForm.status} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="פתוח">פתוח</option><option value="בטיפול">בטיפול</option><option value="נסגר">נסגר</option></select></Field>
             <Field label="תיאור" full><textarea style={styles.textarea} value={props.nonconformanceForm.description} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, description: e.target.value }))} /></Field>
             <Field label="פעולה נדרשת" full><textarea style={styles.textarea} value={props.nonconformanceForm.actionRequired} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, actionRequired: e.target.value }))} /></Field>
-            <Field label="הערות" full><textarea style={styles.textarea} value={props.nonconformanceForm.notes} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
+            <Field label="פירוט ביצוע פעולה מתקנת" full><textarea style={styles.textarea} value={props.nonconformanceForm.notes} onChange={(e) => props.setNonconformanceForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
           </div>
           <AttachmentsField value={(props.nonconformanceForm as any).images} onChange={(images) => props.setNonconformanceForm((prev) => ({ ...prev, images } as any))} />
           <ApprovalPanel value={props.nonconformanceForm.approval} onChange={(approval) => props.setNonconformanceForm((prev) => ({ ...prev, approval }))} />
