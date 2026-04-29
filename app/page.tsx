@@ -28,7 +28,6 @@ type ProjectProfile = {
   qualityControl: string;
   workManager: string;
   surveyor: string;
-  supervisor?: string;
 };
 
 const PROJECT_PROFILES: ProjectProfile[] = [
@@ -43,69 +42,8 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
-type ProjectTeam = {
-  qualityControl: string;
-  workManager: string;
-  surveyor: string;
-  managementCompany: string;
-  supervisor: string;
-  qualityAssurance: string;
-};
-
-const createEmptyProjectTeam = (): ProjectTeam => ({
-  qualityControl: '',
-  workManager: '',
-  surveyor: '',
-  managementCompany: '',
-  supervisor: '',
-  qualityAssurance: '',
-});
-
-const normalizeProjectTeams = (value: unknown): Record<string, ProjectTeam> => {
-  if (!value || typeof value !== 'object') return {};
-  const source = value as Record<string, any>;
-  return Object.fromEntries(
-    Object.entries(source).map(([key, team]) => [
-      key,
-      {
-        qualityControl: String(team?.qualityControl ?? ''),
-        workManager: String(team?.workManager ?? ''),
-        surveyor: String(team?.surveyor ?? ''),
-        managementCompany: String(team?.managementCompany ?? ''),
-        supervisor: String(team?.supervisor ?? ''),
-        qualityAssurance: String(team?.qualityAssurance ?? ''),
-      },
-    ])
-  );
-};
-
-const projectTeamStorageKeyForName = (projectName: unknown) => normalizeHebrewProjectName(projectName);
-
-const projectTeamComplete = (team: ProjectTeam | undefined) =>
-  Boolean(
-    team?.qualityControl?.trim() &&
-    team?.workManager?.trim() &&
-    team?.surveyor?.trim() &&
-    team?.managementCompany?.trim() &&
-    team?.supervisor?.trim() &&
-    team?.qualityAssurance?.trim()
-  );
-
-const profileFromProjectTeam = (projectName: string, team: ProjectTeam): ProjectProfile => ({
-  projectName,
-  contractor: '',
-  projectManager: team.managementCompany,
-  qaCompany: team.qualityAssurance,
-  qualityControl: team.qualityControl,
-  workManager: team.workManager,
-  surveyor: team.surveyor,
-  supervisor: team.supervisor,
-});
-
-
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
-const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
 
 type ProjectAccess = {
   username: string;
@@ -114,7 +52,6 @@ type ProjectAccess = {
   role: 'admin' | 'user';
   code?: string;
   projectName?: string | null;
-  signatureDataUrl?: string;
 };
 
 // כאן מגדירים משתמשים והרשאות.
@@ -143,23 +80,7 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     displayName: 'משתמש פרויקט 909',
     role: 'user',
     code: '909',
-    projectName: '909',
-  },
-  {
-    username: 'user784',
-    password: '784',
-    displayName: 'משתמש פרויקט 784',
-    role: 'user',
-    code: '784',
-    projectName: '784',
-  },
-  {
-    username: 'user781',
-    password: '781',
-    displayName: 'משתמש פרויקט 781',
-    role: 'user',
-    code: '781',
-    projectName: '781',
+    projectName: 'שם הפרויקט כפי שמופיע במערכת',
   },
 ];
 
@@ -183,22 +104,6 @@ const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: 
     (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
   );
 
-const mergeDefaultAccessUsers = (users: ProjectAccess[]) => {
-  const merged = [...users];
-
-  for (const defaultUser of DEFAULT_PROJECT_ACCESS_LIST) {
-    const exists = merged.some(
-      (user) =>
-        normalizeAccessValue(user.username) === normalizeAccessValue(defaultUser.username) ||
-        (!!defaultUser.code && normalizeAccessValue(user.code) === normalizeAccessValue(defaultUser.code))
-    );
-
-    if (!exists) merged.push(defaultUser);
-  }
-
-  return merged;
-};
-
 const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
   const normalized = value
@@ -210,12 +115,10 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
       role: item.role === 'admin' ? 'admin' : 'user',
       code: item.code ? String(item.code).trim() : undefined,
       projectName: item.role === 'admin' ? null : String(item.projectName ?? '').trim(),
-      signatureDataUrl: String(item.signatureDataUrl ?? ''),
     }))
     .filter((item) => item.username && item.password);
 
-  const withAdmin = normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
-  return mergeDefaultAccessUsers(withAdmin);
+  return normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
 };
 
 const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
@@ -237,16 +140,6 @@ const normalizeHebrewProjectName = (value: unknown) =>
 
 const getProjectProfile = (projectName: unknown): ProjectProfile | undefined => {
   const normalized = normalizeHebrewProjectName(projectName);
-
-  if (typeof window !== 'undefined' && normalized) {
-    try {
-      const stored = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
-      const teams = normalizeProjectTeams(stored ? JSON.parse(stored) : {});
-      const team = teams[projectTeamStorageKeyForName(normalized)];
-      if (team && projectTeamComplete(team)) return profileFromProjectTeam(normalized, team);
-    } catch {}
-  }
-
   return PROJECT_PROFILES.find((profile) => {
     const profileName = normalizeHebrewProjectName(profile.projectName);
     return normalized === profileName || (normalized.includes('806') && normalized.includes('צלמון'));
@@ -261,9 +154,8 @@ const resolveResponsibleName = (responsible: unknown, projectName: unknown) => {
   if (role.includes('בקרת איכות') || role.includes('בקר איכות')) return profile.qualityControl;
   if (role.includes('מנהל עבודה')) return profile.workManager;
   if (role.includes('מודד')) return profile.surveyor;
-  if (role.includes('מפקח')) return profile.supervisor || profile.projectManager;
   if (role.includes('הבטחת איכות')) return profile.qaCompany;
-  if (role.includes('ניהול פרויקט') || role.includes('מנהל פרויקט') || role.includes('חברת ניהול')) return profile.projectManager;
+  if (role.includes('ניהול פרויקט') || role.includes('מנהל פרויקט')) return profile.projectManager;
 
   return '';
 };
@@ -538,8 +430,6 @@ const RESPONSIBLE_ROLE_OPTIONS = [
   'מנהל עבודה',
   'מודד',
   'הבטחת איכות',
-  'חברת ניהול',
-  'מפקח',
   'ניהול פרויקט',
 ];
 
@@ -717,139 +607,37 @@ function PasswordField({
   );
 }
 
-function SignatureField({
-  value,
-  onChange,
-}: {
-  value?: string;
-  onChange: (value: string) => void;
-}) {
+
+function SignaturePad({ value, onChange }: { value: string; onChange: (value: string) => void; }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext('2d');
-    if (!context) return;
-
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = '#0f172a';
-    context.lineWidth = 2;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-
-    if (!value) return;
-    const image = new Image();
-    image.onload = () => {
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#fff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      context.strokeStyle = '#0f172a';
-      context.lineWidth = 2;
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
-    };
-    image.src = value;
-  }, [value]);
-
-  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current!;
+  const point = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current; if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
-      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
-    };
+    if ('touches' in event) { const touch = event.touches[0] ?? event.changedTouches[0]; return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }; }
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
+  const begin = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => { event.preventDefault(); const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (!canvas || !ctx) return; const p = point(event); drawingRef.current = true; ctx.beginPath(); ctx.moveTo(p.x, p.y); };
+  const move = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => { if (!drawingRef.current) return; event.preventDefault(); const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (!canvas || !ctx) return; const p = point(event); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; ctx.lineTo(p.x, p.y); ctx.stroke(); };
+  const end = () => { const canvas = canvasRef.current; drawingRef.current = false; if (canvas) onChange(canvas.toDataURL('image/png')); };
+  const clear = () => { const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); onChange(''); };
+  const upload = (file: File) => { const reader = new FileReader(); reader.onload = () => onChange(String(reader.result ?? '')); reader.readAsDataURL(file); };
+  return <div style={{ display: 'grid', gap: 8 }}>
+    <canvas ref={canvasRef} width={260} height={92} onMouseDown={begin} onMouseMove={move} onMouseUp={end} onMouseLeave={end} onTouchStart={begin} onTouchMove={move} onTouchEnd={end} style={{ width: '100%', maxWidth: 280, height: 92, border: '1px dashed #94a3b8', borderRadius: 12, background: '#fff', touchAction: 'none', cursor: 'crosshair' }} />
+    {value ? <img src={value} alt="חתימה" style={{ maxWidth: 180, maxHeight: 54, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }} /> : <span style={{ color: '#64748b', fontSize: 12 }}>חתום כאן או העלה תמונת חתימה</span>}
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><label style={{ cursor: 'pointer', border: '1px solid #cbd5e1', borderRadius: 10, padding: '7px 10px', fontWeight: 900, background: '#fff' }}>העלה חתימה<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.currentTarget.value = ''; }} /></label><button type="button" onClick={clear} style={{ border: '1px solid #fecaca', color: '#b91c1c', background: '#fff', borderRadius: 10, padding: '7px 10px', fontWeight: 900, cursor: 'pointer' }}>נקה</button></div>
+  </div>;
+}
 
-  const saveCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    onChange(canvas.toDataURL('image/png'));
-  };
-
-  const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext('2d');
-    if (!canvas || !context) return;
-    drawingRef.current = true;
-    canvas.setPointerCapture(event.pointerId);
-    const point = getPoint(event);
-    context.beginPath();
-    context.moveTo(point.x, point.y);
-  };
-
-  const draw = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current) return;
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext('2d');
-    if (!canvas || !context) return;
-    const point = getPoint(event);
-    context.lineTo(point.x, point.y);
-    context.stroke();
-  };
-
-  const stopDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current) return;
-    drawingRef.current = false;
-    const canvas = canvasRef.current;
-    if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-    saveCanvas();
-  };
-
-  const clearSignature = () => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext('2d');
-    if (canvas && context) {
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#fff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    onChange('');
-  };
-
-  const uploadSignature = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => onChange(String(reader.result ?? ''));
-    reader.readAsDataURL(file);
-  };
-
-  return (
-    <div style={{ display: 'grid', gap: 6, minWidth: 230 }}>
-      <canvas
-        ref={canvasRef}
-        width={220}
-        height={74}
-        onPointerDown={startDrawing}
-        onPointerMove={draw}
-        onPointerUp={stopDrawing}
-        onPointerCancel={stopDrawing}
-        style={{ width: 220, height: 74, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, cursor: 'crosshair', touchAction: 'none' }}
-        title="חתום כאן עם העכבר או האצבע"
-      />
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <label style={{ border: '1px solid #cbd5e1', borderRadius: 9, padding: '6px 8px', cursor: 'pointer', fontWeight: 800, background: '#fff', fontSize: 12 }}>
-          העלה חתימה
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) uploadSignature(file);
-              event.currentTarget.value = '';
-            }}
-          />
-        </label>
-        <button type="button" onClick={clearSignature} style={{ border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 9, padding: '6px 8px', cursor: 'pointer', fontWeight: 900, fontSize: 12 }}>
-          נקה חתימה
-        </button>
-      </div>
-    </div>
-  );
+function ApprovalSignaturesPanel({ title, approval, onChange }: { title: string; approval: ApprovalFlow; onChange: (approval: ApprovalFlow) => void; }) {
+  const normalized = normalizeApproval(approval);
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '9px 10px', fontWeight: 800, background: '#fff' };
+  const updateSignature = (index: number, patch: Partial<ApprovalFlow['signatures'][number]>) => onChange({ ...normalized, signatures: normalized.signatures.map((signature, signatureIndex) => signatureIndex === index ? { ...signature, ...patch } : signature) });
+  return <div style={{ border: '1px solid #cbd5e1', background: '#f8fafc', borderRadius: 18, padding: 16, marginTop: 16 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}><div><div style={{ fontSize: 20, fontWeight: 950 }}>{title}</div><div style={{ color: '#64748b', marginTop: 4 }}>חתימות נשמרות בתוך הטופס ומופיעות בייצוא.</div></div><select value={normalized.status} onChange={(event) => onChange({ ...normalized, status: event.target.value as ApprovalFlow['status'] })} style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '9px 12px', fontWeight: 900, background: '#fff' }}><option value="draft">טיוטה</option><option value="approved">מאושר</option><option value="rejected">נדחה</option></select></div>
+    <div style={{ display: 'grid', gap: 12 }}>{normalized.signatures.map((signature, index) => <div key={`${signature.role}-${index}`} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff' }}><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, alignItems: 'start' }}><label style={{ fontWeight: 900 }}>תפקיד<input value={signature.role} readOnly style={{ ...inputStyle, marginTop: 6, background: '#f1f5f9' }} /></label><label style={{ fontWeight: 900 }}>שם החותם<input value={signature.signerName} onChange={(event) => updateSignature(index, { signerName: event.target.value })} style={{ ...inputStyle, marginTop: 6 }} /></label><label style={{ fontWeight: 900 }}>תאריך חתימה<input type="date" value={signature.signedAt} onChange={(event) => updateSignature(index, { signedAt: event.target.value })} style={{ ...inputStyle, marginTop: 6 }} /></label><div style={{ fontWeight: 900 }}>חתימה דיגיטלית<SignaturePad value={signature.signature} onChange={(value) => updateSignature(index, { signature: value, signedAt: signature.signedAt || new Date().toISOString().slice(0, 10) })} /></div></div></div>)}</div>
+    <label style={{ display: 'grid', gap: 6, marginTop: 12, fontWeight: 900 }}>הערות אישור<textarea value={normalized.remarks} onChange={(event) => onChange({ ...normalized, remarks: event.target.value })} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} /></label>
+  </div>;
 }
 
 function ProjectLoginScreen({
@@ -908,14 +696,12 @@ function UserAccessPanel({
   onAddUser,
   onRemoveUser,
   onResetDefaults,
-  onSaveUsers,
 }: {
   users: ProjectAccess[];
   onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
   onAddUser: () => void;
   onRemoveUser: (index: number) => void;
   onResetDefaults: () => void;
-  onSaveUsers: () => void;
 }) {
   return (
     <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
@@ -925,14 +711,13 @@ function UserAccessPanel({
           <div style={{ color: '#64748b', marginTop: 4 }}>מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט שהוגדר לו.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={onSaveUsers} style={{ ...styles.primaryBtn }}>אישור ושמירת משתמשים</button>
           <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>הוסף משתמש</button>
           <button type="button" onClick={onResetDefaults} style={{ ...styles.secondaryBtn }}>איפוס ברירת מחדל</button>
         </div>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1220 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
           <thead>
             <tr>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם לתצוגה</th>
@@ -941,7 +726,6 @@ function UserAccessPanel({
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>סוג הרשאה</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>קוד / קישור</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם פרויקט למשתמש רגיל</th>
-              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>חתימה דיגיטלית</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>פעולות</th>
             </tr>
           </thead>
@@ -973,9 +757,6 @@ function UserAccessPanel({
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 260 }}>
                     <input disabled={isAdmin} value={isAdmin ? 'כל הפרויקטים' : user.projectName ?? ''} onChange={(e) => onChangeUser(index, 'projectName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, background: isAdmin ? '#f1f5f9' : '#fff' }} />
                   </td>
-                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 240 }}>
-                    <SignatureField value={user.signatureDataUrl ?? ''} onChange={(value) => onChangeUser(index, 'signatureDataUrl', value)} />
-                  </td>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, textAlign: 'center' }}>
                     <button type="button" disabled={users.length <= 1 || isAdmin} onClick={() => onRemoveUser(index)} style={{ ...styles.dangerBtn, opacity: users.length <= 1 || isAdmin ? 0.45 : 1 }}>
                       מחיקה
@@ -987,51 +768,6 @@ function UserAccessPanel({
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function ProjectTeamPanel({
-  projectName,
-  team,
-  onChangeTeam,
-}: {
-  projectName: string;
-  team: ProjectTeam;
-  onChangeTeam: (field: keyof ProjectTeam, value: string) => void;
-}) {
-  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
-  const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
-  const fields: Array<[keyof ProjectTeam, string, string]> = [
-    ['qualityControl', 'שם בקרת איכות', ''],
-    ['workManager', 'שם מנהל עבודה', ''],
-    ['surveyor', 'שם מודד', ''],
-    ['managementCompany', 'שם חברת ניהול', ''],
-    ['supervisor', 'שם מפקח', ''],
-    ['qualityAssurance', 'שם הבטחת איכות', ''],
-  ];
-  const complete = projectTeamComplete(team);
-
-  return (
-    <div style={{ border: complete ? '1px solid #bbf7d0' : '1px solid #fecaca', background: complete ? '#f0fdf4' : '#fff7ed', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 950 }}>אנשי צוות והרשאות עבודה לפרויקט</div>
-          <div style={{ color: '#475569', marginTop: 4 }}>פרויקט: {projectName}. לפני מילוי רשימות תיוג, אי התאמות, קטעי ניסוי ובקרה מקדימה יש להשלים את כל בעלי התפקידים.</div>
-        </div>
-        <div style={{ borderRadius: 999, padding: '6px 10px', fontWeight: 950, background: complete ? '#dcfce7' : '#fee2e2', color: complete ? '#166534' : '#991b1b' }}>
-          {complete ? 'הושלם' : 'חסר מידע'}
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
-        {fields.map(([field, label, placeholder]) => (
-          <label key={field} style={labelStyle}>
-            {label}
-            <input value={team[field] ?? ''} onChange={(event) => onChangeTeam(field, event.target.value)} placeholder={placeholder} style={inputStyle} />
-          </label>
-        ))}
-      </div>
-      {!complete ? <div style={{ color: '#9a3412', fontWeight: 900, marginTop: 12 }}>יש להשלים את כל השדות כדי לפתוח ולמלא טפסים בפרויקט.</div> : null}
     </div>
   );
 }
@@ -1065,10 +801,7 @@ export default function Page() {
   const [authReady, setAuthReady] = useState(false);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
-  const [draftAccessUsers, setDraftAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [showUserManagement, setShowUserManagement] = useState(false);
-  const [showProjectTeamManagement, setShowProjectTeamManagement] = useState(false);
-  const [projectTeams, setProjectTeams] = useState<Record<string, ProjectTeam>>({});
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -1086,21 +819,15 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
-    setDraftAccessUsers(users);
-
-    try {
-      const storedTeams = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
-      setProjectTeams(normalizeProjectTeams(storedTeams ? JSON.parse(storedTeams) : {}));
-    } catch {
-      setProjectTeams({});
-    }
 
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
-    // אבטחה ונוחות עבודה: קישור לפרויקט רק ממלא את השדה.
-    // אין כניסה אוטומטית מפרויקט או ממשתמש שנשמר בעבר — תמיד נדרשת סיסמה.
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    setProjectAccess(null);
+    const savedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const savedAccess = savedUser ? findProjectAccessByCode(users, savedUser) : undefined;
+    if (savedAccess) {
+      setProjectAccess(savedAccess);
+      setLoginCode(savedAccess.username);
+    }
     setAuthReady(true);
   }, []);
 
@@ -1127,65 +854,50 @@ export default function Page() {
 
   const persistAccessUsers = (nextUsers: ProjectAccess[]) => {
     const normalized = normalizeProjectAccessList(nextUsers);
-    const currentIndex = projectAccess
-      ? accessUsers.findIndex((user) => user.username === projectAccess.username || user.code === projectAccess.code)
-      : -1;
-
     setAccessUsers(normalized);
-    setDraftAccessUsers(normalized);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
 
     if (projectAccess) {
-      const updatedCurrentUser =
-        (currentIndex >= 0 ? normalized[currentIndex] : undefined) ??
-        normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
-
-      if (updatedCurrentUser) {
-        setProjectAccess(updatedCurrentUser);
-        if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, updatedCurrentUser.username);
-      }
+      const updatedCurrentUser = normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
+      if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
     }
   };
 
   const updateAccessUser = (index: number, field: keyof ProjectAccess, value: string) => {
-    setDraftAccessUsers((prevUsers) => prevUsers.map((user, userIndex) => {
+    const nextUsers = accessUsers.map((user, userIndex) => {
       if (userIndex !== index) return user;
       const updated: ProjectAccess = { ...user, [field]: value } as ProjectAccess;
       if (field === 'role' && value === 'admin') updated.projectName = null;
       if (field === 'role' && value === 'user' && !updated.projectName) updated.projectName = projects[0]?.name ?? '';
       return updated;
-    }));
-  };
-
-  const saveAccessUsersChanges = () => {
-    persistAccessUsers(draftAccessUsers);
-    alert('פרטי המשתמשים נשמרו. המסך עודכן ללא יציאה מהמערכת.');
+    });
+    persistAccessUsers(nextUsers);
   };
 
   const addAccessUser = () => {
-    setDraftAccessUsers((prevUsers) => [
-      ...prevUsers,
+    persistAccessUsers([
+      ...accessUsers,
       {
-        username: `user${prevUsers.length + 1}`,
+        username: `user${accessUsers.length + 1}`,
         password: '1234',
-        displayName: `משתמש ${prevUsers.length + 1}`,
+        displayName: `משתמש ${accessUsers.length + 1}`,
         role: 'user',
-        code: String(prevUsers.length + 1),
+        code: String(accessUsers.length + 1),
         projectName: projects[0]?.name ?? '',
       },
     ]);
   };
 
   const removeAccessUser = (index: number) => {
-    const user = draftAccessUsers[index];
+    const user = accessUsers[index];
     if (!user || user.role === 'admin') return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
-    setDraftAccessUsers((prevUsers) => prevUsers.filter((_, userIndex) => userIndex !== index));
+    persistAccessUsers(accessUsers.filter((_, userIndex) => userIndex !== index));
   };
 
   const resetAccessUsersToDefaults = () => {
     if (!window.confirm('לאפס את רשימת המשתמשים לברירת המחדל?')) return;
-    setDraftAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
+    persistAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
   };
 
   const loadPersistedData = (raw: string | null) => {
@@ -1293,23 +1005,8 @@ export default function Page() {
   }, [loaded, projectAccess, projects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
-  const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name, projectTeams]);
+  const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name]);
   const projectName = !loaded ? 'טוען...' : currentProjectProfile?.projectName ?? currentProject?.name ?? 'לא נבחר פרויקט';
-  const currentProjectTeamKey = currentProject ? projectTeamStorageKeyForName(currentProject.name) : '';
-  const currentProjectTeam = currentProjectTeamKey ? (projectTeams[currentProjectTeamKey] ?? createEmptyProjectTeam()) : createEmptyProjectTeam();
-  const isCurrentProjectTeamComplete = projectTeamComplete(currentProjectTeam);
-  const updateCurrentProjectTeam = (field: keyof ProjectTeam, value: string) => {
-    if (!currentProjectTeamKey) return;
-    const nextTeams = {
-      ...projectTeams,
-      [currentProjectTeamKey]: {
-        ...currentProjectTeam,
-        [field]: value,
-      },
-    };
-    setProjectTeams(nextTeams);
-    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_TEAMS_STORAGE_KEY, JSON.stringify(nextTeams));
-  };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
   const getStoredChecklistSequence = (projectId: string) => {
@@ -1586,12 +1283,7 @@ export default function Page() {
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
-  const requiresProjectTeam = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
-  const guardedBody = !currentProject && section !== 'home' && section !== 'projects'
-    ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
-    : currentProject && requiresProjectTeam && !isCurrentProjectTeamComplete
-      ? <div style={styles.emptyBox}>יש להשלים תחילה את אנשי צוות הפרויקט: בקרת איכות, מנהל עבודה, מודד, חברת ניהול, מפקח והבטחת איכות.</div>
-      : null;
+  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [
     ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
@@ -1705,7 +1397,7 @@ export default function Page() {
 
   const signaturesTable = (approval: ApprovalFlow | undefined) => {
     const normalized = normalizeApproval(approval);
-    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
+    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${String(sig.signature ?? '').startsWith('data:image') ? `<img src="${safeText(sig.signature)}" style="max-width:120px;max-height:46px" />` : valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${valueOrBlank(normalized.remarks)}</td></tr>`).join('')}</tbody></table>`;
   };
 
   const checklistExportHtml = (forcedChecklistNo?: number) => {
@@ -2010,7 +1702,6 @@ export default function Page() {
               {!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {currentProject ? <button type="button" onClick={() => setShowProjectTeamManagement((prev) => !prev)} style={{ border: '1px solid #cbd5e1', background: showProjectTeamManagement ? '#0f172a' : '#fff', color: showProjectTeamManagement ? '#fff' : '#0f172a', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>אנשי צוות פרויקט</button> : null}
               {isAdminAccess(projectAccess) ? <button type="button" onClick={() => setShowUserManagement((prev) => !prev)} style={{ border: '1px solid #cbd5e1', background: showUserManagement ? '#0f172a' : '#fff', color: showUserManagement ? '#fff' : '#0f172a', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>ניהול משתמשים</button> : null}
               <button type="button" onClick={logoutProject} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>יציאה</button>
             </div>
@@ -2020,20 +1711,11 @@ export default function Page() {
 
       {isAdminAccess(projectAccess) && showUserManagement ? (
         <UserAccessPanel
-          users={draftAccessUsers}
+          users={accessUsers}
           onChangeUser={updateAccessUser}
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
           onResetDefaults={resetAccessUsersToDefaults}
-          onSaveUsers={saveAccessUsersChanges}
-        />
-      ) : null}
-
-      {currentProject && (showProjectTeamManagement || !isCurrentProjectTeamComplete) ? (
-        <ProjectTeamPanel
-          projectName={projectName}
-          team={currentProjectTeam}
-          onChangeTeam={updateCurrentProjectTeam}
         />
       ) : null}
 
@@ -2053,11 +1735,12 @@ export default function Page() {
           {section === 'checklists' && (
             <>
               <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} />
+              {!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לרשימת תיוג" approval={checklistForm.approval} onChange={(approval) => setChecklistForm((prev: any) => ({ ...prev, approval }))} />}
             </>
           )}
-          {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
-          {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
-          {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
+          {section === 'nonconformances' && <><NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />{!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לאי התאמה" approval={nonconformanceForm.approval} onChange={(approval) => setNonconformanceForm((prev: any) => ({ ...prev, approval }))} />}</>}
+          {section === 'trialSections' && <><TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />{!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לקטע ניסוי" approval={trialSectionForm.approval} onChange={(approval) => setTrialSectionForm((prev: any) => ({ ...prev, approval }))} />}</>}
+          {section === 'preliminary' && <><PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />{!guardedBody && preliminaryTab === 'suppliers' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור ספקים" approval={supplierPreliminaryForm.approval} onChange={(approval) => setSupplierPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}{!guardedBody && preliminaryTab === 'subcontractors' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור קבלנים" approval={subcontractorPreliminaryForm.approval} onChange={(approval) => setSubcontractorPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}{!guardedBody && preliminaryTab === 'materials' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור חומרים" approval={materialPreliminaryForm.approval} onChange={(approval) => setMaterialPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}</>}
           {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} />}
         </main>
 
