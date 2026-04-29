@@ -82,6 +82,14 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     code: '909',
     projectName: 'שם הפרויקט כפי שמופיע במערכת',
   },
+  {
+    username: 'user784',
+    password: '784',
+    displayName: 'משתמש פרויקט 784',
+    role: 'user',
+    code: '784',
+    projectName: 'ריכוזים 784',
+  },
 ];
 
 const normalizeAccessValue = (value: unknown) =>
@@ -99,10 +107,19 @@ const accessLoginMatches = (access: ProjectAccess, value: string) => {
 const findProjectAccessByCode = (users: ProjectAccess[], value: string) =>
   users.find((access) => accessLoginMatches(access, value));
 
-const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: string, password: string) =>
-  users.find(
-    (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
-  );
+const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: string, password: string) => {
+  const loginValue = normalizeAccessValue(usernameOrCode);
+  const passwordValue = String(password ?? '').trim();
+
+  return users.find((access) => {
+    const usernameMatch = normalizeAccessValue(access.username) === loginValue;
+    const codeMatch = normalizeAccessValue(access.code) === loginValue;
+    const displayNameMatch = normalizeAccessValue(access.displayName) === loginValue;
+    const passwordMatch = String(access.password ?? '').trim() === passwordValue;
+
+    return (usernameMatch || codeMatch || displayNameMatch) && passwordMatch;
+  });
+};
 
 const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
