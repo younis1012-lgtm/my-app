@@ -82,14 +82,6 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     code: '909',
     projectName: 'שם הפרויקט כפי שמופיע במערכת',
   },
-  {
-    username: 'user784',
-    password: '784',
-    displayName: 'משתמש פרויקט 784',
-    role: 'user',
-    code: '784',
-    projectName: 'ריכוזים 784',
-  },
 ];
 
 const normalizeAccessValue = (value: unknown) =>
@@ -107,19 +99,10 @@ const accessLoginMatches = (access: ProjectAccess, value: string) => {
 const findProjectAccessByCode = (users: ProjectAccess[], value: string) =>
   users.find((access) => accessLoginMatches(access, value));
 
-const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: string, password: string) => {
-  const loginValue = normalizeAccessValue(usernameOrCode);
-  const passwordValue = String(password ?? '').trim();
-
-  return users.find((access) => {
-    const usernameMatch = normalizeAccessValue(access.username) === loginValue;
-    const codeMatch = normalizeAccessValue(access.code) === loginValue;
-    const displayNameMatch = normalizeAccessValue(access.displayName) === loginValue;
-    const passwordMatch = String(access.password ?? '').trim() === passwordValue;
-
-    return (usernameMatch || codeMatch || displayNameMatch) && passwordMatch;
-  });
-};
+const findProjectAccessByCredentials = (users: ProjectAccess[], usernameOrCode: string, password: string) =>
+  users.find(
+    (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
+  );
 
 const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
@@ -806,12 +789,11 @@ export default function Page() {
 
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
-    const savedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    const savedAccess = savedUser ? findProjectAccessByCode(users, savedUser) : undefined;
-    if (savedAccess) {
-      setProjectAccess(savedAccess);
-      setLoginCode(savedAccess.username);
-    }
+    // לא מתחברים אוטומטית ממשתמש קודם.
+    // גם אם נשלח קישור כמו ?project=784 — הוא רק ממלא את השדה,
+    // והמשתמש עדיין חייב להקליד סיסמה וללחוץ כניסה.
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    setProjectAccess(null);
     setAuthReady(true);
   }, []);
 
@@ -824,7 +806,8 @@ export default function Page() {
     }
     setLoginError('');
     setProjectAccess(access);
-    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.username);
+    // לא שומרים התחברות אוטומטית, כדי שבכל פתיחת קישור יופיע מסך כניסה.
+    if (typeof window !== 'undefined') window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setSection('home');
   };
 
