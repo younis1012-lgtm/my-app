@@ -4,12 +4,21 @@ import { useMemo, useState } from "react";
 import JSZip from "jszip";
 import type { LabCertificateResults } from "../lib/labCertificateParser";
 
+type ProjectConcentrationMeta = {
+  projectName?: string;
+  projectManager?: string;
+  contractor?: string;
+  qualityAssurance?: string;
+  qualityControl?: string;
+};
+
 type Props = {
   savedChecklists?: any[];
   savedNonconformances?: any[];
   savedTrialSections?: any[];
   savedPreliminary?: any[];
   currentProjectName?: string;
+  projectMeta?: ProjectConcentrationMeta;
 };
 
 type SourceType = "checklists" | "nonconformances" | "trialSections" | "preliminary";
@@ -85,6 +94,46 @@ const extractCertificateNo = (name: unknown) => {
 };
 
 const getTemplateUrl = (fileName: string) => `/concentrations/${encodeURIComponent(fileName)}`;
+const STORAGE_KEY = "yk-quality-stage4-multifile";
+const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
+
+const normalizeProjectKey = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[׳`’']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildProjectConcentrationMeta = (currentProjectName: string, projectMeta?: ProjectConcentrationMeta): Required<ProjectConcentrationMeta> => {
+  const name = String(projectMeta?.projectName || currentProjectName || "").trim();
+  const metaFromProps: Required<ProjectConcentrationMeta> = {
+    projectName: name,
+    projectManager: String(projectMeta?.projectManager ?? "").trim(),
+    contractor: String(projectMeta?.contractor ?? "").trim(),
+    qualityAssurance: String(projectMeta?.qualityAssurance ?? "").trim(),
+    qualityControl: String(projectMeta?.qualityControl ?? "").trim(),
+  };
+
+  if (typeof window === "undefined") return metaFromProps;
+
+  try {
+    const raw = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
+    const teams = raw ? JSON.parse(raw) : {};
+    const key = normalizeProjectKey(name);
+    const team = teams?.[key];
+    if (!team || typeof team !== "object") return metaFromProps;
+
+    return {
+      projectName: name,
+      projectManager: String(projectMeta?.projectManager || team.managementCompany || "").trim(),
+      contractor: String(projectMeta?.contractor || "").trim(),
+      qualityAssurance: String(projectMeta?.qualityAssurance || team.qualityAssurance || "").trim(),
+      qualityControl: String(projectMeta?.qualityControl || team.qualityControl || "").trim(),
+    };
+  } catch {
+    return metaFromProps;
+  }
+};
+
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -286,10 +335,10 @@ const evaluateSubbaseA = (v: SubbaseAValues) => {
 const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
   H2: " דו\"ח ריכוז בדיקות  איפיון למצע סוג א' ",
   H4: "שם פרויקט:",
-  H5: "ניהול פרויקט",
-  H6: "שם הקבלן",
-  H7: "קונטרולינג פריים בע\"מ",
-  L7: "הבטחת איכות -א.ו.ג.ן. בע\"מ",
+  H5: "ניהול פרויקט:",
+  H6: "שם הקבלן:",
+  H7: "בקרת איכות:",
+  L7: "הבטחת איכות:",
   A10: "מס' סדורי",
   B10: "ביצוע ע\"י ",
   C10: "מס' ר.ת.",
@@ -344,21 +393,23 @@ const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
   P14: 5,
 };
 
-const buildSubbaseARow15 = (row: ConcentrationRow | undefined, currentProjectName: string): Record<string, string | number> => {
+const buildSubbaseARow15 = (row: ConcentrationRow | undefined, projectMeta: Required<ProjectConcentrationMeta>): Record<string, string | number> => {
   const values = row ? parseSubbaseAValues(row) : {};
   const certificateNo = row?.certificateNo || "24403";
   const result = evaluateSubbaseA(values);
   return {
-    J4: currentProjectName || row?.title || "כביש 806 צלמון שלב א׳",
-    J5: "א.ו.ג.ן. מהנדסים בע\"מ",
-    J6: row?.contractor || "מפלסי הגליל סלילה עפר ופיתוח בע\"מ",
+    J4: projectMeta.projectName || row?.title || "",
+    J5: projectMeta.projectManager || "",
+    J6: projectMeta.contractor || row?.contractor || "",
+    J7: projectMeta.qualityControl || "",
+    M7: projectMeta.qualityAssurance || "",
     A15: 1,
     B15: row?.inspector || row?.responsible || "QC",
     C15: row?.checklistNo || 1,
     D15: row?.executionDate || row?.date || "",
     E15: row?.notes || "גולני",
     F15: row?.location || "מערום בשטח",
-    G15: currentProjectName || row?.itemDescription || "כביש 806 צלמון שלב א׳",
+    G15: projectMeta.projectName || row?.itemDescription || "",
     H15: "",
     I15: "",
 J15: String(valueOrDefault(values.sieve3, "")),
@@ -438,8 +489,91 @@ const setCell = (doc: Document, sheetData: Element, cellRef: string, value: stri
   }
 };
 
-const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow | undefined, currentProjectName: string) => {
+const columnLetters = (index: number) => {
+  let n = index;
+  let letters = "";
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - mod) / 26);
+  }
+  return letters;
+};
+
+const nextCellRef = (cellRef: string) => `${columnLetters(cellColumnIndex(cellRef) + 1)}${cellRowIndex(cellRef)}`;
+
+const readSharedStrings = async (zip: JSZip) => {
+  const file = zip.file("xl/sharedStrings.xml");
+  if (!file) return [] as string[];
+  const xml = await file.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return Array.from(doc.getElementsByTagNameNS(excelNs, "si")).map((si) =>
+    Array.from(si.getElementsByTagNameNS(excelNs, "t")).map((t) => t.textContent ?? "").join("")
+  );
+};
+
+const cellText = (cell: Element, sharedStrings: string[]) => {
+  const type = cell.getAttribute("t");
+  if (type === "s") {
+    const index = Number(cell.getElementsByTagNameNS(excelNs, "v")[0]?.textContent ?? -1);
+    return sharedStrings[index] ?? "";
+  }
+  if (type === "inlineStr") {
+    return Array.from(cell.getElementsByTagNameNS(excelNs, "t")).map((t) => t.textContent ?? "").join("");
+  }
+  return cell.getElementsByTagNameNS(excelNs, "v")[0]?.textContent ?? "";
+};
+
+const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
+  const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
+    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["A4", "B4"]] },
+    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["A5", "B5"]] },
+    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["A6", "B6"]] },
+    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["L7", "M7"], ["A7", "B7"]] },
+    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H7", "J7"], ["A8", "B8"]] },
+  ];
+
+  const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
+  items.forEach((item) => {
+    let filled = false;
+    allCells.forEach((cell) => {
+      const ref = cell.getAttribute("r") ?? "";
+      const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
+      if (!ref || !text || !text.includes(normalize(item.label))) return;
+      setCell(doc, sheetData, ref, `${item.label}:`);
+      setCell(doc, sheetData, nextCellRef(ref), item.value);
+      filled = true;
+    });
+
+    item.fallbacks.forEach(([labelCell, valueCell], index) => {
+      if (index > 0 && filled) return;
+      setCell(doc, sheetData, labelCell, `${item.label}:`);
+      setCell(doc, sheetData, valueCell, item.value);
+    });
+  });
+};
+
+const patchWorkbookProjectHeader = async (buffer: ArrayBuffer, meta: Required<ProjectConcentrationMeta>) => {
   const zip = await JSZip.loadAsync(buffer);
+  const sharedStrings = await readSharedStrings(zip);
+  const worksheetPaths = Object.keys(zip.files).filter((path) => /^xl\/worksheets\/sheet\d+\.xml$/.test(path));
+
+  for (const sheetPath of worksheetPaths) {
+    const worksheetFile = zip.file(sheetPath);
+    if (!worksheetFile) continue;
+    const xml = await worksheetFile.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+    if (!sheetData) continue;
+    applyProjectHeaderCells(doc, sheetData, sharedStrings, meta);
+    zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  }
+
+  return zip;
+};
+
+const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow | undefined, projectMeta: Required<ProjectConcentrationMeta>) => {
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
   const sheetPath = "xl/worksheets/sheet1.xml";
   const worksheetFile = zip.file(sheetPath);
   if (!worksheetFile) throw new Error("לא נמצא sheet1.xml בתוך קובץ מצע א׳");
@@ -449,10 +583,16 @@ const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow 
   if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
 
   Object.entries(SUBBASE_A_FIXED_CELLS).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
-  Object.entries(buildSubbaseARow15(row, currentProjectName)).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
+  applyProjectHeaderCells(doc, sheetData, [], projectMeta);
+  Object.entries(buildSubbaseARow15(row, projectMeta)).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
 
   const serialized = new XMLSerializer().serializeToString(doc);
   zip.file(sheetPath, serialized);
+  return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+
+const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<ProjectConcentrationMeta>) => {
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
   return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
@@ -462,9 +602,15 @@ export function ConcentrationsSection({
   savedTrialSections = [],
   savedPreliminary = [],
   currentProjectName = "",
+  projectMeta,
 }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const resolvedProjectMeta = useMemo(
+    () => buildProjectConcentrationMeta(currentProjectName, projectMeta),
+    [currentProjectName, projectMeta]
+  );
 
   const rowsByTemplate = useMemo(() => {
     const map: Record<string, ConcentrationRow[]> = {};
@@ -482,13 +628,22 @@ export function ConcentrationsSection({
     return templates.filter((template) => !q || normalize(`${template.title} ${template.description} ${template.fileName}`).includes(q));
   }, [search]);
 
-  const downloadEmptyTemplate = (template: ConcentrationTemplate) => {
-    const a = document.createElement("a");
-    a.href = getTemplateUrl(template.fileName);
-    a.download = template.fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const downloadEmptyTemplate = async (template: ConcentrationTemplate) => {
+    setBusyId(`empty-${template.id}`);
+    try {
+      const response = await fetch(getTemplateUrl(template.fileName));
+      if (!response.ok) throw new Error(`לא נמצא קובץ תבנית: ${template.fileName}`);
+      const buffer = await response.arrayBuffer();
+      const blob = template.mode === "subbaseA"
+        ? await patchSubbaseAWorkbook(buffer, undefined, resolvedProjectMeta)
+        : await patchGenericWorkbook(buffer, resolvedProjectMeta);
+      downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - תבנית עם פרטי פרויקט.xlsx"));
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "אירעה שגיאה בהורדת התבנית");
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const downloadAutomatic = async (template: ConcentrationTemplate) => {
@@ -501,12 +656,13 @@ export function ConcentrationsSection({
 
       if (template.mode === "subbaseA") {
         const preferred = rows.find((r) => r.certificateNo === "24403") ?? rows.find((r) => r.checklistNo === "1") ?? rows[0];
-        const blob = await patchSubbaseAWorkbook(buffer, preferred, currentProjectName);
+        const blob = await patchSubbaseAWorkbook(buffer, preferred, resolvedProjectMeta);
         downloadBlob(blob, "subbase-a - ריכוז אוטומטי.xlsx");
         return;
       }
 
-      downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), template.fileName);
+      const blob = await patchGenericWorkbook(buffer, resolvedProjectMeta);
+      downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - ריכוז אוטומטי.xlsx"));
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "אירעה שגיאה בהפקת הריכוז");
@@ -523,7 +679,7 @@ export function ConcentrationsSection({
           <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
             ריכוז מצע א׳ נבנה מתבנית המקור: שורות 10-14 נשמרות עם אותה חלוקה, אותם צבעים ודרישות מפרט קבועות. שורה 15 מתמלאת מתעודה 24403 / רשימת תיוג מס׳ 1.
           </div>
-          {currentProjectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {currentProjectName}</div> : null}
+          {resolvedProjectMeta.projectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {resolvedProjectMeta.projectName}</div> : null}
         </div>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="חיפוש ריכוז..." style={{ width: 260, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 700 }} />
       </div>
@@ -553,8 +709,8 @@ export function ConcentrationsSection({
                 <button type="button" disabled={busyId === template.id} onClick={() => downloadAutomatic(template)} style={{ border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: busyId === template.id ? "wait" : "pointer" }}>
                   {busyId === template.id ? "מפיק ריכוז..." : "הורד ריכוז אוטומטי Excel"}
                 </button>
-                <button type="button" onClick={() => downloadEmptyTemplate(template)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}>
-                  הורד תבנית ריקה מקורית
+                <button type="button" disabled={busyId === `empty-${template.id}`} onClick={() => downloadEmptyTemplate(template)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: busyId === `empty-${template.id}` ? "wait" : "pointer" }}>
+                  {busyId === `empty-${template.id}` ? "מכין תבנית..." : "הורד תבנית עם פרטי פרויקט"}
                 </button>
                 <div style={{ fontSize: 12, color: "#64748b", direction: "ltr", textAlign: "right" }}>{template.fileName}</div>
               </div>
