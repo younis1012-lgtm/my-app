@@ -900,14 +900,15 @@ export default function Page() {
     }
     setAccessUsers(users);
 
+    // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
+    // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    setProjectAccess(null);
+    setLoginPassword('');
+    setLoginError('');
+
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
-    const savedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    const savedAccess = savedUser ? findProjectAccessByCode(users, savedUser) : undefined;
-    if (savedAccess) {
-      setProjectAccess(savedAccess);
-      setLoginCode(savedAccess.username);
-    }
     setAuthReady(true);
   }, []);
 
@@ -920,7 +921,7 @@ export default function Page() {
     }
     setLoginError('');
     setProjectAccess(access);
-    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.username);
+    // לא שומרים התחברות ב-localStorage כדי שבפתיחה הבאה יידרשו שם משתמש וסיסמה מחדש.
     setSection('home');
   };
 
