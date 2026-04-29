@@ -42,22 +42,46 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
-const AUTH_STORAGE_KEY = `${STORAGE_KEY}-project-access-code`;
+const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 
 type ProjectAccess = {
-  code: string;
+  username: string;
   password: string;
-  projectName: string;
+  displayName: string;
+  role: 'admin' | 'user';
+  code?: string;
+  projectName?: string | null;
 };
 
-// כאן מגדירים הרשאות כניסה לפי קוד פרויקט + סיסמה.
-// אפשר להוסיף פרויקטים נוספים בהמשך באותה צורה.
+// כאן מגדירים משתמשים והרשאות.
+// מנהל מערכת רואה את כל הפרויקטים.
+// משתמש רגיל רואה רק את הפרויקט שהוגדר לו.
 const PROJECT_ACCESS_LIST: ProjectAccess[] = [
   {
-    code: '806',
+    username: 'admin',
+    password: 'admin123',
+    displayName: 'מנהל מערכת',
+    role: 'admin',
+    code: 'admin',
+    projectName: null,
+  },
+  {
+    username: 'user806',
     password: '806',
+    displayName: 'משתמש פרויקט 806',
+    role: 'user',
+    code: '806',
     projectName: 'כביש 806 צלמון שלב א׳',
   },
+  // דוגמה להוספת משתמש לפרויקט נוסף:
+  // {
+  //   username: 'user909',
+  //   password: '909',
+  //   displayName: 'משתמש פרויקט 909',
+  //   role: 'user',
+  //   code: '909',
+  //   projectName: 'שם הפרויקט כפי שמופיע במערכת',
+  // },
 ];
 
 const normalizeAccessValue = (value: unknown) =>
@@ -67,21 +91,28 @@ const normalizeAccessValue = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-const findProjectAccessByCode = (code: string) =>
-  PROJECT_ACCESS_LIST.find((access) => normalizeAccessValue(access.code) === normalizeAccessValue(code));
+const accessLoginMatches = (access: ProjectAccess, value: string) => {
+  const normalized = normalizeAccessValue(value);
+  return normalizeAccessValue(access.username) === normalized || normalizeAccessValue(access.code) === normalized;
+};
 
-const findProjectAccessByCredentials = (code: string, password: string) =>
+const findProjectAccessByCode = (value: string) =>
+  PROJECT_ACCESS_LIST.find((access) => accessLoginMatches(access, value));
+
+const findProjectAccessByCredentials = (usernameOrCode: string, password: string) =>
   PROJECT_ACCESS_LIST.find(
-    (access) =>
-      normalizeAccessValue(access.code) === normalizeAccessValue(code) &&
-      String(access.password) === String(password)
+    (access) => accessLoginMatches(access, usernameOrCode) && String(access.password) === String(password)
   );
 
+const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
+
 const projectMatchesAccess = (project: Project, access: ProjectAccess | null) => {
-  if (!access) return true;
+  if (!access) return false;
+  if (isAdminAccess(access)) return true;
   const projectName = normalizeHebrewProjectName(project.name);
-  const allowedName = normalizeHebrewProjectName(access.projectName);
-  return projectName === allowedName || (allowedName.includes('806') && projectName.includes('806'));
+  const allowedName = normalizeHebrewProjectName(access.projectName ?? '');
+  if (!allowedName) return false;
+  return projectName === allowedName || (!!access.code && projectName.includes(access.code));
 };
 
 const normalizeHebrewProjectName = (value: unknown) =>
@@ -525,17 +556,17 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 
 
 function ProjectLoginScreen({
-  code,
+  username,
   password,
   error,
-  onCodeChange,
+  onUsernameChange,
   onPasswordChange,
   onSubmit,
 }: {
-  code: string;
+  username: string;
   password: string;
   error: string;
-  onCodeChange: (value: string) => void;
+  onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }) {
@@ -544,15 +575,15 @@ function ProjectLoginScreen({
       <form onSubmit={onSubmit} style={{ width: 'min(460px, 96vw)', background: '#fff', borderRadius: 22, padding: 24, boxShadow: '0 22px 70px rgba(15, 23, 42, 0.14)', border: '1px solid #e2e8f0' }}>
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <div style={{ fontSize: 28, fontWeight: 950, color: '#0f172a' }}>Y.K QUALITY</div>
-          <div style={{ color: '#475569', marginTop: 6, fontWeight: 700 }}>כניסה לפי קוד פרויקט וסיסמה</div>
+          <div style={{ color: '#475569', marginTop: 6, fontWeight: 700 }}>כניסה לפי שם משתמש וסיסמה</div>
         </div>
 
         <label style={{ display: 'grid', gap: 7, marginBottom: 14, fontWeight: 900 }}>
-          קוד פרויקט
+          שם משתמש / קוד פרויקט
           <input
-            value={code}
-            onChange={(event) => onCodeChange(event.target.value)}
-            placeholder="לדוגמה: 806"
+            value={username}
+            onChange={(event) => onUsernameChange(event.target.value)}
+            placeholder="לדוגמה: admin או 806"
             autoFocus
             style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
           />
@@ -564,7 +595,7 @@ function ProjectLoginScreen({
             value={password}
             onChange={(event) => onPasswordChange(event.target.value)}
             type="password"
-            placeholder="סיסמת פרויקט"
+            placeholder="סיסמה"
             style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
           />
         </label>
@@ -613,11 +644,15 @@ export default function Page() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const savedCode = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    const savedAccess = savedCode ? findProjectAccessByCode(savedCode) : undefined;
+    const params = new URLSearchParams(window.location.search);
+    const projectCodeFromLink = params.get('project');
+    if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
+
+    const savedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const savedAccess = savedUser ? findProjectAccessByCode(savedUser) : undefined;
     if (savedAccess) {
       setProjectAccess(savedAccess);
-      setLoginCode(savedAccess.code);
+      setLoginCode(savedAccess.username);
     }
     setAuthReady(true);
   }, []);
@@ -626,12 +661,12 @@ export default function Page() {
     event.preventDefault();
     const access = findProjectAccessByCredentials(loginCode, loginPassword);
     if (!access) {
-      setLoginError('קוד פרויקט או סיסמה אינם נכונים');
+      setLoginError('שם משתמש או סיסמה אינם נכונים');
       return;
     }
     setLoginError('');
     setProjectAccess(access);
-    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.code);
+    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.username);
     setSection('home');
   };
 
@@ -734,12 +769,12 @@ export default function Page() {
   };
 
   const accessibleProjects = useMemo(
-    () => projects.filter((project) => projectMatchesAccess(project, projectAccess)),
+    () => (projectAccess ? projects.filter((project) => projectMatchesAccess(project, projectAccess)) : []),
     [projects, projectAccess]
   );
 
   useEffect(() => {
-    if (!loaded || !projectAccess) return;
+    if (!loaded || !projectAccess || isAdminAccess(projectAccess)) return;
     const allowedProject = projects.find((project) => projectMatchesAccess(project, projectAccess));
     if (allowedProject && currentProjectId !== allowedProject.id) {
       setCurrentProjectId(allowedProject.id);
@@ -847,7 +882,7 @@ export default function Page() {
   };
 
   const addProject = async () => {
-    if (projectAccess) return alert('אין הרשאה להוסיף פרויקטים במשתמש פרויקט');
+    if (!isAdminAccess(projectAccess)) return alert('אין הרשאה להוסיף פרויקטים במשתמש פרויקט');
     if (!newProjectName.trim()) return alert('יש להזין שם פרויקט');
     const id = crypto.randomUUID();
     const project: Project = { id, name: newProjectName.trim(), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
@@ -1028,7 +1063,7 @@ export default function Page() {
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [
-    ...(projectAccess ? [] : [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }]),
+    ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
     { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length },
     { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length },
@@ -1410,9 +1445,9 @@ export default function Page() {
   };
 
   const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
-  const navItems: Array<[AppSection, string]> = projectAccess
-    ? [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
-    : [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+  const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
+    ? [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
 
   if (!authReady) {
     return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
@@ -1421,10 +1456,10 @@ export default function Page() {
   if (!projectAccess) {
     return (
       <ProjectLoginScreen
-        code={loginCode}
+        username={loginCode}
         password={loginPassword}
         error={loginError}
-        onCodeChange={setLoginCode}
+        onUsernameChange={setLoginCode}
         onPasswordChange={setLoginPassword}
         onSubmit={handleProjectLogin}
       />
@@ -1440,7 +1475,7 @@ export default function Page() {
             <div>
               <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
               <div>{projectName}</div>
-              <div style={{ color: '#64748b', marginTop: 4, fontSize: 13 }}>קוד פרויקט: {projectAccess.code}</div>
+              <div style={{ color: '#64748b', marginTop: 4, fontSize: 13 }}>משתמש: {projectAccess.displayName} · הרשאה: {isAdminAccess(projectAccess) ? 'מנהל מערכת' : `פרויקט ${projectAccess.code ?? ''}`}</div>
               {isSaving && <div style={{ color: '#475569', marginTop: 6 }}>שומר נתונים...</div>}
               {!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}
             </div>
@@ -1461,7 +1496,7 @@ export default function Page() {
             </div>
           )}
           {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
-          {section === 'projects' && !projectAccess && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
+          {section === 'projects' && isAdminAccess(projectAccess) && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
               <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} />
