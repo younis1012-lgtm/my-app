@@ -771,12 +771,14 @@ function UserAccessPanel({
   onAddUser,
   onRemoveUser,
   onResetDefaults,
+  onSaveUsers,
 }: {
   users: ProjectAccess[];
   onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
   onAddUser: () => void;
   onRemoveUser: (index: number) => void;
   onResetDefaults: () => void;
+  onSaveUsers: () => void;
 }) {
   return (
     <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
@@ -786,6 +788,7 @@ function UserAccessPanel({
           <div style={{ color: '#64748b', marginTop: 4 }}>מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט שהוגדר לו.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onSaveUsers} style={{ ...styles.primaryBtn }}>אישור ושמירת משתמשים</button>
           <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>הוסף משתמש</button>
           <button type="button" onClick={onResetDefaults} style={{ ...styles.secondaryBtn }}>איפוס ברירת מחדל</button>
         </div>
@@ -921,6 +924,7 @@ export default function Page() {
   const [authReady, setAuthReady] = useState(false);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
+  const [draftAccessUsers, setDraftAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [showProjectTeamManagement, setShowProjectTeamManagement] = useState(false);
   const [projectTeams, setProjectTeams] = useState<Record<string, ProjectTeam>>({});
@@ -941,6 +945,7 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
+    setDraftAccessUsers(users);
 
     try {
       const storedTeams = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
@@ -981,50 +986,65 @@ export default function Page() {
 
   const persistAccessUsers = (nextUsers: ProjectAccess[]) => {
     const normalized = normalizeProjectAccessList(nextUsers);
+    const currentIndex = projectAccess
+      ? accessUsers.findIndex((user) => user.username === projectAccess.username || user.code === projectAccess.code)
+      : -1;
+
     setAccessUsers(normalized);
+    setDraftAccessUsers(normalized);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
 
     if (projectAccess) {
-      const updatedCurrentUser = normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
-      if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
+      const updatedCurrentUser =
+        (currentIndex >= 0 ? normalized[currentIndex] : undefined) ??
+        normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
+
+      if (updatedCurrentUser) {
+        setProjectAccess(updatedCurrentUser);
+        if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, updatedCurrentUser.username);
+      }
     }
   };
 
   const updateAccessUser = (index: number, field: keyof ProjectAccess, value: string) => {
-    const nextUsers = accessUsers.map((user, userIndex) => {
+    setDraftAccessUsers((prevUsers) => prevUsers.map((user, userIndex) => {
       if (userIndex !== index) return user;
       const updated: ProjectAccess = { ...user, [field]: value } as ProjectAccess;
       if (field === 'role' && value === 'admin') updated.projectName = null;
       if (field === 'role' && value === 'user' && !updated.projectName) updated.projectName = projects[0]?.name ?? '';
       return updated;
-    });
-    persistAccessUsers(nextUsers);
+    }));
+  };
+
+  const saveAccessUsersChanges = () => {
+    persistAccessUsers(draftAccessUsers);
+    alert('פרטי המשתמשים נשמרו. המסך עודכן ללא יציאה מהמערכת.');
   };
 
   const addAccessUser = () => {
-    persistAccessUsers([
-      ...accessUsers,
+    setDraftAccessUsers((prevUsers) => [
+      ...prevUsers,
       {
-        username: `user${accessUsers.length + 1}`,
+        username: `user${prevUsers.length + 1}`,
         password: '1234',
-        displayName: `משתמש ${accessUsers.length + 1}`,
+        displayName: `משתמש ${prevUsers.length + 1}`,
         role: 'user',
-        code: String(accessUsers.length + 1),
+        code: String(prevUsers.length + 1),
         projectName: projects[0]?.name ?? '',
       },
     ]);
   };
 
   const removeAccessUser = (index: number) => {
-    const user = accessUsers[index];
+    const user = draftAccessUsers[index];
     if (!user || user.role === 'admin') return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
-    persistAccessUsers(accessUsers.filter((_, userIndex) => userIndex !== index));
+    setDraftAccessUsers((prevUsers) => prevUsers.filter((_, userIndex) => userIndex !== index));
   };
 
   const resetAccessUsersToDefaults = () => {
     if (!window.confirm('לאפס את רשימת המשתמשים לברירת המחדל?')) return;
-    persistAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
+    setDraftAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
   };
 
   const loadPersistedData = (raw: string | null) => {
@@ -1859,11 +1879,12 @@ export default function Page() {
 
       {isAdminAccess(projectAccess) && showUserManagement ? (
         <UserAccessPanel
-          users={accessUsers}
+          users={draftAccessUsers}
           onChangeUser={updateAccessUser}
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
           onResetDefaults={resetAccessUsersToDefaults}
+          onSaveUsers={saveAccessUsersChanges}
         />
       ) : null}
 
