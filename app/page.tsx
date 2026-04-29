@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ApprovalFlow, ChecklistItem, ChecklistRecord, ChecklistTemplateKey, NonconformanceRecord, PreliminaryRecord, PreliminaryTab, Project, Section, TrialSectionRecord, PersistedData } from './types';
 import { buildChecklistItemsFromTemplate, checklistTemplates, defaultProjects, normalizeChecklistTemplateKey } from './checklistTemplates';
 import { styles } from './components/common';
@@ -52,6 +52,8 @@ type ProjectAccess = {
   role: 'admin' | 'user';
   code?: string;
   projectName?: string | null;
+  signatureDataUrl?: string;
+  signatureFileName?: string;
 };
 
 // כאן מגדירים משתמשים והרשאות.
@@ -115,6 +117,8 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
       role: item.role === 'admin' ? 'admin' : 'user',
       code: item.code ? String(item.code).trim() : undefined,
       projectName: item.role === 'admin' ? null : String(item.projectName ?? '').trim(),
+      signatureDataUrl: String(item.signatureDataUrl ?? ''),
+      signatureFileName: String(item.signatureFileName ?? ''),
     }))
     .filter((item) => item.username && item.password);
 
@@ -258,15 +262,30 @@ const getChecklistAttachmentRequirement = (description: unknown): ChecklistAttac
 const checklistAttachmentLabel = (kind: ChecklistAttachmentKind | null) =>
   kind === 'lab' ? 'תעודת מעבדה' : kind === 'measurement' ? 'רשימת מדידה' : 'מסמך מצורף';
 
-
-const createDefaultApproval = (): ApprovalFlow => ({
+const createApprovalByRoles = (roles: Array<{ role: string; required?: boolean }>): ApprovalFlow => ({
   status: 'draft',
   remarks: '',
-  signatures: [
-    { role: 'מנהל בקרת איכות', signerName: '', signature: '', signedAt: '', required: true },
-    { role: 'מנהל הבטחת איכות', signerName: '', signature: '', signedAt: '', required: true },
-  ],
+  signatures: roles.map((entry) => ({
+    role: entry.role,
+    signerName: '',
+    signature: '',
+    signedAt: '',
+    required: entry.required !== false,
+  })),
 });
+
+const createDefaultApproval = (): ApprovalFlow => createApprovalByRoles([
+  { role: 'מנהל בקרת איכות', required: true },
+  { role: 'מנהל הבטחת איכות', required: true },
+]);
+
+const createQualityControlApproval = (): ApprovalFlow => createApprovalByRoles([
+  { role: 'בקר איכות', required: true },
+]);
+
+const createNonconformanceApproval = (): ApprovalFlow => createApprovalByRoles([
+  { role: 'בקר איכות - פתיחה / סגירה', required: true },
+]);
 
 const normalizeApproval = (value: unknown): ApprovalFlow => {
   const base = createDefaultApproval();
@@ -276,13 +295,14 @@ const normalizeApproval = (value: unknown): ApprovalFlow => {
   return {
     status: raw.status === 'approved' || raw.status === 'rejected' ? raw.status : 'draft',
     remarks: typeof raw.remarks === 'string' ? raw.remarks : '',
-    signatures: base.signatures.map((entry) => {
-      const found = signatures.find((s: any) => s?.role === entry.role || (entry.role === 'מנהל הבטחת איכות' && s?.role === 'מנהל פרויקט')) as any;
+    signatures: (signatures.length ? signatures : base.signatures).map((entry: any) => {
+      const fallback = base.signatures.find((s) => s.role === entry?.role) ?? base.signatures[0];
       return {
-        ...entry,
-        signerName: found?.signerName ?? '',
-        signature: found?.signature ?? '',
-        signedAt: found?.signedAt ?? '',
+        role: String(entry?.role ?? fallback?.role ?? 'חתימה'),
+        required: typeof entry?.required === 'boolean' ? entry.required : Boolean(fallback?.required ?? true),
+        signerName: entry?.signerName ?? '',
+        signature: entry?.signature ?? '',
+        signedAt: entry?.signedAt ?? '',
       };
     }),
   };
@@ -312,9 +332,9 @@ const normalizeChecklistItems = (items: ChecklistItem[] | unknown): ChecklistIte
     : [];
 
 const createDefaultChecklist = (templateKey: ChecklistTemplateKey = 'general'): Omit<ChecklistRecord, 'id' | 'projectId' | 'savedAt'> => ({ checklistNo: undefined, templateKey, title: checklistTemplates[templateKey].title, category: checklistTemplates[templateKey].category, location: '', date: '', contractor: '', notes: '', items: buildChecklistItemsFromTemplate(templateKey), approval: createDefaultApproval() });
-const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
-const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', spec: '', result: '', approvedBy: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createDefaultApproval() } as any);
-const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({ subtype, title: subtype === 'suppliers' ? 'בקרה מקדימה - ספקים' : subtype === 'subcontractors' ? 'בקרה מקדימה - קבלנים' : 'בקרה מקדימה - חומרים', date: '', status: 'טיוטה', supplier: subtype === 'suppliers' ? { supplierName: '', suppliedMaterial: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, subcontractor: subtype === 'subcontractors' ? { subcontractorName: '', field: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, material: subtype === 'materials' ? { materialName: '', source: '', usage: '', certificateNo: '', notes: '' } : undefined, approval: createDefaultApproval() });
+const createDefaultNonconformance = (): Omit<NonconformanceRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', raisedBy: '', severity: 'בינונית', status: 'פתוח', description: '', actionRequired: '', notes: '', images: [] as StoredAttachment[], approval: createNonconformanceApproval() } as any);
+const createDefaultTrialSection = (): Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'> => ({ title: '', location: '', date: '', spec: '', result: '', approvedBy: '', status: 'טיוטה', notes: '', images: [] as StoredAttachment[], approval: createQualityControlApproval() } as any);
+const createDefaultPreliminary = (subtype: PreliminaryTab): Omit<PreliminaryRecord, 'id' | 'projectId' | 'savedAt'> => ({ subtype, title: subtype === 'suppliers' ? 'בקרה מקדימה - ספקים' : subtype === 'subcontractors' ? 'בקרה מקדימה - קבלנים' : 'בקרה מקדימה - חומרים', date: '', status: 'טיוטה', supplier: subtype === 'suppliers' ? { supplierName: '', suppliedMaterial: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, subcontractor: subtype === 'subcontractors' ? { subcontractorName: '', field: '', contactPhone: '', approvalNo: '', notes: '' } : undefined, material: subtype === 'materials' ? { materialName: '', source: '', usage: '', certificateNo: '', notes: '' } : undefined, approval: createQualityControlApproval() });
 
 const isSupabaseHeaderEncodingError = (error: unknown) => String(error ?? '').includes(SUPABASE_HEADER_ERROR_FRAGMENT);
 const errorText = (error: unknown) => typeof error === 'object' && error !== null ? `${String((error as any).message ?? '')} ${String((error as any).details ?? '')}`.trim() : String(error ?? '');
@@ -502,15 +522,90 @@ type InlineChecklistSectionProps = {
   projectName: string;
   onUploadAttachment: (itemId: string, kind: ChecklistAttachmentKind, file: File) => void;
   onRemoveAttachment: (itemId: string, attachmentId: string) => void;
+  savedSignatureForSigner?: (signerName: string, role?: string) => string;
 };
 
-function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, setChecklistForm, checklistTemplateLabel, applyChecklistTemplate, updateChecklistItem, addChecklistItem, removeChecklistItem, saveChecklist, resetChecklistForm, projectName, onUploadAttachment, onRemoveAttachment }: InlineChecklistSectionProps) {
+type ProcessSignature = { role: string; signerName: string; signature: string; signedAt: string };
+
+const normalizeProcessSignature = (value: any, role: string, defaultSignerName = ''): ProcessSignature => ({
+  role: String(value?.role ?? role ?? 'גורם אחראי'),
+  signerName: String(value?.signerName ?? defaultSignerName ?? ''),
+  signature: String(value?.signature ?? ''),
+  signedAt: String(value?.signedAt ?? ''),
+});
+
+function ProcessSignatureFields({
+  value,
+  onChange,
+  role,
+  defaultSignerName,
+  savedSignatureDataUrl,
+}: {
+  value: ProcessSignature;
+  onChange: (next: ProcessSignature) => void;
+  role: string;
+  defaultSignerName: string;
+  savedSignatureDataUrl?: string;
+}) {
+  const set = (patch: Partial<ProcessSignature>) => onChange({ ...value, role, ...patch });
+  const inputStyle: React.CSSProperties = { border: '1px solid #cbd5e1', borderRadius: 10, padding: '8px 10px', fontWeight: 800, minHeight: 40, background: '#fff' };
+  const isImageSignature = String(value.signature || '').startsWith('data:image/');
+  const uploadSignatureToThisForm = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => set({ signerName: value.signerName || defaultSignerName, signature: String(reader.result ?? ''), signedAt: value.signedAt || new Date().toISOString().slice(0, 10) });
+    reader.onerror = () => alert('לא ניתן לקרוא את קובץ החתימה');
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 14, padding: 12, marginTop: 12 }}>
+      <div style={{ fontWeight: 950, color: '#1e3a8a', marginBottom: 8 }}>חתימת גורם אחראי לתהליך הבקרה</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+        <label style={{ display: 'grid', gap: 5, fontWeight: 900 }}>
+          תפקיד
+          <input readOnly value={role || 'גורם אחראי'} style={{ ...inputStyle, background: '#f8fafc' }} />
+        </label>
+        <label style={{ display: 'grid', gap: 5, fontWeight: 900 }}>
+          שם חותם
+          <input value={value.signerName || defaultSignerName} onChange={(event) => set({ signerName: event.target.value })} style={inputStyle} />
+        </label>
+        <label style={{ display: 'grid', gap: 5, fontWeight: 900 }}>
+          תאריך חתימה
+          <input type="date" value={value.signedAt} onChange={(event) => set({ signedAt: event.target.value })} style={inputStyle} />
+        </label>
+        <label style={{ display: 'grid', gap: 5, fontWeight: 900 }}>
+          חתימה / חותמת
+          <input value={isImageSignature ? 'חתימה/חותמת מצורפת כתמונה' : value.signature} onChange={(event) => set({ signature: event.target.value })} placeholder="הקלד חתימה / שם מלא" style={inputStyle} />
+          {isImageSignature ? <img src={value.signature} alt="חתימה" style={{ maxWidth: 150, maxHeight: 62, border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', padding: 4 }} /> : null}
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button type="button" style={styles.secondaryBtn} onClick={() => set({ signerName: value.signerName || defaultSignerName, signature: value.signature || (value.signerName || defaultSignerName), signedAt: new Date().toISOString().slice(0, 10) })}>חתום עכשיו</button>
+        {savedSignatureDataUrl ? <button type="button" style={styles.secondaryBtn} onClick={() => set({ signerName: value.signerName || defaultSignerName, signature: savedSignatureDataUrl, signedAt: new Date().toISOString().slice(0, 10) })}>השתמש בחתימה/חותמת שמורה</button> : null}
+        <label style={{ ...styles.secondaryBtn, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+          העלה חתימה/חותמת
+          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(event) => { uploadSignatureToThisForm(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+        </label>
+        <button type="button" style={styles.secondaryBtn} onClick={() => set({ signature: '', signedAt: '' })}>נקה חתימה</button>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, setChecklistForm, checklistTemplateLabel, applyChecklistTemplate, updateChecklistItem, addChecklistItem, removeChecklistItem, saveChecklist, resetChecklistForm, projectName, onUploadAttachment, onRemoveAttachment, savedSignatureForSigner }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '10px 12px', background: '#fff', fontWeight: 700, minHeight: 44 };
   const labelStyle: React.CSSProperties = { fontWeight: 900, marginBottom: 6, display: 'block', color: '#0f172a' };
   const cardStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#f8fafc', marginBottom: 14 };
   const setField = (field: string, value: string) => setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
   const templateEntries = Object.entries(checklistTemplates) as Array<[ChecklistTemplateKey, any]>;
+  const updateItemSignature = (itemId: string, signature: ProcessSignature) => {
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      items: prev.items.map((item: any) => (item.id === itemId ? { ...item, signature } : item)),
+    }));
+  };
 
   return (
     <section>
@@ -550,6 +645,13 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
                   <label><span style={labelStyle}>תאריך ביצוע</span><input type="date" value={item.executionDate ?? ''} onChange={(event) => updateChecklistItem(item.id, 'executionDate', event.target.value)} style={inputStyle} /></label>
                 </div>
                 <label style={{ display: 'block', marginTop: 12 }}><span style={labelStyle}>הערות</span><input value={item.notes ?? ''} onChange={(event) => updateChecklistItem(item.id, 'notes', event.target.value)} style={inputStyle} /></label>
+                <ProcessSignatureFields
+                  role={item.responsible || 'גורם אחראי'}
+                  defaultSignerName={autoName}
+                  value={normalizeProcessSignature((item as any).signature, item.responsible || 'גורם אחראי', autoName)}
+                  onChange={(signature) => updateItemSignature(item.id, signature)}
+                  savedSignatureDataUrl={savedSignatureForSigner?.(autoName, item.responsible)}
+                />
                 {requiredKind && (
                   <div style={{ marginTop: 12, border: '1px dashed #94a3b8', borderRadius: 14, padding: 10, background: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
@@ -605,39 +707,6 @@ function PasswordField({
       </button>
     </div>
   );
-}
-
-
-function SignaturePad({ value, onChange }: { value: string; onChange: (value: string) => void; }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawingRef = useRef(false);
-  const point = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current; if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    if ('touches' in event) { const touch = event.touches[0] ?? event.changedTouches[0]; return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }; }
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  };
-  const begin = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => { event.preventDefault(); const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (!canvas || !ctx) return; const p = point(event); drawingRef.current = true; ctx.beginPath(); ctx.moveTo(p.x, p.y); };
-  const move = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => { if (!drawingRef.current) return; event.preventDefault(); const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (!canvas || !ctx) return; const p = point(event); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; ctx.lineTo(p.x, p.y); ctx.stroke(); };
-  const end = () => { const canvas = canvasRef.current; drawingRef.current = false; if (canvas) onChange(canvas.toDataURL('image/png')); };
-  const clear = () => { const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); onChange(''); };
-  const upload = (file: File) => { const reader = new FileReader(); reader.onload = () => onChange(String(reader.result ?? '')); reader.readAsDataURL(file); };
-  return <div style={{ display: 'grid', gap: 8 }}>
-    <canvas ref={canvasRef} width={260} height={92} onMouseDown={begin} onMouseMove={move} onMouseUp={end} onMouseLeave={end} onTouchStart={begin} onTouchMove={move} onTouchEnd={end} style={{ width: '100%', maxWidth: 280, height: 92, border: '1px dashed #94a3b8', borderRadius: 12, background: '#fff', touchAction: 'none', cursor: 'crosshair' }} />
-    {value ? <img src={value} alt="חתימה" style={{ maxWidth: 180, maxHeight: 54, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }} /> : <span style={{ color: '#64748b', fontSize: 12 }}>חתום כאן או העלה תמונת חתימה</span>}
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><label style={{ cursor: 'pointer', border: '1px solid #cbd5e1', borderRadius: 10, padding: '7px 10px', fontWeight: 900, background: '#fff' }}>העלה חתימה<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.currentTarget.value = ''; }} /></label><button type="button" onClick={clear} style={{ border: '1px solid #fecaca', color: '#b91c1c', background: '#fff', borderRadius: 10, padding: '7px 10px', fontWeight: 900, cursor: 'pointer' }}>נקה</button></div>
-  </div>;
-}
-
-function ApprovalSignaturesPanel({ title, approval, onChange }: { title: string; approval: ApprovalFlow; onChange: (approval: ApprovalFlow) => void; }) {
-  const normalized = normalizeApproval(approval);
-  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '9px 10px', fontWeight: 800, background: '#fff' };
-  const updateSignature = (index: number, patch: Partial<ApprovalFlow['signatures'][number]>) => onChange({ ...normalized, signatures: normalized.signatures.map((signature, signatureIndex) => signatureIndex === index ? { ...signature, ...patch } : signature) });
-  return <div style={{ border: '1px solid #cbd5e1', background: '#f8fafc', borderRadius: 18, padding: 16, marginTop: 16 }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}><div><div style={{ fontSize: 20, fontWeight: 950 }}>{title}</div><div style={{ color: '#64748b', marginTop: 4 }}>חתימות נשמרות בתוך הטופס ומופיעות בייצוא.</div></div><select value={normalized.status} onChange={(event) => onChange({ ...normalized, status: event.target.value as ApprovalFlow['status'] })} style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '9px 12px', fontWeight: 900, background: '#fff' }}><option value="draft">טיוטה</option><option value="approved">מאושר</option><option value="rejected">נדחה</option></select></div>
-    <div style={{ display: 'grid', gap: 12 }}>{normalized.signatures.map((signature, index) => <div key={`${signature.role}-${index}`} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff' }}><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, alignItems: 'start' }}><label style={{ fontWeight: 900 }}>תפקיד<input value={signature.role} readOnly style={{ ...inputStyle, marginTop: 6, background: '#f1f5f9' }} /></label><label style={{ fontWeight: 900 }}>שם החותם<input value={signature.signerName} onChange={(event) => updateSignature(index, { signerName: event.target.value })} style={{ ...inputStyle, marginTop: 6 }} /></label><label style={{ fontWeight: 900 }}>תאריך חתימה<input type="date" value={signature.signedAt} onChange={(event) => updateSignature(index, { signedAt: event.target.value })} style={{ ...inputStyle, marginTop: 6 }} /></label><div style={{ fontWeight: 900 }}>חתימה דיגיטלית<SignaturePad value={signature.signature} onChange={(value) => updateSignature(index, { signature: value, signedAt: signature.signedAt || new Date().toISOString().slice(0, 10) })} /></div></div></div>)}</div>
-    <label style={{ display: 'grid', gap: 6, marginTop: 12, fontWeight: 900 }}>הערות אישור<textarea value={normalized.remarks} onChange={(event) => onChange({ ...normalized, remarks: event.target.value })} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} /></label>
-  </div>;
 }
 
 function ProjectLoginScreen({
@@ -696,12 +765,14 @@ function UserAccessPanel({
   onAddUser,
   onRemoveUser,
   onResetDefaults,
+  onUploadSignature,
 }: {
   users: ProjectAccess[];
   onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
   onAddUser: () => void;
   onRemoveUser: (index: number) => void;
   onResetDefaults: () => void;
+  onUploadSignature: (index: number, file?: File) => void;
 }) {
   return (
     <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
@@ -717,7 +788,7 @@ function UserAccessPanel({
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
           <thead>
             <tr>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם לתצוגה</th>
@@ -726,6 +797,7 @@ function UserAccessPanel({
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>סוג הרשאה</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>קוד / קישור</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>שם פרויקט למשתמש רגיל</th>
+              <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>חתימה / חותמת שמורה</th>
               <th style={{ border: '1px solid #e2e8f0', padding: 8 }}>פעולות</th>
             </tr>
           </thead>
@@ -756,6 +828,14 @@ function UserAccessPanel({
                   </td>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 260 }}>
                     <input disabled={isAdmin} value={isAdmin ? 'כל הפרויקטים' : user.projectName ?? ''} onChange={(e) => onChangeUser(index, 'projectName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800, background: isAdmin ? '#f1f5f9' : '#fff' }} />
+                  </td>
+                  <td style={{ border: '1px solid #e2e8f0', padding: 8, minWidth: 190, textAlign: 'center' }}>
+                    {user.signatureDataUrl ? <img src={user.signatureDataUrl} alt="חתימה/חותמת" style={{ maxWidth: 130, maxHeight: 52, display: 'block', margin: '0 auto 6px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', padding: 4 }} /> : <div style={{ color: '#64748b', marginBottom: 6 }}>לא הועלתה חתימה</div>}
+                    <label style={{ ...styles.secondaryBtn, display: 'inline-flex', cursor: 'pointer', padding: '6px 9px' }}>
+                      העלה חתימה/חותמת
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(event) => { onUploadSignature(index, event.target.files?.[0]); event.currentTarget.value = ''; }} />
+                    </label>
+                    {user.signatureDataUrl ? <button type="button" onClick={() => onChangeUser(index, 'signatureDataUrl', '')} style={{ border: 0, background: 'transparent', color: '#b91c1c', fontWeight: 900, cursor: 'pointer', display: 'block', margin: '6px auto 0' }}>נקה</button> : null}
                   </td>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8, textAlign: 'center' }}>
                     <button type="button" disabled={users.length <= 1 || isAdmin} onClick={() => onRemoveUser(index)} style={{ ...styles.dangerBtn, opacity: users.length <= 1 || isAdmin ? 0.45 : 1 }}>
@@ -884,6 +964,8 @@ export default function Page() {
         role: 'user',
         code: String(accessUsers.length + 1),
         projectName: projects[0]?.name ?? '',
+        signatureDataUrl: '',
+        signatureFileName: '',
       },
     ]);
   };
@@ -893,6 +975,34 @@ export default function Page() {
     if (!user || user.role === 'admin') return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
     persistAccessUsers(accessUsers.filter((_, userIndex) => userIndex !== index));
+  };
+
+  const uploadUserSignature = (index: number, file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const nextUsers = accessUsers.map((user, userIndex) =>
+        userIndex === index
+          ? { ...user, signatureDataUrl: String(reader.result ?? ''), signatureFileName: file.name }
+          : user
+      );
+      persistAccessUsers(nextUsers);
+    };
+    reader.onerror = () => alert('לא ניתן לקרוא את קובץ החתימה/חותמת');
+    reader.readAsDataURL(file);
+  };
+
+  const savedSignatureForSigner = (signerName: string, role?: string) => {
+    const normalizedName = normalizeAccessValue(signerName);
+    const normalizedRole = normalizeAccessValue(role);
+    const found = accessUsers.find((user) => {
+      const names = [user.displayName, user.username, user.code].map(normalizeAccessValue);
+      return Boolean(user.signatureDataUrl) && (
+        (!!normalizedName && names.includes(normalizedName)) ||
+        (!!normalizedRole && names.some((name) => normalizedRole.includes(name) || name.includes(normalizedRole)))
+      );
+    });
+    return found?.signatureDataUrl ?? '';
   };
 
   const resetAccessUsersToDefaults = () => {
@@ -1207,6 +1317,8 @@ export default function Page() {
   const saveChecklist = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!checklistForm.title.trim()) return alert('יש להזין שם רשימת תיוג');
+    const unsignedItems = checklistForm.items.filter((item: any) => !item.signature?.signerName || !item.signature?.signature || !item.signature?.signedAt);
+    if (unsignedItems.length) return alert('יש להשלים חתימה דיגיטלית לכל סעיף בקרה לפני שמירת רשימת התיוג.');
     const validation = validateApproval(checklistForm.approval); if (validation) return alert(validation);
     const id = editingChecklistId ?? crypto.randomUUID();
     const existingChecklistNo = getExistingEditingChecklistNo();
@@ -1395,9 +1507,15 @@ export default function Page() {
     return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || 'קובץ')}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join('')}</tbody></table>`;
   };
 
+  const signatureCell = (value: unknown) => {
+    const text = String(value ?? '');
+    if (text.startsWith('data:image/')) return `<img src="${text}" style="max-width:120px;max-height:45px" />`;
+    return valueOrBlank(text);
+  };
+
   const signaturesTable = (approval: ApprovalFlow | undefined) => {
     const normalized = normalizeApproval(approval);
-    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${String(sig.signature ?? '').startsWith('data:image') ? `<img src="${safeText(sig.signature)}" style="max-width:120px;max-height:46px" />` : valueOrBlank(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${valueOrBlank(normalized.remarks)}</td></tr>`).join('')}</tbody></table>`;
+    return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${signatureCell(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join('')}</tbody></table>`;
   };
 
   const checklistExportHtml = (forcedChecklistNo?: number) => {
@@ -1716,6 +1834,7 @@ export default function Page() {
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
           onResetDefaults={resetAccessUsersToDefaults}
+          onUploadSignature={uploadUserSignature}
         />
       ) : null}
 
@@ -1734,13 +1853,12 @@ export default function Page() {
           {section === 'projects' && isAdminAccess(projectAccess) && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
-              <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} />
-              {!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לרשימת תיוג" approval={checklistForm.approval} onChange={(approval) => setChecklistForm((prev: any) => ({ ...prev, approval }))} />}
+              <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} savedSignatureForSigner={savedSignatureForSigner} />
             </>
           )}
-          {section === 'nonconformances' && <><NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />{!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לאי התאמה" approval={nonconformanceForm.approval} onChange={(approval) => setNonconformanceForm((prev: any) => ({ ...prev, approval }))} />}</>}
-          {section === 'trialSections' && <><TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />{!guardedBody && <ApprovalSignaturesPanel title="אישורים וחתימות לקטע ניסוי" approval={trialSectionForm.approval} onChange={(approval) => setTrialSectionForm((prev: any) => ({ ...prev, approval }))} />}</>}
-          {section === 'preliminary' && <><PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />{!guardedBody && preliminaryTab === 'suppliers' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור ספקים" approval={supplierPreliminaryForm.approval} onChange={(approval) => setSupplierPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}{!guardedBody && preliminaryTab === 'subcontractors' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור קבלנים" approval={subcontractorPreliminaryForm.approval} onChange={(approval) => setSubcontractorPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}{!guardedBody && preliminaryTab === 'materials' && <ApprovalSignaturesPanel title="אישורים וחתימות לאישור חומרים" approval={materialPreliminaryForm.approval} onChange={(approval) => setMaterialPreliminaryForm((prev: any) => ({ ...prev, approval }))} />}</>}
+          {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
+          {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
+          {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
           {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} />}
         </main>
 
