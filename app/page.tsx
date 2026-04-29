@@ -42,6 +42,48 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
+const AUTH_STORAGE_KEY = `${STORAGE_KEY}-project-access-code`;
+
+type ProjectAccess = {
+  code: string;
+  password: string;
+  projectName: string;
+};
+
+// כאן מגדירים הרשאות כניסה לפי קוד פרויקט + סיסמה.
+// אפשר להוסיף פרויקטים נוספים בהמשך באותה צורה.
+const PROJECT_ACCESS_LIST: ProjectAccess[] = [
+  {
+    code: '806',
+    password: '806',
+    projectName: 'כביש 806 צלמון שלב א׳',
+  },
+];
+
+const normalizeAccessValue = (value: unknown) =>
+  String(value ?? '')
+    .replace(/[׳`’']/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+    .toLowerCase();
+
+const findProjectAccessByCode = (code: string) =>
+  PROJECT_ACCESS_LIST.find((access) => normalizeAccessValue(access.code) === normalizeAccessValue(code));
+
+const findProjectAccessByCredentials = (code: string, password: string) =>
+  PROJECT_ACCESS_LIST.find(
+    (access) =>
+      normalizeAccessValue(access.code) === normalizeAccessValue(code) &&
+      String(access.password) === String(password)
+  );
+
+const projectMatchesAccess = (project: Project, access: ProjectAccess | null) => {
+  if (!access) return true;
+  const projectName = normalizeHebrewProjectName(project.name);
+  const allowedName = normalizeHebrewProjectName(access.projectName);
+  return projectName === allowedName || (allowedName.includes('806') && projectName.includes('806'));
+};
+
 const normalizeHebrewProjectName = (value: unknown) =>
   String(value ?? '')
     .replace(/[׳`’']/g, '')
@@ -481,6 +523,62 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
   );
 }
 
+
+function ProjectLoginScreen({
+  code,
+  password,
+  error,
+  onCodeChange,
+  onPasswordChange,
+  onSubmit,
+}: {
+  code: string;
+  password: string;
+  error: string;
+  onCodeChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div dir="rtl" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#f1f5f9', padding: 18 }}>
+      <form onSubmit={onSubmit} style={{ width: 'min(460px, 96vw)', background: '#fff', borderRadius: 22, padding: 24, boxShadow: '0 22px 70px rgba(15, 23, 42, 0.14)', border: '1px solid #e2e8f0' }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ fontSize: 28, fontWeight: 950, color: '#0f172a' }}>Y.K QUALITY</div>
+          <div style={{ color: '#475569', marginTop: 6, fontWeight: 700 }}>כניסה לפי קוד פרויקט וסיסמה</div>
+        </div>
+
+        <label style={{ display: 'grid', gap: 7, marginBottom: 14, fontWeight: 900 }}>
+          קוד פרויקט
+          <input
+            value={code}
+            onChange={(event) => onCodeChange(event.target.value)}
+            placeholder="לדוגמה: 806"
+            autoFocus
+            style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
+          />
+        </label>
+
+        <label style={{ display: 'grid', gap: 7, marginBottom: 16, fontWeight: 900 }}>
+          סיסמה
+          <input
+            value={password}
+            onChange={(event) => onPasswordChange(event.target.value)}
+            type="password"
+            placeholder="סיסמת פרויקט"
+            style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px', fontWeight: 800, fontSize: 16 }}
+          />
+        </label>
+
+        {error ? <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 12, padding: 10, fontWeight: 900, marginBottom: 14 }}>{error}</div> : null}
+
+        <button type="submit" style={{ width: '100%', border: 0, borderRadius: 14, padding: '13px 16px', background: '#0f172a', color: '#fff', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>
+          כניסה למערכת
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
@@ -507,6 +605,43 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
+  const [authReady, setAuthReady] = useState(false);
+  const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
+  const [loginCode, setLoginCode] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const savedCode = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const savedAccess = savedCode ? findProjectAccessByCode(savedCode) : undefined;
+    if (savedAccess) {
+      setProjectAccess(savedAccess);
+      setLoginCode(savedAccess.code);
+    }
+    setAuthReady(true);
+  }, []);
+
+  const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const access = findProjectAccessByCredentials(loginCode, loginPassword);
+    if (!access) {
+      setLoginError('קוד פרויקט או סיסמה אינם נכונים');
+      return;
+    }
+    setLoginError('');
+    setProjectAccess(access);
+    if (typeof window !== 'undefined') window.localStorage.setItem(AUTH_STORAGE_KEY, access.code);
+    setSection('home');
+  };
+
+  const logoutProject = () => {
+    if (typeof window !== 'undefined') window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    setProjectAccess(null);
+    setLoginPassword('');
+    setLoginError('');
+    setSection('home');
+  };
 
   const loadPersistedData = (raw: string | null) => {
     if (!raw) return;
@@ -598,7 +733,21 @@ export default function Page() {
     try { setIsSaving(true); await action(); } catch (error) { console.error(error); alert(errorText(error) || 'אירעה שגיאה בשמירה'); if (cloudEnabled) { try { await refreshCloudData(); } catch {} } } finally { setIsSaving(false); }
   };
 
-  const currentProject = useMemo(() => projects.find((p) => p.id === currentProjectId) ?? null, [projects, currentProjectId]);
+  const accessibleProjects = useMemo(
+    () => projects.filter((project) => projectMatchesAccess(project, projectAccess)),
+    [projects, projectAccess]
+  );
+
+  useEffect(() => {
+    if (!loaded || !projectAccess) return;
+    const allowedProject = projects.find((project) => projectMatchesAccess(project, projectAccess));
+    if (allowedProject && currentProjectId !== allowedProject.id) {
+      setCurrentProjectId(allowedProject.id);
+      writeLocalCurrentProjectId(allowedProject.id);
+    }
+  }, [loaded, projectAccess, projects, currentProjectId]);
+
+  const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
   const currentProjectProfile = useMemo(() => getProjectProfile(currentProject?.name), [currentProject?.name]);
   const projectName = !loaded ? 'טוען...' : currentProjectProfile?.projectName ?? currentProject?.name ?? 'לא נבחר פרויקט';
 
@@ -698,6 +847,7 @@ export default function Page() {
   };
 
   const addProject = async () => {
+    if (projectAccess) return alert('אין הרשאה להוסיף פרויקטים במשתמש פרויקט');
     if (!newProjectName.trim()) return alert('יש להזין שם פרויקט');
     const id = crypto.randomUUID();
     const project: Project = { id, name: newProjectName.trim(), description: newProjectDescription.trim(), manager: newProjectManager.trim(), isActive: true, createdAt: nowLocal() };
@@ -877,7 +1027,14 @@ export default function Page() {
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
   const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : null;
-  const homeModules = [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: projects.length }, { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length }, { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length }, { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length }, { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length }, { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 }];
+  const homeModules = [
+    ...(projectAccess ? [] : [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }]),
+    { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
+    { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length },
+    { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length },
+    { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length },
+    { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 },
+  ];
   const labelForPreliminary = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'ספקים' : subtype === 'subcontractors' ? 'קבלנים' : 'חומרים';
 
 
@@ -1253,15 +1410,46 @@ export default function Page() {
   };
 
   const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
+  const navItems: Array<[AppSection, string]> = projectAccess
+    ? [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+
+  if (!authReady) {
+    return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
+  }
+
+  if (!projectAccess) {
+    return (
+      <ProjectLoginScreen
+        code={loginCode}
+        password={loginPassword}
+        error={loginError}
+        onCodeChange={setLoginCode}
+        onPasswordChange={setLoginPassword}
+        onSubmit={handleProjectLogin}
+      />
+    );
+  }
 
   return (
     <div style={styles.page} dir="rtl">
       <header style={styles.header}>
         <div style={styles.headerCard}><div style={{ fontWeight: 900, fontSize: 24 }}>Y.K QUALITY</div><div style={{ color: '#475569', marginTop: 6 }}>QA/QC · Multi-file refactor · workflow with signatures</div></div>
-        <div style={styles.headerCard}><div style={{ fontWeight: 800 }}>פרויקט פעיל</div><div>{projectName}</div>{isSaving && <div style={{ color: '#475569', marginTop: 6 }}>שומר נתונים...</div>}{!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}</div>
+        <div style={styles.headerCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
+              <div>{projectName}</div>
+              <div style={{ color: '#64748b', marginTop: 4, fontSize: 13 }}>קוד פרויקט: {projectAccess.code}</div>
+              {isSaving && <div style={{ color: '#475569', marginTop: 6 }}>שומר נתונים...</div>}
+              {!cloudEnabled && <div style={{ color: '#475569', marginTop: 6 }}>מצב מקומי בלבד</div>}
+            </div>
+            <button type="button" onClick={logoutProject} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '8px 10px', fontWeight: 900, cursor: 'pointer' }}>יציאה</button>
+          </div>
+        </div>
       </header>
 
-      <div style={styles.navRow}>{[['home','דף בית'],['projects','פרויקטים'],['checklists','רשימות תיוג'],['nonconformances','אי תאמות'],['trialSections','קטעי ניסוי'],['preliminary','בקרה מקדימה'],['concentrations','ריכוזים']].map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key as AppSection)}>{label}</button>)}</div>
+      <div style={styles.navRow}>{navItems.map(([key,label]) => <button key={key} style={{ ...styles.navBtn, background: section === key ? '#0f172a' : '#fff', color: section === key ? '#fff' : '#0f172a' }} onClick={() => setSection(key)}>{label}</button>)}</div>
 
       <div style={styles.layout}>
         <main style={styles.mainCard}>
@@ -1272,8 +1460,8 @@ export default function Page() {
               <button type="button" style={styles.secondaryBtn} onClick={exportWord}>הורד Word</button>
             </div>
           )}
-          {section === 'home' && <HomeSection projects={projects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
-          {section === 'projects' && <ProjectsSection projects={projects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
+          {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
+          {section === 'projects' && !projectAccess && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
             <>
               <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} />
