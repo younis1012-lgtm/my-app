@@ -46,6 +46,8 @@ const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 
+type ProjectLegendParty = { id: string; role: string; name: string };
+
 type ProjectLegend = {
   projectName: string;
   projectManagement: string;
@@ -55,10 +57,12 @@ type ProjectLegend = {
   workManager: string;
   surveyor: string;
   supervisor: string;
+  additionalParties: ProjectLegendParty[];
 };
 
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
   const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
+  const rawParties = Array.isArray((raw as any).additionalParties) ? (raw as any).additionalParties : [];
 
   // חשוב: לא עושים trim בזמן הקלדה.
   // אחרת רווח בסוף מילה נמחק מיד, ולא ניתן להקליד שם עם כמה מילים.
@@ -71,6 +75,13 @@ const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): Proje
     workManager: String(raw.workManager ?? ''),
     surveyor: String(raw.surveyor ?? ''),
     supervisor: String(raw.supervisor ?? ''),
+    additionalParties: rawParties
+      .filter((item: any) => item && typeof item === 'object')
+      .map((item: any, index: number) => ({
+        id: String(item.id ?? `${Date.now()}-${index}`),
+        role: String(item.role ?? ''),
+        name: String(item.name ?? ''),
+      })),
   };
 };
 
@@ -726,25 +737,23 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 function ProjectLegendPanel({
   legend,
   missing,
-  projects,
-  currentProjectId,
-  message,
-  onSelectProject,
   onChange,
   onSave,
-  onAdd,
+  onUpdate,
   onDelete,
+  onAddParty,
+  onChangeParty,
+  onRemoveParty,
 }: {
   legend: ProjectLegend;
   missing: boolean;
-  projects: Project[];
-  currentProjectId: string | null;
-  message: string;
-  onSelectProject: (projectId: string) => void;
   onChange: (field: keyof ProjectLegend, value: string) => void;
   onSave: () => void;
-  onAdd: () => void;
+  onUpdate: () => void;
   onDelete: () => void;
+  onAddParty: () => void;
+  onChangeParty: (partyId: string, field: keyof ProjectLegendParty, value: string) => void;
+  onRemoveParty: (partyId: string) => void;
 }) {
   const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
@@ -765,30 +774,47 @@ function ProjectLegendPanel({
           <div style={{ fontSize: 20, fontWeight: 950 }}>מקרא / פרטי פרויקט</div>
           <div style={{ color: '#475569', marginTop: 4 }}>הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט הפעיל.</div>
         </div>
-        {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
-        <label style={labelStyle}>
-          בחירת פרויקט פעיל
-          <select value={currentProjectId ?? ''} onChange={(event) => onSelectProject(event.target.value)} style={inputStyle}>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name || 'פרויקט ללא שם'}</option>)}
-          </select>
-        </label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
-          <button type="button" style={styles.primaryBtn} onClick={onSave}>שמירה / עדכון</button>
-          <button type="button" style={styles.secondaryBtn} onClick={onAdd}>הוספת פרויקט</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
+          <button type="button" style={styles.primaryBtn} onClick={onSave}>שמירה</button>
+          <button type="button" style={styles.secondaryBtn} onClick={onUpdate}>עדכון</button>
+          <button type="button" style={styles.secondaryBtn} onClick={onAddParty}>הוספת גורם</button>
           <button type="button" style={styles.dangerBtn} onClick={onDelete}>מחיקה</button>
         </div>
-        {message ? <div style={{ alignSelf: 'end', color: '#166534', fontWeight: 900 }}>{message}</div> : null}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {fields.map((field) => (
           <label key={field.key} style={labelStyle}>
             {field.label}{field.required ? ' *' : ''}
-            <input value={legend[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
+            <input value={String(legend[field.key] ?? '')} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
           </label>
         ))}
       </div>
+
+      <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 950 }}>גורמים נוספים בפרויקט</div>
+          <button type="button" style={styles.secondaryBtn} onClick={onAddParty}>הוספת גורם</button>
+        </div>
+        {legend.additionalParties.length ? (
+          <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+            {legend.additionalParties.map((party) => (
+              <div key={party.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 2fr) auto', gap: 10, alignItems: 'end' }}>
+                <label style={labelStyle}>
+                  תפקיד / גורם
+                  <input value={party.role} onChange={(event) => onChangeParty(party.id, 'role', event.target.value)} style={inputStyle} placeholder="לדוגמה: יועץ תנועה" />
+                </label>
+                <label style={labelStyle}>
+                  שם
+                  <input value={party.name} onChange={(event) => onChangeParty(party.id, 'name', event.target.value)} style={inputStyle} placeholder="שם הגורם" />
+                </label>
+                <button type="button" style={styles.dangerBtn} onClick={() => onRemoveParty(party.id)}>מחיקה</button>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ color: '#64748b', marginTop: 8 }}>לא נוספו גורמים נוספים.</div>}
+      </div>
+
       {missing ? <div style={{ marginTop: 12, color: '#991b1b', fontWeight: 900 }}>יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות לפני עבודה ברשימות / ריכוזים / טפסים.</div> : null}
     </section>
   );
@@ -1002,7 +1028,6 @@ export default function Page() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [projectLegends, setProjectLegends] = useState<Record<string, ProjectLegend>>({});
-  const [projectLegendMessage, setProjectLegendMessage] = useState('');
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -1032,16 +1057,6 @@ export default function Page() {
     if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
     setAuthReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const stored = window.localStorage.getItem(PROJECT_LEGEND_STORAGE_KEY);
-      if (stored) setProjectLegends(JSON.parse(stored));
-    } catch (error) {
-      console.warn('Failed to load project legend data', error);
-    }
   }, []);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1260,7 +1275,6 @@ export default function Page() {
   const projectLegendMissing = Boolean(currentProject && !isProjectLegendComplete(currentProjectLegend));
   const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
     if (!currentProject) return;
-    setProjectLegendMessage('');
     setProjectLegends((prev) => {
       const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
       const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
@@ -1269,76 +1283,68 @@ export default function Page() {
     });
   };
 
-  const saveCurrentProjectLegend = async () => {
+  const persistProjectLegends = (next: Record<string, ProjectLegend>) => {
+    setProjectLegends(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const saveProjectLegend = () => {
     if (!currentProject) return;
-    const legend = normalizeProjectLegend(projectLegends[currentProject.id], currentProject.name);
-    if (!isProjectLegendComplete(legend)) {
+    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
+    if (!isProjectLegendComplete(nextLegend)) {
       alert('יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות.');
       return;
     }
-
-    const nextLegends = { ...projectLegends, [currentProject.id]: legend };
-    setProjectLegends(nextLegends);
-    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
-
-    await withSaving(async () => {
-      if (cloudEnabled) {
-        const result = await supabase!.from('projects').update({
-          name: legend.projectName.trim(),
-          description: currentProject.description ?? '',
-          manager: legend.projectManagement.trim(),
-        }).eq('id', currentProject.id);
-        if (result.error) throw result.error;
-        await refreshCloudData();
-      } else {
-        setProjects((prev) => prev.map((project) => project.id === currentProject.id ? { ...project, name: legend.projectName.trim(), manager: legend.projectManagement.trim() } : project));
-      }
-    });
-    setProjectLegendMessage('פרטי הפרויקט נשמרו בהצלחה');
+    const next = { ...projectLegends, [currentProject.id]: nextLegend };
+    persistProjectLegends(next);
+    alert('פרטי הפרויקט נשמרו בהצלחה.');
   };
 
-  const addProjectFromLegend = async () => {
-    if (!isAdminAccess(projectAccess)) return alert('רק מנהל מערכת יכול להוסיף פרויקט');
-    const id = crypto.randomUUID();
-    const name = 'פרויקט חדש';
-    const project: Project = { id, name, description: '', manager: '', isActive: true, createdAt: nowLocal() };
-    const blankLegend = normalizeProjectLegend({ projectName: name }, name);
-    const nextLegends = { ...projectLegends, [id]: blankLegend };
-    setProjectLegends(nextLegends);
-    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
-
-    await withSaving(async () => {
-      if (cloudEnabled) {
-        await supabase!.from('projects').update({ is_active: false }).neq('id', id);
-        const result = await supabase!.from('projects').insert({ id, name, description: '', manager: '', is_active: true, created_at: nowIso() });
-        if (result.error) throw result.error;
-        await refreshCloudData();
-      } else {
-        setProjects((prev) => [...prev.map((p) => ({ ...p, isActive: false })), project]);
-      }
-      setCurrentProjectId(id);
-      writeLocalCurrentProjectId(id);
-    });
-    setProjectLegendMessage('נוסף פרויקט חדש — מלא את הפרטים ולחץ שמירה / עדכון');
+  const updateProjectLegend = () => {
+    saveProjectLegend();
   };
 
-  const deleteCurrentProjectWithLegend = async () => {
+  const deleteProjectLegend = () => {
     if (!currentProject) return;
-    const relatedRecordsCount = [
-      ...savedChecklists.filter((item) => item.projectId === currentProject.id),
-      ...savedNonconformances.filter((item) => item.projectId === currentProject.id),
-      ...savedTrialSections.filter((item) => item.projectId === currentProject.id),
-      ...savedPreliminary.filter((item) => item.projectId === currentProject.id),
-    ].length;
-    const extraWarning = relatedRecordsCount ? `\nשים לב: קיימות ${relatedRecordsCount} רשומות בפרויקט. המחיקה תמחק גם אותן.` : '';
-    if (!window.confirm(`למחוק את הפרויקט "${currentProject.name}"?${extraWarning}`)) return;
+    if (!window.confirm('למחוק את פרטי המקרא של הפרויקט הפעיל? הרשומות בפרויקט לא יימחקו.')) return;
+    const next = { ...projectLegends };
+    delete next[currentProject.id];
+    persistProjectLegends(next);
+    alert('פרטי המקרא נמחקו. הרשומות בפרויקט נשמרו.');
+  };
 
-    const nextLegends = { ...projectLegends };
-    delete nextLegends[currentProject.id];
-    setProjectLegends(nextLegends);
-    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
-    await deleteProject(currentProject.id);
-    setProjectLegendMessage('הפרויקט נמחק');
+  const addProjectLegendParty = () => {
+    if (!currentProject) return;
+    const party: ProjectLegendParty = { id: crypto.randomUUID(), role: '', name: '' };
+    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
+    const next = { ...projectLegends, [currentProject.id]: { ...nextLegend, additionalParties: [...nextLegend.additionalParties, party] } };
+    persistProjectLegends(next);
+  };
+
+  const updateProjectLegendParty = (partyId: string, field: keyof ProjectLegendParty, value: string) => {
+    if (!currentProject) return;
+    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
+    const next = {
+      ...projectLegends,
+      [currentProject.id]: {
+        ...nextLegend,
+        additionalParties: nextLegend.additionalParties.map((party) => party.id === partyId ? { ...party, [field]: value } : party),
+      },
+    };
+    persistProjectLegends(next);
+  };
+
+  const removeProjectLegendParty = (partyId: string) => {
+    if (!currentProject) return;
+    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
+    const next = {
+      ...projectLegends,
+      [currentProject.id]: {
+        ...nextLegend,
+        additionalParties: nextLegend.additionalParties.filter((party) => party.id !== partyId),
+      },
+    };
+    persistProjectLegends(next);
   };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
@@ -2065,14 +2071,13 @@ export default function Page() {
         <ProjectLegendPanel
           legend={currentProjectLegend}
           missing={projectLegendMissing}
-          projects={accessibleProjects}
-          currentProjectId={currentProjectId}
-          message={projectLegendMessage}
-          onSelectProject={setActiveProject}
           onChange={updateProjectLegendField}
-          onSave={saveCurrentProjectLegend}
-          onAdd={addProjectFromLegend}
-          onDelete={deleteCurrentProjectWithLegend}
+          onSave={saveProjectLegend}
+          onUpdate={updateProjectLegend}
+          onDelete={deleteProjectLegend}
+          onAddParty={addProjectLegendParty}
+          onChangeParty={updateProjectLegendParty}
+          onRemoveParty={removeProjectLegendParty}
         />
       ) : null}
 
