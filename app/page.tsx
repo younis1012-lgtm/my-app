@@ -429,7 +429,6 @@ function ChecklistAttachmentsPanel({ items, onUpload, onRemove }: ChecklistAttac
       <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
         כאן מצרפים מסמכים בזמן מילוי הרשימה. תעודות מעבדה ורשימות מדידה נשמרות עם שורת הבקרה ואינן מוסיפות שורות לטופס הייצוא.
       </div>
-
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
           <thead>
@@ -848,18 +847,24 @@ function ProjectLoginScreen({
 
 function UserAccessPanel({
   users,
+  hasPendingChanges,
   onChangeUser,
   onAddUser,
   onRemoveUser,
   onResetDefaults,
   onUploadSignature,
+  onApproveChanges,
+  onCancelChanges,
 }: {
   users: ProjectAccess[];
+  hasPendingChanges: boolean;
   onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
   onAddUser: () => void;
   onRemoveUser: (index: number) => void;
   onResetDefaults: () => void;
   onUploadSignature: (index: number, file?: File) => void;
+  onApproveChanges: () => void;
+  onCancelChanges: () => void;
 }) {
   return (
     <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
@@ -869,10 +874,13 @@ function UserAccessPanel({
           <div style={{ color: '#64748b', marginTop: 4 }}>מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט שהוגדר לו.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onApproveChanges} disabled={!hasPendingChanges} style={{ ...styles.primaryBtn, opacity: hasPendingChanges ? 1 : 0.45, cursor: hasPendingChanges ? 'pointer' : 'not-allowed' }}>אישור שמירת שינויים</button>
+          <button type="button" onClick={onCancelChanges} disabled={!hasPendingChanges} style={{ ...styles.secondaryBtn, opacity: hasPendingChanges ? 1 : 0.45, cursor: hasPendingChanges ? 'pointer' : 'not-allowed' }}>בטל שינויים</button>
           <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>הוסף משתמש</button>
           <button type="button" onClick={onResetDefaults} style={{ ...styles.secondaryBtn }}>איפוס ברירת מחדל</button>
         </div>
       </div>
+      {hasPendingChanges ? <div style={{ marginBottom: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: 10, fontWeight: 900 }}>יש שינויים שטרם נשמרו. לחץ על אישור שמירת שינויים כדי להפעיל אותם.</div> : null}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
@@ -968,6 +976,7 @@ export default function Page() {
   const [authReady, setAuthReady] = useState(false);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
+  const [draftAccessUsers, setDraftAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [projectLegends, setProjectLegends] = useState<Record<string, ProjectLegend>>({});
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
@@ -987,6 +996,7 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
+    setDraftAccessUsers(users);
 
     // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
     // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
@@ -1024,6 +1034,7 @@ export default function Page() {
   const persistAccessUsers = (nextUsers: ProjectAccess[]) => {
     const normalized = normalizeProjectAccessList(nextUsers);
     setAccessUsers(normalized);
+    setDraftAccessUsers(normalized);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
 
     if (projectAccess) {
@@ -1033,25 +1044,24 @@ export default function Page() {
   };
 
   const updateAccessUser = (index: number, field: keyof ProjectAccess, value: string) => {
-    const nextUsers = accessUsers.map((user, userIndex) => {
+    setDraftAccessUsers((prevUsers) => prevUsers.map((user, userIndex) => {
       if (userIndex !== index) return user;
       const updated: ProjectAccess = { ...user, [field]: value } as ProjectAccess;
       if (field === 'role' && value === 'admin') updated.projectName = null;
       if (field === 'role' && value === 'user' && !updated.projectName) updated.projectName = projects[0]?.name ?? '';
       return updated;
-    });
-    persistAccessUsers(nextUsers);
+    }));
   };
 
   const addAccessUser = () => {
-    persistAccessUsers([
-      ...accessUsers,
+    setDraftAccessUsers((prevUsers) => [
+      ...prevUsers,
       {
-        username: `user${accessUsers.length + 1}`,
+        username: `user${prevUsers.length + 1}`,
         password: '1234',
-        displayName: `משתמש ${accessUsers.length + 1}`,
+        displayName: `משתמש ${prevUsers.length + 1}`,
         role: 'user',
-        code: String(accessUsers.length + 1),
+        code: String(prevUsers.length + 1),
         projectName: projects[0]?.name ?? '',
         signatureDataUrl: '',
         signatureFileName: '',
@@ -1060,25 +1070,36 @@ export default function Page() {
   };
 
   const removeAccessUser = (index: number) => {
-    const user = accessUsers[index];
+    const user = draftAccessUsers[index];
     if (!user || user.role === 'admin') return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
-    persistAccessUsers(accessUsers.filter((_, userIndex) => userIndex !== index));
+    setDraftAccessUsers((prevUsers) => prevUsers.filter((_, userIndex) => userIndex !== index));
   };
 
   const uploadUserSignature = (index: number, file?: File) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const nextUsers = accessUsers.map((user, userIndex) =>
+      setDraftAccessUsers((prevUsers) => prevUsers.map((user, userIndex) =>
         userIndex === index
           ? { ...user, signatureDataUrl: String(reader.result ?? ''), signatureFileName: file.name }
           : user
-      );
-      persistAccessUsers(nextUsers);
+      ));
     };
     reader.onerror = () => alert('לא ניתן לקרוא את קובץ החתימה/חותמת');
     reader.readAsDataURL(file);
+  };
+
+  const hasPendingAccessUserChanges = JSON.stringify(draftAccessUsers) !== JSON.stringify(accessUsers);
+
+  const approveAccessUsersChanges = () => {
+    persistAccessUsers(draftAccessUsers);
+    alert('השינויים נשמרו בהצלחה');
+  };
+
+  const cancelAccessUsersChanges = () => {
+    if (hasPendingAccessUserChanges && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
+    setDraftAccessUsers(accessUsers);
   };
 
   const savedSignatureForSigner = (signerName: string, role?: string) => {
@@ -1095,8 +1116,8 @@ export default function Page() {
   };
 
   const resetAccessUsersToDefaults = () => {
-    if (!window.confirm('לאפס את רשימת המשתמשים לברירת המחדל?')) return;
-    persistAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
+    if (!window.confirm('להכין איפוס לברירת המחדל? השינוי יישמר רק לאחר לחיצה על אישור שמירת שינויים.')) return;
+    setDraftAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
   };
 
   const loadPersistedData = (raw: string | null) => {
@@ -1984,12 +2005,15 @@ export default function Page() {
 
       {isAdminAccess(projectAccess) && showUserManagement ? (
         <UserAccessPanel
-          users={accessUsers}
+          users={draftAccessUsers}
+          hasPendingChanges={hasPendingAccessUserChanges}
           onChangeUser={updateAccessUser}
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
           onResetDefaults={resetAccessUsersToDefaults}
           onUploadSignature={uploadUserSignature}
+          onApproveChanges={approveAccessUsersChanges}
+          onCancelChanges={cancelAccessUsersChanges}
         />
       ) : null}
 
