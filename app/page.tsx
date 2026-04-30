@@ -85,6 +85,29 @@ const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): Proje
   };
 };
 
+const normalizeProjectLegends = (value: unknown): Record<string, ProjectLegend> => {
+  if (!value || typeof value !== 'object') return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(source).map(([projectId, legend]) => [projectId, normalizeProjectLegend(legend)])
+  );
+};
+
+const readStoredProjectLegends = (): Record<string, ProjectLegend> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(PROJECT_LEGEND_STORAGE_KEY);
+    return raw ? normalizeProjectLegends(JSON.parse(raw)) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeStoredProjectLegends = (legends: Record<string, ProjectLegend>) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(legends));
+};
+
 const hasText = (value: unknown) => String(value ?? '').trim().length > 0;
 
 const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
@@ -1046,6 +1069,7 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
+    setProjectLegends(readStoredProjectLegends());
 
     // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
     // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
@@ -1161,7 +1185,9 @@ export default function Page() {
   const loadPersistedData = (raw: string | null) => {
     if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as PersistedData;
+      const parsed = JSON.parse(raw) as PersistedData & { projectLegends?: Record<string, ProjectLegend> };
+      const storedLegends = readStoredProjectLegends();
+      setProjectLegends(Object.keys(storedLegends).length ? storedLegends : normalizeProjectLegends(parsed.projectLegends));
       setProjects(parsed.projects?.length ? parsed.projects : defaultProjects);
       setCurrentProjectId(parsed.currentProjectId ?? parsed.projects?.[0]?.id ?? defaultProjects[0]?.id ?? null);
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
@@ -1187,6 +1213,8 @@ export default function Page() {
 
   useEffect(() => {
     const loadAll = async () => {
+      const storedLegends = readStoredProjectLegends();
+      if (Object.keys(storedLegends).length) setProjectLegends(storedLegends);
       if (!cloudEnabled) {
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
         setLoaded(true);
@@ -1225,7 +1253,8 @@ export default function Page() {
         savedNonconformances,
         savedTrialSections,
         savedPreliminary,
-      };
+        projectLegends,
+      } as PersistedData & { projectLegends: Record<string, ProjectLegend> };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
       console.warn('Local storage quota exceeded. Clearing local cache and continuing without crash.', error);
@@ -1233,7 +1262,7 @@ export default function Page() {
         window.localStorage.removeItem(STORAGE_KEY);
       } catch {}
     }
-  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded, cloudEnabled]);
+  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, projectLegends, loaded, cloudEnabled]);
   useEffect(() => { if (loaded) writeLocalCurrentProjectId(currentProjectId); }, [currentProjectId, loaded]);
 
   const refreshCloudData = async () => {
@@ -1278,14 +1307,14 @@ export default function Page() {
     setProjectLegends((prev) => {
       const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
       const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
-      if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
+      writeStoredProjectLegends(next);
       return next;
     });
   };
 
   const persistProjectLegends = (next: Record<string, ProjectLegend>) => {
     setProjectLegends(next);
-    if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
+    writeStoredProjectLegends(next);
   };
 
   const saveProjectLegend = () => {
