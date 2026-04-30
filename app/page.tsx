@@ -46,8 +46,6 @@ const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 
-type ProjectLegendParty = { id: string; role: string; name: string };
-
 type ProjectLegend = {
   projectName: string;
   projectManagement: string;
@@ -57,65 +55,28 @@ type ProjectLegend = {
   workManager: string;
   surveyor: string;
   supervisor: string;
-  additionalParties: ProjectLegendParty[];
 };
 
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
   const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
-  const rawParties = Array.isArray((raw as any).additionalParties) ? (raw as any).additionalParties : [];
-
-  // חשוב: לא עושים trim בזמן הקלדה.
-  // אחרת רווח בסוף מילה נמחק מיד, ולא ניתן להקליד שם עם כמה מילים.
   return {
-    projectName: String(raw.projectName ?? fallbackProjectName ?? ''),
-    projectManagement: String(raw.projectManagement ?? ''),
-    contractor: String(raw.contractor ?? ''),
-    qualityAssurance: String(raw.qualityAssurance ?? ''),
-    qualityControl: String(raw.qualityControl ?? ''),
-    workManager: String(raw.workManager ?? ''),
-    surveyor: String(raw.surveyor ?? ''),
-    supervisor: String(raw.supervisor ?? ''),
-    additionalParties: rawParties
-      .filter((item: any) => item && typeof item === 'object')
-      .map((item: any, index: number) => ({
-        id: String(item.id ?? `${Date.now()}-${index}`),
-        role: String(item.role ?? ''),
-        name: String(item.name ?? ''),
-      })),
+    projectName: String(raw.projectName ?? fallbackProjectName ?? '').trim(),
+    projectManagement: String(raw.projectManagement ?? '').trim(),
+    contractor: String(raw.contractor ?? '').trim(),
+    qualityAssurance: String(raw.qualityAssurance ?? '').trim(),
+    qualityControl: String(raw.qualityControl ?? '').trim(),
+    workManager: String(raw.workManager ?? '').trim(),
+    surveyor: String(raw.surveyor ?? '').trim(),
+    supervisor: String(raw.supervisor ?? '').trim(),
   };
 };
 
-const normalizeProjectLegends = (value: unknown): Record<string, ProjectLegend> => {
-  if (!value || typeof value !== 'object') return {};
-  const source = value as Record<string, unknown>;
-  return Object.fromEntries(
-    Object.entries(source).map(([projectId, legend]) => [projectId, normalizeProjectLegend(legend)])
-  );
-};
-
-const readStoredProjectLegends = (): Record<string, ProjectLegend> => {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(PROJECT_LEGEND_STORAGE_KEY);
-    return raw ? normalizeProjectLegends(JSON.parse(raw)) : {};
-  } catch {
-    return {};
-  }
-};
-
-const writeStoredProjectLegends = (legends: Record<string, ProjectLegend>) => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(legends));
-};
-
-const hasText = (value: unknown) => String(value ?? '').trim().length > 0;
-
 const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
-  hasText(legend?.projectName) &&
-  hasText(legend?.projectManagement) &&
-  hasText(legend?.contractor) &&
-  hasText(legend?.qualityAssurance) &&
-  hasText(legend?.qualityControl)
+  legend?.projectName &&
+  legend?.projectManagement &&
+  legend?.contractor &&
+  legend?.qualityAssurance &&
+  legend?.qualityControl
 );
 
 const projectLegendToProfile = (legend: ProjectLegend): ProjectProfile => ({
@@ -761,22 +722,10 @@ function ProjectLegendPanel({
   legend,
   missing,
   onChange,
-  onSave,
-  onUpdate,
-  onDelete,
-  onAddParty,
-  onChangeParty,
-  onRemoveParty,
 }: {
   legend: ProjectLegend;
   missing: boolean;
   onChange: (field: keyof ProjectLegend, value: string) => void;
-  onSave: () => void;
-  onUpdate: () => void;
-  onDelete: () => void;
-  onAddParty: () => void;
-  onChangeParty: (partyId: string, field: keyof ProjectLegendParty, value: string) => void;
-  onRemoveParty: (partyId: string) => void;
 }) {
   const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
@@ -797,47 +746,16 @@ function ProjectLegendPanel({
           <div style={{ fontSize: 20, fontWeight: 950 }}>מקרא / פרטי פרויקט</div>
           <div style={{ color: '#475569', marginTop: 4 }}>הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט הפעיל.</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
-          <button type="button" style={styles.primaryBtn} onClick={onSave}>שמירה</button>
-          <button type="button" style={styles.secondaryBtn} onClick={onUpdate}>עדכון</button>
-          <button type="button" style={styles.secondaryBtn} onClick={onAddParty}>הוספת גורם</button>
-          <button type="button" style={styles.dangerBtn} onClick={onDelete}>מחיקה</button>
-        </div>
+        {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {fields.map((field) => (
           <label key={field.key} style={labelStyle}>
             {field.label}{field.required ? ' *' : ''}
-            <input value={String(legend[field.key] ?? '')} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
+            <input value={legend[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
           </label>
         ))}
       </div>
-
-      <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ fontWeight: 950 }}>גורמים נוספים בפרויקט</div>
-          <button type="button" style={styles.secondaryBtn} onClick={onAddParty}>הוספת גורם</button>
-        </div>
-        {legend.additionalParties.length ? (
-          <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-            {legend.additionalParties.map((party) => (
-              <div key={party.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 2fr) auto', gap: 10, alignItems: 'end' }}>
-                <label style={labelStyle}>
-                  תפקיד / גורם
-                  <input value={party.role} onChange={(event) => onChangeParty(party.id, 'role', event.target.value)} style={inputStyle} placeholder="לדוגמה: יועץ תנועה" />
-                </label>
-                <label style={labelStyle}>
-                  שם
-                  <input value={party.name} onChange={(event) => onChangeParty(party.id, 'name', event.target.value)} style={inputStyle} placeholder="שם הגורם" />
-                </label>
-                <button type="button" style={styles.dangerBtn} onClick={() => onRemoveParty(party.id)}>מחיקה</button>
-              </div>
-            ))}
-          </div>
-        ) : <div style={{ color: '#64748b', marginTop: 8 }}>לא נוספו גורמים נוספים.</div>}
-      </div>
-
       {missing ? <div style={{ marginTop: 12, color: '#991b1b', fontWeight: 900 }}>יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות לפני עבודה ברשימות / ריכוזים / טפסים.</div> : null}
     </section>
   );
@@ -1069,7 +987,6 @@ export default function Page() {
       users = DEFAULT_PROJECT_ACCESS_LIST;
     }
     setAccessUsers(users);
-    setProjectLegends(readStoredProjectLegends());
 
     // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
     // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
@@ -1185,9 +1102,7 @@ export default function Page() {
   const loadPersistedData = (raw: string | null) => {
     if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as PersistedData & { projectLegends?: Record<string, ProjectLegend> };
-      const storedLegends = readStoredProjectLegends();
-      setProjectLegends(Object.keys(storedLegends).length ? storedLegends : normalizeProjectLegends(parsed.projectLegends));
+      const parsed = JSON.parse(raw) as PersistedData;
       setProjects(parsed.projects?.length ? parsed.projects : defaultProjects);
       setCurrentProjectId(parsed.currentProjectId ?? parsed.projects?.[0]?.id ?? defaultProjects[0]?.id ?? null);
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
@@ -1213,8 +1128,6 @@ export default function Page() {
 
   useEffect(() => {
     const loadAll = async () => {
-      const storedLegends = readStoredProjectLegends();
-      if (Object.keys(storedLegends).length) setProjectLegends(storedLegends);
       if (!cloudEnabled) {
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
         setLoaded(true);
@@ -1253,8 +1166,7 @@ export default function Page() {
         savedNonconformances,
         savedTrialSections,
         savedPreliminary,
-        projectLegends,
-      } as PersistedData & { projectLegends: Record<string, ProjectLegend> };
+      };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
       console.warn('Local storage quota exceeded. Clearing local cache and continuing without crash.', error);
@@ -1262,7 +1174,7 @@ export default function Page() {
         window.localStorage.removeItem(STORAGE_KEY);
       } catch {}
     }
-  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, projectLegends, loaded, cloudEnabled]);
+  }, [projects, currentProjectId, savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, loaded, cloudEnabled]);
   useEffect(() => { if (loaded) writeLocalCurrentProjectId(currentProjectId); }, [currentProjectId, loaded]);
 
   const refreshCloudData = async () => {
@@ -1307,73 +1219,9 @@ export default function Page() {
     setProjectLegends((prev) => {
       const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
       const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
-      writeStoredProjectLegends(next);
+      if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
-  };
-
-  const persistProjectLegends = (next: Record<string, ProjectLegend>) => {
-    setProjectLegends(next);
-    writeStoredProjectLegends(next);
-  };
-
-  const saveProjectLegend = () => {
-    if (!currentProject) return;
-    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
-    if (!isProjectLegendComplete(nextLegend)) {
-      alert('יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות.');
-      return;
-    }
-    const next = { ...projectLegends, [currentProject.id]: nextLegend };
-    persistProjectLegends(next);
-    alert('פרטי הפרויקט נשמרו בהצלחה.');
-  };
-
-  const updateProjectLegend = () => {
-    saveProjectLegend();
-  };
-
-  const deleteProjectLegend = () => {
-    if (!currentProject) return;
-    if (!window.confirm('למחוק את פרטי המקרא של הפרויקט הפעיל? הרשומות בפרויקט לא יימחקו.')) return;
-    const next = { ...projectLegends };
-    delete next[currentProject.id];
-    persistProjectLegends(next);
-    alert('פרטי המקרא נמחקו. הרשומות בפרויקט נשמרו.');
-  };
-
-  const addProjectLegendParty = () => {
-    if (!currentProject) return;
-    const party: ProjectLegendParty = { id: crypto.randomUUID(), role: '', name: '' };
-    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
-    const next = { ...projectLegends, [currentProject.id]: { ...nextLegend, additionalParties: [...nextLegend.additionalParties, party] } };
-    persistProjectLegends(next);
-  };
-
-  const updateProjectLegendParty = (partyId: string, field: keyof ProjectLegendParty, value: string) => {
-    if (!currentProject) return;
-    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
-    const next = {
-      ...projectLegends,
-      [currentProject.id]: {
-        ...nextLegend,
-        additionalParties: nextLegend.additionalParties.map((party) => party.id === partyId ? { ...party, [field]: value } : party),
-      },
-    };
-    persistProjectLegends(next);
-  };
-
-  const removeProjectLegendParty = (partyId: string) => {
-    if (!currentProject) return;
-    const nextLegend = normalizeProjectLegend(currentProjectLegend, currentProject.name);
-    const next = {
-      ...projectLegends,
-      [currentProject.id]: {
-        ...nextLegend,
-        additionalParties: nextLegend.additionalParties.filter((party) => party.id !== partyId),
-      },
-    };
-    persistProjectLegends(next);
   };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
@@ -1420,20 +1268,66 @@ export default function Page() {
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? '');
-    const match = text.match(/מס[׳'’`]?\s*(\d+)/) ?? text.match(/#\s*(\d+)/) ?? text.match(/(?:^|\s)(\d+)(?:\s|$)/);
+    const match =
+      text.match(/מס[׳'’`]?\s*(\d+)/) ??
+      text.match(/No[.\s:-]*(\d+)/i) ??
+      text.match(/#\s*(\d+)/) ??
+      text.match(/(?:^|\s)(\d+)(?:\s|$)/);
     return match ? Number(match[1]) || 0 : 0;
   };
-  const nextSequentialNo = (records: Array<{ title?: string; projectId?: string; subtype?: string }>, subtype?: PreliminaryTab) =>
+
+  // מספור סידורי נפרד לכל סוג טופס ולכל פרויקט.
+  // חשוב: רשימות תיוג לא משתמשות במנגנון הזה ולא שונו.
+  type FormSequenceKind =
+    | 'rfi'
+    | 'nonconformances'
+    | 'trialSections'
+    | 'preliminary-suppliers'
+    | 'preliminary-subcontractors'
+    | 'preliminary-materials';
+
+  const formSequenceStorageKey = (kind: FormSequenceKind) =>
+    `${STORAGE_KEY}-form-sequence-${currentProjectId || 'no-project'}-${kind}`;
+
+  const getStoredFormSequence = (kind: FormSequenceKind) => {
+    if (typeof window === 'undefined') return 0;
+    return Number(window.localStorage.getItem(formSequenceStorageKey(kind)) ?? 0) || 0;
+  };
+
+  const setStoredFormSequence = (kind: FormSequenceKind, value: number) => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(formSequenceStorageKey(kind), String(value));
+  };
+
+  const maxSavedSequentialNo = (
+    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
+    subtype?: PreliminaryTab
+  ) =>
     records
       .filter((item) => item.projectId === currentProjectId)
       .filter((item) => !subtype || item.subtype === subtype)
-      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0) + 1;
+      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
+
+  const nextSequentialNo = (
+    kind: FormSequenceKind,
+    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
+    subtype?: PreliminaryTab
+  ) => Math.max(getStoredFormSequence(kind), maxSavedSequentialNo(records, subtype)) + 1;
+
+  const rememberSequentialNo = (kind: FormSequenceKind, title: unknown) => {
+    const number = extractSequentialNo(title);
+    if (!number) return;
+    setStoredFormSequence(kind, Math.max(getStoredFormSequence(kind), number));
+  };
+
   const numberedTitle = (base: string, number: number) => `${base} מס׳ ${number}`;
   const titleHasNumber = (title: unknown) => extractSequentialNo(title) > 0;
-  const nextNonconformanceTitle = () => numberedTitle('אי התאמה', nextSequentialNo(savedNonconformances as any));
-  const nextTrialSectionTitle = () => numberedTitle('קטע ניסוי', nextSequentialNo(savedTrialSections as any));
+  const nextRfiTitle = () => numberedTitle('RFI', nextSequentialNo('rfi', []));
+  const nextNonconformanceTitle = () => numberedTitle('אי התאמה', nextSequentialNo('nonconformances', savedNonconformances as any));
+  const nextTrialSectionTitle = () => numberedTitle('קטע ניסוי', nextSequentialNo('trialSections', savedTrialSections as any));
   const preliminaryBaseTitle = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'אישור ספקים' : subtype === 'subcontractors' ? 'אישור קבלנים' : 'אישור חומרים';
-  const nextPreliminaryTitle = (subtype: PreliminaryTab) => numberedTitle(preliminaryBaseTitle(subtype), nextSequentialNo(savedPreliminary as any, subtype));
+  const preliminarySequenceKind = (subtype: PreliminaryTab): FormSequenceKind => `preliminary-${subtype}` as FormSequenceKind;
+  const nextPreliminaryTitle = (subtype: PreliminaryTab) => numberedTitle(preliminaryBaseTitle(subtype), nextSequentialNo(preliminarySequenceKind(subtype), savedPreliminary as any, subtype));
 
 
   useEffect(() => {
@@ -1603,6 +1497,7 @@ export default function Page() {
     const validation = validateApproval(nonconformanceForm.approval); if (validation) return alert(validation);
     const id = editingNonconformanceId ?? crypto.randomUUID();
     const title = editingNonconformanceId || titleHasNumber(nonconformanceForm.title) ? nonconformanceForm.title : nextNonconformanceTitle();
+    rememberSequentialNo('nonconformances', title);
     const record: NonconformanceRecord = { id, projectId: currentProjectId, ...nonconformanceForm, title, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -1621,6 +1516,7 @@ export default function Page() {
     const validation = validateApproval(trialSectionForm.approval); if (validation) return alert(validation);
     const id = editingTrialSectionId ?? crypto.randomUUID();
     const title = editingTrialSectionId || titleHasNumber(trialSectionForm.title) ? trialSectionForm.title : nextTrialSectionTitle();
+    rememberSequentialNo('trialSections', title);
     const record: TrialSectionRecord = { id, projectId: currentProjectId, ...trialSectionForm, title, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -1641,6 +1537,7 @@ export default function Page() {
     const validation = validateApproval(form.approval); if (validation) return alert(validation);
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title = editingPreliminaryId || titleHasNumber(form.title) ? form.title : nextPreliminaryTitle(subtype);
+    rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const record: PreliminaryRecord = { id, projectId: currentProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -2101,12 +1998,6 @@ export default function Page() {
           legend={currentProjectLegend}
           missing={projectLegendMissing}
           onChange={updateProjectLegendField}
-          onSave={saveProjectLegend}
-          onUpdate={updateProjectLegend}
-          onDelete={deleteProjectLegend}
-          onAddParty={addProjectLegendParty}
-          onChangeParty={updateProjectLegendParty}
-          onRemoveParty={removeProjectLegendParty}
         />
       ) : null}
 
