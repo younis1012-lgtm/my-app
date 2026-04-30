@@ -54,7 +54,8 @@ type RfiRecord = {
   projectId: string;
   title: string;
   referenceNo: string;
-  status: 'פתוח' | 'ממתין להתייחסות' | 'סגור';
+  rfiNumber: number | null;
+  status: 'פתוח' | 'ממתין להתייחסות' | 'בטיפול' | 'נענה' | 'סגור';
   planNo: string;
   revision: string;
   planName: string;
@@ -73,6 +74,10 @@ type RfiRecord = {
   closeDate: string;
   closedAt: string;
   closedBy: string;
+  createdBy: string;
+  updatedBy: string;
+  updatedAt: string;
+  auditTrail: Array<{ action: string; by: string; at: string; note: string }>;
   documents: StoredAttachment[];
   savedAt: string;
 };
@@ -80,6 +85,7 @@ type RfiRecord = {
 const createDefaultRfi = (title = 'RFI מס׳ 1'): Omit<RfiRecord, 'id' | 'projectId' | 'savedAt'> => ({
   title,
   referenceNo: '',
+  rfiNumber: null,
   status: 'פתוח',
   planNo: '',
   revision: '',
@@ -99,6 +105,10 @@ const createDefaultRfi = (title = 'RFI מס׳ 1'): Omit<RfiRecord, 'id' | 'proje
   closeDate: '',
   closedAt: '',
   closedBy: '',
+  createdBy: '',
+  updatedBy: '',
+  updatedAt: '',
+  auditTrail: [],
   documents: [],
 });
 
@@ -109,7 +119,8 @@ const normalizeRfiRecord = (value: any): RfiRecord | null => {
     projectId: String(value.projectId ?? ''),
     title: String(value.title ?? 'RFI'),
     referenceNo: String(value.referenceNo ?? ''),
-    status: value.status === 'סגור' || value.status === 'ממתין להתייחסות' ? value.status : 'פתוח',
+    rfiNumber: value.rfiNumber === null || value.rfiNumber === undefined || value.rfiNumber === '' ? null : Number(value.rfiNumber),
+    status: ['פתוח', 'ממתין להתייחסות', 'בטיפול', 'נענה', 'סגור'].includes(value.status) ? value.status : 'פתוח',
     planNo: String(value.planNo ?? ''),
     revision: String(value.revision ?? ''),
     planName: String(value.planName ?? ''),
@@ -128,6 +139,10 @@ const normalizeRfiRecord = (value: any): RfiRecord | null => {
     closeDate: String(value.closeDate ?? ''),
     closedAt: String(value.closedAt ?? ''),
     closedBy: String(value.closedBy ?? ''),
+    createdBy: String(value.createdBy ?? ''),
+    updatedBy: String(value.updatedBy ?? ''),
+    updatedAt: String(value.updatedAt ?? ''),
+    auditTrail: Array.isArray(value.auditTrail) ? value.auditTrail.map((entry: any) => ({ action: String(entry?.action ?? ''), by: String(entry?.by ?? ''), at: String(entry?.at ?? ''), note: String(entry?.note ?? '') })).filter((entry: any) => entry.action || entry.note) : [],
     documents: normalizeAttachments(value.documents),
     savedAt: String(value.savedAt ?? ''),
   };
@@ -138,7 +153,8 @@ const rfiRowToRecord = (row: any): RfiRecord => ({
   projectId: String(row?.project_id ?? ''),
   title: String(row?.title ?? 'RFI'),
   referenceNo: String(row?.reference_no ?? ''),
-  status: row?.status === 'סגור' || row?.status === 'ממתין להתייחסות' ? row.status : 'פתוח',
+  rfiNumber: row?.rfi_number === null || row?.rfi_number === undefined ? null : Number(row.rfi_number),
+  status: ['פתוח', 'ממתין להתייחסות', 'בטיפול', 'נענה', 'סגור'].includes(row?.status) ? row.status : 'פתוח',
   planNo: String(row?.plan_no ?? ''),
   revision: String(row?.revision ?? ''),
   planName: String(row?.plan_name ?? ''),
@@ -157,6 +173,10 @@ const rfiRowToRecord = (row: any): RfiRecord => ({
   closeDate: String(row?.close_date ?? ''),
   closedAt: String(row?.closed_at ?? ''),
   closedBy: String(row?.closed_by ?? ''),
+  createdBy: String(row?.created_by ?? ''),
+  updatedBy: String(row?.updated_by ?? ''),
+  updatedAt: row?.updated_at ? new Date(row.updated_at).toLocaleString('he-IL') : '',
+  auditTrail: Array.isArray(row?.audit_log) ? row.audit_log.map((entry: any) => ({ action: String(entry?.action ?? ''), by: String(entry?.by ?? ''), at: String(entry?.at ?? ''), note: String(entry?.note ?? '') })) : [],
   documents: normalizeAttachments(row?.documents),
   savedAt: row?.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '',
 });
@@ -166,6 +186,7 @@ const rfiRecordToRow = (record: RfiRecord) => ({
   project_id: record.projectId,
   title: record.title,
   reference_no: record.referenceNo,
+  ...(record.rfiNumber == null ? {} : { rfi_number: record.rfiNumber }),
   status: record.status,
   plan_no: record.planNo,
   revision: record.revision,
@@ -185,6 +206,10 @@ const rfiRecordToRow = (record: RfiRecord) => ({
   close_date: record.closeDate || null,
   closed_at: record.closedAt || null,
   closed_by: record.closedBy,
+  created_by: record.createdBy,
+  updated_by: record.updatedBy,
+  updated_at: record.updatedAt || null,
+  audit_log: record.auditTrail ?? [],
   documents: normalizeAttachments(record.documents),
 });
 
@@ -1045,7 +1070,7 @@ function FormGrid({ fields, form, setForm, readOnly = false }: { fields: FieldDe
 const RFI_FIELDS: FieldDef[] = [
   { key: 'title', label: 'מספר RFI', required: true },
   { key: 'referenceNo', label: 'מספר יחוס' },
-  { key: 'status', label: 'סטטוס RFI', type: 'select', options: ['פתוח', 'ממתין להתייחסות', 'סגור'] },
+  { key: 'status', label: 'סטטוס RFI', type: 'select', options: ['פתוח', 'ממתין להתייחסות', 'בטיפול', 'נענה', 'סגור'] },
   { key: 'planNo', label: "מס' תוכנית" },
   { key: 'revision', label: 'גרסה / מהדורה' },
   { key: 'planName', label: 'שם תוכנית' },
@@ -1103,8 +1128,21 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
       </div>
       <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#f8fafc' }}>
         <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
-        {savedRfis.length ? <div style={{ display: 'grid', gap: 10 }}>{savedRfis.map((item) => <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: 12, padding: 10, background: '#fff', flexWrap: 'wrap' }}><div><strong>{item.title}</strong><div style={{ color: '#64748b' }}>{item.status} · {item.location || 'ללא מיקום'} · {item.savedAt}</div></div><div style={styles.buttonRow}><button type="button" style={styles.secondaryBtn} onClick={() => loadRfi(item)}>פתח</button><button type="button" style={styles.dangerBtn} onClick={() => deleteRfi(item.id)}>מחיקה</button></div></div>)}</div> : <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>}
+        {savedRfis.length ? <div style={{ display: 'grid', gap: 10 }}>{savedRfis.map((item) => <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: 12, padding: 10, background: '#fff', flexWrap: 'wrap' }}><div><strong>{item.title}</strong><div style={{ color: '#64748b' }}>{item.status} · {item.location || 'ללא מיקום'} · {item.savedAt}</div><div style={{ color: '#475569', fontSize: 13, marginTop: 3 }}>נפתח ע״י: {item.createdBy || '—'} · עודכן ע״י: {item.updatedBy || '—'} · עדכון אחרון: {item.updatedAt || '—'}</div></div><div style={styles.buttonRow}><button type="button" style={styles.secondaryBtn} onClick={() => loadRfi(item)}>פתח</button><button type="button" style={styles.dangerBtn} onClick={() => deleteRfi(item.id)}>מחיקה</button></div></div>)}</div> : <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>}
       </div>
+      {editingRfiId && normalizeRfiRecord({ ...rfiForm, id: editingRfiId, projectId: '', savedAt: '' })?.auditTrail?.length ? (
+        <div style={{ border: '1px solid #cbd5e1', borderRadius: 18, padding: 16, background: '#fff', marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>יומן שינויים RFI</h3>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {normalizeRfiRecord({ ...rfiForm, id: editingRfiId, projectId: '', savedAt: '' })!.auditTrail.map((entry, index) => (
+              <div key={`${entry.at}-${index}`} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#f8fafc' }}>
+                <strong>{entry.action || 'פעולה'}</strong> · {entry.by || 'משתמש'} · {entry.at || '—'}
+                <div style={{ color: '#475569', marginTop: 4 }}>{entry.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -2052,21 +2090,55 @@ export default function Page() {
   const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ checklistNo: record.checklistNo, templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
   const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
+
+  const saveRfiPayload = async (payload: Record<string, any>, isUpdate: boolean, id?: string) => {
+    const run = (body: Record<string, any>) => isUpdate
+      ? supabase!.from('rfi_records').update(body).eq('id', id)
+      : supabase!.from('rfi_records').insert(body);
+
+    let result = await run(payload);
+    if (result.error && ['rfi_number', 'created_by', 'updated_by', 'updated_at', 'audit_log'].some((column) => isMissingColumnError(result.error, column))) {
+      const { rfi_number, created_by, updated_by, updated_at, audit_log, ...fallbackPayload } = payload;
+      result = await run(fallbackPayload);
+    }
+    if (result.error) throw result.error;
+  };
+
   const saveRfi = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!String(rfiForm.title ?? '').trim()) return alert('יש להזין מספר RFI');
     if (!String(rfiForm.requestDescription ?? '').trim()) return alert('יש להזין תיאור הבקשה');
     const title = editingRfiId || titleHasNumber(rfiForm.title) ? rfiForm.title : nextRfiTitle();
     rememberSequentialNo('rfi', title);
-    const record: RfiRecord = { id: editingRfiId ?? crypto.randomUUID(), projectId: currentProjectId, ...rfiForm, title, documents: normalizeAttachments(rfiForm.documents), savedAt: nowLocal() };
+    const actor = projectAccess?.displayName || projectAccess?.username || 'משתמש מערכת';
+    const actionTime = nowLocal();
+    const actionIso = nowIso();
+    const existing = editingRfiId ? savedRfis.find((item) => item.id === editingRfiId) : null;
+    const previousAuditTrail = normalizeRfiRecord(existing ?? rfiForm)?.auditTrail ?? [];
+    const auditEntry = {
+      action: editingRfiId ? 'עדכון RFI' : 'פתיחת RFI',
+      by: actor,
+      at: actionTime,
+      note: editingRfiId ? `עודכן סטטוס: ${rfiForm.status || 'פתוח'}` : `נפתחה בקשה: ${title}`,
+    };
+    const record: RfiRecord = {
+      id: editingRfiId ?? crypto.randomUUID(),
+      projectId: currentProjectId,
+      ...rfiForm,
+      title,
+      rfiNumber: rfiForm.rfiNumber ?? existing?.rfiNumber ?? null,
+      createdBy: existing?.createdBy || rfiForm.createdBy || actor,
+      updatedBy: actor,
+      updatedAt: actionTime,
+      auditTrail: [auditEntry, ...previousAuditTrail],
+      documents: normalizeAttachments(rfiForm.documents),
+      savedAt: nowLocal(),
+    };
 
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = rfiRecordToRow(record);
-        const result = editingRfiId
-          ? await supabase!.from('rfi_records').update(payload).eq('id', editingRfiId)
-          : await supabase!.from('rfi_records').insert(payload);
-        if (result.error) throw result.error;
+        const payload = rfiRecordToRow({ ...record, updatedAt: actionIso });
+        await saveRfiPayload(payload, Boolean(editingRfiId), editingRfiId ?? undefined);
         await refreshCloudData();
       } else {
         setSavedRfis((prev) => editingRfiId ? prev.map((item) => item.id === editingRfiId ? record : item) : [record, ...prev]);
@@ -2178,7 +2250,7 @@ export default function Page() {
     { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length },
     { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length },
     { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length },
-    { key: 'rfi', title: 'RFI', icon: '📨', description: 'ניהול תיקיית RFI', count: 0 },
+    { key: 'rfi', title: 'RFI', icon: '📨', description: 'ניהול תיקיית RFI', count: projectRfis.length },
     { key: 'supervisionReports', title: 'דוחות פיקוח עליון', icon: '🏛️', description: 'תיקיית דוחות פיקוח עליון', count: 0 },
     { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 },
   ];
