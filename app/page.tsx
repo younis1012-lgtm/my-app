@@ -7,7 +7,6 @@ import { styles } from './components/common';
 import { SavedRecordsSidebar } from './components/SavedRecordsSidebar';
 import { HomeSection } from './components/HomeSection';
 import { ProjectsSection } from './components/ProjectsSection';
-import { NonconformancesSection } from './components/NonconformancesSection';
 import { TrialSectionsSection } from './components/TrialSectionsSection';
 import { PreliminarySection } from './components/PreliminarySection';
 import { ConcentrationsSection } from './components/ConcentrationsSection';
@@ -45,6 +44,93 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
+const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
+
+
+
+type RfiRecord = {
+  id: string;
+  projectId: string;
+  title: string;
+  referenceNo: string;
+  status: 'פתוח' | 'ממתין להתייחסות' | 'סגור';
+  planNo: string;
+  revision: string;
+  planName: string;
+  buildingDetails: string;
+  building: string;
+  openDate: string;
+  location: string;
+  workActivity: string;
+  relevantPlans: string;
+  fromSection: string;
+  toSection: string;
+  requestDescription: string;
+  budgetImpact: string;
+  scheduleImpact: string;
+  response: string;
+  closeDate: string;
+  closedAt: string;
+  closedBy: string;
+  documents: StoredAttachment[];
+  savedAt: string;
+};
+
+const createDefaultRfi = (title = 'RFI מס׳ 1'): Omit<RfiRecord, 'id' | 'projectId' | 'savedAt'> => ({
+  title,
+  referenceNo: '',
+  status: 'פתוח',
+  planNo: '',
+  revision: '',
+  planName: '',
+  buildingDetails: '',
+  building: '',
+  openDate: new Date().toISOString().slice(0, 10),
+  location: '',
+  workActivity: '',
+  relevantPlans: '',
+  fromSection: '',
+  toSection: '',
+  requestDescription: '',
+  budgetImpact: '',
+  scheduleImpact: '',
+  response: '',
+  closeDate: '',
+  closedAt: '',
+  closedBy: '',
+  documents: [],
+});
+
+const normalizeRfiRecord = (value: any): RfiRecord | null => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    projectId: String(value.projectId ?? ''),
+    title: String(value.title ?? 'RFI'),
+    referenceNo: String(value.referenceNo ?? ''),
+    status: value.status === 'סגור' || value.status === 'ממתין להתייחסות' ? value.status : 'פתוח',
+    planNo: String(value.planNo ?? ''),
+    revision: String(value.revision ?? ''),
+    planName: String(value.planName ?? ''),
+    buildingDetails: String(value.buildingDetails ?? ''),
+    building: String(value.building ?? ''),
+    openDate: String(value.openDate ?? ''),
+    location: String(value.location ?? ''),
+    workActivity: String(value.workActivity ?? ''),
+    relevantPlans: String(value.relevantPlans ?? ''),
+    fromSection: String(value.fromSection ?? ''),
+    toSection: String(value.toSection ?? ''),
+    requestDescription: String(value.requestDescription ?? ''),
+    budgetImpact: String(value.budgetImpact ?? ''),
+    scheduleImpact: String(value.scheduleImpact ?? ''),
+    response: String(value.response ?? ''),
+    closeDate: String(value.closeDate ?? ''),
+    closedAt: String(value.closedAt ?? ''),
+    closedBy: String(value.closedBy ?? ''),
+    documents: normalizeAttachments(value.documents),
+    savedAt: String(value.savedAt ?? ''),
+  };
+};
 
 type ProjectLegend = {
   projectName: string;
@@ -774,7 +860,7 @@ function ProjectLegendPanel({
           {hasChanges ? <div style={{ color: '#b45309', fontWeight: 950, marginTop: 6 }}>יש שינויים שעדיין לא אושרו</div> : null}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {!isEditing ? <button type="button" onClick={onStartEdit} disabled={!canEdit} style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }}>שינוי</button> : null}
+          {!isEditing ? <button type="button" onClick={onStartEdit} disabled={!canEdit} style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }}>עדכון</button> : null}
           {isEditing ? <button type="button" onClick={onApprove} style={styles.primaryBtn}>אישור שמירת שינויים</button> : null}
           {isEditing ? <button type="button" onClick={onCancel} style={styles.secondaryBtn}>בטל שינויים</button> : null}
           {isEditing ? <button type="button" onClick={onAddFactor} style={styles.secondaryBtn}>הוספת גורם</button> : null}
@@ -822,6 +908,161 @@ function SimpleFolderSection({ title, description, icon }: { title: string; desc
   );
 }
 
+
+
+
+type FieldDef = { key: string; label: string; type?: 'text' | 'date' | 'textarea' | 'select'; options?: string[]; required?: boolean };
+
+function FormGrid({ fields, form, setForm, readOnly = false }: { fields: FieldDef[]; form: any; setForm: React.Dispatch<React.SetStateAction<any>>; readOnly?: boolean }) {
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: readOnly ? '#f1f5f9' : '#fff', minHeight: 44 };
+  const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
+  const set = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+      {fields.map((field) => (
+        <label key={field.key} style={{ ...labelStyle, gridColumn: field.type === 'textarea' ? '1 / -1' : undefined }}>
+          {field.label}{field.required ? ' *' : ''}
+          {field.type === 'textarea' ? (
+            <textarea disabled={readOnly} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value)} style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }} />
+          ) : field.type === 'select' ? (
+            <select disabled={readOnly} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value)} style={inputStyle}>
+              {(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          ) : (
+            <input disabled={readOnly} type={field.type === 'date' ? 'date' : 'text'} value={form[field.key] ?? ''} onChange={(e) => set(field.key, e.target.value)} style={inputStyle} />
+          )}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+const RFI_FIELDS: FieldDef[] = [
+  { key: 'title', label: 'מספר RFI', required: true },
+  { key: 'referenceNo', label: 'מספר יחוס' },
+  { key: 'status', label: 'סטטוס RFI', type: 'select', options: ['פתוח', 'ממתין להתייחסות', 'סגור'] },
+  { key: 'planNo', label: "מס' תוכנית" },
+  { key: 'revision', label: 'גרסה / מהדורה' },
+  { key: 'planName', label: 'שם תוכנית' },
+  { key: 'buildingDetails', label: 'פרטי המבנה' },
+  { key: 'building', label: 'מבנה' },
+  { key: 'openDate', label: 'תאריך פתיחה', type: 'date' },
+  { key: 'location', label: 'מיקום' },
+  { key: 'workActivity', label: 'פעילות עבודה' },
+  { key: 'relevantPlans', label: 'תוכניות רלוונטיות' },
+  { key: 'fromSection', label: 'מחתך' },
+  { key: 'toSection', label: 'עד חתך' },
+  { key: 'budgetImpact', label: 'השפעה תקציבית', type: 'select', options: ['', 'כן', 'לא', 'נדרש בירור'] },
+  { key: 'scheduleImpact', label: 'השפעה על לוח זמנים', type: 'select', options: ['', 'כן', 'לא', 'נדרש בירור'] },
+  { key: 'requestDescription', label: 'תיאור הבקשה', type: 'textarea', required: true },
+  { key: 'response', label: 'תשובת RFI / התייחסות שהתקבלה', type: 'textarea' },
+  { key: 'closeDate', label: 'תאריך סגירת RFI', type: 'date' },
+  { key: 'closedAt', label: 'נסגר בתאריך', type: 'date' },
+  { key: 'closedBy', label: 'נסגר ע״י' },
+];
+
+function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis, saveRfi, resetRfiForm, closeRfi, deleteRfi, loadRfi, projectMeta }: {
+  guardedBody: React.ReactNode;
+  rfiForm: any;
+  setRfiForm: React.Dispatch<React.SetStateAction<any>>;
+  editingRfiId: string | null;
+  savedRfis: RfiRecord[];
+  saveRfi: () => void;
+  resetRfiForm: () => void;
+  closeRfi: () => void;
+  deleteRfi: (id: string) => void;
+  loadRfi: (record: RfiRecord) => void;
+  projectMeta: ProjectLegend;
+}) {
+  if (guardedBody) return <>{guardedBody}</>;
+  const metaStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#f8fafc', fontWeight: 800 };
+  return (
+    <section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <div><h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>בקשת RFI</h2><div style={{ color: '#64748b', marginTop: 4 }}>טופס בקשה למידע לפי הקובץ המצורף. ניתן לסגור רק לאחר קבלת התייחסות.</div></div>
+        <div style={styles.buttonRow}>
+          <button type="button" style={styles.secondaryBtn} onClick={resetRfiForm}>בקשה חדשה</button>
+          <button type="button" style={styles.primaryBtn} onClick={saveRfi}>{editingRfiId ? 'עדכון RFI' : 'אישור פתיחת RFI'}</button>
+          <button type="button" style={styles.dangerBtn} onClick={closeRfi}>אישור / סגירת RFI</button>
+        </div>
+      </div>
+      <div style={{ border: '1px solid #cbd5e1', borderRadius: 18, padding: 16, background: '#fff', marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <div style={metaStyle}>שם הפרויקט<br />{projectMeta.projectName || '—'}</div>
+          <div style={metaStyle}>קבלן ראשי<br />{projectMeta.contractor || '—'}</div>
+          <div style={metaStyle}>חברת ניהול<br />{projectMeta.projectManagement || '—'}</div>
+          <div style={metaStyle}>חברת בקרת איכות<br />{projectMeta.qualityControl || '—'}</div>
+          <div style={metaStyle}>חברת הבטחת איכות<br />{projectMeta.qualityAssurance || '—'}</div>
+        </div>
+        <FormGrid fields={RFI_FIELDS} form={rfiForm} setForm={setRfiForm} />
+      </div>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#f8fafc' }}>
+        <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
+        {savedRfis.length ? <div style={{ display: 'grid', gap: 10 }}>{savedRfis.map((item) => <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: 12, padding: 10, background: '#fff', flexWrap: 'wrap' }}><div><strong>{item.title}</strong><div style={{ color: '#64748b' }}>{item.status} · {item.location || 'ללא מיקום'} · {item.savedAt}</div></div><div style={styles.buttonRow}><button type="button" style={styles.secondaryBtn} onClick={() => loadRfi(item)}>פתח</button><button type="button" style={styles.dangerBtn} onClick={() => deleteRfi(item.id)}>מחיקה</button></div></div>)}</div> : <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>}
+      </div>
+    </section>
+  );
+}
+
+const NCR_FIELDS: FieldDef[] = [
+  { key: 'title', label: 'אי התאמה מס׳', required: true },
+  { key: 'openedBy', label: 'נפתח QA / QC', type: 'select', options: ['QA / QC', 'QC', 'QA'] },
+  { key: 'openedRole', label: 'תפקיד', type: 'select', options: ['בקרת איכות', 'הבטחת איכות'] },
+  { key: 'raisedBy', label: 'שם פותח' },
+  { key: 'date', label: 'תאריך פתיחה', type: 'date' },
+  { key: 'location', label: 'קטע' },
+  { key: 'building', label: 'מבנה' },
+  { key: 'element', label: 'אלמנט' },
+  { key: 'subElement', label: 'תת אלמנט' },
+  { key: 'fromSection', label: 'מחתך' },
+  { key: 'toSection', label: 'עד חתך' },
+  { key: 'offset', label: 'הסט' },
+  { key: 'grade', label: 'דרגה' },
+  { key: 'expectedCloseDate', label: 'תאריך סגירה משוער', type: 'date' },
+  { key: 'updatedExpectedCloseDate', label: 'תאריך סגירה משוער מעודכן', type: 'date' },
+  { key: 'delayDays', label: 'מס׳ ימי עיכוב לסגירה' },
+  { key: 'breakage', label: 'שבר' },
+  { key: 'qualityImpact', label: 'השפעה על איכות', type: 'select', options: ['', 'נמוכה', 'בינונית', 'גבוהה', 'קריטית'] },
+  { key: 'description', label: 'תאור אי ההתאמה', type: 'textarea', required: true },
+  { key: 'responsibleParty', label: 'גורם אחראי לליקוי תכנון, ביצוע, ספק', type: 'textarea' },
+  { key: 'actionRequired', label: 'טיפול נדרש', type: 'textarea' },
+  { key: 'handler', label: 'גורם המטפל' },
+  { key: 'correctiveActionDetails', label: 'פירוט ביצוע פעולה מתקנת', type: 'textarea' },
+  { key: 'notes', label: 'הערות', type: 'textarea' },
+  { key: 'closedBy', label: 'נסגרה ע״י' },
+  { key: 'closingRole', label: 'תפקיד סגירה', type: 'select', options: ['', 'QC', 'QA'] },
+  { key: 'closedName', label: 'שם סוגר' },
+  { key: 'closingDate', label: 'תאריך סגירה', type: 'date' },
+  { key: 'status', label: 'סטטוס', type: 'select', options: ['פתוח', 'בטיפול', 'סגור'] },
+  { key: 'severity', label: 'חומרה', type: 'select', options: ['נמוכה', 'בינונית', 'גבוהה', 'קריטית'] },
+];
+
+function EnhancedNonconformancesSection({ guardedBody, editingNonconformanceId, nonconformanceForm, setNonconformanceForm, saveNonconformance, resetNonconformanceEditor, closeNonconformance }: {
+  guardedBody: React.ReactNode;
+  editingNonconformanceId: string | null;
+  nonconformanceForm: any;
+  setNonconformanceForm: React.Dispatch<React.SetStateAction<any>>;
+  saveNonconformance: () => void;
+  resetNonconformanceEditor: () => void;
+  closeNonconformance: () => void;
+}) {
+  if (guardedBody) return <>{guardedBody}</>;
+  return (
+    <section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <div><h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>טופס אי התאמה</h2><div style={{ color: '#64748b', marginTop: 4 }}>פתיחה, טיפול, פעולה מתקנת וסגירה לפי טופס אי ההתאמה המצורף.</div></div>
+        <div style={styles.buttonRow}>
+          <button type="button" style={styles.secondaryBtn} onClick={resetNonconformanceEditor}>אי התאמה חדשה</button>
+          <button type="button" style={styles.primaryBtn} onClick={saveNonconformance}>{editingNonconformanceId ? 'עדכון אי התאמה' : 'אישור פתיחת אי התאמה'}</button>
+          <button type="button" style={styles.dangerBtn} onClick={closeNonconformance}>אישור ביצוע / סגירה</button>
+        </div>
+      </div>
+      <div style={{ border: '1px solid #cbd5e1', borderRadius: 18, padding: 16, background: '#fff' }}>
+        <FormGrid fields={NCR_FIELDS} form={nonconformanceForm} setForm={setNonconformanceForm} />
+      </div>
+    </section>
+  );
+}
 
 function PasswordField({
   value,
@@ -1049,6 +1290,9 @@ export default function Page() {
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [savedRfis, setSavedRfis] = useState<RfiRecord[]>([]);
+  const [rfiForm, setRfiForm] = useState(createDefaultRfi());
+  const [editingRfiId, setEditingRfiId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1060,6 +1304,13 @@ export default function Page() {
     } catch {
       setProjectLegends({});
       setDraftProjectLegends({});
+    }
+    try {
+      const storedRfis = window.localStorage.getItem(RFI_STORAGE_KEY);
+      const parsedRfis = storedRfis ? JSON.parse(storedRfis) : [];
+      setSavedRfis(Array.isArray(parsedRfis) ? parsedRfis.map(normalizeRfiRecord).filter(Boolean) as RfiRecord[] : []);
+    } catch {
+      setSavedRfis([]);
     }
   }, []);
 
@@ -1089,6 +1340,11 @@ export default function Page() {
 
     setAuthReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
+  }, [savedRfis]);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1425,6 +1681,7 @@ export default function Page() {
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
   const projectChecklists = useMemo(() => savedChecklists.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.category, item.location, item.contractor].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedChecklists, currentProjectId, normalizedSearchTerm]);
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
+  const projectRfis = useMemo(() => savedRfis.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.requestDescription, item.status, item.response].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedRfis, currentProjectId, normalizedSearchTerm]);
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
 
@@ -1512,9 +1769,13 @@ export default function Page() {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     setChecklistForm({ ...next, contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
   };
+  const resetRfiForm = () => {
+    setEditingRfiId(null);
+    setRfiForm(createDefaultRfi(nextRfiTitle()));
+  };
   const resetNonconformanceEditor = () => {
     setEditingNonconformanceId(null);
-    setNonconformanceForm({ ...createDefaultNonconformance(), title: nextNonconformanceTitle() });
+    setNonconformanceForm({ ...createDefaultNonconformance(), title: nextNonconformanceTitle(), openedBy: 'QA / QC', openedRole: 'בקרת איכות', status: 'פתוח' } as any);
   };
   const resetTrialSectionEditor = () => {
     setEditingTrialSectionId(null);
@@ -1653,6 +1914,38 @@ export default function Page() {
   const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ checklistNo: record.checklistNo, templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
   const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
+  const saveRfi = () => {
+    if (!currentProjectId) return alert('יש לבחור פרויקט');
+    if (!String(rfiForm.title ?? '').trim()) return alert('יש להזין מספר RFI');
+    if (!String(rfiForm.requestDescription ?? '').trim()) return alert('יש להזין תיאור הבקשה');
+    const title = editingRfiId || titleHasNumber(rfiForm.title) ? rfiForm.title : nextRfiTitle();
+    rememberSequentialNo('rfi', title);
+    const record: RfiRecord = { id: editingRfiId ?? crypto.randomUUID(), projectId: currentProjectId, ...rfiForm, title, documents: normalizeAttachments(rfiForm.documents), savedAt: nowLocal() };
+    setSavedRfis((prev) => editingRfiId ? prev.map((item) => item.id === editingRfiId ? record : item) : [record, ...prev]);
+    resetRfiForm();
+  };
+
+  const loadRfi = (record: RfiRecord) => {
+    setSection('rfi');
+    setEditingRfiId(record.id);
+    const { id, projectId, savedAt, ...form } = record;
+    setRfiForm(form);
+  };
+
+  const deleteRfi = (id: string) => {
+    const record = savedRfis.find((item) => item.id === id);
+    if (!window.confirm('למחוק את ' + (record?.title ?? 'RFI') + '?')) return;
+    setSavedRfis((prev) => prev.filter((item) => item.id !== id));
+    if (editingRfiId === id) resetRfiForm();
+  };
+
+  const closeRfi = () => {
+    if (!String(rfiForm.response ?? '').trim()) return alert('לא ניתן לסגור RFI לפני הזנת תשובת RFI / התייחסות שהתקבלה.');
+    const today = new Date().toISOString().slice(0, 10);
+    setRfiForm((prev: any) => ({ ...prev, status: 'סגור', closeDate: prev.closeDate || today, closedAt: prev.closedAt || today, closedBy: prev.closedBy || projectAccess?.displayName || '' }));
+    setTimeout(() => alert('סטטוס RFI עודכן לסגור. לחץ אישור/עדכון RFI כדי לשמור את הסגירה.'), 0);
+  };
+
   const saveNonconformance = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!nonconformanceForm.title.trim()) return alert('יש להזין כותרת לאי התאמה');
@@ -1671,6 +1964,13 @@ export default function Page() {
   };
   const loadNonconformance = (record: NonconformanceRecord) => { setSection('nonconformances'); setEditingNonconformanceId(record.id); setNonconformanceForm({ title: record.title, location: record.location, date: record.date, raisedBy: record.raisedBy, severity: record.severity, status: record.status, description: record.description, actionRequired: record.actionRequired, notes: record.notes, images: normalizeAttachments((record as any).images), approval: normalizeApproval(record.approval) } as any); };
   const deleteNonconformance = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('nonconformances').delete().eq('id', id), await refreshCloudData()) : setSavedNonconformances((prev) => prev.filter((item) => item.id !== id)));
+
+  const closeNonconformance = () => {
+    if (!String((nonconformanceForm as any).correctiveActionDetails ?? '').trim()) return alert('יש למלא פירוט ביצוע פעולה מתקנת לפני סגירה.');
+    const today = new Date().toISOString().slice(0, 10);
+    setNonconformanceForm((prev: any) => ({ ...prev, status: 'סגור', closingDate: prev.closingDate || today, closedBy: prev.closedBy || 'QA / QC', closingRole: prev.closingRole || 'QC', closedName: prev.closedName || projectAccess?.displayName || '' }));
+    setTimeout(() => alert('אי ההתאמה סומנה כסגורה. לחץ אישור/עדכון אי התאמה כדי לשמור את הסגירה.'), 0);
+  };
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
@@ -2174,7 +2474,7 @@ export default function Page() {
           )}
           {section === 'projectDetails' && currentProject && <ProjectLegendPanel legend={currentProjectLegend} missing={projectLegendMissing} isEditing={editingProjectLegend} hasChanges={projectLegendDirty} onChange={updateProjectLegendField} onStartEdit={startProjectLegendEdit} onApprove={approveProjectLegendChanges} onCancel={cancelProjectLegendChanges} onClear={clearProjectLegend} onAddFactor={addProjectLegendFactor} onRemoveFactor={removeProjectLegendFactor} />}
           {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>יש לבחור פרויקט לפני עריכת פרטי הפרויקט.</div>}
-          {section === 'rfi' && <SimpleFolderSection title="RFI" description="תיקייה ייעודית לניהול בקשות מידע ושאלות פתוחות." icon="📨" />}
+          {section === 'rfi' && <RfiSection guardedBody={guardedBody} rfiForm={rfiForm} setRfiForm={setRfiForm} editingRfiId={editingRfiId} savedRfis={projectRfis} saveRfi={saveRfi} resetRfiForm={resetRfiForm} closeRfi={closeRfi} deleteRfi={deleteRfi} loadRfi={loadRfi} projectMeta={currentProjectLegend} />}
           {section === 'supervisionReports' && <SimpleFolderSection title="דוחות פיקוח עליון" description="תיקייה ייעודית לדוחות פיקוח עליון." icon="🏛️" />}
           {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
           {section === 'projects' && isAdminAccess(projectAccess) && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
@@ -2183,7 +2483,7 @@ export default function Page() {
               <ChecklistsSection guardedBody={guardedBody} editingChecklistId={editingChecklistId} checklistForm={checklistForm} setChecklistForm={setChecklistForm} checklistTemplateLabel={checklistTemplateLabel} applyChecklistTemplate={applyChecklistTemplate} updateChecklistItem={updateChecklistItem} addChecklistItem={addChecklistItem} removeChecklistItem={removeChecklistItem} saveChecklist={saveChecklist} resetChecklistForm={resetChecklistForm} projectName={projectName} onUploadAttachment={uploadChecklistItemAttachment} onRemoveAttachment={removeChecklistItemAttachment} savedSignatureForSigner={savedSignatureForSigner} />
             </>
           )}
-          {section === 'nonconformances' && <NonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} />}
+          {section === 'nonconformances' && <EnhancedNonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} closeNonconformance={closeNonconformance} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
           {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} projectMeta={{ projectName: currentProjectLegend.projectName, projectManager: currentProjectLegend.projectManagement, contractor: currentProjectLegend.contractor, qualityAssurance: currentProjectLegend.qualityAssurance, qualityControl: currentProjectLegend.qualityControl }} />}
