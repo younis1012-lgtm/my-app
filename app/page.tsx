@@ -147,30 +147,30 @@ type ProjectLegend = {
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
   const raw = value && typeof value === 'object' ? value as Partial<ProjectLegend> : {};
   return {
-    projectName: String(raw.projectName ?? fallbackProjectName ?? '').trim(),
-    projectManagement: String(raw.projectManagement ?? '').trim(),
-    contractor: String(raw.contractor ?? '').trim(),
-    qualityAssurance: String(raw.qualityAssurance ?? '').trim(),
-    qualityControl: String(raw.qualityControl ?? '').trim(),
-    workManager: String(raw.workManager ?? '').trim(),
-    surveyor: String(raw.surveyor ?? '').trim(),
-    supervisor: String(raw.supervisor ?? '').trim(),
+    projectName: String(raw.projectName ?? fallbackProjectName ?? ''),
+    projectManagement: String(raw.projectManagement ?? ''),
+    contractor: String(raw.contractor ?? ''),
+    qualityAssurance: String(raw.qualityAssurance ?? ''),
+    qualityControl: String(raw.qualityControl ?? ''),
+    workManager: String(raw.workManager ?? ''),
+    surveyor: String(raw.surveyor ?? ''),
+    supervisor: String(raw.supervisor ?? ''),
     extraFactors: Array.isArray((raw as any).extraFactors)
       ? (raw as any).extraFactors.map((item: any, index: number) => ({
           id: String(item?.id ?? `${Date.now()}-${index}`),
-          label: String(item?.label ?? 'גורם נוסף').trim() || 'גורם נוסף',
-          value: String(item?.value ?? '').trim(),
+          label: String(item?.label ?? 'גורם נוסף') || 'גורם נוסף',
+          value: String(item?.value ?? ''),
         }))
       : [],
   };
 };
 
 const isProjectLegendComplete = (legend: ProjectLegend | null | undefined) => Boolean(
-  legend?.projectName &&
-  legend?.projectManagement &&
-  legend?.contractor &&
-  legend?.qualityAssurance &&
-  legend?.qualityControl
+  String(legend?.projectName ?? '').trim() &&
+  String(legend?.projectManagement ?? '').trim() &&
+  String(legend?.contractor ?? '').trim() &&
+  String(legend?.qualityAssurance ?? '').trim() &&
+  String(legend?.qualityControl ?? '').trim()
 );
 
 const projectLegendToProfile = (legend: ProjectLegend): ProjectProfile => ({
@@ -1205,7 +1205,7 @@ function UserAccessPanel({
               const isAdmin = user.role === 'admin';
               const projectLink = typeof window !== 'undefined' && user.code ? `${window.location.origin}/?project=${encodeURIComponent(user.code)}` : user.code ?? '';
               return (
-                <tr key={`${user.username}-${index}`}>
+                <tr key={`access-user-${index}`}>
                   <td style={{ border: '1px solid #e2e8f0', padding: 8 }}>
                     <input value={user.displayName} onChange={(e) => onChangeUser(index, 'displayName', e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, fontWeight: 800 }} />
                   </td>
@@ -1633,14 +1633,16 @@ export default function Page() {
   };
 
   const addProjectLegendFactor = () => {
-    if (!currentProject || !editingProjectLegend) return;
-    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    if (!currentProject) return;
+    if (!editingProjectLegend) setEditingProjectLegend(true);
+    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id] ?? savedCurrentProjectLegend, currentProject.name);
     updateProjectLegendField('extraFactors', JSON.stringify([...current.extraFactors, { id: `${Date.now()}`, label: 'גורם נוסף', value: '' }]));
   };
 
   const removeProjectLegendFactor = (id: string) => {
-    if (!currentProject || !editingProjectLegend) return;
-    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    if (!currentProject) return;
+    if (!editingProjectLegend) setEditingProjectLegend(true);
+    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id] ?? savedCurrentProjectLegend, currentProject.name);
     updateProjectLegendField('extraFactors', JSON.stringify(current.extraFactors.filter((factor) => factor.id !== id)));
   };
 
@@ -2488,7 +2490,7 @@ export default function Page() {
           {section === 'nonconformances' && <EnhancedNonconformancesSection guardedBody={guardedBody} editingNonconformanceId={editingNonconformanceId} nonconformanceForm={nonconformanceForm} setNonconformanceForm={setNonconformanceForm} saveNonconformance={saveNonconformance} resetNonconformanceEditor={resetNonconformanceEditor} closeNonconformance={closeNonconformance} />}
           {section === 'trialSections' && <TrialSectionsSection guardedBody={guardedBody} editingTrialSectionId={editingTrialSectionId} trialSectionForm={trialSectionForm} setTrialSectionForm={setTrialSectionForm} saveTrialSection={saveTrialSection} resetTrialSectionEditor={resetTrialSectionEditor} />}
           {section === 'preliminary' && <PreliminarySection guardedBody={guardedBody} preliminaryTab={preliminaryTab} setPreliminaryTab={setPreliminaryTab} editingPreliminaryId={editingPreliminaryId} supplierPreliminaryForm={supplierPreliminaryForm} subcontractorPreliminaryForm={subcontractorPreliminaryForm} materialPreliminaryForm={materialPreliminaryForm} setSupplierPreliminaryForm={setSupplierPreliminaryForm} setSubcontractorPreliminaryForm={setSubcontractorPreliminaryForm} setMaterialPreliminaryForm={setMaterialPreliminaryForm} savePreliminary={savePreliminary} resetPreliminaryEditor={resetPreliminaryEditor} labelForPreliminary={labelForPreliminary} />}
-          {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} projectMeta={{ projectName: currentProjectLegend.projectName, projectManager: currentProjectLegend.projectManagement, contractor: currentProjectLegend.contractor, qualityAssurance: currentProjectLegend.qualityAssurance, qualityControl: currentProjectLegend.qualityControl }} />}
+          {section === 'concentrations' && <ConcentrationsSection savedChecklists={projectChecklists} savedNonconformances={projectNonconformances} savedTrialSections={projectTrialSections} savedPreliminary={projectPreliminary} currentProjectName={projectName} projectMeta={{ projectName: currentProjectLegend.projectName, projectManager: currentProjectLegend.projectManagement, contractor: currentProjectLegend.contractor, qualityAssurance: currentProjectLegend.qualityAssurance, qualityControl: currentProjectLegend.qualityControl, workManager: currentProjectLegend.workManager, surveyor: currentProjectLegend.surveyor, supervisor: currentProjectLegend.supervisor } as any} />}
         </main>
 
         <SavedRecordsSidebar projectName={projectName} searchTerm={recordsSearchTerm} onSearchTermChange={setRecordsSearchTerm} checklistTemplateLabel={checklistTemplateLabel} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} onOpenChecklist={loadChecklist} onDeleteChecklist={deleteChecklist} onOpenNonconformance={loadNonconformance} onDeleteNonconformance={deleteNonconformance} onOpenTrialSection={loadTrialSection} onDeleteTrialSection={deleteTrialSection} onOpenPreliminary={loadPreliminary} onDeletePreliminary={deletePreliminary} />
