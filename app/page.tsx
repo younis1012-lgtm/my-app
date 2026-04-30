@@ -43,6 +43,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
+const ACCESS_USERS_TABLE = 'project_access_users';
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
 
@@ -261,6 +262,55 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
     .filter((item) => item.username && item.password);
 
   return normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
+};
+
+const rowToProjectAccess = (row: any): ProjectAccess => ({
+  username: String(row?.username ?? '').trim(),
+  password: String(row?.password ?? ''),
+  displayName: String(row?.display_name ?? row?.displayName ?? row?.username ?? 'משתמש').trim(),
+  role: row?.role === 'admin' ? 'admin' : 'user',
+  code: row?.code ? String(row.code).trim() : undefined,
+  projectName: row?.role === 'admin' ? null : String(row?.project_name ?? row?.projectName ?? '').trim(),
+  signatureDataUrl: String(row?.signature ?? row?.signatureDataUrl ?? ''),
+  signatureFileName: String(row?.signature_file_name ?? row?.signatureFileName ?? ''),
+});
+
+const projectAccessToRow = (access: ProjectAccess) => ({
+  username: access.username,
+  password: access.password,
+  display_name: access.displayName,
+  role: access.role,
+  code: access.code ?? null,
+  project_name: access.role === 'admin' ? null : access.projectName ?? '',
+  signature: access.signatureDataUrl ?? '',
+});
+
+const loadAccessUsersFromSupabase = async (): Promise<ProjectAccess[] | null> => {
+  if (!isSupabaseConfigured || !supabase) return null;
+  const { data, error } = await supabase
+    .from(ACCESS_USERS_TABLE)
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('Failed to load access users from Supabase', error);
+    return null;
+  }
+  const users = normalizeProjectAccessList((data ?? []).map(rowToProjectAccess));
+  return users.length ? users : null;
+};
+
+const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const normalized = normalizeProjectAccessList(users);
+  const deleteResult = await supabase
+    .from(ACCESS_USERS_TABLE)
+    .delete()
+    .neq('id', '00000000-0000-0000-0000-000000000000');
+  if (deleteResult.error) throw new Error(errorText(deleteResult.error) || 'שגיאה במחיקת משתמשים ישנים מ-Supabase');
+  const insertResult = await supabase
+    .from(ACCESS_USERS_TABLE)
+    .insert(normalized.map(projectAccessToRow));
+  if (insertResult.error) throw new Error(errorText(insertResult.error) || 'שגיאה בשמירת משתמשים ל-Supabase');
 };
 
 const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
@@ -1318,27 +1368,40 @@ export default function Page() {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const projectCodeFromLink = params.get('project');
+    let cancelled = false;
 
-    let users = DEFAULT_PROJECT_ACCESS_LIST;
-    try {
-      const storedUsers = window.localStorage.getItem(ACCESS_USERS_STORAGE_KEY);
-      users = storedUsers ? normalizeProjectAccessList(JSON.parse(storedUsers)) : DEFAULT_PROJECT_ACCESS_LIST;
-    } catch {
-      users = DEFAULT_PROJECT_ACCESS_LIST;
-    }
-    setAccessUsers(users);
-    setDraftAccessUsers(users);
+    const loadUsers = async () => {
+      let users = DEFAULT_PROJECT_ACCESS_LIST;
+      const cloudUsers = await loadAccessUsersFromSupabase();
+      if (cloudUsers?.length) {
+        users = cloudUsers;
+      } else {
+        try {
+          const storedUsers = window.localStorage.getItem(ACCESS_USERS_STORAGE_KEY);
+          users = storedUsers ? normalizeProjectAccessList(JSON.parse(storedUsers)) : DEFAULT_PROJECT_ACCESS_LIST;
+        } catch {
+          users = DEFAULT_PROJECT_ACCESS_LIST;
+        }
+      }
 
-    // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
-    // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    setProjectAccess(null);
-    setLoginPassword('');
-    setLoginError('');
+      if (cancelled) return;
+      setAccessUsers(users);
+      setDraftAccessUsers(users);
 
-    if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
+      // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
+      // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setProjectAccess(null);
+      setLoginPassword('');
+      setLoginError('');
 
-    setAuthReady(true);
+      if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
+
+      setAuthReady(true);
+    };
+
+    loadUsers();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -1367,15 +1430,25 @@ export default function Page() {
     setSection('home');
   };
 
-  const persistAccessUsers = (nextUsers: ProjectAccess[]) => {
+  const persistAccessUsers = async (nextUsers: ProjectAccess[]) => {
     const normalized = normalizeProjectAccessList(nextUsers);
+
+    if (isSupabaseConfigured) {
+      await saveAccessUsersToSupabase(normalized);
+    } else if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
+    }
+
     setAccessUsers(normalized);
     setDraftAccessUsers(normalized);
     setAccessUsersDirty(false);
-    if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
 
     if (projectAccess) {
-      const updatedCurrentUser = normalized.find((user) => user.username === projectAccess.username || user.code === projectAccess.code);
+      const updatedCurrentUser = normalized.find((user) =>
+        user.username === projectAccess.username ||
+        user.code === projectAccess.code ||
+        (projectAccess.role === 'admin' && user.role === 'admin')
+      );
       if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
     }
   };
@@ -1391,9 +1464,14 @@ export default function Page() {
     setAccessUsersDirty(true);
   };
 
-  const approveAccessUsersChanges = () => {
-    persistAccessUsers(draftAccessUsers);
-    alert('השינויים נשמרו בהצלחה');
+  const approveAccessUsersChanges = async () => {
+    try {
+      await persistAccessUsers(draftAccessUsers);
+      alert(isSupabaseConfigured ? 'השינויים נשמרו בהצלחה ב-Supabase' : 'השינויים נשמרו בהצלחה בדפדפן');
+    } catch (error) {
+      console.error('Failed to save access users', error);
+      alert(`שגיאה בשמירת המשתמשים: ${errorText(error)}`);
+    }
   };
 
   const cancelAccessUsersChanges = () => {
