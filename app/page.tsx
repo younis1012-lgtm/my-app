@@ -17,7 +17,7 @@ const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 
-type AppSection = Section | 'concentrations';
+type AppSection = Section | 'concentrations' | 'projectDetails' | 'rfi' | 'supervisionReports';
 
 
 type ProjectProfile = {
@@ -55,6 +55,7 @@ type ProjectLegend = {
   workManager: string;
   surveyor: string;
   supervisor: string;
+  extraFactors: Array<{ id: string; label: string; value: string }>;
 };
 
 const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): ProjectLegend => {
@@ -68,6 +69,13 @@ const normalizeProjectLegend = (value: unknown, fallbackProjectName = ''): Proje
     workManager: String(raw.workManager ?? '').trim(),
     surveyor: String(raw.surveyor ?? '').trim(),
     supervisor: String(raw.supervisor ?? '').trim(),
+    extraFactors: Array.isArray((raw as any).extraFactors)
+      ? (raw as any).extraFactors.map((item: any, index: number) => ({
+          id: String(item?.id ?? `${Date.now()}-${index}`),
+          label: String(item?.label ?? 'גורם נוסף').trim() || 'גורם נוסף',
+          value: String(item?.value ?? '').trim(),
+        }))
+      : [],
   };
 };
 
@@ -429,6 +437,7 @@ function ChecklistAttachmentsPanel({ items, onUpload, onRemove }: ChecklistAttac
       <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
         כאן מצרפים מסמכים בזמן מילוי הרשימה. תעודות מעבדה ורשימות מדידה נשמרות עם שורת הבקרה ואינן מוסיפות שורות לטופס הייצוא.
       </div>
+
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
           <thead>
@@ -720,13 +729,31 @@ function ChecklistsSection({ guardedBody, editingChecklistId, checklistForm, set
 function ProjectLegendPanel({
   legend,
   missing,
+  canEdit = true,
+  isEditing,
+  hasChanges,
   onChange,
+  onStartEdit,
+  onApprove,
+  onCancel,
+  onClear,
+  onAddFactor,
+  onRemoveFactor,
 }: {
   legend: ProjectLegend;
   missing: boolean;
+  canEdit?: boolean;
+  isEditing: boolean;
+  hasChanges: boolean;
   onChange: (field: keyof ProjectLegend, value: string) => void;
+  onStartEdit: () => void;
+  onApprove: () => void;
+  onCancel: () => void;
+  onClear: () => void;
+  onAddFactor: () => void;
+  onRemoveFactor: (id: string) => void;
 }) {
-  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: isEditing ? '#fff' : '#f1f5f9' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
   const fields: Array<{ key: keyof ProjectLegend; label: string; required?: boolean }> = [
     { key: 'projectName', label: 'שם פרויקט', required: true },
@@ -742,23 +769,59 @@ function ProjectLegendPanel({
     <section style={{ border: missing ? '1px solid #fecaca' : '1px solid #cbd5e1', background: missing ? '#fff7ed' : '#f8fafc', borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'start', marginBottom: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 950 }}>מקרא / פרטי פרויקט</div>
+          <div style={{ fontSize: 20, fontWeight: 950 }}>פרטי הפרויקט</div>
           <div style={{ color: '#475569', marginTop: 4 }}>הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט הפעיל.</div>
+          {hasChanges ? <div style={{ color: '#b45309', fontWeight: 950, marginTop: 6 }}>יש שינויים שעדיין לא אושרו</div> : null}
         </div>
-        {missing ? <div style={{ color: '#b91c1c', fontWeight: 950 }}>חסר מידע חובה</div> : <div style={{ color: '#166534', fontWeight: 950 }}>הפרטים הושלמו</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!isEditing ? <button type="button" onClick={onStartEdit} disabled={!canEdit} style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }}>שינוי</button> : null}
+          {isEditing ? <button type="button" onClick={onApprove} style={styles.primaryBtn}>אישור שמירת שינויים</button> : null}
+          {isEditing ? <button type="button" onClick={onCancel} style={styles.secondaryBtn}>בטל שינויים</button> : null}
+          {isEditing ? <button type="button" onClick={onAddFactor} style={styles.secondaryBtn}>הוספת גורם</button> : null}
+          {isEditing ? <button type="button" onClick={onClear} style={styles.dangerBtn}>מחיקה</button> : null}
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {fields.map((field) => (
-          <label key={field.key} style={labelStyle}>
+          <label key={String(field.key)} style={labelStyle}>
             {field.label}{field.required ? ' *' : ''}
-            <input value={legend[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
+            <input disabled={!isEditing} value={String(legend[field.key] ?? '')} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
           </label>
+        ))}
+        {legend.extraFactors.map((factor) => (
+          <div key={factor.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 10, background: '#fff' }}>
+            <label style={labelStyle}>
+              שם גורם
+              <input disabled={!isEditing} value={factor.label} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, label: event.target.value } : item)))} style={inputStyle} />
+            </label>
+            <label style={{ ...labelStyle, marginTop: 8 }}>
+              פרטים
+              <input disabled={!isEditing} value={factor.value} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, value: event.target.value } : item)))} style={inputStyle} />
+            </label>
+            {isEditing ? <button type="button" onClick={() => onRemoveFactor(factor.id)} style={{ ...styles.dangerBtn, marginTop: 8 }}>מחיקת גורם</button> : null}
+          </div>
         ))}
       </div>
       {missing ? <div style={{ marginTop: 12, color: '#991b1b', fontWeight: 900 }}>יש להשלים לפחות: שם פרויקט, ניהול פרויקט, שם הקבלן, הבטחת איכות ובקרת איכות לפני עבודה ברשימות / ריכוזים / טפסים.</div> : null}
     </section>
   );
 }
+
+function SimpleFolderSection({ title, description, icon }: { title: string; description: string; icon: string }) {
+  return (
+    <section>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <div style={{ fontSize: 34 }}>{icon}</div>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>{title}</h2>
+          <div style={{ color: '#64748b', marginTop: 4 }}>{description}</div>
+        </div>
+      </div>
+      <div style={styles.emptyBox}>התיקייה נוצרה. בשלב הבא ניתן להוסיף כאן טפסים, קבצים ורשומות ייעודיות.</div>
+    </section>
+  );
+}
+
 
 function PasswordField({
   value,
@@ -847,7 +910,6 @@ function ProjectLoginScreen({
 
 function UserAccessPanel({
   users,
-  hasPendingChanges,
   onChangeUser,
   onAddUser,
   onRemoveUser,
@@ -855,9 +917,9 @@ function UserAccessPanel({
   onUploadSignature,
   onApproveChanges,
   onCancelChanges,
+  hasUnsavedChanges,
 }: {
   users: ProjectAccess[];
-  hasPendingChanges: boolean;
   onChangeUser: (index: number, field: keyof ProjectAccess, value: string) => void;
   onAddUser: () => void;
   onRemoveUser: (index: number) => void;
@@ -865,6 +927,7 @@ function UserAccessPanel({
   onUploadSignature: (index: number, file?: File) => void;
   onApproveChanges: () => void;
   onCancelChanges: () => void;
+  hasUnsavedChanges: boolean;
 }) {
   return (
     <div style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 18, padding: 16, marginBottom: 16, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)' }}>
@@ -874,13 +937,13 @@ function UserAccessPanel({
           <div style={{ color: '#64748b', marginTop: 4 }}>מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט שהוגדר לו.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={onApproveChanges} disabled={!hasPendingChanges} style={{ ...styles.primaryBtn, opacity: hasPendingChanges ? 1 : 0.45, cursor: hasPendingChanges ? 'pointer' : 'not-allowed' }}>אישור שמירת שינויים</button>
-          <button type="button" onClick={onCancelChanges} disabled={!hasPendingChanges} style={{ ...styles.secondaryBtn, opacity: hasPendingChanges ? 1 : 0.45, cursor: hasPendingChanges ? 'pointer' : 'not-allowed' }}>בטל שינויים</button>
+          {hasUnsavedChanges ? <span style={{ color: '#b45309', fontWeight: 950, alignSelf: 'center' }}>יש שינויים שלא נשמרו</span> : null}
+          <button type="button" onClick={onApproveChanges} disabled={!hasUnsavedChanges} style={{ ...styles.primaryBtn, opacity: hasUnsavedChanges ? 1 : 0.5 }}>אישור שמירת שינויים</button>
+          <button type="button" onClick={onCancelChanges} disabled={!hasUnsavedChanges} style={{ ...styles.secondaryBtn, opacity: hasUnsavedChanges ? 1 : 0.5 }}>בטל שינויים</button>
           <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>הוסף משתמש</button>
           <button type="button" onClick={onResetDefaults} style={{ ...styles.secondaryBtn }}>איפוס ברירת מחדל</button>
         </div>
       </div>
-      {hasPendingChanges ? <div style={{ marginBottom: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: 10, fontWeight: 900 }}>יש שינויים שטרם נשמרו. לחץ על אישור שמירת שינויים כדי להפעיל אותם.</div> : null}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
@@ -977,11 +1040,28 @@ export default function Page() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(null);
   const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
   const [draftAccessUsers, setDraftAccessUsers] = useState<ProjectAccess[]>(DEFAULT_PROJECT_ACCESS_LIST);
+  const [accessUsersDirty, setAccessUsersDirty] = useState(false);
   const [projectLegends, setProjectLegends] = useState<Record<string, ProjectLegend>>({});
+  const [draftProjectLegends, setDraftProjectLegends] = useState<Record<string, ProjectLegend>>({});
+  const [editingProjectLegend, setEditingProjectLegend] = useState(false);
+  const [projectLegendDirty, setProjectLegendDirty] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [loginCode, setLoginCode] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const storedLegends = window.localStorage.getItem(PROJECT_LEGEND_STORAGE_KEY);
+      const parsedLegends = storedLegends ? JSON.parse(storedLegends) : {};
+      setProjectLegends(parsedLegends);
+      setDraftProjectLegends(parsedLegends);
+    } catch {
+      setProjectLegends({});
+      setDraftProjectLegends({});
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1035,6 +1115,7 @@ export default function Page() {
     const normalized = normalizeProjectAccessList(nextUsers);
     setAccessUsers(normalized);
     setDraftAccessUsers(normalized);
+    setAccessUsersDirty(false);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACCESS_USERS_STORAGE_KEY, JSON.stringify(normalized));
 
     if (projectAccess) {
@@ -1051,6 +1132,17 @@ export default function Page() {
       if (field === 'role' && value === 'user' && !updated.projectName) updated.projectName = projects[0]?.name ?? '';
       return updated;
     }));
+    setAccessUsersDirty(true);
+  };
+
+  const approveAccessUsersChanges = () => {
+    persistAccessUsers(draftAccessUsers);
+    alert('השינויים נשמרו בהצלחה');
+  };
+
+  const cancelAccessUsersChanges = () => {
+    setDraftAccessUsers(accessUsers);
+    setAccessUsersDirty(false);
   };
 
   const addAccessUser = () => {
@@ -1067,6 +1159,7 @@ export default function Page() {
         signatureFileName: '',
       },
     ]);
+    setAccessUsersDirty(true);
   };
 
   const removeAccessUser = (index: number) => {
@@ -1074,6 +1167,7 @@ export default function Page() {
     if (!user || user.role === 'admin') return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
     setDraftAccessUsers((prevUsers) => prevUsers.filter((_, userIndex) => userIndex !== index));
+    setAccessUsersDirty(true);
   };
 
   const uploadUserSignature = (index: number, file?: File) => {
@@ -1085,21 +1179,10 @@ export default function Page() {
           ? { ...user, signatureDataUrl: String(reader.result ?? ''), signatureFileName: file.name }
           : user
       ));
+      setAccessUsersDirty(true);
     };
     reader.onerror = () => alert('לא ניתן לקרוא את קובץ החתימה/חותמת');
     reader.readAsDataURL(file);
-  };
-
-  const hasPendingAccessUserChanges = JSON.stringify(draftAccessUsers) !== JSON.stringify(accessUsers);
-
-  const approveAccessUsersChanges = () => {
-    persistAccessUsers(draftAccessUsers);
-    alert('השינויים נשמרו בהצלחה');
-  };
-
-  const cancelAccessUsersChanges = () => {
-    if (hasPendingAccessUserChanges && !window.confirm('לבטל את השינויים שלא נשמרו?')) return;
-    setDraftAccessUsers(accessUsers);
   };
 
   const savedSignatureForSigner = (signerName: string, role?: string) => {
@@ -1116,8 +1199,9 @@ export default function Page() {
   };
 
   const resetAccessUsersToDefaults = () => {
-    if (!window.confirm('להכין איפוס לברירת המחדל? השינוי יישמר רק לאחר לחיצה על אישור שמירת שינויים.')) return;
+    if (!window.confirm('לאפס את רשימת המשתמשים לברירת המחדל?')) return;
     setDraftAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
+    setAccessUsersDirty(true);
   };
 
   const loadPersistedData = (raw: string | null) => {
@@ -1225,9 +1309,13 @@ export default function Page() {
   }, [loaded, projectAccess, projects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
-  const currentProjectLegend = useMemo(
+  const savedCurrentProjectLegend = useMemo(
     () => currentProject ? normalizeProjectLegend(projectLegends[currentProject.id], currentProject.name) : normalizeProjectLegend(null, ''),
     [projectLegends, currentProject]
+  );
+  const currentProjectLegend = useMemo(
+    () => currentProject && editingProjectLegend ? normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name) : savedCurrentProjectLegend,
+    [currentProject, editingProjectLegend, draftProjectLegends, savedCurrentProjectLegend]
   );
   const currentProjectProfile = useMemo(
     () => isProjectLegendComplete(currentProjectLegend) ? projectLegendToProfile(currentProjectLegend) : getProjectProfile(currentProject?.name),
@@ -1235,14 +1323,67 @@ export default function Page() {
   );
   const projectName = !loaded ? 'טוען...' : currentProjectLegend.projectName || currentProjectProfile?.projectName || currentProject?.name || 'לא נבחר פרויקט';
   const projectLegendMissing = Boolean(currentProject && !isProjectLegendComplete(currentProjectLegend));
-  const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
+  const startProjectLegendEdit = () => {
     if (!currentProject) return;
-    setProjectLegends((prev) => {
+    setDraftProjectLegends((prev) => ({ ...prev, [currentProject.id]: savedCurrentProjectLegend }));
+    setEditingProjectLegend(true);
+    setProjectLegendDirty(false);
+  };
+
+  const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
+    if (!currentProject || !editingProjectLegend) return;
+    setDraftProjectLegends((prev) => {
       const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
-      const next = { ...prev, [currentProject.id]: { ...nextLegend, [field]: value } };
+      let patched: ProjectLegend;
+      if (field === 'extraFactors') {
+        try {
+          patched = { ...nextLegend, extraFactors: normalizeProjectLegend({ extraFactors: JSON.parse(value) }).extraFactors };
+        } catch {
+          patched = nextLegend;
+        }
+      } else {
+        patched = { ...nextLegend, [field]: value };
+      }
+      return { ...prev, [currentProject.id]: patched };
+    });
+    setProjectLegendDirty(true);
+  };
+
+  const approveProjectLegendChanges = () => {
+    if (!currentProject) return;
+    const nextLegend = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    setProjectLegends((prev) => {
+      const next = { ...prev, [currentProject.id]: nextLegend };
       if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+    setEditingProjectLegend(false);
+    setProjectLegendDirty(false);
+    alert('פרטי הפרויקט נשמרו בהצלחה');
+  };
+
+  const cancelProjectLegendChanges = () => {
+    setEditingProjectLegend(false);
+    setProjectLegendDirty(false);
+  };
+
+  const clearProjectLegend = () => {
+    if (!currentProject || !window.confirm('למחוק את פרטי הפרויקט?')) return;
+    const emptyLegend = normalizeProjectLegend(null, currentProject.name);
+    setDraftProjectLegends((prev) => ({ ...prev, [currentProject.id]: emptyLegend }));
+    setProjectLegendDirty(true);
+  };
+
+  const addProjectLegendFactor = () => {
+    if (!currentProject || !editingProjectLegend) return;
+    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    updateProjectLegendField('extraFactors', JSON.stringify([...current.extraFactors, { id: `${Date.now()}`, label: 'גורם נוסף', value: '' }]));
+  };
+
+  const removeProjectLegendFactor = (id: string) => {
+    if (!currentProject || !editingProjectLegend) return;
+    const current = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    updateProjectLegendField('extraFactors', JSON.stringify(current.extraFactors.filter((factor) => factor.id !== id)));
   };
 
   const checklistSequenceKey = (projectId: string) => `${STORAGE_KEY}-checklist-sequence-${projectId}`;
@@ -1571,13 +1712,16 @@ export default function Page() {
   const loadPreliminary = (record: PreliminaryRecord) => { setSection('preliminary'); setPreliminaryTab(record.subtype); setEditingPreliminaryId(record.id); if (record.subtype === 'suppliers') setSupplierPreliminaryForm({ subtype: 'suppliers', title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? createDefaultPreliminary('suppliers').supplier, approval: normalizeApproval(record.approval) }); if (record.subtype === 'subcontractors') setSubcontractorPreliminaryForm({ subtype: 'subcontractors', title: record.title, date: record.date, status: record.status, subcontractor: record.subcontractor ?? createDefaultPreliminary('subcontractors').subcontractor, approval: normalizeApproval(record.approval) }); if (record.subtype === 'materials') setMaterialPreliminaryForm({ subtype: 'materials', title: record.title, date: record.date, status: record.status, material: record.material ?? createDefaultPreliminary('materials').material, approval: normalizeApproval(record.approval) }); };
   const deletePreliminary = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('preliminary_records').delete().eq('id', id), await refreshCloudData()) : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)));
 
-  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : projectLegendMissing && section !== 'home' && section !== 'projects' ? <div style={styles.emptyBox}>יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.</div> : null;
+  const guardedBody = !currentProject && section !== 'home' && section !== 'projects' && section !== 'projectDetails' ? <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div> : projectLegendMissing && section !== 'home' && section !== 'projects' && section !== 'projectDetails' ? <div style={styles.emptyBox}>יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.</div> : null;
   const homeModules = [
+    { key: 'projectDetails', title: 'פרטי הפרויקט', icon: '🏗️', description: 'מקרא, גורמים ופרטי התקשרות', count: currentProject ? 1 : 0 },
     ...(isAdminAccess(projectAccess) ? [{ key: 'projects', title: 'פרויקטים', icon: '📁', description: 'הוספה, עריכה וניהול פרויקטים', count: accessibleProjects.length }] : []),
     { key: 'checklists', title: 'רשימות תיוג', icon: '📋', description: 'טפסי בקרת איכות לפי תבנית', count: projectChecklists.length },
     { key: 'nonconformances', title: 'אי תאמות', icon: '⚠️', description: 'מעקב סטטוסים ופעולות מתקנות', count: projectNonconformances.length },
     { key: 'trialSections', title: 'קטעי ניסוי', icon: '🧪', description: 'ניהול אישורי קטעי ניסוי', count: projectTrialSections.length },
     { key: 'preliminary', title: 'בקרה מקדימה', icon: '🗂️', description: 'ספקים, קבלנים וחומרים', count: projectPreliminary.length },
+    { key: 'rfi', title: 'RFI', icon: '📨', description: 'ניהול תיקיית RFI', count: 0 },
+    { key: 'supervisionReports', title: 'דוחות פיקוח עליון', icon: '🏛️', description: 'תיקיית דוחות פיקוח עליון', count: 0 },
     { key: 'concentrations', title: 'ריכוזים', icon: '📊', description: 'ריכוזי בדיקות אוטומטיים', count: 0 },
   ];
   const labelForPreliminary = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'ספקים' : subtype === 'subcontractors' ? 'קבלנים' : 'חומרים';
@@ -1962,8 +2106,8 @@ export default function Page() {
 
   const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
   const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
-    ? [['home','דף בית'], ['projects','פרויקטים'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
-    : [['home','דף בית'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+    ? [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['projects','פרויקטים'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
 
   if (!authReady) {
     return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
@@ -2006,7 +2150,6 @@ export default function Page() {
       {isAdminAccess(projectAccess) && showUserManagement ? (
         <UserAccessPanel
           users={draftAccessUsers}
-          hasPendingChanges={hasPendingAccessUserChanges}
           onChangeUser={updateAccessUser}
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
@@ -2014,14 +2157,7 @@ export default function Page() {
           onUploadSignature={uploadUserSignature}
           onApproveChanges={approveAccessUsersChanges}
           onCancelChanges={cancelAccessUsersChanges}
-        />
-      ) : null}
-
-      {currentProject ? (
-        <ProjectLegendPanel
-          legend={currentProjectLegend}
-          missing={projectLegendMissing}
-          onChange={updateProjectLegendField}
+          hasUnsavedChanges={accessUsersDirty}
         />
       ) : null}
 
@@ -2036,6 +2172,10 @@ export default function Page() {
               <button type="button" style={styles.secondaryBtn} onClick={exportWord}>הורד Word</button>
             </div>
           )}
+          {section === 'projectDetails' && currentProject && <ProjectLegendPanel legend={currentProjectLegend} missing={projectLegendMissing} isEditing={editingProjectLegend} hasChanges={projectLegendDirty} onChange={updateProjectLegendField} onStartEdit={startProjectLegendEdit} onApprove={approveProjectLegendChanges} onCancel={cancelProjectLegendChanges} onClear={clearProjectLegend} onAddFactor={addProjectLegendFactor} onRemoveFactor={removeProjectLegendFactor} />}
+          {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>יש לבחור פרויקט לפני עריכת פרטי הפרויקט.</div>}
+          {section === 'rfi' && <SimpleFolderSection title="RFI" description="תיקייה ייעודית לניהול בקשות מידע ושאלות פתוחות." icon="📨" />}
+          {section === 'supervisionReports' && <SimpleFolderSection title="דוחות פיקוח עליון" description="תיקייה ייעודית לדוחות פיקוח עליון." icon="🏛️" />}
           {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} homeModules={homeModules} setSection={setSection as any} />}
           {section === 'projects' && isAdminAccess(projectAccess) && <ProjectsSection projects={accessibleProjects} currentProjectId={currentProjectId} newProjectName={newProjectName} newProjectDescription={newProjectDescription} newProjectManager={newProjectManager} setNewProjectName={setNewProjectName} setNewProjectDescription={setNewProjectDescription} setNewProjectManager={setNewProjectManager} addProject={addProject} setActiveProject={setActiveProject} renameProject={renameProject} updateProjectMeta={updateProjectMeta} deleteProject={deleteProject} />}
           {section === 'checklists' && (
