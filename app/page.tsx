@@ -839,7 +839,7 @@ function ProjectLegendPanel({
   onAddFactor: () => void;
   onRemoveFactor: (id: string) => void;
 }) {
-  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: isEditing ? '#fff' : '#f1f5f9' };
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: '#fff' };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
   const fields: Array<{ key: keyof ProjectLegend; label: string; required?: boolean }> = [
     { key: 'projectName', label: 'שם פרויקט', required: true },
@@ -860,31 +860,31 @@ function ProjectLegendPanel({
           {hasChanges ? <div style={{ color: '#b45309', fontWeight: 950, marginTop: 6 }}>יש שינויים שעדיין לא אושרו</div> : null}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {!isEditing ? <button type="button" onClick={onStartEdit} disabled={!canEdit} style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }}>עדכון</button> : null}
-          {isEditing ? <button type="button" onClick={onApprove} style={styles.primaryBtn}>אישור שמירת שינויים</button> : null}
-          {isEditing ? <button type="button" onClick={onCancel} style={styles.secondaryBtn}>בטל שינויים</button> : null}
-          {isEditing ? <button type="button" onClick={onAddFactor} style={styles.secondaryBtn}>הוספת גורם</button> : null}
-          {isEditing ? <button type="button" onClick={onClear} style={styles.dangerBtn}>מחיקה</button> : null}
+          <button type="button" onClick={onStartEdit} disabled={!canEdit} style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }}>עדכון</button>
+          <button type="button" onClick={onApprove} style={styles.primaryBtn}>אישור שמירת שינויים</button>
+          <button type="button" onClick={onCancel} style={styles.secondaryBtn}>בטל שינויים</button>
+          <button type="button" onClick={onAddFactor} style={styles.secondaryBtn}>הוספת גורם</button>
+          <button type="button" onClick={onClear} style={styles.dangerBtn}>מחיקה</button>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {fields.map((field) => (
           <label key={String(field.key)} style={labelStyle}>
             {field.label}{field.required ? ' *' : ''}
-            <input disabled={!isEditing} value={String(legend[field.key] ?? '')} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
+            <input value={String(legend[field.key] ?? '')} onChange={(event) => onChange(field.key, event.target.value)} style={inputStyle} />
           </label>
         ))}
         {legend.extraFactors.map((factor) => (
           <div key={factor.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 10, background: '#fff' }}>
             <label style={labelStyle}>
               שם גורם
-              <input disabled={!isEditing} value={factor.label} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, label: event.target.value } : item)))} style={inputStyle} />
+              <input value={factor.label} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, label: event.target.value } : item)))} style={inputStyle} />
             </label>
             <label style={{ ...labelStyle, marginTop: 8 }}>
               פרטים
-              <input disabled={!isEditing} value={factor.value} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, value: event.target.value } : item)))} style={inputStyle} />
+              <input value={factor.value} onChange={(event) => onChange('extraFactors', JSON.stringify(legend.extraFactors.map((item) => item.id === factor.id ? { ...item, value: event.target.value } : item)))} style={inputStyle} />
             </label>
-            {isEditing ? <button type="button" onClick={() => onRemoveFactor(factor.id)} style={{ ...styles.dangerBtn, marginTop: 8 }}>מחיקת גורם</button> : null}
+            <button type="button" onClick={() => onRemoveFactor(factor.id)} style={{ ...styles.dangerBtn, marginTop: 8 }}>מחיקת גורם</button>
           </div>
         ))}
       </div>
@@ -1570,8 +1570,8 @@ export default function Page() {
     [projectLegends, currentProject]
   );
   const currentProjectLegend = useMemo(
-    () => currentProject && editingProjectLegend ? normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name) : savedCurrentProjectLegend,
-    [currentProject, editingProjectLegend, draftProjectLegends, savedCurrentProjectLegend]
+    () => currentProject && (editingProjectLegend || projectLegendDirty) ? normalizeProjectLegend(draftProjectLegends[currentProject.id] ?? savedCurrentProjectLegend, currentProject.name) : savedCurrentProjectLegend,
+    [currentProject, editingProjectLegend, projectLegendDirty, draftProjectLegends, savedCurrentProjectLegend]
   );
   const currentProjectProfile = useMemo(
     () => isProjectLegendComplete(currentProjectLegend) ? projectLegendToProfile(currentProjectLegend) : getProjectProfile(currentProject?.name),
@@ -1587,9 +1587,10 @@ export default function Page() {
   };
 
   const updateProjectLegendField = (field: keyof ProjectLegend, value: string) => {
-    if (!currentProject || !editingProjectLegend) return;
+    if (!currentProject) return;
+    if (!editingProjectLegend) setEditingProjectLegend(true);
     setDraftProjectLegends((prev) => {
-      const nextLegend = normalizeProjectLegend(prev[currentProject.id], currentProject.name);
+      const nextLegend = normalizeProjectLegend(prev[currentProject.id] ?? savedCurrentProjectLegend, currentProject.name);
       let patched: ProjectLegend;
       if (field === 'extraFactors') {
         try {
@@ -1607,7 +1608,7 @@ export default function Page() {
 
   const approveProjectLegendChanges = () => {
     if (!currentProject) return;
-    const nextLegend = normalizeProjectLegend(draftProjectLegends[currentProject.id], currentProject.name);
+    const nextLegend = normalizeProjectLegend(draftProjectLegends[currentProject.id] ?? savedCurrentProjectLegend, currentProject.name);
     setProjectLegends((prev) => {
       const next = { ...prev, [currentProject.id]: nextLegend };
       if (typeof window !== 'undefined') window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(next));
@@ -1627,6 +1628,7 @@ export default function Page() {
     if (!currentProject || !window.confirm('למחוק את פרטי הפרויקט?')) return;
     const emptyLegend = normalizeProjectLegend(null, currentProject.name);
     setDraftProjectLegends((prev) => ({ ...prev, [currentProject.id]: emptyLegend }));
+    setEditingProjectLegend(true);
     setProjectLegendDirty(true);
   };
 
