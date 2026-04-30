@@ -133,6 +133,61 @@ const normalizeRfiRecord = (value: any): RfiRecord | null => {
   };
 };
 
+const rfiRowToRecord = (row: any): RfiRecord => ({
+  id: String(row?.id ?? crypto.randomUUID()),
+  projectId: String(row?.project_id ?? ''),
+  title: String(row?.title ?? 'RFI'),
+  referenceNo: String(row?.reference_no ?? ''),
+  status: row?.status === 'סגור' || row?.status === 'ממתין להתייחסות' ? row.status : 'פתוח',
+  planNo: String(row?.plan_no ?? ''),
+  revision: String(row?.revision ?? ''),
+  planName: String(row?.plan_name ?? ''),
+  buildingDetails: String(row?.building_details ?? ''),
+  building: String(row?.building ?? ''),
+  openDate: String(row?.open_date ?? ''),
+  location: String(row?.location ?? ''),
+  workActivity: String(row?.work_activity ?? ''),
+  relevantPlans: String(row?.relevant_plans ?? ''),
+  fromSection: String(row?.from_section ?? ''),
+  toSection: String(row?.to_section ?? ''),
+  requestDescription: String(row?.request_description ?? ''),
+  budgetImpact: String(row?.budget_impact ?? ''),
+  scheduleImpact: String(row?.schedule_impact ?? ''),
+  response: String(row?.response ?? ''),
+  closeDate: String(row?.close_date ?? ''),
+  closedAt: String(row?.closed_at ?? ''),
+  closedBy: String(row?.closed_by ?? ''),
+  documents: normalizeAttachments(row?.documents),
+  savedAt: row?.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '',
+});
+
+const rfiRecordToRow = (record: RfiRecord) => ({
+  id: record.id,
+  project_id: record.projectId,
+  title: record.title,
+  reference_no: record.referenceNo,
+  status: record.status,
+  plan_no: record.planNo,
+  revision: record.revision,
+  plan_name: record.planName,
+  building_details: record.buildingDetails,
+  building: record.building,
+  open_date: record.openDate || null,
+  location: record.location,
+  work_activity: record.workActivity,
+  relevant_plans: record.relevantPlans,
+  from_section: record.fromSection,
+  to_section: record.toSection,
+  request_description: record.requestDescription,
+  budget_impact: record.budgetImpact,
+  schedule_impact: record.scheduleImpact,
+  response: record.response,
+  close_date: record.closeDate || null,
+  closed_at: record.closedAt || null,
+  closed_by: record.closedBy,
+  documents: normalizeAttachments(record.documents),
+});
+
 type ProjectLegend = {
   projectName: string;
   projectManagement: string;
@@ -1017,10 +1072,10 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
   setRfiForm: React.Dispatch<React.SetStateAction<any>>;
   editingRfiId: string | null;
   savedRfis: RfiRecord[];
-  saveRfi: () => void;
+  saveRfi: () => void | Promise<void>;
   resetRfiForm: () => void;
   closeRfi: () => void;
-  deleteRfi: (id: string) => void;
+  deleteRfi: (id: string) => void | Promise<void>;
   loadRfi: (record: RfiRecord) => void;
   projectMeta: ProjectLegend;
 }) {
@@ -1553,7 +1608,7 @@ export default function Page() {
     }
   };
 
-  const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null) => {
+  const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null, rfiRows: any[] | null = []) => {
     const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: row.name ?? '', description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
     setProjects(mappedProjects.length ? mappedProjects : defaultProjects);
     const storedProjectId = readLocalCurrentProjectId();
@@ -1563,6 +1618,7 @@ export default function Page() {
     setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedPreliminary((preliminaryRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, subtype: row.subtype, title: row.title ?? '', date: row.date ?? '', status: row.status ?? 'טיוטה', supplier: row.supplier ?? undefined, subcontractor: row.subcontractor ?? undefined, material: row.material ?? undefined, approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
   };
 
   useEffect(() => {
@@ -1573,10 +1629,10 @@ export default function Page() {
         return;
       }
       try {
-        const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at')]);
-        const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
+        const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at')]);
+        const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
         if (fatal.length) throw fatal[0];
-        loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
+        loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data);
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
@@ -1618,10 +1674,10 @@ export default function Page() {
 
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
-    const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at')]);
-    const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
+    const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at')]);
+    const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
     if (fatal.length) throw fatal[0];
-    loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data);
+    loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data);
   };
 
   const withSaving = async (action: () => Promise<void>) => {
@@ -1904,7 +1960,7 @@ export default function Page() {
       setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId })));
     }
   });
-  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
+  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => {
     const next = createDefaultChecklist(templateKey);
@@ -1996,14 +2052,26 @@ export default function Page() {
   const loadChecklist = (record: ChecklistRecord) => { setSection('checklists'); setEditingChecklistId(record.id); setChecklistForm({ checklistNo: record.checklistNo, templateKey: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: normalizeChecklistItems(record.items), approval: normalizeApproval(record.approval) }); };
   const deleteChecklist = async (id: string) => withSaving(async () => cloudEnabled ? (await supabase!.from('checklists').delete().eq('id', id), await refreshCloudData()) : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)));
 
-  const saveRfi = () => {
+  const saveRfi = async () => {
     if (!currentProjectId) return alert('יש לבחור פרויקט');
     if (!String(rfiForm.title ?? '').trim()) return alert('יש להזין מספר RFI');
     if (!String(rfiForm.requestDescription ?? '').trim()) return alert('יש להזין תיאור הבקשה');
     const title = editingRfiId || titleHasNumber(rfiForm.title) ? rfiForm.title : nextRfiTitle();
     rememberSequentialNo('rfi', title);
     const record: RfiRecord = { id: editingRfiId ?? crypto.randomUUID(), projectId: currentProjectId, ...rfiForm, title, documents: normalizeAttachments(rfiForm.documents), savedAt: nowLocal() };
-    setSavedRfis((prev) => editingRfiId ? prev.map((item) => item.id === editingRfiId ? record : item) : [record, ...prev]);
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const payload = rfiRecordToRow(record);
+        const result = editingRfiId
+          ? await supabase!.from('rfi_records').update(payload).eq('id', editingRfiId)
+          : await supabase!.from('rfi_records').insert(payload);
+        if (result.error) throw result.error;
+        await refreshCloudData();
+      } else {
+        setSavedRfis((prev) => editingRfiId ? prev.map((item) => item.id === editingRfiId ? record : item) : [record, ...prev]);
+      }
+    });
     resetRfiForm();
   };
 
@@ -2014,10 +2082,18 @@ export default function Page() {
     setRfiForm(form);
   };
 
-  const deleteRfi = (id: string) => {
+  const deleteRfi = async (id: string) => {
     const record = savedRfis.find((item) => item.id === id);
     if (!window.confirm('למחוק את ' + (record?.title ?? 'RFI') + '?')) return;
-    setSavedRfis((prev) => prev.filter((item) => item.id !== id));
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = await supabase!.from('rfi_records').delete().eq('id', id);
+        if (result.error) throw result.error;
+        await refreshCloudData();
+      } else {
+        setSavedRfis((prev) => prev.filter((item) => item.id !== id));
+      }
+    });
     if (editingRfiId === id) resetRfiForm();
   };
 
