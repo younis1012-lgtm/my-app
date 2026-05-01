@@ -49,7 +49,21 @@ const PROJECT_ID_ALIASES: Record<string, string> = {
 
 const normalizeStoredProjectId = (value: unknown) => {
   const raw = String(value ?? '').trim();
-  return PROJECT_ID_ALIASES[raw] ?? raw;
+  if (!raw) return '';
+  const compact = raw.replace(/[׳`’']/g, '').replace(/\s+/g, '').toLowerCase();
+  if (PROJECT_ID_ALIASES[raw]) return PROJECT_ID_ALIASES[raw];
+  if (compact === 'project-806' || compact === 'project806' || compact === '806') return PROJECT_ID_ALIASES['project-806'];
+  if (compact === 'project-909' || compact === 'project909' || compact === '909') return PROJECT_ID_ALIASES['project-909'];
+  if (raw.includes('806') && raw.includes('project')) return PROJECT_ID_ALIASES['project-806'];
+  if (raw.includes('909') && raw.includes('project')) return PROJECT_ID_ALIASES['project-909'];
+  return raw;
+};
+
+const normalizeCloudPayloadProjectIds = <T extends Record<string, any>>(payload: T): T => {
+  const next: Record<string, any> = { ...payload };
+  if ('project_id' in next) next.project_id = normalizeStoredProjectId(next.project_id);
+  if ('projectId' in next) next.projectId = normalizeStoredProjectId(next.projectId);
+  return next as T;
 };
 
 const migrateProjectLegendMap = (value: unknown): Record<string, ProjectLegend> => {
@@ -997,6 +1011,7 @@ async function selectTable(table: string, orderColumn?: string) {
 }
 
 async function saveWithApprovalFallback(table: string, payload: Record<string, any>, mode: 'insert' | 'update', id?: string) {
+  payload = normalizeCloudPayloadProjectIds(payload);
   let result = mode === 'insert' ? await supabase!.from(table).insert(payload) : await supabase!.from(table).update(payload).eq('id', id);
   if (result.error && isMissingColumnError(result.error, 'approval')) {
     const { approval, ...withoutApproval } = payload;
@@ -2372,7 +2387,7 @@ export default function Page() {
       const parsed = JSON.parse(raw) as PersistedData;
       const fallbackProjects = getDefaultProjectList();
       const loadedProjects = parsed.projects?.length ? parsed.projects : fallbackProjects;
-      setProjects(loadedProjects);
+      setProjects(normalizeProjectRows(loadedProjects as any));
       setCurrentProjectId(normalizeStoredProjectId(parsed.currentProjectId ?? loadedProjects[0]?.id ?? fallbackProjects[0]?.id ?? null));
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
@@ -2389,10 +2404,10 @@ export default function Page() {
     const storedProjectId = readLocalCurrentProjectId();
     const active = (storedProjectId ? availableProjects.find((p) => p.id === storedProjectId) : undefined) ?? availableProjects.find((p) => p.isActive) ?? availableProjects[0] ?? getDefaultProjectList()[0];
     setCurrentProjectId(active?.id ?? null);
-    setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, checklistNo: row.checklist_no ?? undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
-    setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
-    setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
-    setSavedPreliminary((preliminaryRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, subtype: row.subtype, title: row.title ?? '', date: row.date ?? '', status: row.status ?? 'טיוטה', supplier: row.supplier ?? undefined, subcontractor: row.subcontractor ?? undefined, material: row.material ?? undefined, approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), checklistNo: row.checklist_no ?? undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
+    setSavedPreliminary((preliminaryRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), subtype: row.subtype, title: row.title ?? '', date: row.date ?? '', status: row.status ?? 'טיוטה', supplier: row.supplier ?? undefined, subcontractor: row.subcontractor ?? undefined, material: row.material ?? undefined, approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
     setSavedControlProcesses((controlProcessRows ?? []).map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[]);
   };
@@ -2789,17 +2804,18 @@ export default function Page() {
     const selected = allProjects.find((project) => project.id === projectId) ?? getDefaultProjectList().find((project) => project.id === projectId);
     if (!selected) return;
 
-    setCurrentProjectId(selected.id);
-    writeLocalCurrentProjectId(selected.id);
+    const selectedProjectId = normalizeStoredProjectId(selected.id);
+    setCurrentProjectId(selectedProjectId);
+    writeLocalCurrentProjectId(selectedProjectId);
     setProjects((prev) => {
       const base = prev.length ? prev : allProjects;
-      return base.map((project) => ({ ...project, isActive: project.id === selected.id }));
+      return base.map((project) => ({ ...project, isActive: normalizeStoredProjectId(project.id) === selectedProjectId }));
     });
 
     if (cloudEnabled && supabase) {
       try {
-        await supabase.from('projects').update({ is_active: false }).neq('id', selected.id);
-        const result = await supabase.from('projects').update({ is_active: true }).eq('id', selected.id);
+        await supabase.from('projects').update({ is_active: false }).neq('id', selectedProjectId);
+        const result = await supabase.from('projects').update({ is_active: true }).eq('id', selectedProjectId);
         if (result.error) console.warn('Failed to update active project in Supabase', result.error);
       } catch (error) {
         console.warn('Failed to update active project in Supabase', error);
@@ -2886,7 +2902,7 @@ export default function Page() {
     const nextStatus: ControlProcessStatus = controlProcessForm.status === 'נעול' ? 'נעול' : controlProcessForm.status;
     const record: ControlProcessRecord = {
       id,
-      projectId: currentProjectId,
+      projectId: normalizeStoredProjectId(currentProjectId),
       processNo: String(controlProcessForm.processNo || nextControlProcessNo()),
       title: String(controlProcessForm.title ?? ''),
       workType: String(controlProcessForm.workType ?? ''),
@@ -3019,7 +3035,7 @@ export default function Page() {
     };
     const record: RfiRecord = {
       id: editingRfiId ?? crypto.randomUUID(),
-      projectId: currentProjectId,
+      projectId: normalizeStoredProjectId(currentProjectId),
       ...rfiForm,
       title,
       rfiNumber: rfiForm.rfiNumber ?? existing?.rfiNumber ?? null,
