@@ -1011,11 +1011,22 @@ const writeLocalCurrentProjectId = (projectId: string | null) => {
 };
 
 async function selectTable(table: string, orderColumn?: string) {
+  const empty = { data: [], error: null } as any;
+  const isMissingRelation = (error: unknown) => /relation .* does not exist|could not find the table/i.test(errorText(error));
   const baseQuery = supabase!.from(table).select('*');
-  if (!orderColumn) return await baseQuery;
+  if (!orderColumn) {
+    const result = await baseQuery;
+    if (result.error && isMissingRelation(result.error) && table === CONTROL_PROCESS_TABLE) return empty;
+    return result;
+  }
   const ordered = await supabase!.from(table).select('*').order(orderColumn, { ascending: false });
   if (!ordered.error) return ordered;
-  if (isMissingColumnError(ordered.error, orderColumn)) return await baseQuery;
+  if (isMissingRelation(ordered.error) && table === CONTROL_PROCESS_TABLE) return empty;
+  if (isMissingColumnError(ordered.error, orderColumn)) {
+    const result = await baseQuery;
+    if (result.error && isMissingRelation(result.error) && table === CONTROL_PROCESS_TABLE) return empty;
+    return result;
+  }
   return ordered;
 }
 
@@ -2498,7 +2509,7 @@ export default function Page() {
     const code = String(projectAccess.code ?? projectAccess.username ?? 'project').trim() || 'project';
     const fallbackName = String(projectAccess.projectName ?? '').trim() || ('פרויקט ' + code);
     return [{
-      id: normalizeStoredProjectId('project-' + code),
+      id: 'project-' + code,
       name: fallbackName,
       description: 'פרויקט עבודה לפי הרשאת משתמש ' + code,
       manager: '',
@@ -2518,10 +2529,10 @@ export default function Page() {
   useEffect(() => {
     if (!loaded || !projectAccess || !accessibleProjects.length) return;
     const savedId = readLocalCurrentProjectId();
-    const savedProject = savedId ? accessibleProjects.find((project) => normalizeStoredProjectId(project.id) === normalizeStoredProjectId(savedId)) : null;
+    const savedProject = savedId ? accessibleProjects.find((project) => project.id === savedId) : null;
     const activeProject = accessibleProjects.find((project) => project.isActive);
-    const selectedProject = accessibleProjects.find((project) => normalizeStoredProjectId(project.id) === normalizeStoredProjectId(currentProjectId));
-    const nextProjectId = normalizeStoredProjectId(selectedProject?.id ?? savedProject?.id ?? activeProject?.id ?? accessibleProjects[0]?.id ?? null);
+    const selectedProject = accessibleProjects.find((project) => project.id === currentProjectId);
+    const nextProjectId = selectedProject?.id ?? savedProject?.id ?? activeProject?.id ?? accessibleProjects[0]?.id ?? null;
     if (nextProjectId && currentProjectId !== nextProjectId) {
       setCurrentProjectId(nextProjectId);
       writeLocalCurrentProjectId(nextProjectId);
@@ -2531,14 +2542,13 @@ export default function Page() {
   useEffect(() => {
     if (!loaded || !projectAccess || isAdminAccess(projectAccess)) return;
     const allowedProject = effectiveProjects.find((project) => projectMatchesAccess(project, projectAccess));
-    if (allowedProject && normalizeStoredProjectId(currentProjectId) !== normalizeStoredProjectId(allowedProject.id)) {
-      const allowedProjectId = normalizeStoredProjectId(allowedProject.id);
-      setCurrentProjectId(allowedProjectId);
-      writeLocalCurrentProjectId(allowedProjectId);
+    if (allowedProject && currentProjectId !== allowedProject.id) {
+      setCurrentProjectId(allowedProject.id);
+      writeLocalCurrentProjectId(allowedProject.id);
     }
   }, [loaded, projectAccess, effectiveProjects, currentProjectId]);
 
-  const currentProject = useMemo(() => accessibleProjects.find((p) => normalizeStoredProjectId(p.id) === normalizeStoredProjectId(currentProjectId)) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
+  const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
 
   useEffect(() => {
     const normalized = normalizeStoredProjectId(currentProjectId);
@@ -3164,9 +3174,6 @@ export default function Page() {
     const title = editingPreliminaryId || titleHasNumber(form.title) ? form.title : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedProjectId)) {
-      return alert('מזהה הפרויקט אינו תקין. יש לבחור מחדש את הפרויקט מתוך מסך פרויקטים.');
-    }
     const record: PreliminaryRecord = { id, projectId: normalizedProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
