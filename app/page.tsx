@@ -50,19 +50,28 @@ const PROJECT_ID_ALIASES: Record<string, string> = {
 const normalizeStoredProjectId = (value: unknown) => {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
-  const compact = raw.replace(/[׳`’']/g, '').replace(/\s+/g, '').toLowerCase();
-  if (PROJECT_ID_ALIASES[raw]) return PROJECT_ID_ALIASES[raw];
-  if (compact === 'project-806' || compact === 'project806' || compact === '806') return PROJECT_ID_ALIASES['project-806'];
-  if (compact === 'project-909' || compact === 'project909' || compact === '909') return PROJECT_ID_ALIASES['project-909'];
-  if (raw.includes('806') && raw.includes('project')) return PROJECT_ID_ALIASES['project-806'];
-  if (raw.includes('909') && raw.includes('project')) return PROJECT_ID_ALIASES['project-909'];
-  return raw;
+  const cleaned = raw.replace(/[\u2010-\u2015]/g, '-').trim();
+  if (PROJECT_ID_ALIASES[cleaned]) return PROJECT_ID_ALIASES[cleaned];
+  const lower = cleaned.toLowerCase();
+  if (PROJECT_ID_ALIASES[lower]) return PROJECT_ID_ALIASES[lower];
+  const codeMatch = lower.match(/^project[-_\s]*(\d+)$/);
+  if (codeMatch?.[1] === '806') return PROJECT_ID_ALIASES['project-806'];
+  if (codeMatch?.[1] === '909') return PROJECT_ID_ALIASES['project-909'];
+  return cleaned;
 };
 
-const normalizeCloudPayloadProjectIds = <T extends Record<string, any>>(payload: T): T => {
-  const next: Record<string, any> = { ...payload };
-  if ('project_id' in next) next.project_id = normalizeStoredProjectId(next.project_id);
-  if ('projectId' in next) next.projectId = normalizeStoredProjectId(next.projectId);
+const normalizeProjectIdValue = (value: unknown) => normalizeStoredProjectId(value);
+
+const sanitizeCloudPayload = <T,>(value: T): T => {
+  if (Array.isArray(value)) return value.map((item) => sanitizeCloudPayload(item)) as T;
+  if (!value || typeof value !== 'object') {
+    return (typeof value === 'string' ? normalizeStoredProjectId(value) || value : value) as T;
+  }
+  const next: Record<string, unknown> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+    if (key === 'project_id' || key === 'projectId') next[key] = normalizeStoredProjectId(item);
+    else next[key] = sanitizeCloudPayload(item);
+  });
   return next as T;
 };
 
@@ -407,7 +416,7 @@ const normalizeRfiRecord = (value: any): RfiRecord | null => {
 
 const rfiRowToRecord = (row: any): RfiRecord => ({
   id: String(row?.id ?? crypto.randomUUID()),
-  projectId: String(row?.project_id ?? ''),
+  projectId: normalizeStoredProjectId(row?.project_id ?? ''),
   title: String(row?.title ?? 'RFI'),
   referenceNo: String(row?.reference_no ?? ''),
   rfiNumber: row?.rfi_number === null || row?.rfi_number === undefined ? null : Number(row.rfi_number),
@@ -1011,7 +1020,7 @@ async function selectTable(table: string, orderColumn?: string) {
 }
 
 async function saveWithApprovalFallback(table: string, payload: Record<string, any>, mode: 'insert' | 'update', id?: string) {
-  payload = normalizeCloudPayloadProjectIds(payload);
+  payload = sanitizeCloudPayload(payload);
   let result = mode === 'insert' ? await supabase!.from(table).insert(payload) : await supabase!.from(table).update(payload).eq('id', id);
   if (result.error && isMissingColumnError(result.error, 'approval')) {
     const { approval, ...withoutApproval } = payload;
@@ -2387,12 +2396,12 @@ export default function Page() {
       const parsed = JSON.parse(raw) as PersistedData;
       const fallbackProjects = getDefaultProjectList();
       const loadedProjects = parsed.projects?.length ? parsed.projects : fallbackProjects;
-      setProjects(normalizeProjectRows(loadedProjects as any));
+      setProjects(loadedProjects.map((project) => ({ ...project, id: normalizeStoredProjectId(project.id) })));
       setCurrentProjectId(normalizeStoredProjectId(parsed.currentProjectId ?? loadedProjects[0]?.id ?? fallbackProjects[0]?.id ?? null));
-      setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
-      setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
-      setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
-      setSavedPreliminary((parsed.savedPreliminary ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
+      setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, projectId: normalizeStoredProjectId((item as any).projectId), templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
+      setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, projectId: normalizeStoredProjectId((item as any).projectId), approval: normalizeApproval((item as any).approval) })));
+      setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, projectId: normalizeStoredProjectId((item as any).projectId), approval: normalizeApproval((item as any).approval) })));
+      setSavedPreliminary((parsed.savedPreliminary ?? []).map((item) => ({ ...item, projectId: normalizeStoredProjectId((item as any).projectId), approval: normalizeApproval((item as any).approval) })));
     } catch (error) {
       console.error('Failed to parse local saved data', error);
     }
@@ -2403,7 +2412,7 @@ export default function Page() {
     setProjects(availableProjects);
     const storedProjectId = readLocalCurrentProjectId();
     const active = (storedProjectId ? availableProjects.find((p) => p.id === storedProjectId) : undefined) ?? availableProjects.find((p) => p.isActive) ?? availableProjects[0] ?? getDefaultProjectList()[0];
-    setCurrentProjectId(active?.id ?? null);
+    setCurrentProjectId(active?.id ? normalizeStoredProjectId(active.id) : null);
     setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), checklistNo: row.checklist_no ?? undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: normalizeStoredProjectId(row.project_id), title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
@@ -2529,6 +2538,14 @@ export default function Page() {
   }, [loaded, projectAccess, effectiveProjects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
+
+  useEffect(() => {
+    const normalized = normalizeStoredProjectId(currentProjectId);
+    if (normalized && currentProjectId !== normalized) {
+      setCurrentProjectId(normalized);
+      writeLocalCurrentProjectId(normalized);
+    }
+  }, [currentProjectId]);
   const savedCurrentProjectLegend = useMemo(
     () => currentProject ? normalizeProjectLegend(projectLegends[normalizeStoredProjectId(currentProject.id)] ?? projectLegends[currentProject.id], currentProject.name) : normalizeProjectLegend(null, ''),
     [projectLegends, currentProject]
@@ -2804,18 +2821,18 @@ export default function Page() {
     const selected = allProjects.find((project) => project.id === projectId) ?? getDefaultProjectList().find((project) => project.id === projectId);
     if (!selected) return;
 
-    const selectedProjectId = normalizeStoredProjectId(selected.id);
-    setCurrentProjectId(selectedProjectId);
-    writeLocalCurrentProjectId(selectedProjectId);
+    const selectedId = normalizeStoredProjectId(selected.id);
+    setCurrentProjectId(selectedId);
+    writeLocalCurrentProjectId(selectedId);
     setProjects((prev) => {
       const base = prev.length ? prev : allProjects;
-      return base.map((project) => ({ ...project, isActive: normalizeStoredProjectId(project.id) === selectedProjectId }));
+      return base.map((project) => ({ ...project, isActive: normalizeStoredProjectId(project.id) === selectedId }));
     });
 
     if (cloudEnabled && supabase) {
       try {
-        await supabase.from('projects').update({ is_active: false }).neq('id', selectedProjectId);
-        const result = await supabase.from('projects').update({ is_active: true }).eq('id', selectedProjectId);
+        await supabase.from('projects').update({ is_active: false }).neq('id', selectedId);
+        const result = await supabase.from('projects').update({ is_active: true }).eq('id', selectedId);
         if (result.error) console.warn('Failed to update active project in Supabase', result.error);
       } catch (error) {
         console.warn('Failed to update active project in Supabase', error);
@@ -2927,8 +2944,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         const result = editingControlProcessId
-          ? await supabase!.from(CONTROL_PROCESS_TABLE).update(controlProcessToRow(record)).eq('id', editingControlProcessId)
-          : await supabase!.from(CONTROL_PROCESS_TABLE).insert(controlProcessToRow(record));
+          ? await supabase!.from(CONTROL_PROCESS_TABLE).update(sanitizeCloudPayload(controlProcessToRow(record))).eq('id', editingControlProcessId)
+          : await supabase!.from(CONTROL_PROCESS_TABLE).insert(sanitizeCloudPayload(controlProcessToRow(record)));
         if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
       }
       setSavedControlProcesses((prev) => editingControlProcessId ? prev.map((item) => item.id === editingControlProcessId ? record : item) : [record, ...prev]);
@@ -3004,6 +3021,7 @@ export default function Page() {
 
 
   const saveRfiPayload = async (payload: Record<string, any>, isUpdate: boolean, id?: string) => {
+    payload = sanitizeCloudPayload(payload);
     const run = (body: Record<string, any>) => isUpdate
       ? supabase!.from('rfi_records').update(body).eq('id', id)
       : supabase!.from('rfi_records').insert(body);
