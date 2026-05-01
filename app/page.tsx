@@ -1106,6 +1106,36 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
 }) {
   if (guardedBody) return <>{guardedBody}</>;
   const metaStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#f8fafc', fontWeight: 800 };
+  const rfiDocuments = normalizeAttachments(rfiForm.documents);
+  const addRfiDocument = (file?: File) => {
+    if (!file) return;
+    const maxSizeMb = 8;
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const attachment: StoredAttachment = {
+        name: file.name,
+        type: file.type,
+        dataUrl: String(reader.result ?? ''),
+        uploadedAt: nowLocal(),
+      };
+      setRfiForm((prev: any) => ({
+        ...prev,
+        documents: [...normalizeAttachments(prev.documents), attachment],
+      }));
+    };
+    reader.onerror = () => alert('לא ניתן לקרוא את הקובץ שנבחר');
+    reader.readAsDataURL(file);
+  };
+  const removeRfiDocument = (indexToRemove: number) => {
+    setRfiForm((prev: any) => ({
+      ...prev,
+      documents: normalizeAttachments(prev.documents).filter((_, index) => index !== indexToRemove),
+    }));
+  };
   return (
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
@@ -1125,6 +1155,40 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
           <div style={metaStyle}>חברת הבטחת איכות<br />{projectMeta.qualityAssurance || '—'}</div>
         </div>
         <FormGrid fields={RFI_FIELDS} form={rfiForm} setForm={setRfiForm} />
+        <div style={{ border: '1px dashed #94a3b8', borderRadius: 16, padding: 14, background: '#f8fafc', marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontWeight: 950, fontSize: 18 }}>מסמכים מצורפים ל-RFI</div>
+              <div style={{ color: '#64748b', marginTop: 4 }}>ניתן לצרף PDF, תמונות, Word או Excel. הקבצים נשמרים יחד עם רשומת ה-RFI.</div>
+            </div>
+            <label style={{ ...styles.secondaryBtn, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+              📎 צירוף קובץ
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  addRfiDocument(event.target.files?.[0]);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            {rfiDocuments.length ? rfiDocuments.map((doc, index) => (
+              <div key={`${doc.name}-${doc.uploadedAt}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, border: '1px solid #e2e8f0', borderRadius: 12, padding: 10, background: '#fff', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>✅ {doc.name}</div>
+                  <div style={{ color: '#64748b', fontSize: 13 }}>{doc.uploadedAt || 'ללא תאריך'} · {doc.type || 'קובץ'}</div>
+                </div>
+                <div style={styles.buttonRow}>
+                  <a href={doc.dataUrl} download={doc.name} style={{ ...styles.secondaryBtn, textDecoration: 'none' }}>הורדה</a>
+                  <button type="button" style={styles.dangerBtn} onClick={() => removeRfiDocument(index)}>מחיקה</button>
+                </div>
+              </div>
+            )) : <div style={styles.emptyBox}>טרם צורפו מסמכים ל-RFI.</div>}
+          </div>
+        </div>
       </div>
       <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#f8fafc' }}>
         <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
