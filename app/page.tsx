@@ -575,17 +575,16 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
 const isAdminAccess = (access: ProjectAccess | null) => {
   if (!access) return false;
   const role = normalizeAccessValue(access.role);
-  const displayName = normalizeHebrewProjectName(access.displayName);
+  const displayName = normalizeHebrewProjectName(access.displayName).toLowerCase();
   const username = normalizeAccessValue(access.username);
   const code = normalizeAccessValue(access.code);
 
   return (
     role === 'admin' ||
-    role.includes('×× ××') ||
     username === 'admin' ||
     code === 'admin' ||
-    displayName.includes('×× ×× ××¢×¨××ª') ||
-    displayName.includes('×× ××')
+    displayName.includes('מנהל') ||
+    displayName.includes('admin')
   );
 };
 
@@ -2230,8 +2229,28 @@ export default function Page() {
 
   const accessibleProjects = useMemo(() => {
     if (!projectAccess) return [];
-    if (isAdminAccess(projectAccess)) return effectiveProjects;
-    return effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
+
+    const baseProjects = effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
+
+    if (isAdminAccess(projectAccess)) {
+      return baseProjects;
+    }
+
+    const matchedProjects = baseProjects.filter((project) => projectMatchesAccess(project, projectAccess));
+    if (matchedProjects.length) return matchedProjects;
+
+    // הגנת כשל: אם מסיבה כלשהי ההתאמה לפי שם/קוד לא הצליחה,
+    // לא משאירים את המשתמש בלי פרויקט. יוצרים פרויקט עבודה זמני לפי ההרשאה.
+    const codeFromUser = String(projectAccess.code || projectAccess.username || 'user').trim();
+    const projectNameFromAccess = String(projectAccess.projectName || '').trim();
+    return [{
+      id: `access-project-${normalizeAccessValue(codeFromUser) || 'user'}`,
+      name: projectNameFromAccess || `פרויקט ${codeFromUser}`,
+      description: `פרויקט עבודה לפי הרשאת המשתמש ${codeFromUser}`,
+      manager: '',
+      isActive: true,
+      createdAt: 'נוצר אוטומטית לפי הרשאה',
+    }];
   }, [effectiveProjects, projectAccess]);
 
   useEffect(() => {
@@ -3337,7 +3356,7 @@ export default function Page() {
             </div>
           )}
           {section === 'projectDetails' && currentProject && <ProjectLegendPanel legend={currentProjectLegend} missing={projectLegendMissing} isEditing={editingProjectLegend} hasChanges={projectLegendDirty} onChange={updateProjectLegendField} onStartEdit={startProjectLegendEdit} onApprove={approveProjectLegendChanges} onCancel={cancelProjectLegendChanges} onClear={clearProjectLegend} onAddFactor={addProjectLegendFactor} onRemoveFactor={removeProjectLegendFactor} />}
-          {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>יש לבחור פרויקט לפני עריכת פרטי הפרויקט.</div>}
+          {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>לא נמצא פרויקט משויך למשתמש. עבור למסך פרויקטים כמנהל או התחבר עם משתמש פרויקט תקין.</div>}
           {section === 'controlProcesses' && <ControlProcessesSection guardedBody={guardedBody} form={controlProcessForm} setForm={setControlProcessForm} editingId={editingControlProcessId} savedProcesses={projectControlProcesses} checklists={projectChecklists} rfis={projectRfis} nonconformances={projectNonconformances} onSave={saveControlProcess} onReset={resetControlProcessForm} onLoad={loadControlProcess} onDelete={deleteControlProcess} onLock={lockControlProcess} />}
           {section === 'rfi' && <RfiSection guardedBody={guardedBody} rfiForm={rfiForm} setRfiForm={setRfiForm} editingRfiId={editingRfiId} savedRfis={projectRfis} saveRfi={saveRfi} resetRfiForm={resetRfiForm} closeRfi={closeRfi} deleteRfi={deleteRfi} loadRfi={loadRfi} projectMeta={currentProjectLegend} />}
           {section === 'supervisionReports' && <SimpleFolderSection title="דוחות פיקוח עליון" description="תיקייה ייעודית לדוחות פיקוח עליון." icon="🏛️" />}
