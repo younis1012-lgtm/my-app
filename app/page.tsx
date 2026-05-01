@@ -44,7 +44,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 
 const FALLBACK_PROJECTS: Project[] = [
   {
-    id: 'project-806',
+    id: '80600000-0000-0000-0000-000000000000',
     name: 'כביש 806 צלמון שלב א׳',
     description: 'פרויקט ברירת מחדל לפי הרשאת משתמש 806',
     manager: 'א.ש. רונן הנדסה אזרחית בע"מ',
@@ -52,7 +52,7 @@ const FALLBACK_PROJECTS: Project[] = [
     createdAt: 'ברירת מחדל',
   },
   {
-    id: 'project-909',
+    id: '90900000-0000-0000-0000-000000000000',
     name: 'פרויקט 909',
     description: 'פרויקט ברירת מחדל לפי הרשאת משתמש 909',
     manager: '',
