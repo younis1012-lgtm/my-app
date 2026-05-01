@@ -480,7 +480,7 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     displayName: 'משתמש פרויקט 909',
     role: 'user',
     code: '909',
-    projectName: 'פרויקט 909',
+    projectName: 'שם הפרויקט כפי שמופיע במערכת',
   },
 ];
 
@@ -523,27 +523,16 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   return normalized.some((item) => item.role === 'admin') ? normalized : DEFAULT_PROJECT_ACCESS_LIST;
 };
 
-const isAdminRoleValue = (value: unknown) => {
-  const text = normalizeAccessValue(value);
-  return text === 'admin' || text.includes('מנהלמערכת') || text.includes('מנהלעמערכת') || text.includes('כללפרויקטים');
-};
-
-const rowToProjectAccess = (row: any): ProjectAccess => {
-  const rawRole = row?.role ?? row?.permission ?? row?.access_type ?? '';
-  const rawProjectName = String(row?.project_name ?? row?.projectName ?? '').trim();
-  const rawDisplayName = String(row?.display_name ?? row?.displayName ?? row?.username ?? 'משתמש').trim();
-  const adminByValue = isAdminRoleValue(rawRole) || isAdminRoleValue(rawProjectName) || isAdminRoleValue(rawDisplayName);
-  return {
-    username: String(row?.username ?? '').trim(),
-    password: String(row?.password ?? ''),
-    displayName: rawDisplayName,
-    role: adminByValue ? 'admin' : 'user',
-    code: row?.code ? String(row.code).trim() : undefined,
-    projectName: adminByValue ? null : rawProjectName,
-    signatureDataUrl: String(row?.signature ?? row?.signatureDataUrl ?? ''),
-    signatureFileName: String(row?.signature_file_name ?? row?.signatureFileName ?? ''),
-  };
-};
+const rowToProjectAccess = (row: any): ProjectAccess => ({
+  username: String(row?.username ?? '').trim(),
+  password: String(row?.password ?? ''),
+  displayName: String(row?.display_name ?? row?.displayName ?? row?.username ?? 'משתמש').trim(),
+  role: row?.role === 'admin' ? 'admin' : 'user',
+  code: row?.code ? String(row.code).trim() : undefined,
+  projectName: row?.role === 'admin' ? null : String(row?.project_name ?? row?.projectName ?? '').trim(),
+  signatureDataUrl: String(row?.signature ?? row?.signatureDataUrl ?? ''),
+  signatureFileName: String(row?.signature_file_name ?? row?.signatureFileName ?? ''),
+});
 
 const projectAccessToRow = (access: ProjectAccess) => ({
   username: access.username,
@@ -583,23 +572,48 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (insertResult.error) throw new Error(errorText(insertResult.error) || 'שגיאה בשמירת משתמשים ל-Supabase');
 };
 
-const isAdminAccess = (access: ProjectAccess | null) => Boolean(
-  access && (
-    access.role === 'admin' ||
-    isAdminRoleValue(access.role) ||
-    isAdminRoleValue(access.displayName) ||
-    isAdminRoleValue(access.projectName) ||
-    normalizeAccessValue(access.projectName ?? '') === normalizeAccessValue('כל הפרויקטים')
-  )
-);
+const isAdminAccess = (access: ProjectAccess | null) => {
+  if (!access) return false;
+  const role = normalizeAccessValue(access.role);
+  const displayName = normalizeHebrewProjectName(access.displayName);
+  const username = normalizeAccessValue(access.username);
+  const code = normalizeAccessValue(access.code);
+
+  return (
+    role === 'admin' ||
+    role.includes('×× ××') ||
+    username === 'admin' ||
+    code === 'admin' ||
+    displayName.includes('×× ×× ××¢×¨××ª') ||
+    displayName.includes('×× ××')
+  );
+};
 
 const projectMatchesAccess = (project: Project, access: ProjectAccess | null) => {
   if (!access) return false;
   if (isAdminAccess(access)) return true;
+
   const projectName = normalizeHebrewProjectName(project.name);
+  const projectDescription = normalizeHebrewProjectName(project.description ?? '');
+  const projectManager = normalizeHebrewProjectName(project.manager ?? '');
   const allowedName = normalizeHebrewProjectName(access.projectName ?? '');
-  if (!allowedName || normalizeAccessValue(allowedName).includes('כללפרויקטים')) return true;
-  return projectName === allowedName || (!!access.code && projectName.includes(access.code));
+  const code = normalizeAccessValue(access.code);
+  const username = normalizeAccessValue(access.username);
+  const haystack = normalizeAccessValue(`${project.id} ${project.name} ${project.description ?? ''} ${project.manager ?? ''}`);
+
+  if (allowedName && (
+    projectName === allowedName ||
+    projectName.includes(allowedName) ||
+    allowedName.includes(projectName) ||
+    projectDescription.includes(allowedName) ||
+    projectManager.includes(allowedName)
+  )) return true;
+
+  if (code && haystack.includes(code)) return true;
+  const numericFromUsername = username.match(/\d+/)?.[0] ?? '';
+  if (numericFromUsername && haystack.includes(numericFromUsername)) return true;
+
+  return false;
 };
 
 const normalizeHebrewProjectName = (value: unknown) =>
@@ -2216,9 +2230,8 @@ export default function Page() {
 
   const accessibleProjects = useMemo(() => {
     if (!projectAccess) return [];
-    if (isAdminAccess(projectAccess)) return effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
-    const filtered = effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
-    return filtered.length ? filtered : [];
+    if (isAdminAccess(projectAccess)) return effectiveProjects;
+    return effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
   }, [effectiveProjects, projectAccess]);
 
   useEffect(() => {
