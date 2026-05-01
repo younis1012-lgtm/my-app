@@ -146,6 +146,45 @@ type ControlProcessRecord = {
 const CONTROL_PROCESS_STATUS_OPTIONS: ControlProcessStatus[] = ['טיוטה', 'בביצוע', 'ממתין לאישור', 'מאושר', 'נדחה', 'נעול'];
 const REQUIRED_DOCUMENT_TYPES: RequiredDocumentType[] = ['תעודת מעבדה', 'רשימת מדידה', 'צילום', 'אישור ספק', 'תוכנית', 'RFI', 'אחר'];
 
+
+// רשימת חומרים/סוגי עבודה לאישור כתעודות ייחוס.
+// הרשימה נוקתה ממספרים וממילים כמו "רשימת תיוג", כדי שהבקר יבחר חומר מקצועי בלבד.
+const REFERENCE_MATERIAL_OPTIONS = [
+  'חומר חצץ',
+  'מילוי מובא',
+  'סוללות מילוי חומר מקומי',
+  'שכבות אגו״ם לקביעת קו דירוג',
+  'בטון יצוק באתר',
+  'חול מיוצב צמנט',
+  'עבודות אספלט באתר - קביעת מערכת מרשל',
+  'הידוק קרקע יסוד',
+  'שתית טבעית / חומר מהאתר',
+  'בדיקת ברזל',
+  'מצע א׳ - דירוג ושווה ערך חול',
+  'שכבות מצע ב׳',
+  'אבקת בנטונייט',
+  'חומר דיוס',
+  'ברגי פלדה',
+  'אבן לריפוף',
+  'שברי אבן',
+  'ייצור אלמנטים טרומיים לחומה',
+  'בקרה פנימית של מתכון',
+  'אגרגטים ת״י 3',
+  'בטון מותז',
+  'מצע ג׳',
+  'מילוי נברר',
+  'מילוי אינרטי',
+  'תערובת בטון ב-30',
+  'תערובת בטון ב-40',
+  'תערובת בטון ב-50',
+  'תערובת בטון ב-60',
+  'אספלט - תאמ״א 19',
+  'אספלט - תאמ״א 12.5',
+  'אספלט - שכבת מקשרת',
+  'אספלט - שכבה עליונה',
+  'אחר',
+];
+
 const createDefaultRequiredDocuments = (): RequiredDocument[] => [
   { id: crypto.randomUUID(), type: 'תעודת מעבדה', description: 'תעודות בדיקה / מעבדה לפי סוג העבודה', required: true, attached: false },
   { id: crypto.randomUUID(), type: 'רשימת מדידה', description: 'מדידה / חתכים / גבהים לפי הצורך', required: true, attached: false },
@@ -155,7 +194,7 @@ const createDefaultRequiredDocuments = (): RequiredDocument[] => [
 const createDefaultControlProcess = (processNo = 'REF-1'): Omit<ControlProcessRecord, 'id' | 'projectId' | 'savedAt'> => ({
   processNo,
   title: 'אישור חומר / תעודת ייחוס חדשה',
-  workType: 'אספלט - מרשל / JMF',
+  workType: 'עבודות אספלט באתר - קביעת מערכת מרשל',
   specSection: '',
   location: '',
   fromSection: '',
@@ -1849,12 +1888,10 @@ function ControlProcessesSection({
           <label style={labelStyle}>מס׳ תעודה / ר״ת<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} placeholder="לדוגמה: 386 / CP-1" style={inputStyle} /></label>
           <label style={labelStyle}>שם התעודה<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} placeholder="לדוגמה: קביעת מערכת מרשל" style={inputStyle} /></label>
           <label style={labelStyle}>תחום / סוג עבודה<select disabled={readOnly} value={form.workType ?? ''} onChange={(e) => setField('workType', e.target.value)} style={inputStyle}>
-            <option value="">בחר תחום</option>
-            <option value="אספלט - מרשל / JMF">אספלט - מרשל / JMF</option>
-            <option value="מצעים / מילוי נברר - 100% צפיפות">מצעים / מילוי נברר - 100% צפיפות</option>
-            <option value="שתית / קרקע יסוד - אפיון ו-100% צפיפות">שתית / קרקע יסוד - אפיון ו-100% צפיפות</option>
-            <option value="בטון - אישור תערובת">בטון - אישור תערובת</option>
-            <option value="אחר">אחר</option>
+            <option value="">בחר חומר / סוג עבודה לאישור</option>
+            {REFERENCE_MATERIAL_OPTIONS.map((material) => (
+              <option key={material} value={material}>{material}</option>
+            ))}
           </select></label>
           <label style={labelStyle}>סעיף מפרט / תקן<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="נת״י / משרד השיכון / ת״י 118 / ASTM D2041" style={inputStyle} /></label>
           <label style={labelStyle}>מיקום / שימוש מיועד<input disabled={readOnly} value={form.location ?? ''} onChange={(e) => setField('location', e.target.value)} placeholder="כביש / קטע / שכבה / אלמנט" style={inputStyle} /></label>
