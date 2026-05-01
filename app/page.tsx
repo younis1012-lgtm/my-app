@@ -273,7 +273,7 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
 
 const controlProcessToRow = (record: ControlProcessRecord) => ({
   id: record.id,
-  project_id: record.projectId,
+  project_id: normalizeStoredProjectId(record.projectId),
   process_no: record.processNo,
   title: record.title,
   work_type: record.workType,
@@ -426,7 +426,7 @@ const rfiRowToRecord = (row: any): RfiRecord => ({
 
 const rfiRecordToRow = (record: RfiRecord) => ({
   id: record.id,
-  project_id: record.projectId,
+  project_id: normalizeStoredProjectId(record.projectId),
   title: record.title,
   reference_no: record.referenceNo,
   ...(record.rfiNumber == null ? {} : { rfi_number: record.rfiNumber }),
@@ -2373,7 +2373,7 @@ export default function Page() {
       const fallbackProjects = getDefaultProjectList();
       const loadedProjects = parsed.projects?.length ? parsed.projects : fallbackProjects;
       setProjects(loadedProjects);
-      setCurrentProjectId(parsed.currentProjectId ?? loadedProjects[0]?.id ?? fallbackProjects[0]?.id ?? null);
+      setCurrentProjectId(normalizeStoredProjectId(parsed.currentProjectId ?? loadedProjects[0]?.id ?? fallbackProjects[0]?.id ?? null));
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
@@ -2781,9 +2781,10 @@ export default function Page() {
     setNewProjectName(''); setNewProjectDescription(''); setNewProjectManager('');
   };
 
-  const renameProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
-  const updateProjectMeta = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
+  const renameProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ name: nextName.trim() }).eq('id', normalizeStoredProjectId(projectId)), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
+  const updateProjectMeta = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', normalizeStoredProjectId(projectId)), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
   const setActiveProject = async (projectId: string) => await withSaving(async () => {
+    projectId = normalizeStoredProjectId(projectId);
     const allProjects = effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
     const selected = allProjects.find((project) => project.id === projectId) ?? getDefaultProjectList().find((project) => project.id === projectId);
     if (!selected) return;
@@ -2807,7 +2808,7 @@ export default function Page() {
 
     setSection('home');
   });
-  const deleteProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedControlProcesses((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
+  const deleteProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', normalizeStoredProjectId(projectId)); await supabase!.from('nonconformances').delete().eq('project_id', normalizeStoredProjectId(projectId)); await supabase!.from('trial_sections').delete().eq('project_id', normalizeStoredProjectId(projectId)); await supabase!.from('preliminary_records').delete().eq('project_id', normalizeStoredProjectId(projectId)); await supabase!.from('rfi_records').delete().eq('project_id', normalizeStoredProjectId(projectId)); const result = await supabase!.from('projects').delete().eq('id', normalizeStoredProjectId(projectId)); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedControlProcesses((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => {
     const next = createDefaultChecklist(templateKey);
@@ -2969,10 +2970,11 @@ export default function Page() {
     const existingChecklistNo = getExistingEditingChecklistNo();
     const checklistNo = existingChecklistNo ?? (checklistForm as any).checklistNo ?? allocateNextChecklistNo(currentProjectId);
     setStoredChecklistSequence(currentProjectId, Math.max(getStoredChecklistSequence(currentProjectId), Number(checklistNo) || 0));
-    const record: ChecklistRecord = { id, projectId: currentProjectId, checklistNo: Number(checklistNo), ...checklistForm, items: normalizeChecklistItems(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const record: ChecklistRecord = { id, projectId: normalizedProjectId, checklistNo: Number(checklistNo), ...checklistForm, items: normalizeChecklistItems(checklistForm.items), approval: normalizeApproval(checklistForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = { id: record.id, project_id: record.projectId, checklist_no: record.checklistNo, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, approval: record.approval, saved_at: nowIso() };
+        const payload = { id: record.id, project_id: normalizeStoredProjectId(record.projectId), checklist_no: record.checklistNo, template_key: record.templateKey, title: record.title, category: record.category, location: record.location, date: record.date, contractor: record.contractor, notes: record.notes, items: record.items, approval: record.approval, saved_at: nowIso() };
         await saveWithApprovalFallback('checklists', payload, editingChecklistId ? 'update' : 'insert', editingChecklistId ?? undefined);
         await refreshCloudData();
       } else {
@@ -3077,10 +3079,11 @@ export default function Page() {
     const id = editingNonconformanceId ?? crypto.randomUUID();
     const title = editingNonconformanceId || titleHasNumber(nonconformanceForm.title) ? nonconformanceForm.title : nextNonconformanceTitle();
     rememberSequentialNo('nonconformances', title);
-    const record: NonconformanceRecord = { id, projectId: currentProjectId, ...nonconformanceForm, title, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const record: NonconformanceRecord = { id, projectId: normalizedProjectId, ...nonconformanceForm, title, approval: normalizeApproval(nonconformanceForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = { id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, raised_by: record.raisedBy, severity: record.severity, status: record.status, description: record.description, action_required: record.actionRequired, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
+        const payload = { id: record.id, project_id: normalizeStoredProjectId(record.projectId), title: record.title, location: record.location, date: record.date, raised_by: record.raisedBy, severity: record.severity, status: record.status, description: record.description, action_required: record.actionRequired, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
         await saveWithApprovalFallback('nonconformances', payload, editingNonconformanceId ? 'update' : 'insert', editingNonconformanceId ?? undefined); await refreshCloudData();
       } else setSavedNonconformances((prev) => editingNonconformanceId ? prev.map((item) => item.id === editingNonconformanceId ? record : item) : [record, ...prev]);
     });
@@ -3103,10 +3106,11 @@ export default function Page() {
     const id = editingTrialSectionId ?? crypto.randomUUID();
     const title = editingTrialSectionId || titleHasNumber(trialSectionForm.title) ? trialSectionForm.title : nextTrialSectionTitle();
     rememberSequentialNo('trialSections', title);
-    const record: TrialSectionRecord = { id, projectId: currentProjectId, ...trialSectionForm, title, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const record: TrialSectionRecord = { id, projectId: normalizedProjectId, ...trialSectionForm, title, approval: normalizeApproval(trialSectionForm.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = { id: record.id, project_id: record.projectId, title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approved_by: record.approvedBy, status: record.status, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
+        const payload = { id: record.id, project_id: normalizeStoredProjectId(record.projectId), title: record.title, location: record.location, date: record.date, spec: record.spec, result: record.result, approved_by: record.approvedBy, status: record.status, notes: record.notes, images: normalizeAttachments((record as any).images), approval: record.approval, saved_at: nowIso() };
         await saveWithApprovalFallback('trial_sections', payload, editingTrialSectionId ? 'update' : 'insert', editingTrialSectionId ?? undefined); await refreshCloudData();
       } else setSavedTrialSections((prev) => editingTrialSectionId ? prev.map((item) => item.id === editingTrialSectionId ? record : item) : [record, ...prev]);
     });
@@ -3124,10 +3128,11 @@ export default function Page() {
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title = editingPreliminaryId || titleHasNumber(form.title) ? form.title : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
-    const record: PreliminaryRecord = { id, projectId: currentProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const record: PreliminaryRecord = { id, projectId: normalizedProjectId, ...form, title, approval: normalizeApproval(form.approval), savedAt: nowLocal() };
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = { id: record.id, project_id: record.projectId, subtype: record.subtype, title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? null, subcontractor: record.subcontractor ?? null, material: record.material ?? null, approval: record.approval, saved_at: nowIso() };
+        const payload = { id: record.id, project_id: normalizeStoredProjectId(record.projectId), subtype: record.subtype, title: record.title, date: record.date, status: record.status, supplier: record.supplier ?? null, subcontractor: record.subcontractor ?? null, material: record.material ?? null, approval: record.approval, saved_at: nowIso() };
         await saveWithApprovalFallback('preliminary_records', payload, editingPreliminaryId ? 'update' : 'insert', editingPreliminaryId ?? undefined); await refreshCloudData();
       } else setSavedPreliminary((prev) => editingPreliminaryId ? prev.map((item) => item.id === editingPreliminaryId ? record : item) : [record, ...prev]);
     });
