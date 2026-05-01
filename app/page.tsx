@@ -151,10 +151,10 @@ const createDefaultRequiredDocuments = (): RequiredDocument[] => [
   { id: crypto.randomUUID(), type: 'צילום', description: 'תיעוד חזותי מהשטח', required: false, attached: false },
 ];
 
-const createDefaultControlProcess = (processNo = 'CP-1'): Omit<ControlProcessRecord, 'id' | 'projectId' | 'savedAt'> => ({
+const createDefaultControlProcess = (processNo = 'REF-1'): Omit<ControlProcessRecord, 'id' | 'projectId' | 'savedAt'> => ({
   processNo,
-  title: 'תהליך בקרה חדש',
-  workType: '',
+  title: 'אישור חומר / תעודת ייחוס חדשה',
+  workType: 'אספלט - מרשל / JMF',
   specSection: '',
   location: '',
   fromSection: '',
@@ -163,7 +163,11 @@ const createDefaultControlProcess = (processNo = 'CP-1'): Omit<ControlProcessRec
   checklistIds: [],
   rfiIds: [],
   nonconformanceIds: [],
-  requiredDocuments: createDefaultRequiredDocuments(),
+  requiredDocuments: [
+    { id: crypto.randomUUID(), type: 'תעודת מעבדה', description: 'מערכת מרשל / JMF / תעודת בדיקת מעבדה', required: true, attached: false },
+    { id: crypto.randomUUID(), type: 'תוכנית', description: 'אישור מתכנן / יועץ לתערובת או לחומר', required: true, attached: false },
+    { id: crypto.randomUUID(), type: 'אישור ספק', description: 'אישור ספק / מפעל / מקור חומר', required: true, attached: false },
+  ],
   auditTrail: [],
   approval: createDefaultApproval(),
   lockedAt: '',
@@ -572,47 +576,15 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (insertResult.error) throw new Error(errorText(insertResult.error) || 'שגיאה בשמירת משתמשים ל-Supabase');
 };
 
-const isAdminAccess = (access: ProjectAccess | null) => {
-  if (!access) return false;
-  const role = normalizeAccessValue(access.role);
-  const displayName = normalizeHebrewProjectName(access.displayName).toLowerCase();
-  const username = normalizeAccessValue(access.username);
-  const code = normalizeAccessValue(access.code);
-
-  return (
-    role === 'admin' ||
-    username === 'admin' ||
-    code === 'admin' ||
-    displayName.includes('מנהל') ||
-    displayName.includes('admin')
-  );
-};
+const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin';
 
 const projectMatchesAccess = (project: Project, access: ProjectAccess | null) => {
   if (!access) return false;
   if (isAdminAccess(access)) return true;
-
   const projectName = normalizeHebrewProjectName(project.name);
-  const projectDescription = normalizeHebrewProjectName(project.description ?? '');
-  const projectManager = normalizeHebrewProjectName(project.manager ?? '');
   const allowedName = normalizeHebrewProjectName(access.projectName ?? '');
-  const code = normalizeAccessValue(access.code);
-  const username = normalizeAccessValue(access.username);
-  const haystack = normalizeAccessValue(`${project.id} ${project.name} ${project.description ?? ''} ${project.manager ?? ''}`);
-
-  if (allowedName && (
-    projectName === allowedName ||
-    projectName.includes(allowedName) ||
-    allowedName.includes(projectName) ||
-    projectDescription.includes(allowedName) ||
-    projectManager.includes(allowedName)
-  )) return true;
-
-  if (code && haystack.includes(code)) return true;
-  const numericFromUsername = username.match(/\d+/)?.[0] ?? '';
-  if (numericFromUsername && haystack.includes(numericFromUsername)) return true;
-
-  return false;
+  if (!allowedName) return false;
+  return projectName === allowedName || (!!access.code && projectName.includes(access.code));
 };
 
 const normalizeHebrewProjectName = (value: unknown) =>
@@ -1730,18 +1702,13 @@ function ControlProcessesSection({
   onLock: () => void | Promise<void>;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
-  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: form.status === 'נעול' ? '#f1f5f9' : '#fff', minHeight: 44 };
+
+  const readOnly = form.status === 'נעול';
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: readOnly ? '#f1f5f9' : '#fff', minHeight: 44 };
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
   const cardStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#fff', marginBottom: 14 };
-  const readOnly = form.status === 'נעול';
   const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
-  const toggleId = (field: 'checklistIds' | 'rfiIds' | 'nonconformanceIds', id: string) => {
-    if (readOnly) return;
-    setForm((prev: any) => {
-      const current = normalizeStringArray(prev[field]);
-      return { ...prev, [field]: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] };
-    });
-  };
+
   const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
     if (readOnly) return;
     setForm((prev: any) => ({
@@ -1749,58 +1716,78 @@ function ControlProcessesSection({
       requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).map((doc) => doc.id === id ? { ...doc, ...patch } : doc),
     }));
   };
-  const addDocument = () => {
+  const attachDocument = (id: string, file?: File) => {
+    if (!file || readOnly) return;
+    updateDocument(id, { attached: true, attachmentName: file.name, attachedAt: nowLocal() });
+  };
+  const addDocument = (type: RequiredDocumentType = 'אחר', description = 'מסמך נדרש נוסף') => {
     if (readOnly) return;
     setForm((prev: any) => ({
       ...prev,
-      requiredDocuments: [...normalizeRequiredDocuments(prev.requiredDocuments), { id: crypto.randomUUID(), type: 'אחר', description: 'מסמך נדרש נוסף', required: true, attached: false }],
+      requiredDocuments: [...normalizeRequiredDocuments(prev.requiredDocuments), { id: crypto.randomUUID(), type, description, required: true, attached: false }],
     }));
   };
   const removeDocument = (id: string) => {
     if (readOnly) return;
     setForm((prev: any) => ({ ...prev, requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).filter((doc) => doc.id !== id) }));
   };
-  const attachDocument = (id: string, file?: File) => {
-    if (!file || readOnly) return;
-    updateDocument(id, { attached: true, attachmentName: file.name, attachedAt: nowLocal() });
+  const toggleId = (field: 'checklistIds' | 'rfiIds' | 'nonconformanceIds', id: string) => {
+    if (readOnly) return;
+    setForm((prev: any) => {
+      const current = normalizeStringArray(prev[field]);
+      return { ...prev, [field]: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] };
+    });
   };
+
   const missingDocs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.required && !doc.attached);
   const linkedChecklistCount = normalizeStringArray(form.checklistIds).length;
   const linkedRfiCount = normalizeStringArray(form.rfiIds).length;
   const linkedNcrCount = normalizeStringArray(form.nonconformanceIds).length;
 
+  const asphaltChecklistTitles = ['קביעת מערכת מרשל', 'אישור תערובת אספלט', 'בדיקת דירוג', 'בדיקת צפיפות', 'בדיקות שוטפות בשטח'];
+
   return (
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>תהליכי בקרה לפי נת״י</h2>
-          <div style={{ color: '#64748b', marginTop: 4 }}>מסך מרכזי שמקשר בין סעיף מפרט, מיקום, רשימות תיוג, RFI, אי־התאמות ומסמכי חובה.</div>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>בקרה מקדימה / תעודות ייחוס</h2>
+          <div style={{ color: '#64748b', marginTop: 4 }}>
+            טופס אישור חומר / תערובת לשימוש בפרויקט. התעודה המאושרת תשמש כייחוס לבדיקות שוטפות ברשימות תיוג ובריכוזים.
+          </div>
         </div>
         <div style={styles.buttonRow}>
-          <button type="button" style={styles.secondaryBtn} onClick={onReset}>תהליך חדש</button>
-          <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? 'עדכון תהליך' : 'שמירת תהליך'}</button>
+          <button type="button" style={styles.secondaryBtn} onClick={onReset}>תעודת ייחוס חדשה</button>
+          <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? 'עדכון תעודה' : 'שמירת תעודה'}</button>
           <button type="button" style={styles.dangerBtn} onClick={onLock}>אישור ונעילה</button>
         </div>
       </div>
 
-      <div style={{ ...cardStyle, background: missingDocs.length ? '#fff7ed' : '#f8fafc' }}>
+      <div style={{ ...cardStyle, background: missingDocs.length ? '#fff7ed' : '#f0fdf4' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>רשימות תיוג מקושרות<br />{linkedChecklistCount}</div>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>RFI מקושרים<br />{linkedRfiCount}</div>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>אי־התאמות מקושרות<br />{linkedNcrCount}</div>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>מסמכי חובה חסרים<br />{missingDocs.length}</div>
         </div>
-        {form.status === 'נעול' ? <div style={{ marginTop: 10, color: '#166534', fontWeight: 950 }}>התהליך נעול לאחר אישור. ניתן לצפות בלבד.</div> : null}
-        {missingDocs.length ? <div style={{ marginTop: 10, color: '#991b1b', fontWeight: 950 }}>לא ניתן לנעול תהליך לפני צירוף כל מסמכי החובה.</div> : null}
+        {form.status === 'נעול' ? <div style={{ marginTop: 10, color: '#166534', fontWeight: 950 }}>התעודה נעולה לאחר אישור. ניתן לצפות בלבד.</div> : null}
+        {missingDocs.length ? <div style={{ marginTop: 10, color: '#991b1b', fontWeight: 950 }}>לא ניתן לנעול תעודת ייחוס לפני צירוף כל מסמכי החובה.</div> : null}
       </div>
 
       <div style={cardStyle}>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>פרטי תעודת הייחוס</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <label style={labelStyle}>מס׳ תהליך<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} style={inputStyle} /></label>
-          <label style={labelStyle}>שם התהליך<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} style={inputStyle} /></label>
-          <label style={labelStyle}>סוג עבודה<input disabled={readOnly} value={form.workType ?? ''} onChange={(e) => setField('workType', e.target.value)} placeholder="לדוגמה: מצעים / אספלט / ניקוז / בטון" style={inputStyle} /></label>
-          <label style={labelStyle}>סעיף מפרט נת״י<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="לדוגמה: 00.02.04.07" style={inputStyle} /></label>
-          <label style={labelStyle}>מיקום / קטע עבודה<input disabled={readOnly} value={form.location ?? ''} onChange={(e) => setField('location', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>מס׳ תעודה / ר״ת<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} placeholder="לדוגמה: 386 / CP-1" style={inputStyle} /></label>
+          <label style={labelStyle}>שם התעודה<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} placeholder="לדוגמה: קביעת מערכת מרשל" style={inputStyle} /></label>
+          <label style={labelStyle}>תחום / סוג עבודה<select disabled={readOnly} value={form.workType ?? ''} onChange={(e) => setField('workType', e.target.value)} style={inputStyle}>
+            <option value="">בחר תחום</option>
+            <option value="אספלט - מרשל / JMF">אספלט - מרשל / JMF</option>
+            <option value="מצעים / מילוי נברר - 100% צפיפות">מצעים / מילוי נברר - 100% צפיפות</option>
+            <option value="שתית / קרקע יסוד - אפיון ו-100% צפיפות">שתית / קרקע יסוד - אפיון ו-100% צפיפות</option>
+            <option value="בטון - אישור תערובת">בטון - אישור תערובת</option>
+            <option value="אחר">אחר</option>
+          </select></label>
+          <label style={labelStyle}>סעיף מפרט / תקן<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="נת״י / משרד השיכון / ת״י 118 / ASTM D2041" style={inputStyle} /></label>
+          <label style={labelStyle}>מיקום / שימוש מיועד<input disabled={readOnly} value={form.location ?? ''} onChange={(e) => setField('location', e.target.value)} placeholder="כביש / קטע / שכבה / אלמנט" style={inputStyle} /></label>
           <label style={labelStyle}>מחתך<input disabled={readOnly} value={form.fromSection ?? ''} onChange={(e) => setField('fromSection', e.target.value)} style={inputStyle} /></label>
           <label style={labelStyle}>עד חתך<input disabled={readOnly} value={form.toSection ?? ''} onChange={(e) => setField('toSection', e.target.value)} style={inputStyle} /></label>
           <label style={labelStyle}>סטטוס<select disabled={readOnly} value={form.status ?? 'טיוטה'} onChange={(e) => setField('status', e.target.value)} style={inputStyle}>{CONTROL_PROCESS_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
@@ -1808,9 +1795,39 @@ function ControlProcessesSection({
       </div>
 
       <div style={cardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>מסמכים נדרשים</h3>
-          <button type="button" style={styles.secondaryBtn} onClick={addDocument} disabled={readOnly}>הוסף מסמך חובה</button>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>טופס מרשל / תערובת אספלט</h3>
+        <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
+          מיועד לאישור תערובת אספלט לפני שימוש באתר, כדוגמת קביעת מערכת מרשל. לאחר אישור, התעודה תשמש כבסיס להשוואת בדיקות דירוג, צפיפות, חללים ותכולת ביטומן.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <label style={labelStyle}>סוג תערובת<input disabled={readOnly} value={form.asphaltMixType ?? ''} onChange={(e) => setField('asphaltMixType', e.target.value)} placeholder="תאמ״א 19 מ״מ בזלת" style={inputStyle} /></label>
+          <label style={labelStyle}>שכבה<input disabled={readOnly} value={form.asphaltLayer ?? ''} onChange={(e) => setField('asphaltLayer', e.target.value)} placeholder="עליונה / מקשרת / תחתונה" style={inputStyle} /></label>
+          <label style={labelStyle}>ספק / מפעל אספלט<input disabled={readOnly} value={form.supplier ?? ''} onChange={(e) => setField('supplier', e.target.value)} placeholder="מובילי המרכז / אחר" style={inputStyle} /></label>
+          <label style={labelStyle}>סוג ביטומן<input disabled={readOnly} value={form.bitumenGrade ?? ''} onChange={(e) => setField('bitumenGrade', e.target.value)} placeholder="PG70-10" style={inputStyle} /></label>
+          <label style={labelStyle}>תכולת ביטומן אופטימלית %<input disabled={readOnly} value={form.optimumBitumen ?? ''} onChange={(e) => setField('optimumBitumen', e.target.value)} placeholder="5.7" style={inputStyle} /></label>
+          <label style={labelStyle}>צפיפות מרשל / צפיפות ייחוס<input disabled={readOnly} value={form.referenceDensity ?? ''} onChange={(e) => setField('referenceDensity', e.target.value)} placeholder="2250 ק״ג/מ״ק" style={inputStyle} /></label>
+          <label style={labelStyle}>צפיפות תאורטית מקסימלית<input disabled={readOnly} value={form.maxTheoreticalDensity ?? ''} onChange={(e) => setField('maxTheoreticalDensity', e.target.value)} placeholder="2451 ק״ג/מ״ק" style={inputStyle} /></label>
+          <label style={labelStyle}>אחוז חלל<input disabled={readOnly} value={form.airVoids ?? ''} onChange={(e) => setField('airVoids', e.target.value)} placeholder="9.0%" style={inputStyle} /></label>
+          <label style={labelStyle}>יציבות<input disabled={readOnly} value={form.stability ?? ''} onChange={(e) => setField('stability', e.target.value)} placeholder="1800 Lbs" style={inputStyle} /></label>
+          <label style={labelStyle}>נזילות<input disabled={readOnly} value={form.flow ?? ''} onChange={(e) => setField('flow', e.target.value)} placeholder="12.8" style={inputStyle} /></label>
+          <label style={labelStyle}>VMA<input disabled={readOnly} value={form.vma ?? ''} onChange={(e) => setField('vma', e.target.value)} placeholder="21.2" style={inputStyle} /></label>
+          <label style={labelStyle}>מס׳ תעודת מעבדה<input disabled={readOnly} value={form.labCertificateNo ?? ''} onChange={(e) => setField('labCertificateNo', e.target.value)} placeholder="312" style={inputStyle} /></label>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קו דירוג מתוכנן / תחומי עבודה</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          {['#200', '#10', '#4', '3/8', '1/2', '3/4', '1'].map((sieve) => (
+            <label key={sieve} style={labelStyle}>נפה {sieve}<input disabled={readOnly} value={(form.grading ?? {})[sieve] ?? ''} onChange={(e) => setForm((prev: any) => ({ ...prev, grading: { ...(prev.grading ?? {}), [sieve]: e.target.value } }))} placeholder="% עובר" style={inputStyle} /></label>
+          ))}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>מסמכי חובה לאישור חומר / תערובת</h3>
+          <button type="button" style={styles.secondaryBtn} onClick={() => addDocument('אחר', 'מסמך נדרש נוסף')} disabled={readOnly}>הוסף מסמך</button>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1837,14 +1854,15 @@ function ControlProcessesSection({
       </div>
 
       <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קישור רשומות קיימות לתהליך</h3>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קישור לרשימות תיוג ובדיקות שטח</h3>
+        <div style={{ color: '#475569', marginBottom: 12 }}>בחר רשימות תיוג שבהן תעודת הייחוס הזו תשמש להשוואת בדיקות שוטפות.</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           <div>
             <div style={{ fontWeight: 950, marginBottom: 8 }}>רשימות תיוג</div>
             <div style={{ display: 'grid', gap: 6 }}>{checklists.length ? checklists.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.checklistIds).includes(item.id)} onChange={() => toggleId('checklistIds', item.id)} /> {item.checklistNo ? `#${item.checklistNo} · ` : ''}{item.title} · {item.location}</label>) : <div style={styles.emptyBox}>אין עדיין רשימות תיוג בפרויקט</div>}</div>
           </div>
           <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>RFI</div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>RFI / אישורי מתכנן</div>
             <div style={{ display: 'grid', gap: 6 }}>{rfis.length ? rfis.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.rfiIds).includes(item.id)} onChange={() => toggleId('rfiIds', item.id)} /> {item.title} · {item.status}</label>) : <div style={styles.emptyBox}>אין עדיין RFI בפרויקט</div>}</div>
           </div>
           <div>
@@ -1855,26 +1873,25 @@ function ControlProcessesSection({
       </div>
 
       <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>תהליכים שנשמרו</h3>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>תעודות ייחוס שנשמרו</h3>
         <div style={{ display: 'grid', gap: 8 }}>
           {savedProcesses.length ? savedProcesses.map((process) => (
             <div key={process.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontWeight: 950 }}>{process.processNo} · {process.title}</div>
-                <div style={{ color: '#64748b', marginTop: 4 }}>{process.workType || 'סוג עבודה לא הוזן'} · {process.location || 'מיקום לא הוזן'} · סטטוס: {process.status}</div>
+                <div style={{ color: '#64748b', marginTop: 4 }}>{process.workType || 'תחום לא הוזן'} · {process.location || 'שימוש מיועד לא הוזן'} · סטטוס: {process.status}</div>
               </div>
               <div style={styles.buttonRow}>
                 <button type="button" style={styles.secondaryBtn} onClick={() => onLoad(process)}>פתח</button>
                 <button type="button" style={styles.dangerBtn} onClick={() => onDelete(process.id)}>מחק</button>
               </div>
             </div>
-          )) : <div style={styles.emptyBox}>טרם נשמרו תהליכי בקרה בפרויקט.</div>}
+          )) : <div style={styles.emptyBox}>טרם נשמרו תעודות ייחוס בפרויקט.</div>}
         </div>
       </div>
     </section>
   );
 }
-
 
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
@@ -2229,28 +2246,9 @@ export default function Page() {
 
   const accessibleProjects = useMemo(() => {
     if (!projectAccess) return [];
-
-    const baseProjects = effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
-
-    if (isAdminAccess(projectAccess)) {
-      return baseProjects;
-    }
-
-    const matchedProjects = baseProjects.filter((project) => projectMatchesAccess(project, projectAccess));
-    if (matchedProjects.length) return matchedProjects;
-
-    // הגנת כשל: אם מסיבה כלשהי ההתאמה לפי שם/קוד לא הצליחה,
-    // לא משאירים את המשתמש בלי פרויקט. יוצרים פרויקט עבודה זמני לפי ההרשאה.
-    const codeFromUser = String(projectAccess.code || projectAccess.username || 'user').trim();
-    const projectNameFromAccess = String(projectAccess.projectName || '').trim();
-    return [{
-      id: `access-project-${normalizeAccessValue(codeFromUser) || 'user'}`,
-      name: projectNameFromAccess || `פרויקט ${codeFromUser}`,
-      description: `פרויקט עבודה לפי הרשאת המשתמש ${codeFromUser}`,
-      manager: '',
-      isActive: true,
-      createdAt: 'נוצר אוטומטית לפי הרשאה',
-    }];
+    const filtered = effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
+    if (filtered.length) return filtered;
+    return isAdminAccess(projectAccess) ? getDefaultProjectList() : [];
   }, [effectiveProjects, projectAccess]);
 
   useEffect(() => {
@@ -2493,7 +2491,7 @@ export default function Page() {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     setChecklistForm({ ...next, contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
   };
-  const nextControlProcessNo = () => `CP-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, '')) || 0)) + 1}`;
+  const nextControlProcessNo = () => `REF-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, '')) || 0)) + 1}`;
   const resetControlProcessForm = () => {
     setEditingControlProcessId(null);
     setControlProcessForm(createDefaultControlProcess(nextControlProcessNo()));
@@ -3289,8 +3287,8 @@ export default function Page() {
 
   const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary', 'controlProcesses'].includes(section);
   const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
-    ? [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['projects','פרויקטים'], ['controlProcesses','תהליכי בקרה'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
-    : [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['controlProcesses','תהליכי בקרה'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+    ? [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['projects','פרויקטים'], ['controlProcesses','בקרה מקדימה / תעודות ייחוס'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['controlProcesses','בקרה מקדימה / תעודות ייחוס'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
 
   if (!authReady) {
     return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
@@ -3356,7 +3354,7 @@ export default function Page() {
             </div>
           )}
           {section === 'projectDetails' && currentProject && <ProjectLegendPanel legend={currentProjectLegend} missing={projectLegendMissing} isEditing={editingProjectLegend} hasChanges={projectLegendDirty} onChange={updateProjectLegendField} onStartEdit={startProjectLegendEdit} onApprove={approveProjectLegendChanges} onCancel={cancelProjectLegendChanges} onClear={clearProjectLegend} onAddFactor={addProjectLegendFactor} onRemoveFactor={removeProjectLegendFactor} />}
-          {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>לא נמצא פרויקט משויך למשתמש. עבור למסך פרויקטים כמנהל או התחבר עם משתמש פרויקט תקין.</div>}
+          {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>יש לבחור פרויקט לפני עריכת פרטי הפרויקט.</div>}
           {section === 'controlProcesses' && <ControlProcessesSection guardedBody={guardedBody} form={controlProcessForm} setForm={setControlProcessForm} editingId={editingControlProcessId} savedProcesses={projectControlProcesses} checklists={projectChecklists} rfis={projectRfis} nonconformances={projectNonconformances} onSave={saveControlProcess} onReset={resetControlProcessForm} onLoad={loadControlProcess} onDelete={deleteControlProcess} onLock={lockControlProcess} />}
           {section === 'rfi' && <RfiSection guardedBody={guardedBody} rfiForm={rfiForm} setRfiForm={setRfiForm} editingRfiId={editingRfiId} savedRfis={projectRfis} saveRfi={saveRfi} resetRfiForm={resetRfiForm} closeRfi={closeRfi} deleteRfi={deleteRfi} loadRfi={loadRfi} projectMeta={currentProjectLegend} />}
           {section === 'supervisionReports' && <SimpleFolderSection title="דוחות פיקוח עליון" description="תיקייה ייעודית לדוחות פיקוח עליון." icon="🏛️" />}
