@@ -91,6 +91,7 @@ const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
 
 
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
+const AUTH_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const ACCESS_USERS_TABLE = 'project_access_users';
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
@@ -646,6 +647,61 @@ const projectAccessToRow = (access: ProjectAccess) => ({
   project_name: access.role === 'admin' ? null : access.projectName ?? '',
   signature: access.signatureDataUrl ?? '',
 });
+
+
+type StoredAuthSession = {
+  username?: string;
+  code?: string;
+  role?: 'admin' | 'user';
+  expiresAt?: number;
+};
+
+const readStoredAuthSession = (): StoredAuthSession | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredAuthSession;
+    if (!parsed?.expiresAt || parsed.expiresAt <= Date.now()) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+};
+
+const findUserForStoredSession = (users: ProjectAccess[], session: StoredAuthSession | null): ProjectAccess | null => {
+  if (!session) return null;
+  return users.find((user) =>
+    (session.username && user.username === session.username) ||
+    (session.code && normalizeAccessValue(user.code ?? '') === normalizeAccessValue(session.code)) ||
+    (session.role === 'admin' && user.role === 'admin')
+  ) ?? null;
+};
+
+const writeAuthSession = (access: ProjectAccess) => {
+  if (typeof window === 'undefined') return;
+  const session: StoredAuthSession = {
+    username: access.username,
+    code: access.code,
+    role: access.role,
+    expiresAt: Date.now() + AUTH_SESSION_TIMEOUT_MS,
+  };
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+};
+
+const refreshAuthSession = () => {
+  if (typeof window === 'undefined') return;
+  const session = readStoredAuthSession();
+  if (!session) return;
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    ...session,
+    expiresAt: Date.now() + AUTH_SESSION_TIMEOUT_MS,
+  }));
+};
 
 const loadAccessUsersFromSupabase = async (): Promise<ProjectAccess[] | null> => {
   if (!isSupabaseConfigured || !supabase) return null;
@@ -2112,12 +2168,20 @@ export default function Page() {
       setAccessUsers(users);
       setDraftAccessUsers(users);
 
-      // תמיד דורשים התחברות מחדש בעת פתיחת האתר.
-      // קישור עם ?project=806 רק ממלא את השדה, אבל לא מכניס אוטומטית.
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
-      setProjectAccess(null);
-      setLoginPassword('');
-      setLoginError('');
+      // שומרים התחברות פעילה עד 10 דקות חוסר פעילות.
+      // רענון דף בתוך הטווח לא מנתק את המשתמש.
+      const storedSession = readStoredAuthSession();
+      const storedUser = findUserForStoredSession(users, storedSession);
+      if (storedUser) {
+        setProjectAccess(storedUser);
+        refreshAuthSession();
+        setLoginPassword('');
+        setLoginError('');
+      } else {
+        setProjectAccess(null);
+        setLoginPassword('');
+        setLoginError('');
+      }
 
       if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
 
@@ -2127,6 +2191,22 @@ export default function Page() {
     loadUsers();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !projectAccess) return;
+
+    const refresh = () => refreshAuthSession();
+    const events: Array<keyof WindowEventMap> = ['click', 'keydown', 'mousemove', 'scroll', 'focus'];
+    events.forEach((eventName) => window.addEventListener(eventName, refresh));
+    const timer = window.setInterval(refresh, 60 * 1000);
+
+    refresh();
+
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, refresh));
+      window.clearInterval(timer);
+    };
+  }, [projectAccess]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2147,7 +2227,7 @@ export default function Page() {
     }
     setLoginError('');
     setProjectAccess(access);
-    // לא שומרים התחברות ב-localStorage כדי שבפתיחה הבאה יידרשו שם משתמש וסיסמה מחדש.
+    writeAuthSession(access);
     setSection('home');
   };
 
