@@ -41,6 +41,55 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
+
+const FALLBACK_PROJECTS: Project[] = [
+  {
+    id: 'project-806',
+    name: 'כביש 806 צלמון שלב א׳',
+    description: 'פרויקט ברירת מחדל לפי הרשאת משתמש 806',
+    manager: 'א.ש. רונן הנדסה אזרחית בע"מ',
+    isActive: true,
+    createdAt: 'ברירת מחדל',
+  },
+  {
+    id: 'project-909',
+    name: 'פרויקט 909',
+    description: 'פרויקט ברירת מחדל לפי הרשאת משתמש 909',
+    manager: '',
+    isActive: false,
+    createdAt: 'ברירת מחדל',
+  },
+];
+
+const getDefaultProjectList = (): Project[] => {
+  const source = Array.isArray(defaultProjects) && defaultProjects.length ? defaultProjects : FALLBACK_PROJECTS;
+  return source.map((project, index) => ({
+    ...project,
+    isActive: index === 0 ? true : Boolean(project.isActive),
+  }));
+};
+
+const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
+  const mapped = (rows ?? [])
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({
+      id: String(row.id ?? crypto.randomUUID()),
+      name: String(row.name ?? '').trim(),
+      description: String(row.description ?? ''),
+      manager: String(row.manager ?? ''),
+      isActive: Boolean(row.is_active ?? row.isActive),
+      createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : String(row.createdAt ?? ''),
+    }))
+    .filter((project) => project.id && project.name);
+
+  const source = mapped.length ? mapped : getDefaultProjectList();
+  return source.map((project, index) => ({
+    ...project,
+    isActive: source.some((item) => item.isActive) ? Boolean(project.isActive) : index === 0,
+  }));
+};
+
+
 const AUTH_STORAGE_KEY = `${STORAGE_KEY}-system-user`;
 const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const ACCESS_USERS_TABLE = 'project_access_users';
@@ -1798,8 +1847,8 @@ function ControlProcessesSection({
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
-  const [projects, setProjects] = useState<Project[]>(isSupabaseConfigured ? [] : defaultProjects);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(isSupabaseConfigured ? null : defaultProjects[0]?.id ?? null);
+  const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(readLocalCurrentProjectId() ?? getDefaultProjectList()[0]?.id ?? null);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newProjectManager, setNewProjectManager] = useState('');
@@ -2051,8 +2100,10 @@ export default function Page() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as PersistedData;
-      setProjects(parsed.projects?.length ? parsed.projects : defaultProjects);
-      setCurrentProjectId(parsed.currentProjectId ?? parsed.projects?.[0]?.id ?? defaultProjects[0]?.id ?? null);
+      const fallbackProjects = getDefaultProjectList();
+      const loadedProjects = parsed.projects?.length ? parsed.projects : fallbackProjects;
+      setProjects(loadedProjects);
+      setCurrentProjectId(parsed.currentProjectId ?? loadedProjects[0]?.id ?? fallbackProjects[0]?.id ?? null);
       setSavedChecklists((parsed.savedChecklists ?? []).map((item) => ({ ...item, templateKey: normalizeChecklistTemplateKey(item.templateKey), items: normalizeChecklistItems(item.items), approval: normalizeApproval((item as any).approval) })));
       setSavedNonconformances((parsed.savedNonconformances ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
       setSavedTrialSections((parsed.savedTrialSections ?? []).map((item) => ({ ...item, approval: normalizeApproval((item as any).approval) })));
@@ -2063,10 +2114,10 @@ export default function Page() {
   };
 
   const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null, rfiRows: any[] | null = [], controlProcessRows: any[] | null = []) => {
-    const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: row.name ?? '', description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
-    setProjects(mappedProjects.length ? mappedProjects : defaultProjects);
+    const availableProjects = normalizeProjectRows(projectsRows);
+    setProjects(availableProjects);
     const storedProjectId = readLocalCurrentProjectId();
-    const active = (storedProjectId ? mappedProjects.find((p) => p.id === storedProjectId) : undefined) ?? mappedProjects.find((p) => p.isActive) ?? mappedProjects[0] ?? defaultProjects[0];
+    const active = (storedProjectId ? availableProjects.find((p) => p.id === storedProjectId) : undefined) ?? availableProjects.find((p) => p.isActive) ?? availableProjects[0] ?? getDefaultProjectList()[0];
     setCurrentProjectId(active?.id ?? null);
     setSavedChecklists((checklistRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, checklistNo: row.checklist_no ?? undefined, templateKey: normalizeChecklistTemplateKey(row.template_key), title: row.title ?? '', category: row.category ?? '', location: row.location ?? '', date: row.date ?? '', contractor: row.contractor ?? '', notes: row.notes ?? '', items: normalizeChecklistItems(row.items), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedNonconformances((nonconRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', raisedBy: row.raised_by ?? '', severity: row.severity ?? 'בינונית', status: row.status ?? 'פתוח', description: row.description ?? '', actionRequired: row.action_required ?? '', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
@@ -2139,19 +2190,47 @@ export default function Page() {
     try { setIsSaving(true); await action(); } catch (error) { console.error(error); alert(errorText(error) || 'אירעה שגיאה בשמירה'); if (cloudEnabled) { try { await refreshCloudData(); } catch {} } } finally { setIsSaving(false); }
   };
 
-  const accessibleProjects = useMemo(
-    () => (projectAccess ? projects.filter((project) => projectMatchesAccess(project, projectAccess)) : []),
-    [projects, projectAccess]
+  const effectiveProjects = useMemo(
+    () => (projects.length ? projects : getDefaultProjectList()),
+    [projects]
   );
+
+  const accessibleProjects = useMemo(() => {
+    if (!projectAccess) return [];
+    const filtered = effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
+    if (filtered.length) return filtered;
+    return isAdminAccess(projectAccess) ? getDefaultProjectList() : [];
+  }, [effectiveProjects, projectAccess]);
+
+  useEffect(() => {
+    if (!loaded || !projectAccess) return;
+    if (!projects.length) setProjects(getDefaultProjectList());
+  }, [loaded, projectAccess, projects.length]);
+
+  // תיקון בחירת פרויקט פעיל:
+  // גם אם בדף מוצג פרויקט כברירת מחדל, כל הרשומות מסוננות לפי currentProjectId.
+  // לכן חייבים להציב projectId אמיתי מיד לאחר טעינת הרשאות/פרויקטים.
+  useEffect(() => {
+    if (!loaded || !projectAccess || !accessibleProjects.length) return;
+    const savedId = readLocalCurrentProjectId();
+    const savedProject = savedId ? accessibleProjects.find((project) => project.id === savedId) : null;
+    const activeProject = accessibleProjects.find((project) => project.isActive);
+    const selectedProject = accessibleProjects.find((project) => project.id === currentProjectId);
+    const nextProjectId = selectedProject?.id ?? savedProject?.id ?? activeProject?.id ?? accessibleProjects[0]?.id ?? null;
+    if (nextProjectId && currentProjectId !== nextProjectId) {
+      setCurrentProjectId(nextProjectId);
+      writeLocalCurrentProjectId(nextProjectId);
+    }
+  }, [loaded, projectAccess, accessibleProjects, currentProjectId]);
 
   useEffect(() => {
     if (!loaded || !projectAccess || isAdminAccess(projectAccess)) return;
-    const allowedProject = projects.find((project) => projectMatchesAccess(project, projectAccess));
+    const allowedProject = effectiveProjects.find((project) => projectMatchesAccess(project, projectAccess));
     if (allowedProject && currentProjectId !== allowedProject.id) {
       setCurrentProjectId(allowedProject.id);
       writeLocalCurrentProjectId(allowedProject.id);
     }
-  }, [loaded, projectAccess, projects, currentProjectId]);
+  }, [loaded, projectAccess, effectiveProjects, currentProjectId]);
 
   const currentProject = useMemo(() => accessibleProjects.find((p) => p.id === currentProjectId) ?? accessibleProjects[0] ?? null, [accessibleProjects, currentProjectId]);
   const savedCurrentProjectLegend = useMemo(
@@ -2399,29 +2478,40 @@ export default function Page() {
         if (result.error) throw result.error;
         await refreshCloudData();
       } else {
-        setProjects((prev) => [...prev.map((p) => ({ ...p, isActive: false })), project]);
+        setProjects((prev) => [...(prev.length ? prev : getDefaultProjectList()).map((p) => ({ ...p, isActive: false })), project]);
         setCurrentProjectId(id);
       }
     });
     setNewProjectName(''); setNewProjectDescription(''); setNewProjectManager('');
   };
 
-  const renameProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
-  const updateProjectMeta = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
+  const renameProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const nextName = window.prompt('שם פרויקט חדש', project.name); if (!nextName?.trim()) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ name: nextName.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: nextName.trim() } : p))); };
+  const updateProjectMeta = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project) return; const description = window.prompt('תיאור פרויקט', project.description ?? ''); if (description === null) return; const manager = window.prompt('מנהל פרויקט', project.manager ?? ''); if (manager === null) return; await withSaving(async () => cloudEnabled ? (await supabase!.from('projects').update({ description: description.trim(), manager: manager.trim() }).eq('id', projectId), await refreshCloudData()) : setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, description: description.trim(), manager: manager.trim() } : p))); };
   const setActiveProject = async (projectId: string) => await withSaving(async () => {
-    setCurrentProjectId(projectId);
-    writeLocalCurrentProjectId(projectId);
-    if (cloudEnabled) {
-      await supabase!.from('projects').update({ is_active: false }).neq('id', projectId);
-      const result = await supabase!.from('projects').update({ is_active: true }).eq('id', projectId);
-      if (result.error) throw result.error;
-      await refreshCloudData();
-      setCurrentProjectId(projectId);
-    } else {
-      setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId })));
+    const allProjects = effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
+    const selected = allProjects.find((project) => project.id === projectId) ?? getDefaultProjectList().find((project) => project.id === projectId);
+    if (!selected) return;
+
+    setCurrentProjectId(selected.id);
+    writeLocalCurrentProjectId(selected.id);
+    setProjects((prev) => {
+      const base = prev.length ? prev : allProjects;
+      return base.map((project) => ({ ...project, isActive: project.id === selected.id }));
+    });
+
+    if (cloudEnabled && supabase) {
+      try {
+        await supabase.from('projects').update({ is_active: false }).neq('id', selected.id);
+        const result = await supabase.from('projects').update({ is_active: true }).eq('id', selected.id);
+        if (result.error) console.warn('Failed to update active project in Supabase', result.error);
+      } catch (error) {
+        console.warn('Failed to update active project in Supabase', error);
+      }
     }
+
+    setSection('home');
   });
-  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedControlProcesses((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
+  const deleteProject = async (projectId: string) => { const project = effectiveProjects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedControlProcesses((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => {
     const next = createDefaultChecklist(templateKey);
