@@ -644,10 +644,17 @@ const isAdminAccess = (access: ProjectAccess | null) => access?.role === 'admin'
 const projectMatchesAccess = (project: Project, access: ProjectAccess | null) => {
   if (!access) return false;
   if (isAdminAccess(access)) return true;
-  const projectName = normalizeHebrewProjectName(project.name);
+
   const allowedName = normalizeHebrewProjectName(access.projectName ?? '');
-  if (!allowedName) return false;
-  return projectName === allowedName || (!!access.code && projectName.includes(access.code));
+  const code = normalizeAccessValue(access.code ?? access.username ?? '');
+  const searchable = normalizeAccessValue([project.id, project.name, project.description, project.manager].join(' '));
+  const projectName = normalizeHebrewProjectName(project.name);
+
+  if (allowedName && projectName === allowedName) return true;
+  if (allowedName && projectName.includes(allowedName)) return true;
+  if (code && searchable.includes(code)) return true;
+
+  return false;
 };
 
 const normalizeHebrewProjectName = (value: unknown) =>
@@ -2325,7 +2332,18 @@ export default function Page() {
     if (!projectAccess) return [];
     const filtered = effectiveProjects.filter((project) => projectMatchesAccess(project, projectAccess));
     if (filtered.length) return filtered;
-    return isAdminAccess(projectAccess) ? getDefaultProjectList() : [];
+    if (isAdminAccess(projectAccess)) return effectiveProjects.length ? effectiveProjects : getDefaultProjectList();
+
+    const code = String(projectAccess.code ?? projectAccess.username ?? 'project').trim() || 'project';
+    const fallbackName = String(projectAccess.projectName ?? '').trim() || ('פרויקט ' + code);
+    return [{
+      id: 'project-' + code,
+      name: fallbackName,
+      description: 'פרויקט עבודה לפי הרשאת משתמש ' + code,
+      manager: '',
+      isActive: true,
+      createdAt: 'ברירת מחדל',
+    } as Project];
   }, [effectiveProjects, projectAccess]);
 
   useEffect(() => {
