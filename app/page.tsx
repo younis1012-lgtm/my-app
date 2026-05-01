@@ -1934,10 +1934,6 @@ function ControlProcessesSection({
     });
   };
 
-  const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.attached || doc.attachmentName || doc.description);
-  const linkedChecklistCount = normalizeStringArray(form.checklistIds).length;
-  const linkedRfiCount = normalizeStringArray(form.rfiIds).length;
-  const linkedNcrCount = normalizeStringArray(form.nonconformanceIds).length;
   const relevantChecklists = selectedMaterial
     ? checklists.filter((item) => normalizeHebrewProjectName([item.title, item.category, item.location, item.notes].join(' ')).includes(normalizeHebrewProjectName(selectedMaterial).split(' ')[0]))
     : checklists;
@@ -1956,16 +1952,6 @@ function ControlProcessesSection({
           <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? 'עדכון תעודה' : 'שמירת תעודה'}</button>
           <button type="button" style={styles.dangerBtn} onClick={onLock}>אישור ונעילה</button>
         </div>
-      </div>
-
-      <div style={{ ...cardStyle, background: '#f8fafc' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>רשימות תיוג מקושרות<br />{linkedChecklistCount}</div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>RFI מקושרים<br />{linkedRfiCount}</div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>אי־התאמות מקושרות<br />{linkedNcrCount}</div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>מסמכים / תמונות שצורפו<br />{attachedDocs.filter((doc) => doc.attached).length}</div>
-        </div>
-        {form.status === 'נעול' ? <div style={{ marginTop: 10, color: '#166534', fontWeight: 950 }}>התעודה נעולה לאחר אישור. ניתן לצפות בלבד.</div> : null}
       </div>
 
       <div style={cardStyle}>
