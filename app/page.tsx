@@ -146,44 +146,45 @@ type ControlProcessRecord = {
 const CONTROL_PROCESS_STATUS_OPTIONS: ControlProcessStatus[] = ['טיוטה', 'בביצוע', 'ממתין לאישור', 'מאושר', 'נדחה', 'נעול'];
 const REQUIRED_DOCUMENT_TYPES: RequiredDocumentType[] = ['תעודת מעבדה', 'רשימת מדידה', 'צילום', 'אישור ספק', 'תוכנית', 'RFI', 'אחר'];
 
-
-// רשימת חומרים/סוגי עבודה לאישור כתעודות ייחוס.
-// הרשימה נוקתה ממספרים וממילים כמו "רשימת תיוג", כדי שהבקר יבחר חומר מקצועי בלבד.
 const REFERENCE_MATERIAL_OPTIONS = [
-  'חומר חצץ',
-  'מילוי מובא',
+  'אישור חומר חצץ',
+  'סוללות מילוי מיובא',
   'סוללות מילוי חומר מקומי',
   'שכבות אגו״ם לקביעת קו דירוג',
-  'בטון יצוק באתר',
+  'בטון יצוק באתר - כללי דריכה',
   'חול מיוצב צמנט',
   'עבודות אספלט באתר - קביעת מערכת מרשל',
   'הידוק קרקע יסוד',
-  'שתית טבעית / חומר מהאתר',
-  'בדיקת ברזל',
+  'בטון יצוק באתר - בדיקת ברזל',
   'מצע א׳ - דירוג ושווה ערך חול',
   'שכבות מצע ב׳',
   'אבקת בנטונייט',
   'חומר דיוס',
-  'ברגי פלדה',
-  'אבן לריפוף',
-  'שברי אבן',
-  'ייצור אלמנטים טרומיים לחומה',
-  'בקרה פנימית של מתכון',
-  'אגרגטים ת״י 3',
+  'פלדה',
+  'אבן לחיפוי',
+  'חול לצינור / אבן שברי אבן',
+  'ריצוף באבן טבעית',
+  'סוללות עפר - מילוי מובקר מחומר אינרטי',
+  'בטון יצוק באתר',
   'בטון מותז',
+  'ייצור אלמנטים טרומיים לחומה',
+  'בדיקה ובקרה פנימית של התכנון',
+  'אגרגטים ת״י 3',
   'מצע ג׳',
   'מילוי נברר',
   'מילוי אינרטי',
-  'תערובת בטון ב-30',
-  'תערובת בטון ב-40',
-  'תערובת בטון ב-50',
-  'תערובת בטון ב-60',
-  'אספלט - תאמ״א 19',
-  'אספלט - תאמ״א 12.5',
-  'אספלט - שכבת מקשרת',
+  'שתית / קרקע יסוד',
+  'אספלט - שכבה נושאת',
+  'אספלט - שכבה מקשרת',
   'אספלט - שכבה עליונה',
+  'בטון ב-30',
+  'בטון ב-40',
+  'בטון ב-50',
+  'בטון ב-60',
   'אחר',
 ];
+
+const isAsphaltReference = (value: unknown) => String(value ?? '').includes('אספלט') || String(value ?? '').includes('מרשל');
 
 const createDefaultRequiredDocuments = (): RequiredDocument[] => [
   { id: crypto.randomUUID(), type: 'תעודת מעבדה', description: 'תעודות בדיקה / מעבדה לפי סוג העבודה', required: true, attached: false },
@@ -194,7 +195,7 @@ const createDefaultRequiredDocuments = (): RequiredDocument[] => [
 const createDefaultControlProcess = (processNo = 'REF-1'): Omit<ControlProcessRecord, 'id' | 'projectId' | 'savedAt'> => ({
   processNo,
   title: 'אישור חומר / תעודת ייחוס חדשה',
-  workType: 'עבודות אספלט באתר - קביעת מערכת מרשל',
+  workType: 'אספלט - מרשל / JMF',
   specSection: '',
   location: '',
   fromSection: '',
@@ -203,11 +204,7 @@ const createDefaultControlProcess = (processNo = 'REF-1'): Omit<ControlProcessRe
   checklistIds: [],
   rfiIds: [],
   nonconformanceIds: [],
-  requiredDocuments: [
-    { id: crypto.randomUUID(), type: 'תעודת מעבדה', description: 'מערכת מרשל / JMF / תעודת בדיקת מעבדה', required: true, attached: false },
-    { id: crypto.randomUUID(), type: 'תוכנית', description: 'אישור מתכנן / יועץ לתערובת או לחומר', required: true, attached: false },
-    { id: crypto.randomUUID(), type: 'אישור ספק', description: 'אישור ספק / מפעל / מקור חומר', required: true, attached: false },
-  ],
+  requiredDocuments: [],
   auditTrail: [],
   approval: createDefaultApproval(),
   lockedAt: '',
@@ -223,7 +220,7 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] => Array
       attachmentName: String(item?.attachmentName ?? ''),
       attachedAt: String(item?.attachedAt ?? ''),
     }))
-  : createDefaultRequiredDocuments();
+  : [];
 
 const normalizeStringArray = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
 
@@ -1817,6 +1814,8 @@ function ControlProcessesSection({
   const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
   const cardStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#fff', marginBottom: 14 };
   const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
+  const selectedMaterial = String(form.workType ?? '');
+  const showAsphaltForm = isAsphaltReference(selectedMaterial);
 
   const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
     if (readOnly) return;
@@ -1827,13 +1826,13 @@ function ControlProcessesSection({
   };
   const attachDocument = (id: string, file?: File) => {
     if (!file || readOnly) return;
-    updateDocument(id, { attached: true, attachmentName: file.name, attachedAt: nowLocal() });
+    updateDocument(id, { attached: true, attachmentName: file.name, attachedAt: nowLocal(), required: false });
   };
-  const addDocument = (type: RequiredDocumentType = 'אחר', description = 'מסמך נדרש נוסף') => {
+  const addDocument = (type: RequiredDocumentType = 'אחר', description = 'מסמך / צילום / תעודה') => {
     if (readOnly) return;
     setForm((prev: any) => ({
       ...prev,
-      requiredDocuments: [...normalizeRequiredDocuments(prev.requiredDocuments), { id: crypto.randomUUID(), type, description, required: true, attached: false }],
+      requiredDocuments: [...normalizeRequiredDocuments(prev.requiredDocuments), { id: crypto.randomUUID(), type, description, required: false, attached: false }],
     }));
   };
   const removeDocument = (id: string) => {
@@ -1848,12 +1847,13 @@ function ControlProcessesSection({
     });
   };
 
-  const missingDocs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.required && !doc.attached);
+  const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.attached || doc.attachmentName || doc.description);
   const linkedChecklistCount = normalizeStringArray(form.checklistIds).length;
   const linkedRfiCount = normalizeStringArray(form.rfiIds).length;
   const linkedNcrCount = normalizeStringArray(form.nonconformanceIds).length;
-
-  const asphaltChecklistTitles = ['קביעת מערכת מרשל', 'אישור תערובת אספלט', 'בדיקת דירוג', 'בדיקת צפיפות', 'בדיקות שוטפות בשטח'];
+  const relevantChecklists = selectedMaterial
+    ? checklists.filter((item) => normalizeHebrewProjectName([item.title, item.category, item.location, item.notes].join(' ')).includes(normalizeHebrewProjectName(selectedMaterial).split(' ')[0]))
+    : checklists;
 
   return (
     <section>
@@ -1861,7 +1861,7 @@ function ControlProcessesSection({
         <div>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>בקרה מקדימה / תעודות ייחוס</h2>
           <div style={{ color: '#64748b', marginTop: 4 }}>
-            טופס אישור חומר / תערובת לשימוש בפרויקט. התעודה המאושרת תשמש כייחוס לבדיקות שוטפות ברשימות תיוג ובריכוזים.
+            בחר חומר או סוג עבודה, צרף תעודות/קבצים, וקשר את תעודת הייחוס לרשימות התיוג ובדיקות השטח הרלוונטיות.
           </div>
         </div>
         <div style={styles.buttonRow}>
@@ -1871,29 +1871,26 @@ function ControlProcessesSection({
         </div>
       </div>
 
-      <div style={{ ...cardStyle, background: missingDocs.length ? '#fff7ed' : '#f0fdf4' }}>
+      <div style={{ ...cardStyle, background: '#f8fafc' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>רשימות תיוג מקושרות<br />{linkedChecklistCount}</div>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>RFI מקושרים<br />{linkedRfiCount}</div>
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>אי־התאמות מקושרות<br />{linkedNcrCount}</div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>מסמכי חובה חסרים<br />{missingDocs.length}</div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>מסמכים / תמונות שצורפו<br />{attachedDocs.filter((doc) => doc.attached).length}</div>
         </div>
         {form.status === 'נעול' ? <div style={{ marginTop: 10, color: '#166534', fontWeight: 950 }}>התעודה נעולה לאחר אישור. ניתן לצפות בלבד.</div> : null}
-        {missingDocs.length ? <div style={{ marginTop: 10, color: '#991b1b', fontWeight: 950 }}>לא ניתן לנעול תעודת ייחוס לפני צירוף כל מסמכי החובה.</div> : null}
       </div>
 
       <div style={cardStyle}>
         <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>פרטי תעודת הייחוס</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <label style={labelStyle}>מס׳ תעודה / ר״ת<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} placeholder="לדוגמה: 386 / CP-1" style={inputStyle} /></label>
-          <label style={labelStyle}>שם התעודה<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} placeholder="לדוגמה: קביעת מערכת מרשל" style={inputStyle} /></label>
+          <label style={labelStyle}>מס׳ תעודה / ר״ת<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} placeholder="לדוגמה: REF-1" style={inputStyle} /></label>
+          <label style={labelStyle}>שם התעודה<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} placeholder="לדוגמה: אישור מצע א׳ / אישור תערובת אספלט" style={inputStyle} /></label>
           <label style={labelStyle}>תחום / סוג עבודה<select disabled={readOnly} value={form.workType ?? ''} onChange={(e) => setField('workType', e.target.value)} style={inputStyle}>
             <option value="">בחר חומר / סוג עבודה לאישור</option>
-            {REFERENCE_MATERIAL_OPTIONS.map((material) => (
-              <option key={material} value={material}>{material}</option>
-            ))}
+            {REFERENCE_MATERIAL_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
           </select></label>
-          <label style={labelStyle}>סעיף מפרט / תקן<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="נת״י / משרד השיכון / ת״י 118 / ASTM D2041" style={inputStyle} /></label>
+          <label style={labelStyle}>סעיף מפרט / תקן<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="נת״י / משרד השיכון / ת״י / ASTM" style={inputStyle} /></label>
           <label style={labelStyle}>מיקום / שימוש מיועד<input disabled={readOnly} value={form.location ?? ''} onChange={(e) => setField('location', e.target.value)} placeholder="כביש / קטע / שכבה / אלמנט" style={inputStyle} /></label>
           <label style={labelStyle}>מחתך<input disabled={readOnly} value={form.fromSection ?? ''} onChange={(e) => setField('fromSection', e.target.value)} style={inputStyle} /></label>
           <label style={labelStyle}>עד חתך<input disabled={readOnly} value={form.toSection ?? ''} onChange={(e) => setField('toSection', e.target.value)} style={inputStyle} /></label>
@@ -1901,60 +1898,61 @@ function ControlProcessesSection({
         </div>
       </div>
 
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>טופס מרשל / תערובת אספלט</h3>
-        <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
-          מיועד לאישור תערובת אספלט לפני שימוש באתר, כדוגמת קביעת מערכת מרשל. לאחר אישור, התעודה תשמש כבסיס להשוואת בדיקות דירוג, צפיפות, חללים ותכולת ביטומן.
+      {showAsphaltForm ? (
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קביעת מערכת מרשל / תערובת אספלט</h3>
+          <div style={{ color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
+            חלק זה נפתח רק לאחר בחירת תחום אספלט. הנתונים ישמשו כייחוס לבדיקות דירוג, צפיפות, חללים ותכולת ביטומן.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <label style={labelStyle}>סוג תערובת<input disabled={readOnly} value={form.asphaltMixType ?? ''} onChange={(e) => setField('asphaltMixType', e.target.value)} placeholder="לדוגמה: תא״מ 19 מ״מ" style={inputStyle} /></label>
+            <label style={labelStyle}>שכבה<input disabled={readOnly} value={form.asphaltLayer ?? ''} onChange={(e) => setField('asphaltLayer', e.target.value)} placeholder="עליונה / מקשרת / תחתונה" style={inputStyle} /></label>
+            <label style={labelStyle}>ספק / מפעל אספלט<input disabled={readOnly} value={form.supplier ?? ''} onChange={(e) => setField('supplier', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>סוג ביטומן<input disabled={readOnly} value={form.bitumenGrade ?? ''} onChange={(e) => setField('bitumenGrade', e.target.value)} placeholder="PG70-10" style={inputStyle} /></label>
+            <label style={labelStyle}>תכולת ביטומן אופטימלית %<input disabled={readOnly} value={form.optimumBitumen ?? ''} onChange={(e) => setField('optimumBitumen', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>צפיפות מרשל / צפיפות ייחוס<input disabled={readOnly} value={form.referenceDensity ?? ''} onChange={(e) => setField('referenceDensity', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>צפיפות תאורטית מקסימלית<input disabled={readOnly} value={form.maxTheoreticalDensity ?? ''} onChange={(e) => setField('maxTheoreticalDensity', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>אחוז חלל<input disabled={readOnly} value={form.airVoids ?? ''} onChange={(e) => setField('airVoids', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>יציבות<input disabled={readOnly} value={form.stability ?? ''} onChange={(e) => setField('stability', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>נזילות<input disabled={readOnly} value={form.flow ?? ''} onChange={(e) => setField('flow', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>VMA<input disabled={readOnly} value={form.vma ?? ''} onChange={(e) => setField('vma', e.target.value)} style={inputStyle} /></label>
+            <label style={labelStyle}>מס׳ תעודת מעבדה<input disabled={readOnly} value={form.labCertificateNo ?? ''} onChange={(e) => setField('labCertificateNo', e.target.value)} style={inputStyle} /></label>
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <label style={labelStyle}>סוג תערובת<input disabled={readOnly} value={form.asphaltMixType ?? ''} onChange={(e) => setField('asphaltMixType', e.target.value)} placeholder="תאמ״א 19 מ״מ בזלת" style={inputStyle} /></label>
-          <label style={labelStyle}>שכבה<input disabled={readOnly} value={form.asphaltLayer ?? ''} onChange={(e) => setField('asphaltLayer', e.target.value)} placeholder="עליונה / מקשרת / תחתונה" style={inputStyle} /></label>
-          <label style={labelStyle}>ספק / מפעל אספלט<input disabled={readOnly} value={form.supplier ?? ''} onChange={(e) => setField('supplier', e.target.value)} placeholder="מובילי המרכז / אחר" style={inputStyle} /></label>
-          <label style={labelStyle}>סוג ביטומן<input disabled={readOnly} value={form.bitumenGrade ?? ''} onChange={(e) => setField('bitumenGrade', e.target.value)} placeholder="PG70-10" style={inputStyle} /></label>
-          <label style={labelStyle}>תכולת ביטומן אופטימלית %<input disabled={readOnly} value={form.optimumBitumen ?? ''} onChange={(e) => setField('optimumBitumen', e.target.value)} placeholder="5.7" style={inputStyle} /></label>
-          <label style={labelStyle}>צפיפות מרשל / צפיפות ייחוס<input disabled={readOnly} value={form.referenceDensity ?? ''} onChange={(e) => setField('referenceDensity', e.target.value)} placeholder="2250 ק״ג/מ״ק" style={inputStyle} /></label>
-          <label style={labelStyle}>צפיפות תאורטית מקסימלית<input disabled={readOnly} value={form.maxTheoreticalDensity ?? ''} onChange={(e) => setField('maxTheoreticalDensity', e.target.value)} placeholder="2451 ק״ג/מ״ק" style={inputStyle} /></label>
-          <label style={labelStyle}>אחוז חלל<input disabled={readOnly} value={form.airVoids ?? ''} onChange={(e) => setField('airVoids', e.target.value)} placeholder="9.0%" style={inputStyle} /></label>
-          <label style={labelStyle}>יציבות<input disabled={readOnly} value={form.stability ?? ''} onChange={(e) => setField('stability', e.target.value)} placeholder="1800 Lbs" style={inputStyle} /></label>
-          <label style={labelStyle}>נזילות<input disabled={readOnly} value={form.flow ?? ''} onChange={(e) => setField('flow', e.target.value)} placeholder="12.8" style={inputStyle} /></label>
-          <label style={labelStyle}>VMA<input disabled={readOnly} value={form.vma ?? ''} onChange={(e) => setField('vma', e.target.value)} placeholder="21.2" style={inputStyle} /></label>
-          <label style={labelStyle}>מס׳ תעודת מעבדה<input disabled={readOnly} value={form.labCertificateNo ?? ''} onChange={(e) => setField('labCertificateNo', e.target.value)} placeholder="312" style={inputStyle} /></label>
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קו דירוג מתוכנן / תחומי עבודה</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-          {['#200', '#10', '#4', '3/8', '1/2', '3/4', '1'].map((sieve) => (
-            <label key={sieve} style={labelStyle}>נפה {sieve}<input disabled={readOnly} value={(form.grading ?? {})[sieve] ?? ''} onChange={(e) => setForm((prev: any) => ({ ...prev, grading: { ...(prev.grading ?? {}), [sieve]: e.target.value } }))} placeholder="% עובר" style={inputStyle} /></label>
-          ))}
-        </div>
-      </div>
+      ) : null}
 
       <div style={cardStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>מסמכי חובה לאישור חומר / תערובת</h3>
-          <button type="button" style={styles.secondaryBtn} onClick={() => addDocument('אחר', 'מסמך נדרש נוסף')} disabled={readOnly}>הוסף מסמך</button>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>קבצים, תעודות ותמונות לתעודת הייחוס</h3>
+            <div style={{ color: '#64748b', marginTop: 4 }}>כאן מצרפים תעודות מעבדה, אישורי מתכנן, תמונות, PDF, Word, Excel וכל מסמך רלוונטי לחומר שנבחר.</div>
+          </div>
+          <div style={styles.buttonRow}>
+            <button type="button" style={styles.secondaryBtn} onClick={() => addDocument('תעודת מעבדה', 'תעודת מעבדה / בדיקת ייחוס')} disabled={readOnly}>הוסף תעודה</button>
+            <button type="button" style={styles.secondaryBtn} onClick={() => addDocument('צילום', 'צילום / תמונת שטח / סימון מקור חומר')} disabled={readOnly}>הוסף צילום</button>
+            <button type="button" style={styles.secondaryBtn} onClick={() => addDocument('אחר', 'מסמך נוסף')} disabled={readOnly}>הוסף מסמך</button>
+          </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>סוג</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>תיאור</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>חובה</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>סטטוס</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>פעולה</th></tr></thead>
+            <thead><tr><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>סוג</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>תיאור</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>קובץ</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>פעולה</th></tr></thead>
             <tbody>
-              {normalizeRequiredDocuments(form.requiredDocuments).map((doc) => (
+              {attachedDocs.length ? attachedDocs.map((doc) => (
                 <tr key={doc.id}>
                   <td style={{ border: '1px solid #cbd5e1', padding: 8 }}><select disabled={readOnly} value={doc.type} onChange={(e) => updateDocument(doc.id, { type: e.target.value as RequiredDocumentType })} style={inputStyle}>{REQUIRED_DOCUMENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
                   <td style={{ border: '1px solid #cbd5e1', padding: 8 }}><input disabled={readOnly} value={doc.description} onChange={(e) => updateDocument(doc.id, { description: e.target.value })} style={inputStyle} /></td>
-                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center' }}><input disabled={readOnly} type="checkbox" checked={doc.required} onChange={(e) => updateDocument(doc.id, { required: e.target.checked })} /></td>
-                  <td style={{ border: '1px solid #cbd5e1', padding: 8, fontWeight: 900 }}>{doc.attached ? `✅ ${doc.attachmentName || 'צורף'}` : '❌ חסר'}</td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, fontWeight: 900 }}>{doc.attached ? `✅ ${doc.attachmentName || 'צורף'}` : 'טרם צורף קובץ'}</td>
                   <td style={{ border: '1px solid #cbd5e1', padding: 8 }}>
                     <label style={{ ...styles.secondaryBtn, display: 'inline-flex', cursor: readOnly ? 'not-allowed' : 'pointer' }}>
-                      צרף
+                      צרף / החלף
                       <input disabled={readOnly} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={(e) => { attachDocument(doc.id, e.target.files?.[0]); e.currentTarget.value = ''; }} />
                     </label>
                     <button type="button" style={{ ...styles.dangerBtn, marginRight: 6 }} onClick={() => removeDocument(doc.id)} disabled={readOnly}>מחיקה</button>
                   </td>
                 </tr>
-              ))}
+              )) : (
+                <tr><td colSpan={4} style={{ border: '1px solid #cbd5e1', padding: 18, textAlign: 'center', color: '#64748b' }}>טרם נוספו קבצים לתעודת הייחוס.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1962,18 +1960,20 @@ function ControlProcessesSection({
 
       <div style={cardStyle}>
         <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קישור לרשימות תיוג ובדיקות שטח</h3>
-        <div style={{ color: '#475569', marginBottom: 12 }}>בחר רשימות תיוג שבהן תעודת הייחוס הזו תשמש להשוואת בדיקות שוטפות.</div>
+        <div style={{ color: '#475569', marginBottom: 12 }}>
+          בחר לאילו רשימות תיוג ובדיקות שטח תעודת הייחוס הזו שייכת. לדוגמה: תעודת ייחוס של מצע א׳ תקושר לרשימת תיוג פיזור/הידוק מצע א׳ ולבדיקות צפיפות־רטיבות המתייחסות אליה.
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>רשימות תיוג</div>
-            <div style={{ display: 'grid', gap: 6 }}>{checklists.length ? checklists.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.checklistIds).includes(item.id)} onChange={() => toggleId('checklistIds', item.id)} /> {item.checklistNo ? `#${item.checklistNo} · ` : ''}{item.title} · {item.location}</label>) : <div style={styles.emptyBox}>אין עדיין רשימות תיוג בפרויקט</div>}</div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>רשימות תיוג רלוונטיות</div>
+            <div style={{ display: 'grid', gap: 6 }}>{(relevantChecklists.length ? relevantChecklists : checklists).length ? (relevantChecklists.length ? relevantChecklists : checklists).map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.checklistIds).includes(item.id)} onChange={() => toggleId('checklistIds', item.id)} /> {item.checklistNo ? `#${item.checklistNo} · ` : ''}{item.title} · {item.location}</label>) : <div style={styles.emptyBox}>אין עדיין רשימות תיוג בפרויקט</div>}</div>
           </div>
           <div>
             <div style={{ fontWeight: 950, marginBottom: 8 }}>RFI / אישורי מתכנן</div>
             <div style={{ display: 'grid', gap: 6 }}>{rfis.length ? rfis.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.rfiIds).includes(item.id)} onChange={() => toggleId('rfiIds', item.id)} /> {item.title} · {item.status}</label>) : <div style={styles.emptyBox}>אין עדיין RFI בפרויקט</div>}</div>
           </div>
           <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>אי־התאמות</div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>אי־התאמות / חריגות</div>
             <div style={{ display: 'grid', gap: 6 }}>{nonconformances.length ? nonconformances.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.nonconformanceIds).includes(item.id)} onChange={() => toggleId('nonconformanceIds', item.id)} /> {item.title} · {item.status}</label>) : <div style={styles.emptyBox}>אין עדיין אי־התאמות בפרויקט</div>}</div>
           </div>
         </div>
@@ -1999,6 +1999,7 @@ function ControlProcessesSection({
     </section>
   );
 }
+
 
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
@@ -2848,10 +2849,6 @@ export default function Page() {
   };
 
   const lockControlProcess = async () => {
-    const docs = normalizeRequiredDocuments(controlProcessForm.requiredDocuments);
-    const missingDocs = docs.filter((doc) => doc.required && !doc.attached);
-    if (missingDocs.length) return alert(`לא ניתן לנעול. חסרים ${missingDocs.length} מסמכי חובה.`);
-    if (!normalizeStringArray(controlProcessForm.checklistIds).length) return alert('לא ניתן לנעול תהליך בלי לפחות רשימת תיוג אחת מקושרת.');
     setControlProcessForm((prev: any) => ({ ...prev, status: 'נעול', lockedAt: nowLocal() }));
     setTimeout(() => { void saveControlProcess(); }, 0);
   };
