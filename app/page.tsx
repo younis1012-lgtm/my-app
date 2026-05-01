@@ -1903,6 +1903,7 @@ function ControlProcessesSection({
   const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
   const selectedMaterial = String(form.workType ?? '');
   const showAsphaltForm = isAsphaltReference(selectedMaterial);
+  const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
 
   const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
     if (readOnly) return;
