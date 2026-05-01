@@ -1107,25 +1107,54 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
   if (guardedBody) return <>{guardedBody}</>;
   const metaStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#f8fafc', fontWeight: 800 };
   const rfiDocuments = normalizeAttachments(rfiForm.documents);
-  const addRfiDocument = (file?: File) => {
+  const addRfiDocument = async (file?: File) => {
     if (!file) return;
-    const maxSizeMb = 8;
+    const maxSizeMb = 20;
     if (file.size > maxSizeMb * 1024 * 1024) {
       alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const attachment: StoredAttachment = {
-        name: file.name,
-        type: file.type,
-        dataUrl: String(reader.result ?? ''),
-        uploadedAt: nowLocal(),
-      };
+
+    const appendAttachment = (attachment: StoredAttachment) => {
       setRfiForm((prev: any) => ({
         ...prev,
         documents: [...normalizeAttachments(prev.documents), attachment],
       }));
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, '_');
+        const filePath = `rfi/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+        const uploadResult = await supabase.storage
+          .from('rfi-documents')
+          .upload(filePath, file, { upsert: false, contentType: file.type || undefined });
+
+        if (uploadResult.error) throw uploadResult.error;
+
+        const { data } = supabase.storage.from('rfi-documents').getPublicUrl(filePath);
+        appendAttachment({
+          name: file.name,
+          type: file.type,
+          dataUrl: data.publicUrl,
+          uploadedAt: nowLocal(),
+        });
+        return;
+      } catch (error) {
+        console.error('RFI document upload failed', error);
+        alert('העלאת הקובץ ל-Supabase נכשלה. הקובץ לא צורף.');
+        return;
+      }
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      appendAttachment({
+        name: file.name,
+        type: file.type,
+        dataUrl: String(reader.result ?? ''),
+        uploadedAt: nowLocal(),
+      });
     };
     reader.onerror = () => alert('לא ניתן לקרוא את הקובץ שנבחר');
     reader.readAsDataURL(file);
@@ -1165,10 +1194,11 @@ function RfiSection({ guardedBody, rfiForm, setRfiForm, editingRfiId, savedRfis,
               📎 צירוף קובץ
               <input
                 type="file"
+                multiple
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                 style={{ display: 'none' }}
                 onChange={(event) => {
-                  addRfiDocument(event.target.files?.[0]);
+                  Array.from(event.target.files ?? []).forEach((file) => { void addRfiDocument(file); });
                   event.currentTarget.value = '';
                 }}
               />
