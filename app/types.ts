@@ -34,7 +34,7 @@ export type ChecklistItem = {
   results?: any;
 };
 
-export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; };
+export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; };
 export type StoredAttachment = { name: string; type: string; dataUrl: string; uploadedAt: string; };
 export type RFIStatus = 'טיוטה' | 'פתוח' | 'נשלח למתכנן' | 'התקבלה התייחסות מתכנן' | 'סגור';
 export type RFIRecord = {
@@ -44,7 +44,13 @@ export type SupervisionReportRecord = {
   id: string; projectId: string; reportNo: string; title: string; date: string; inspector: string; location: string; subject: string; findings: string; instructions: string; status: string; notes: string; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string;
 };
 
-export type NonconformanceRecord = { id: string; projectId: string; title: string; location: string; date: string; raisedBy: string; severity: Severity | string; status: NonconformanceStatus | string; description: string; actionRequired: string; notes: string; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string; };
-export type TrialSectionRecord = { id: string; projectId: string; title: string; location: string; date: string; spec: string; result: string; approvedBy: string; status: string; notes: string; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string; };
-export type PreliminaryRecord = { id: string; projectId: string; subtype: PreliminaryTab; title: string; date: string; status: string; supplier?: any; subcontractor?: any; material?: any; approval: ApprovalFlow; savedAt: string; };
+export type NonconformanceRecord = { id: string; projectId: string; title: string; location: string; date: string; raisedBy: string; severity: Severity | string; status: NonconformanceStatus | string; description: string; actionRequired: string; notes: string; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; };
+export type TrialSectionRecord = { id: string; projectId: string; title: string; location: string; date: string; spec: string; result: string; approvedBy: string; status: string; notes: string; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; };
+export type PreliminaryRecord = { id: string; projectId: string; subtype: PreliminaryTab; title: string; date: string; status: string; supplier?: any; subcontractor?: any; material?: any; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; };
 export type PersistedData = { projects: Project[]; currentProjectId: string | null; savedChecklists: ChecklistRecord[]; savedNonconformances: NonconformanceRecord[]; savedTrialSections: TrialSectionRecord[]; savedPreliminary: PreliminaryRecord[]; savedRFIs?: RFIRecord[]; savedSupervisionReports?: SupervisionReportRecord[]; };
+
+
+// ===== NETI CONTROL PROCESS =====
+export type ControlProcessStatus = 'טיוטה' | 'בביצוע' | 'ממתין לאישור' | 'מאושר' | 'נדחה' | 'נעול';
+export type RequiredDocument = { id: string; type: 'תעודת מעבדה' | 'רשימת מדידה' | 'צילום' | 'אישור ספק' | 'תוכנית' | 'אחר'; required: boolean; attached: boolean; attachmentId?: string; };
+export type ControlProcess = { id: string; projectId: string; processNo: string; workType: string; specSection: string; location: string; fromChainage?: string; toChainage?: string; checklistIds: string[]; rfiIds: string[]; nonconformanceIds: string[]; requiredDocuments: RequiredDocument[]; status: ControlProcessStatus; createdAt: string; updatedAt: string; };

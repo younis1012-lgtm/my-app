@@ -16,7 +16,7 @@ const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT = 'String contains non ISO-8859-1 code point';
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 
-type AppSection = Section | 'concentrations' | 'projectDetails' | 'rfi' | 'supervisionReports';
+type AppSection = Section | 'concentrations' | 'projectDetails' | 'rfi' | 'supervisionReports' | 'controlProcesses';
 
 
 type ProjectProfile = {
@@ -46,8 +46,138 @@ const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const ACCESS_USERS_TABLE = 'project_access_users';
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
+const CONTROL_PROCESS_STORAGE_KEY = `${STORAGE_KEY}-control-processes`;
+const CONTROL_PROCESS_TABLE = 'control_processes';
 
 
+
+
+type ControlProcessStatus = 'טיוטה' | 'בביצוע' | 'ממתין לאישור' | 'מאושר' | 'נדחה' | 'נעול';
+type RequiredDocumentType = 'תעודת מעבדה' | 'רשימת מדידה' | 'צילום' | 'אישור ספק' | 'תוכנית' | 'RFI' | 'אחר';
+
+type RequiredDocument = {
+  id: string;
+  type: RequiredDocumentType;
+  description: string;
+  required: boolean;
+  attached: boolean;
+  attachmentName?: string;
+  attachedAt?: string;
+};
+
+type AuditEntry = {
+  action: string;
+  by: string;
+  at: string;
+  note?: string;
+};
+
+type ControlProcessRecord = {
+  id: string;
+  projectId: string;
+  processNo: string;
+  title: string;
+  workType: string;
+  specSection: string;
+  location: string;
+  fromSection: string;
+  toSection: string;
+  status: ControlProcessStatus;
+  checklistIds: string[];
+  rfiIds: string[];
+  nonconformanceIds: string[];
+  requiredDocuments: RequiredDocument[];
+  auditTrail: AuditEntry[];
+  approval: ApprovalFlow;
+  lockedAt: string;
+  savedAt: string;
+};
+
+const CONTROL_PROCESS_STATUS_OPTIONS: ControlProcessStatus[] = ['טיוטה', 'בביצוע', 'ממתין לאישור', 'מאושר', 'נדחה', 'נעול'];
+const REQUIRED_DOCUMENT_TYPES: RequiredDocumentType[] = ['תעודת מעבדה', 'רשימת מדידה', 'צילום', 'אישור ספק', 'תוכנית', 'RFI', 'אחר'];
+
+const createDefaultRequiredDocuments = (): RequiredDocument[] => [
+  { id: crypto.randomUUID(), type: 'תעודת מעבדה', description: 'תעודות בדיקה / מעבדה לפי סוג העבודה', required: true, attached: false },
+  { id: crypto.randomUUID(), type: 'רשימת מדידה', description: 'מדידה / חתכים / גבהים לפי הצורך', required: true, attached: false },
+  { id: crypto.randomUUID(), type: 'צילום', description: 'תיעוד חזותי מהשטח', required: false, attached: false },
+];
+
+const createDefaultControlProcess = (processNo = 'CP-1'): Omit<ControlProcessRecord, 'id' | 'projectId' | 'savedAt'> => ({
+  processNo,
+  title: 'תהליך בקרה חדש',
+  workType: '',
+  specSection: '',
+  location: '',
+  fromSection: '',
+  toSection: '',
+  status: 'טיוטה',
+  checklistIds: [],
+  rfiIds: [],
+  nonconformanceIds: [],
+  requiredDocuments: createDefaultRequiredDocuments(),
+  auditTrail: [],
+  approval: createDefaultApproval(),
+  lockedAt: '',
+});
+
+const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] => Array.isArray(value)
+  ? value.map((item: any, index) => ({
+      id: String(item?.id ?? `${Date.now()}-${index}`),
+      type: REQUIRED_DOCUMENT_TYPES.includes(item?.type) ? item.type : 'אחר',
+      description: String(item?.description ?? item?.type ?? 'מסמך'),
+      required: item?.required !== false,
+      attached: Boolean(item?.attached),
+      attachmentName: String(item?.attachmentName ?? ''),
+      attachedAt: String(item?.attachedAt ?? ''),
+    }))
+  : createDefaultRequiredDocuments();
+
+const normalizeStringArray = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+
+const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    projectId: String(value.projectId ?? value.project_id ?? ''),
+    processNo: String(value.processNo ?? value.process_no ?? ''),
+    title: String(value.title ?? 'תהליך בקרה'),
+    workType: String(value.workType ?? value.work_type ?? ''),
+    specSection: String(value.specSection ?? value.spec_section ?? ''),
+    location: String(value.location ?? ''),
+    fromSection: String(value.fromSection ?? value.from_section ?? ''),
+    toSection: String(value.toSection ?? value.to_section ?? ''),
+    status: CONTROL_PROCESS_STATUS_OPTIONS.includes(value.status) ? value.status : 'טיוטה',
+    checklistIds: normalizeStringArray(value.checklistIds ?? value.checklist_ids),
+    rfiIds: normalizeStringArray(value.rfiIds ?? value.rfi_ids),
+    nonconformanceIds: normalizeStringArray(value.nonconformanceIds ?? value.nonconformance_ids),
+    requiredDocuments: normalizeRequiredDocuments(value.requiredDocuments ?? value.required_documents),
+    auditTrail: Array.isArray(value.auditTrail ?? value.audit_log) ? (value.auditTrail ?? value.audit_log).map((entry: any) => ({ action: String(entry?.action ?? ''), by: String(entry?.by ?? ''), at: String(entry?.at ?? ''), note: String(entry?.note ?? '') })) : [],
+    approval: normalizeApproval(value.approval),
+    lockedAt: String(value.lockedAt ?? value.locked_at ?? ''),
+    savedAt: String(value.savedAt ?? value.saved_at ?? ''),
+  };
+};
+
+const controlProcessToRow = (record: ControlProcessRecord) => ({
+  id: record.id,
+  project_id: record.projectId,
+  process_no: record.processNo,
+  title: record.title,
+  work_type: record.workType,
+  spec_section: record.specSection,
+  location: record.location,
+  from_section: record.fromSection,
+  to_section: record.toSection,
+  status: record.status,
+  checklist_ids: record.checklistIds,
+  rfi_ids: record.rfiIds,
+  nonconformance_ids: record.nonconformanceIds,
+  required_documents: record.requiredDocuments,
+  audit_log: record.auditTrail,
+  approval: record.approval,
+  locked_at: record.lockedAt || null,
+  saved_at: nowIso(),
+});
 
 type RfiRecord = {
   id: string;
@@ -1488,6 +1618,183 @@ function UserAccessPanel({
   );
 }
 
+
+function ControlProcessesSection({
+  guardedBody,
+  form,
+  setForm,
+  editingId,
+  savedProcesses,
+  checklists,
+  rfis,
+  nonconformances,
+  onSave,
+  onReset,
+  onLoad,
+  onDelete,
+  onLock,
+}: {
+  guardedBody: React.ReactNode;
+  form: any;
+  setForm: React.Dispatch<React.SetStateAction<any>>;
+  editingId: string | null;
+  savedProcesses: ControlProcessRecord[];
+  checklists: ChecklistRecord[];
+  rfis: RfiRecord[];
+  nonconformances: NonconformanceRecord[];
+  onSave: () => void | Promise<void>;
+  onReset: () => void;
+  onLoad: (record: ControlProcessRecord) => void;
+  onDelete: (id: string) => void | Promise<void>;
+  onLock: () => void | Promise<void>;
+}) {
+  if (guardedBody) return <>{guardedBody}</>;
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 12px', fontWeight: 800, background: form.status === 'נעול' ? '#f1f5f9' : '#fff', minHeight: 44 };
+  const labelStyle: React.CSSProperties = { display: 'grid', gap: 6, fontWeight: 900 };
+  const cardStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, background: '#fff', marginBottom: 14 };
+  const readOnly = form.status === 'נעול';
+  const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
+  const toggleId = (field: 'checklistIds' | 'rfiIds' | 'nonconformanceIds', id: string) => {
+    if (readOnly) return;
+    setForm((prev: any) => {
+      const current = normalizeStringArray(prev[field]);
+      return { ...prev, [field]: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] };
+    });
+  };
+  const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
+    if (readOnly) return;
+    setForm((prev: any) => ({
+      ...prev,
+      requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).map((doc) => doc.id === id ? { ...doc, ...patch } : doc),
+    }));
+  };
+  const addDocument = () => {
+    if (readOnly) return;
+    setForm((prev: any) => ({
+      ...prev,
+      requiredDocuments: [...normalizeRequiredDocuments(prev.requiredDocuments), { id: crypto.randomUUID(), type: 'אחר', description: 'מסמך נדרש נוסף', required: true, attached: false }],
+    }));
+  };
+  const removeDocument = (id: string) => {
+    if (readOnly) return;
+    setForm((prev: any) => ({ ...prev, requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).filter((doc) => doc.id !== id) }));
+  };
+  const attachDocument = (id: string, file?: File) => {
+    if (!file || readOnly) return;
+    updateDocument(id, { attached: true, attachmentName: file.name, attachedAt: nowLocal() });
+  };
+  const missingDocs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.required && !doc.attached);
+  const linkedChecklistCount = normalizeStringArray(form.checklistIds).length;
+  const linkedRfiCount = normalizeStringArray(form.rfiIds).length;
+  const linkedNcrCount = normalizeStringArray(form.nonconformanceIds).length;
+
+  return (
+    <section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>תהליכי בקרה לפי נת״י</h2>
+          <div style={{ color: '#64748b', marginTop: 4 }}>מסך מרכזי שמקשר בין סעיף מפרט, מיקום, רשימות תיוג, RFI, אי־התאמות ומסמכי חובה.</div>
+        </div>
+        <div style={styles.buttonRow}>
+          <button type="button" style={styles.secondaryBtn} onClick={onReset}>תהליך חדש</button>
+          <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? 'עדכון תהליך' : 'שמירת תהליך'}</button>
+          <button type="button" style={styles.dangerBtn} onClick={onLock}>אישור ונעילה</button>
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, background: missingDocs.length ? '#fff7ed' : '#f8fafc' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>רשימות תיוג מקושרות<br />{linkedChecklistCount}</div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>RFI מקושרים<br />{linkedRfiCount}</div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>אי־התאמות מקושרות<br />{linkedNcrCount}</div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, background: '#fff', fontWeight: 900 }}>מסמכי חובה חסרים<br />{missingDocs.length}</div>
+        </div>
+        {form.status === 'נעול' ? <div style={{ marginTop: 10, color: '#166534', fontWeight: 950 }}>התהליך נעול לאחר אישור. ניתן לצפות בלבד.</div> : null}
+        {missingDocs.length ? <div style={{ marginTop: 10, color: '#991b1b', fontWeight: 950 }}>לא ניתן לנעול תהליך לפני צירוף כל מסמכי החובה.</div> : null}
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <label style={labelStyle}>מס׳ תהליך<input disabled={readOnly} value={form.processNo ?? ''} onChange={(e) => setField('processNo', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>שם התהליך<input disabled={readOnly} value={form.title ?? ''} onChange={(e) => setField('title', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>סוג עבודה<input disabled={readOnly} value={form.workType ?? ''} onChange={(e) => setField('workType', e.target.value)} placeholder="לדוגמה: מצעים / אספלט / ניקוז / בטון" style={inputStyle} /></label>
+          <label style={labelStyle}>סעיף מפרט נת״י<input disabled={readOnly} value={form.specSection ?? ''} onChange={(e) => setField('specSection', e.target.value)} placeholder="לדוגמה: 00.02.04.07" style={inputStyle} /></label>
+          <label style={labelStyle}>מיקום / קטע עבודה<input disabled={readOnly} value={form.location ?? ''} onChange={(e) => setField('location', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>מחתך<input disabled={readOnly} value={form.fromSection ?? ''} onChange={(e) => setField('fromSection', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>עד חתך<input disabled={readOnly} value={form.toSection ?? ''} onChange={(e) => setField('toSection', e.target.value)} style={inputStyle} /></label>
+          <label style={labelStyle}>סטטוס<select disabled={readOnly} value={form.status ?? 'טיוטה'} onChange={(e) => setField('status', e.target.value)} style={inputStyle}>{CONTROL_PROCESS_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>מסמכים נדרשים</h3>
+          <button type="button" style={styles.secondaryBtn} onClick={addDocument} disabled={readOnly}>הוסף מסמך חובה</button>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>סוג</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>תיאור</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>חובה</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>סטטוס</th><th style={{ border: '1px solid #cbd5e1', padding: 8 }}>פעולה</th></tr></thead>
+            <tbody>
+              {normalizeRequiredDocuments(form.requiredDocuments).map((doc) => (
+                <tr key={doc.id}>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8 }}><select disabled={readOnly} value={doc.type} onChange={(e) => updateDocument(doc.id, { type: e.target.value as RequiredDocumentType })} style={inputStyle}>{REQUIRED_DOCUMENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8 }}><input disabled={readOnly} value={doc.description} onChange={(e) => updateDocument(doc.id, { description: e.target.value })} style={inputStyle} /></td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, textAlign: 'center' }}><input disabled={readOnly} type="checkbox" checked={doc.required} onChange={(e) => updateDocument(doc.id, { required: e.target.checked })} /></td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8, fontWeight: 900 }}>{doc.attached ? `✅ ${doc.attachmentName || 'צורף'}` : '❌ חסר'}</td>
+                  <td style={{ border: '1px solid #cbd5e1', padding: 8 }}>
+                    <label style={{ ...styles.secondaryBtn, display: 'inline-flex', cursor: readOnly ? 'not-allowed' : 'pointer' }}>
+                      צרף
+                      <input disabled={readOnly} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={(e) => { attachDocument(doc.id, e.target.files?.[0]); e.currentTarget.value = ''; }} />
+                    </label>
+                    <button type="button" style={{ ...styles.dangerBtn, marginRight: 6 }} onClick={() => removeDocument(doc.id)} disabled={readOnly}>מחיקה</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>קישור רשומות קיימות לתהליך</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>רשימות תיוג</div>
+            <div style={{ display: 'grid', gap: 6 }}>{checklists.length ? checklists.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.checklistIds).includes(item.id)} onChange={() => toggleId('checklistIds', item.id)} /> {item.checklistNo ? `#${item.checklistNo} · ` : ''}{item.title} · {item.location}</label>) : <div style={styles.emptyBox}>אין עדיין רשימות תיוג בפרויקט</div>}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>RFI</div>
+            <div style={{ display: 'grid', gap: 6 }}>{rfis.length ? rfis.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.rfiIds).includes(item.id)} onChange={() => toggleId('rfiIds', item.id)} /> {item.title} · {item.status}</label>) : <div style={styles.emptyBox}>אין עדיין RFI בפרויקט</div>}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>אי־התאמות</div>
+            <div style={{ display: 'grid', gap: 6 }}>{nonconformances.length ? nonconformances.map((item) => <label key={item.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8 }}><input disabled={readOnly} type="checkbox" checked={normalizeStringArray(form.nonconformanceIds).includes(item.id)} onChange={() => toggleId('nonconformanceIds', item.id)} /> {item.title} · {item.status}</label>) : <div style={styles.emptyBox}>אין עדיין אי־התאמות בפרויקט</div>}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>תהליכים שנשמרו</h3>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {savedProcesses.length ? savedProcesses.map((process) => (
+            <div key={process.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 950 }}>{process.processNo} · {process.title}</div>
+                <div style={{ color: '#64748b', marginTop: 4 }}>{process.workType || 'סוג עבודה לא הוזן'} · {process.location || 'מיקום לא הוזן'} · סטטוס: {process.status}</div>
+              </div>
+              <div style={styles.buttonRow}>
+                <button type="button" style={styles.secondaryBtn} onClick={() => onLoad(process)}>פתח</button>
+                <button type="button" style={styles.dangerBtn} onClick={() => onDelete(process.id)}>מחק</button>
+              </div>
+            </div>
+          )) : <div style={styles.emptyBox}>טרם נשמרו תהליכי בקרה בפרויקט.</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 export default function Page() {
   const [section, setSection] = useState<AppSection>('home');
   const [preliminaryTab, setPreliminaryTab] = useState<PreliminaryTab>('suppliers');
@@ -1530,6 +1837,9 @@ export default function Page() {
   const [savedRfis, setSavedRfis] = useState<RfiRecord[]>([]);
   const [rfiForm, setRfiForm] = useState(createDefaultRfi());
   const [editingRfiId, setEditingRfiId] = useState<string | null>(null);
+  const [savedControlProcesses, setSavedControlProcesses] = useState<ControlProcessRecord[]>([]);
+  const [controlProcessForm, setControlProcessForm] = useState(createDefaultControlProcess());
+  const [editingControlProcessId, setEditingControlProcessId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1548,6 +1858,13 @@ export default function Page() {
       setSavedRfis(Array.isArray(parsedRfis) ? parsedRfis.map(normalizeRfiRecord).filter(Boolean) as RfiRecord[] : []);
     } catch {
       setSavedRfis([]);
+    }
+    try {
+      const storedProcesses = window.localStorage.getItem(CONTROL_PROCESS_STORAGE_KEY);
+      const parsedProcesses = storedProcesses ? JSON.parse(storedProcesses) : [];
+      setSavedControlProcesses(Array.isArray(parsedProcesses) ? parsedProcesses.map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[] : []);
+    } catch {
+      setSavedControlProcesses([]);
     }
   }, []);
 
@@ -1595,6 +1912,11 @@ export default function Page() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
   }, [savedRfis]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(CONTROL_PROCESS_STORAGE_KEY, JSON.stringify(savedControlProcesses));
+  }, [savedControlProcesses]);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1740,7 +2062,7 @@ export default function Page() {
     }
   };
 
-  const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null, rfiRows: any[] | null = []) => {
+  const loadFromCloudResults = (projectsRows: any[] | null, checklistRows: any[] | null, nonconRows: any[] | null, trialRows: any[] | null, preliminaryRows: any[] | null, rfiRows: any[] | null = [], controlProcessRows: any[] | null = []) => {
     const mappedProjects: Project[] = (projectsRows ?? []).map((row) => ({ id: row.id, name: row.name ?? '', description: row.description ?? '', manager: row.manager ?? '', isActive: Boolean(row.is_active), createdAt: row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '' }));
     setProjects(mappedProjects.length ? mappedProjects : defaultProjects);
     const storedProjectId = readLocalCurrentProjectId();
@@ -1751,6 +2073,7 @@ export default function Page() {
     setSavedTrialSections((trialRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, title: row.title ?? '', location: row.location ?? '', date: row.date ?? '', spec: row.spec ?? '', result: row.result ?? '', approvedBy: row.approved_by ?? '', status: row.status ?? 'טיוטה', notes: row.notes ?? '', images: normalizeAttachments(row.images), approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedPreliminary((preliminaryRows ?? []).map((row) => ({ id: row.id, projectId: row.project_id, subtype: row.subtype, title: row.title ?? '', date: row.date ?? '', status: row.status ?? 'טיוטה', supplier: row.supplier ?? undefined, subcontractor: row.subcontractor ?? undefined, material: row.material ?? undefined, approval: normalizeApproval(row.approval), savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString('he-IL') : '' })));
     setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
+    setSavedControlProcesses((controlProcessRows ?? []).map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[]);
   };
 
   useEffect(() => {
@@ -1761,10 +2084,10 @@ export default function Page() {
         return;
       }
       try {
-        const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at')]);
-        const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
+        const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes, controlRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at'), selectTable(CONTROL_PROCESS_TABLE, 'saved_at')]);
+        const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error, controlRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
         if (fatal.length) throw fatal[0];
-        loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data);
+        loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data, controlRes.data);
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
@@ -1806,10 +2129,10 @@ export default function Page() {
 
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
-    const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at')]);
-    const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
+    const [projectsRes, checklistsRes, nonconRes, trialsRes, prelimRes, rfiRes, controlRes] = await Promise.all([selectTable('projects', 'created_at'), selectTable('checklists', 'saved_at'), selectTable('nonconformances', 'saved_at'), selectTable('trial_sections', 'saved_at'), selectTable('preliminary_records', 'saved_at'), selectTable('rfi_records', 'created_at'), selectTable(CONTROL_PROCESS_TABLE, 'saved_at')]);
+    const fatal = [projectsRes.error, checklistsRes.error, nonconRes.error, trialsRes.error, prelimRes.error, rfiRes.error, controlRes.error].filter((item) => item && !shouldIgnoreCloudError(item));
     if (fatal.length) throw fatal[0];
-    loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data);
+    loadFromCloudResults(projectsRes.data, checklistsRes.data, nonconRes.data, trialsRes.data, prelimRes.data, rfiRes.data, controlRes.data);
   };
 
   const withSaving = async (action: () => Promise<void>) => {
@@ -1952,6 +2275,7 @@ export default function Page() {
   const projectChecklists = useMemo(() => savedChecklists.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.category, item.location, item.contractor].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedChecklists, currentProjectId, normalizedSearchTerm]);
   const projectNonconformances = useMemo(() => savedNonconformances.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.description, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedNonconformances, currentProjectId, normalizedSearchTerm]);
   const projectRfis = useMemo(() => savedRfis.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.requestDescription, item.status, item.response].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedRfis, currentProjectId, normalizedSearchTerm]);
+  const projectControlProcesses = useMemo(() => savedControlProcesses.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.processNo, item.title, item.workType, item.specSection, item.location, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedControlProcesses, currentProjectId, normalizedSearchTerm]);
   const projectTrialSections = useMemo(() => savedTrialSections.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.location, item.spec, item.result].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedTrialSections, currentProjectId, normalizedSearchTerm]);
   const projectPreliminary = useMemo(() => savedPreliminary.filter((item) => item.projectId === currentProjectId).filter((item) => !normalizedSearchTerm || [item.title, item.subtype, item.status].join(' ').toLowerCase().includes(normalizedSearchTerm)), [savedPreliminary, currentProjectId, normalizedSearchTerm]);
 
@@ -2039,6 +2363,11 @@ export default function Page() {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     setChecklistForm({ ...next, contractor: profile?.contractor || '', items: applyProjectTeamToItems(next.items) });
   };
+  const nextControlProcessNo = () => `CP-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, '')) || 0)) + 1}`;
+  const resetControlProcessForm = () => {
+    setEditingControlProcessId(null);
+    setControlProcessForm(createDefaultControlProcess(nextControlProcessNo()));
+  };
   const resetRfiForm = () => {
     setEditingRfiId(null);
     setRfiForm(createDefaultRfi(nextRfiTitle()));
@@ -2092,7 +2421,7 @@ export default function Page() {
       setProjects((prev) => prev.map((p) => ({ ...p, isActive: p.id === projectId })));
     }
   });
-  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
+  const deleteProject = async (projectId: string) => { const project = projects.find((p) => p.id === projectId); if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`)) return; await withSaving(async () => { if (cloudEnabled) { await supabase!.from('checklists').delete().eq('project_id', projectId); await supabase!.from('nonconformances').delete().eq('project_id', projectId); await supabase!.from('trial_sections').delete().eq('project_id', projectId); await supabase!.from('preliminary_records').delete().eq('project_id', projectId); await supabase!.from('rfi_records').delete().eq('project_id', projectId); const result = await supabase!.from('projects').delete().eq('id', projectId); if (result.error) throw result.error; await refreshCloudData(); } else { const nextProjects = projects.filter((p) => p.id !== projectId); setProjects(nextProjects.map((p, i) => ({ ...p, isActive: i === 0 }))); setCurrentProjectId(nextProjects[0]?.id ?? null); setSavedChecklists((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedNonconformances((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedTrialSections((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedPreliminary((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedRfis((prev) => prev.filter((x) => x.projectId !== projectId)); setSavedControlProcesses((prev) => prev.filter((x) => x.projectId !== projectId)); } }); };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => setChecklistForm((prev) => {
     const next = createDefaultChecklist(templateKey);
@@ -2157,6 +2486,95 @@ export default function Page() {
     }));
   };
 
+
+
+
+  const saveControlProcess = async () => {
+    if (!currentProjectId) return alert('יש לבחור פרויקט');
+    if (!String(controlProcessForm.title ?? '').trim()) return alert('יש להזין שם תהליך בקרה');
+    if (!String(controlProcessForm.location ?? '').trim()) return alert('יש להזין מיקום / קטע עבודה');
+    const actor = projectAccess?.displayName || projectAccess?.username || 'משתמש מערכת';
+    const existing = editingControlProcessId ? savedControlProcesses.find((item) => item.id === editingControlProcessId) : null;
+    const id = editingControlProcessId ?? crypto.randomUUID();
+    const nextStatus: ControlProcessStatus = controlProcessForm.status === 'נעול' ? 'נעול' : controlProcessForm.status;
+    const record: ControlProcessRecord = {
+      id,
+      projectId: currentProjectId,
+      processNo: String(controlProcessForm.processNo || nextControlProcessNo()),
+      title: String(controlProcessForm.title ?? ''),
+      workType: String(controlProcessForm.workType ?? ''),
+      specSection: String(controlProcessForm.specSection ?? ''),
+      location: String(controlProcessForm.location ?? ''),
+      fromSection: String(controlProcessForm.fromSection ?? ''),
+      toSection: String(controlProcessForm.toSection ?? ''),
+      status: nextStatus,
+      checklistIds: normalizeStringArray(controlProcessForm.checklistIds),
+      rfiIds: normalizeStringArray(controlProcessForm.rfiIds),
+      nonconformanceIds: normalizeStringArray(controlProcessForm.nonconformanceIds),
+      requiredDocuments: normalizeRequiredDocuments(controlProcessForm.requiredDocuments),
+      auditTrail: [
+        ...(existing?.auditTrail ?? []),
+        { action: editingControlProcessId ? 'עדכון תהליך בקרה' : 'פתיחת תהליך בקרה', by: actor, at: nowLocal(), note: String(controlProcessForm.status ?? '') },
+      ],
+      approval: normalizeApproval(controlProcessForm.approval),
+      lockedAt: String(controlProcessForm.lockedAt ?? ''),
+      savedAt: nowLocal(),
+    };
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = editingControlProcessId
+          ? await supabase!.from(CONTROL_PROCESS_TABLE).update(controlProcessToRow(record)).eq('id', editingControlProcessId)
+          : await supabase!.from(CONTROL_PROCESS_TABLE).insert(controlProcessToRow(record));
+        if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+      }
+      setSavedControlProcesses((prev) => editingControlProcessId ? prev.map((item) => item.id === editingControlProcessId ? record : item) : [record, ...prev]);
+    });
+    resetControlProcessForm();
+  };
+
+  const loadControlProcess = (record: ControlProcessRecord) => {
+    setSection('controlProcesses');
+    setEditingControlProcessId(record.id);
+    setControlProcessForm({
+      processNo: record.processNo,
+      title: record.title,
+      workType: record.workType,
+      specSection: record.specSection,
+      location: record.location,
+      fromSection: record.fromSection,
+      toSection: record.toSection,
+      status: record.status,
+      checklistIds: record.checklistIds,
+      rfiIds: record.rfiIds,
+      nonconformanceIds: record.nonconformanceIds,
+      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      auditTrail: record.auditTrail,
+      approval: normalizeApproval(record.approval),
+      lockedAt: record.lockedAt,
+    });
+  };
+
+  const deleteControlProcess = async (id: string) => {
+    if (!window.confirm('למחוק את תהליך הבקרה?')) return;
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = await supabase!.from(CONTROL_PROCESS_TABLE).delete().eq('id', id);
+        if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+      }
+      setSavedControlProcesses((prev) => prev.filter((item) => item.id !== id));
+      if (editingControlProcessId === id) resetControlProcessForm();
+    });
+  };
+
+  const lockControlProcess = async () => {
+    const docs = normalizeRequiredDocuments(controlProcessForm.requiredDocuments);
+    const missingDocs = docs.filter((doc) => doc.required && !doc.attached);
+    if (missingDocs.length) return alert(`לא ניתן לנעול. חסרים ${missingDocs.length} מסמכי חובה.`);
+    if (!normalizeStringArray(controlProcessForm.checklistIds).length) return alert('לא ניתן לנעול תהליך בלי לפחות רשימת תיוג אחת מקושרת.');
+    setControlProcessForm((prev: any) => ({ ...prev, status: 'נעול', lockedAt: nowLocal() }));
+    setTimeout(() => { void saveControlProcess(); }, 0);
+  };
 
 
   const saveChecklist = async () => {
@@ -2728,10 +3146,10 @@ export default function Page() {
     setTimeout(() => printWindow.print(), 300);
   };
 
-  const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary'].includes(section);
+  const showExportButtons = ['checklists', 'nonconformances', 'trialSections', 'preliminary', 'controlProcesses'].includes(section);
   const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
-    ? [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['projects','פרויקטים'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
-    : [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
+    ? [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['projects','פרויקטים'], ['controlProcesses','תהליכי בקרה'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']]
+    : [['home','דף בית'], ['projectDetails','פרטי הפרויקט'], ['controlProcesses','תהליכי בקרה'], ['rfi','RFI'], ['supervisionReports','דוחות פיקוח עליון'], ['checklists','רשימות תיוג'], ['nonconformances','אי תאמות'], ['trialSections','קטעי ניסוי'], ['preliminary','בקרה מקדימה'], ['concentrations','ריכוזים']];
 
   if (!authReady) {
     return <div dir="rtl" style={{ padding: 32, fontWeight: 900 }}>טוען מערכת...</div>;
@@ -2798,6 +3216,7 @@ export default function Page() {
           )}
           {section === 'projectDetails' && currentProject && <ProjectLegendPanel legend={currentProjectLegend} missing={projectLegendMissing} isEditing={editingProjectLegend} hasChanges={projectLegendDirty} onChange={updateProjectLegendField} onStartEdit={startProjectLegendEdit} onApprove={approveProjectLegendChanges} onCancel={cancelProjectLegendChanges} onClear={clearProjectLegend} onAddFactor={addProjectLegendFactor} onRemoveFactor={removeProjectLegendFactor} />}
           {section === 'projectDetails' && !currentProject && <div style={styles.emptyBox}>יש לבחור פרויקט לפני עריכת פרטי הפרויקט.</div>}
+          {section === 'controlProcesses' && <ControlProcessesSection guardedBody={guardedBody} form={controlProcessForm} setForm={setControlProcessForm} editingId={editingControlProcessId} savedProcesses={projectControlProcesses} checklists={projectChecklists} rfis={projectRfis} nonconformances={projectNonconformances} onSave={saveControlProcess} onReset={resetControlProcessForm} onLoad={loadControlProcess} onDelete={deleteControlProcess} onLock={lockControlProcess} />}
           {section === 'rfi' && <RfiSection guardedBody={guardedBody} rfiForm={rfiForm} setRfiForm={setRfiForm} editingRfiId={editingRfiId} savedRfis={projectRfis} saveRfi={saveRfi} resetRfiForm={resetRfiForm} closeRfi={closeRfi} deleteRfi={deleteRfi} loadRfi={loadRfi} projectMeta={currentProjectLegend} />}
           {section === 'supervisionReports' && <SimpleFolderSection title="דוחות פיקוח עליון" description="תיקייה ייעודית לדוחות פיקוח עליון." icon="🏛️" />}
           {section === 'home' && <HomeSection projects={accessibleProjects} projectChecklists={projectChecklists} projectNonconformances={projectNonconformances} projectTrialSections={projectTrialSections} projectPreliminary={projectPreliminary} projectRFIs={projectRfis as any} projectSupervisionReports={[] as any} homeModules={homeModules} setSection={setSection as any} />}
