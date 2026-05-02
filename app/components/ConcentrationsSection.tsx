@@ -776,8 +776,7 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
   const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
   if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
   const sharedStrings = await readSharedStrings(zip);
-  // מנקים את הכותרת העליונה הכפולה (השורות הצהובות שסומנו בצילום) בלי למחוק את טבלת פרטי הפרויקט.
-  clearRowsContent(sheetData, 3, 4);
+  // לא מוחקים את הכותרת העליונה המקורית של התבנית. רק ממלאים את פרטי הפרויקט.
   applyProjectHeaderCells(doc, sheetData, sharedStrings, projectMeta);
   const styles = rowStyleMap(sheetData, 13);
 
@@ -818,7 +817,14 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
 
   clearTableRows(sheetData, 13, 500);
 
-  rows.forEach((row, index) => {
+  const rowsToWrite = [...rows].sort((a, b) => {
+    const aNo = Number(approvalNumberFromRecord(a.rawRecord ?? {}, 0));
+    const bNo = Number(approvalNumberFromRecord(b.rawRecord ?? {}, 0));
+    if (Number.isFinite(aNo) && Number.isFinite(bNo) && aNo !== bNo) return aNo - bNo;
+    return String(a.rawRecord?.savedAt ?? a.uploadedAt ?? a.date ?? '').localeCompare(String(b.rawRecord?.savedAt ?? b.uploadedAt ?? b.date ?? ''));
+  });
+
+  rowsToWrite.forEach((row, index) => {
     const record = row.rawRecord ?? {};
     const supplier = record.supplier ?? {};
     const subcontractor = record.subcontractor ?? {};
