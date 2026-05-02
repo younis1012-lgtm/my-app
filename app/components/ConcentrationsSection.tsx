@@ -118,24 +118,37 @@ const buildProjectConcentrationMeta = (currentProjectName: string, projectMeta?:
     qualityControl: String(projectMeta?.qualityControl ?? "").trim(),
   };
 
-  if (typeof window === "undefined") return metaFromProps;
+  // גיבוי בטוח לפרויקט 806: ממלא את ראשי הריכוזים גם אם פרטי הפרויקט עדיין לא נשמרו בלוקל/סופאבייס.
+  const applyKnownProjectFallback = (meta: Required<ProjectConcentrationMeta>): Required<ProjectConcentrationMeta> => {
+    const normalizedName = normalizeProjectKey(meta.projectName || currentProjectName);
+    if (!normalizedName.includes("806") && !normalizedName.includes("צלמון")) return meta;
+    return {
+      projectName: meta.projectName || "כביש 806 צלמון שלב א׳",
+      projectManager: meta.projectManager || "א.ש. רונן הנדסה אזרחית בע״מ",
+      contractor: meta.contractor || "מפלסי הגליל סלילה עפר ופיתוח בע״מ",
+      qualityAssurance: meta.qualityAssurance || "תיקו הנדסה בע״מ",
+      qualityControl: meta.qualityControl || "יונס אברהים",
+    };
+  };
+
+  if (typeof window === "undefined") return applyKnownProjectFallback(metaFromProps);
 
   try {
     const raw = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
     const teams = raw ? JSON.parse(raw) : {};
     const key = normalizeProjectKey(name);
     const team = teams?.[key];
-    if (!team || typeof team !== "object") return metaFromProps;
+    if (!team || typeof team !== "object") return applyKnownProjectFallback(metaFromProps);
 
-    return {
+    return applyKnownProjectFallback({
       projectName: name,
       projectManager: String(projectMeta?.projectManager || team.managementCompany || "").trim(),
-      contractor: String(projectMeta?.contractor || team.contractor || "").trim(),
+      contractor: String(projectMeta?.contractor || team.contractor || metaFromProps.contractor || "").trim(),
       qualityAssurance: String(projectMeta?.qualityAssurance || team.qualityAssurance || "").trim(),
       qualityControl: String(projectMeta?.qualityControl || team.qualityControl || "").trim(),
-    };
+    });
   } catch {
-    return metaFromProps;
+    return applyKnownProjectFallback(metaFromProps);
   }
 };
 
@@ -495,6 +508,22 @@ const attachedFilesText = (record: any, row?: ConcentrationRow) => {
 
 const looksLikeIso = (text: unknown) => /\biso\b|איזו|ISO|9001/i.test(String(text ?? ""));
 
+const splitDocumentNames = (docs: string) =>
+  docs
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+const withoutExtension = (name: string) => name.replace(/\.[a-z0-9]{2,5}$/i, "").trim();
+
+const isoCertificateLabel = (docs: string) => {
+  const iso = splitDocumentNames(docs).find(looksLikeIso);
+  return iso ? withoutExtension(iso) : "";
+};
+
+const nonIsoDocumentsText = (docs: string) => splitDocumentNames(docs).filter((name) => !looksLikeIso(name)).join(", ");
+const isoDocumentsText = (docs: string) => splitDocumentNames(docs).filter(looksLikeIso).join(", ");
+
 const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
   const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
     { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["G4", "I4"], ["A4", "B4"]] },
@@ -606,6 +635,19 @@ const findColumn = (sheetData: Element, sharedStrings: string[], labels: string[
   return 0;
 };
 
+const findColumnRightmost = (sheetData: Element, sharedStrings: string[], labels: string[], rowMin = 1, rowMax = 25) => {
+  let best = 0;
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) return;
+    const row = cellRowIndex(ref);
+    if (row < rowMin || row > rowMax) return;
+    const text = normalize(cellText(cell, sharedStrings));
+    if (labels.some((label) => text.includes(normalize(label)))) best = Math.max(best, cellColumnIndex(ref));
+  });
+  return best;
+};
+
 const findColumnInGroup = (sheetData: Element, sharedStrings: string[], group: ReturnType<typeof findGroupRange>, labels: string[]) => {
   if (!group) return 0;
   return findColumn(sheetData, sharedStrings, labels, group.startRow, group.startRow + 3, group.startCol, group.endCol);
@@ -666,7 +708,7 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
   const isoGroup = findGroupRange(doc, sheetData, sharedStrings, ["תעודת ISO", "ISO"]);
 
   const columns = {
-    serial: findColumn(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    serial: findColumnRightmost(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
     contractorName: isContractors
       ? findColumn(sheetData, sharedStrings, ["שם קבלן משנה", "שם הקבלן"], 10, 13)
       : findColumn(sheetData, sharedStrings, ["שם ספק"], 10, 13),
@@ -697,26 +739,31 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     const subcontractor = record.subcontractor ?? {};
     const material = record.material ?? {};
     const docs = attachedFilesText(record, row);
-    const isoDocs = docs.split(",").map((d) => d.trim()).filter(looksLikeIso).join(", ");
-    const generalDocs = docs;
+    const isoDocs = isoDocumentsText(docs);
+    const nonIsoDocs = nonIsoDocumentsText(docs);
     const approvalNo = String(supplier.approvalNo ?? subcontractor.approvalNo ?? material.certificateNo ?? row.certificateNo ?? "").trim();
     const rowNumber = 13 + index;
 
+    // מספר סידורי אמיתי לפי סדר השורות בריכוז בלבד.
     setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
     setByColumn(doc, sheetData, rowNumber, columns.contractorName, isContractors ? subcontractor.subcontractorName : supplier.supplierName, styles);
     setByColumn(doc, sheetData, rowNumber, columns.activity, isContractors ? subcontractor.field : supplier.suppliedMaterial, styles);
     setByColumn(doc, sheetData, rowNumber, columns.phone, subcontractor.contactPhone ?? supplier.contactPhone, styles);
     setByColumn(doc, sheetData, rowNumber, columns.subProject, record.subProject ?? record.location ?? "", styles);
 
-    if (approvalNo || generalDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
+    // קבלנים: כל תעודה שלא שייכת ל-ISO נכנסת לסיווג ברשם הקבלנים/תעודות.
+    // ספקים: ISO נכנס רק לקבוצת ISO ולא לקבוצת ת״י/הסמכות.
+    const registrationDocs = isSuppliers ? nonIsoDocs : (nonIsoDocs || docs);
+    if (approvalNo || registrationDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
     setByColumn(doc, sheetData, rowNumber, columns.regNumber, approvalNo, styles);
     setByColumn(doc, sheetData, rowNumber, columns.regExpiry, subcontractor.validUntil ?? supplier.validUntil ?? record.validUntil ?? "", styles);
-    setByColumn(doc, sheetData, rowNumber, columns.regDocs, generalDocs, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regDocs, registrationDocs, styles);
 
-    if (isoDocs || looksLikeIso(approvalNo)) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
-    setByColumn(doc, sheetData, rowNumber, columns.isoNumber, looksLikeIso(approvalNo) ? approvalNo : "", styles);
+    const isoNumber = String(record.isoCertificateNo ?? supplier.isoCertificateNo ?? subcontractor.isoCertificateNo ?? (looksLikeIso(approvalNo) ? approvalNo : isoCertificateLabel(isoDocs))).trim();
+    if (isoDocs || isoNumber) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoNumber, isoNumber, styles);
     setByColumn(doc, sheetData, rowNumber, columns.isoExpiry, record.isoValidUntil ?? supplier.isoValidUntil ?? subcontractor.isoValidUntil ?? "", styles);
-    setByColumn(doc, sheetData, rowNumber, columns.isoDocs, isoDocs || (isSuppliers ? generalDocs : ""), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoDocs, isoDocs, styles);
 
     setByColumn(doc, sheetData, rowNumber, columns.qaDate, approvalDate(record), styles);
     setByColumn(doc, sheetData, rowNumber, columns.qaName, approvalSignerName(record), styles);
