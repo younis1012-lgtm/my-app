@@ -71,6 +71,8 @@ type OcrExtractResult = {
   details?: string;
   confidence?: number;
   notes?: string;
+  certificateNoCandidates?: string[];
+  rawRelevantText?: string;
 };
 
 const cleanOcrValue = (value: unknown) => String(value ?? '').trim();
@@ -279,8 +281,9 @@ export function PreliminarySection(props: Props) {
     const row = certificates[index];
     const extracted = await extractPreliminaryDataFromFile(file.name, file.type, attachment.dataUrl, props.preliminaryTab);
     const ocrCertificateNo = cleanCertificateNo(extracted.certificateNo);
-    const certificateNo = row.certificateNo || ocrCertificateNo || extractCertificateNo(file.name);
-    const expiryDate = row.expiryDate || normalizeDateForInput(extracted.expiryDate);
+    const candidateNo = Array.isArray(extracted.certificateNoCandidates) ? extracted.certificateNoCandidates.map(cleanCertificateNo).find(Boolean) : '';
+    const certificateNo = row.certificateNo || ocrCertificateNo || candidateNo || '';
+    const expiryDate = row.expiryDate || normalizeDateForInput(extracted.expiryDate) || normalizeDateForInput(file.name);
     const details = row.details || cleanOcrValue(extracted.details) || cleanOcrValue(extracted.materialName) || cleanOcrValue(extracted.suppliedMaterial) || file.name.replace(/\.[^.]+$/, '');
 
     updateCertificate(index, {

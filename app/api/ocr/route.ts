@@ -84,14 +84,21 @@ function normalizeDate(value: unknown) {
   }
   const ym = raw.match(/((?:19|20)\d{2})[./-](\d{1,2})[./-](\d{1,2})/);
   if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}-${ym[3].padStart(2, '0')}`;
+  const year = raw.match(/(?:תוקף|בתוקף|עד|valid|expiry|expires)[^\d]{0,20}((?:19|20)\d{2})/i);
+  if (year) return `${year[1]}-12-31`;
   return '';
 }
 
 function extractCertificateCandidatesFromText(text: string) {
-  const normalized = String(text ?? '').replace(/[׳’`]/g, "'").replace(/[״“”]/g, '"');
+  const normalized = String(text ?? '')
+    .replace(/[׳’`]/g, "'")
+    .replace(/[״“”]/g, '"')
+    .replace(/\s+/g, ' ');
   const patterns = [
     /(?:מספר\s*)?(?:ריש[ייו]ון|רשיון)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:מספר\s*)?(?:תעודה|אישור)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:ריש[ייו]ון|רשיון)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:מס['"׳״]?|מספר)\s*(?:ריש[ייו]ון|רשיון|תעודה|אישור)\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:תעודה|אישור)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
     /(?:License|Licence|Certificate|Approval)\s*(?:No\.?|Number|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
     /(?:ר\.\s*מ\.|רמ)\s*[:#\-]?\s*(\d{2,8})/gi,
   ];
@@ -105,14 +112,36 @@ function extractCertificateCandidatesFromText(text: string) {
   return found;
 }
 
-function postProcess(raw: any, fileName: string) {
+function extractExpiryFromText(text: string) {
+  const normalized = String(text ?? '').replace(/\s+/g, ' ');
+  const patterns = [
+    /(?:תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|פג\s*תוקף|valid\s*until|expiry|expires)[^\d]{0,30}(\d{1,2}[./-]\d{1,2}[./-](?:19|20)?\d{2})/i,
+    /(?:תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|valid\s*until|expiry|expires)[^\d]{0,30}((?:19|20)\d{2})/i,
+  ];
+  for (const pattern of patterns) {
+    const m = normalized.match(pattern);
+    if (m) {
+      const d = normalizeDate(m[1]);
+      if (d) return d;
+    }
+  }
+  return '';
+}
+
+function postProcess(raw: any, fileName: string, outputText: string) {
   const merged: any = { ...emptyData, ...(raw && typeof raw === 'object' ? raw : {}) };
-  const rawRelevantText = String(merged.rawRelevantText ?? '');
+  const allText = [
+    outputText,
+    merged.rawRelevantText,
+    merged.notes,
+    merged.details,
+    merged.certificateNo,
+    ...(Array.isArray(merged.certificateNoCandidates) ? merged.certificateNoCandidates : []),
+  ].join('\n');
+
   const candidateSources = [
     ...(Array.isArray(merged.certificateNoCandidates) ? merged.certificateNoCandidates : []),
-    ...extractCertificateCandidatesFromText(rawRelevantText),
-    ...extractCertificateCandidatesFromText(String(merged.notes ?? '')),
-    ...extractCertificateCandidatesFromText(String(merged.details ?? '')),
+    ...extractCertificateCandidatesFromText(allText),
     merged.certificateNo,
   ];
 
@@ -123,10 +152,10 @@ function postProcess(raw: any, fileName: string) {
 
   merged.certificateNo = candidates[0] ?? '';
   merged.certificateNoCandidates = candidates;
-  merged.expiryDate = normalizeDate(merged.expiryDate);
+  merged.expiryDate = normalizeDate(merged.expiryDate) || extractExpiryFromText(allText) || normalizeDate(fileName);
   merged.issueDate = normalizeDate(merged.issueDate);
 
-  // Last-resort filename fallback only if no OCR number exists, and never use years/dates.
+  // Do not use filename numbers for certificateNo unless they are not years/dates and OCR found nothing.
   if (!merged.certificateNo) {
     const fromName = Array.from(String(fileName ?? '').matchAll(/\d{2,8}/g))
       .map((m) => cleanCertificateNo(m[0]))
@@ -154,23 +183,28 @@ export async function POST(req: NextRequest) {
     if (!dataUrl) return NextResponse.json({ data: emptyData });
 
     const prompt = `אתה מנגנון OCR מקצועי למערכת בקרת איכות בפרויקטי תשתיות בישראל.
-קרא את הקובץ המצורף והחזר JSON בלבד לפי הסכמה.
+קרא את הקובץ המצורף ונתח אותו ויזואלית, כולל PDF סרוק, תמונה, טופס בעברית או באנגלית.
+החזר JSON בלבד לפי הסכמה.
 סוג הטופס במערכת: ${subtype}.
+
+חובה לזהות מתוך המסמך עצמו, לא רק משם הקובץ:
+- מספר תעודה / מספר רישיון / מספר אישור
+- תאריך תוקף / בתוקף עד / valid until / expiry
+- שם ספק / קבלן משנה / חומר, אם קיימים
 
 כללים קריטיים:
 1. certificateNo הוא מספר תעודה / מספר רישיון / מספר אישור בלבד.
-2. אם מופיע במסמך "מספר רישיון 947" או "רישיון מס' 947" אז certificateNo חייב להיות "947".
+2. אם מופיע במסמך "מספר רישיון 947", "רשיון מס' 947", או "רישיון מודד מס' 947" אז certificateNo חייב להיות "947".
 3. לעולם אל תחזיר שנת תוקף כמו 2025 או 2026 בתור certificateNo.
-4. expiryDate הוא תוקף בלבד. אם יש רק שנה, החזר תאריך סוף שנה בפורמט YYYY-12-31.
+4. expiryDate הוא תוקף בלבד. אם יש רק שנה, החזר סוף שנה בפורמט YYYY-12-31.
 5. certificateNoCandidates: החזר את כל המספרים האפשריים שמופיעים ליד: מספר רישיון, רשיון, רישיון מס', מספר תעודה, מספר אישור, License No, Certificate No.
-6. rawRelevantText: העתק בקצרה את השורות הרלוונטיות מהמסמך שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף.
+6. rawRelevantText: העתק את השורות הרלוונטיות שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף.
 7. אם אין ערך ברור, החזר מחרוזת ריקה. אל תנחש.`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
       content.push({ type: 'input_image', image_url: dataUrl });
     } else {
-      // Responses API expects file_data as a data URL for local file content.
       content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });
     }
 
@@ -181,7 +215,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+        model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1',
         input: [{ role: 'user', content }],
         temperature: 0,
         text: {
@@ -203,7 +237,7 @@ export async function POST(req: NextRequest) {
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = safeJsonParse(outputText) ?? emptyData;
-    return NextResponse.json({ data: postProcess(parsed, fileName) });
+    return NextResponse.json({ data: postProcess(parsed, fileName, outputText) });
   } catch (error: any) {
     console.error('OCR route failed', error);
     return NextResponse.json({ error: error?.message || 'OCR route failed' }, { status: 500 });
