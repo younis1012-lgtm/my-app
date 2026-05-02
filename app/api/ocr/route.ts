@@ -45,10 +45,11 @@ const jsonSchema = {
   required: Object.keys(emptyData),
 };
 
-function getBase64(dataUrl: string) {
-  const marker = ';base64,';
-  const idx = dataUrl.indexOf(marker);
-  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl;
+function normalizeDataUrl(dataUrl: string, mimeType: string) {
+  const raw = String(dataUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('data:')) return raw;
+  return `data:${mimeType || 'application/octet-stream'};base64,${raw}`;
 }
 
 function safeJsonParse(text: string) {
@@ -167,11 +168,12 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
 אל תחזיר מספר אישור פנימי כמו SUB-2026-83698. אל תחזיר שנה בלבד כמו 2026 בתור certificateNo.
 אם יש טבלה, קרא את השורות הסמוכות לכותרות: מספר תעודה, תעודת כיול מס׳, תאריך פקיעת תוקף כיול, תוקף, בתוקף עד.`;
 
+    const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
-      content.push({ type: 'input_image', image_url: dataUrl });
+      content.push({ type: 'input_image', image_url: normalizedFileData });
     } else {
-      content.push({ type: 'input_file', filename: fileName, file_data: getBase64(dataUrl) });
+      content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
     }
 
     const response = await fetch('https://api.openai.com/v1/responses', {
