@@ -73,10 +73,15 @@ const templates: ConcentrationTemplate[] = [
   { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "selected-material.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
 ];
 
+const excelNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const STORAGE_KEY = "yk-quality-stage4-multifile";
+const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
+
 const normalize = (value: unknown) =>
   String(value ?? "")
     .replace(/[׳`’']/g, "")
     .replace(/[\n\r\t]+/g, " ")
+    .replace(/[:：]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -92,27 +97,10 @@ const isApproved = (record: any) =>
   record?.status === "נעול" ||
   record?.approval?.status === "approved";
 
-const isRelevantPreliminaryRecord = (record: any, template: ConcentrationTemplate) => {
-  if (template.preliminarySubtype) return record?.subtype === template.preliminarySubtype;
-  return includesAny(recordText(record), template.keywords);
-};
-
-
-
 const attachmentLabel = (kind: unknown) =>
   kind === "lab" ? "תעודת מעבדה" : kind === "measurement" ? "רשימת מדידה" : "מסמך";
 
-const extractCertificateNo = (name: unknown) => {
-  const text = String(name ?? "");
-  const pdfPrefix = text.match(/pdf[.\-_\s]*(\d{3,})/i);
-  if (pdfPrefix) return pdfPrefix[1];
-  const longNumber = text.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
-  return longNumber?.[1] ?? "";
-};
-
 const getTemplateUrl = (fileName: string) => `/concentrations/${encodeURIComponent(fileName)}`;
-const STORAGE_KEY = "yk-quality-stage4-multifile";
-const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
 
 const normalizeProjectKey = (value: unknown) =>
   String(value ?? "")
@@ -142,7 +130,7 @@ const buildProjectConcentrationMeta = (currentProjectName: string, projectMeta?:
     return {
       projectName: name,
       projectManager: String(projectMeta?.projectManager || team.managementCompany || "").trim(),
-      contractor: String(projectMeta?.contractor || "").trim(),
+      contractor: String(projectMeta?.contractor || team.contractor || "").trim(),
       qualityAssurance: String(projectMeta?.qualityAssurance || team.qualityAssurance || "").trim(),
       qualityControl: String(projectMeta?.qualityControl || team.qualityControl || "").trim(),
     };
@@ -150,7 +138,6 @@ const buildProjectConcentrationMeta = (currentProjectName: string, projectMeta?:
     return metaFromProps;
   }
 };
-
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -175,6 +162,19 @@ const recordText = (record: any) => {
   if (record?.subcontractor) parts.push(record.subcontractor.subcontractorName, record.subcontractor.field, record.subcontractor.notes, record.subcontractor.approvalNo);
   if (record?.material) parts.push(record.material.materialName, record.material.source, record.material.usage, record.material.notes, record.material.certificateNo);
   return parts.filter(Boolean).join(" ");
+};
+
+const isRelevantPreliminaryRecord = (record: any, template: ConcentrationTemplate) => {
+  if (template.preliminarySubtype) return record?.subtype === template.preliminarySubtype;
+  return includesAny(recordText(record), template.keywords);
+};
+
+const extractCertificateNo = (name: unknown) => {
+  const text = String(name ?? "");
+  const pdfPrefix = text.match(/pdf[.\-_\s]*(\d{3,})/i);
+  if (pdfPrefix) return pdfPrefix[1];
+  const longNumber = text.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
+  return longNumber?.[1] ?? "";
 };
 
 const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate): ConcentrationRow[] => {
@@ -202,7 +202,7 @@ const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate):
           executionDate: String(item?.executionDate ?? ""),
           notes: String(item?.notes ?? ""),
           attachmentKind: attachmentLabel(attachment?.kind),
-          certificateNo: String(labResults?.certificateNo ?? extractCertificateNo(attachment?.name)),
+          certificateNo: String((labResults as any)?.certificateNo ?? extractCertificateNo(attachment?.name)),
           fileName: String(attachment?.name ?? ""),
           uploadedAt: String(attachment?.uploadedAt ?? ""),
           labResults,
@@ -262,6 +262,15 @@ type SubbaseAValues = {
   optimumMoisture?: number;
 };
 
+const numberFromResult = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
 const extractNumberByAliases = (text: string, aliases: string[]) => {
   const source = String(text ?? "");
   for (const alias of aliases) {
@@ -273,43 +282,33 @@ const extractNumberByAliases = (text: string, aliases: string[]) => {
   return undefined;
 };
 
-
-const numberFromResult = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value.replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-};
-
 const subbaseValuesFromLabResults = (results?: LabCertificateResults): SubbaseAValues | null => {
   if (!results) return null;
+  const r = results as any;
   return {
-    sieve3: numberFromResult(results.sieve3),
-    sieve15: numberFromResult(results.sieve15),
-    sieve34: numberFromResult(results.sieve34),
-    sieve4: numberFromResult(results.sieve4),
-    sieve10: numberFromResult(results.sieve10),
-    sieve40: numberFromResult(results.sieve40),
-    sieve200: numberFromResult(results.sieve200),
-    ll: numberFromResult(results.ll),
-    pl: numberFromResult(results.pl),
-    pi: numberFromResult(results.pi),
-    swelling: numberFromResult(results.sandEquivalent),
-    density: numberFromResult(results.specificGravity),
-    absorption: numberFromResult(results.absorption),
-    losAngeles: numberFromResult(results.losAngeles),
-    aashto: results.aashto ?? "",
-    maxDensity: numberFromResult(results.maxDensity),
-    optimumMoisture: numberFromResult(results.optimumMoisture),
+    sieve3: numberFromResult(r.sieve3),
+    sieve15: numberFromResult(r.sieve15),
+    sieve34: numberFromResult(r.sieve34),
+    sieve4: numberFromResult(r.sieve4),
+    sieve10: numberFromResult(r.sieve10),
+    sieve40: numberFromResult(r.sieve40),
+    sieve200: numberFromResult(r.sieve200),
+    ll: numberFromResult(r.ll),
+    pl: numberFromResult(r.pl),
+    pi: numberFromResult(r.pi),
+    swelling: numberFromResult(r.sandEquivalent),
+    density: numberFromResult(r.specificGravity),
+    absorption: numberFromResult(r.absorption),
+    losAngeles: numberFromResult(r.losAngeles),
+    aashto: r.aashto ?? "",
+    maxDensity: numberFromResult(r.maxDensity),
+    optimumMoisture: numberFromResult(r.optimumMoisture),
   };
 };
 
 const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
   const fromSavedResults = subbaseValuesFromLabResults(row.labResults);
   if (fromSavedResults) return fromSavedResults;
-
   const text = [row.notes, row.itemDescription, row.fileName, row.title, row.category].join(" ");
   return {
     sieve3: extractNumberByAliases(text, ['3"', "3 in", "sieve3", "נפה 3"]),
@@ -357,108 +356,22 @@ const evaluateSubbaseA = (v: SubbaseAValues) => {
 
 const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
   H2: " דו\"ח ריכוז בדיקות  איפיון למצע סוג א' ",
-  H4: "שם פרויקט:",
-  H5: "ניהול פרויקט:",
-  H6: "שם הקבלן:",
-  H7: "בקרת איכות:",
-  L7: "הבטחת איכות:",
-  A10: "מס' סדורי",
-  B10: "ביצוע ע\"י ",
-  C10: "מס' ר.ת.",
-  D10: "תאריך ",
-  E10: "מקור החומר",
-  F10: "מקום נטילת מדגם לבדיקה",
-  G10: "מקום הפיזור",
-  J10: "דירוג (  % עובר )",
-  Q10: "גבולות פלסטיות וסומך (%)",
-  T10: "שע\"ח (%)",
-  U10: "אגרגט גס",
-  W10: " לוס אנג'לס (%)",
-  X10: " מיון AASHTO",
-  Y10: "צפיפות מעבדתית מקסימלית",
-  Z10: "רטיבות אופטימלית",
-  AA10: "מספר תעודה",
-  AB10: "מעמד החומר",
-  AC10: "הערות",
-  J11: '3"',
-  K11: '"1.5',
-  L11: '"3/4 ',
-  M11: "#4",
-  N11: "#10",
-  O11: "#40",
-  P11: "#200",
-  Q11: "LL",
-  R11: "PL",
-  S11: "PI",
-  U11: "צפיפות ממשית (ט/מ\"ק) ",
-  V11: "ספיגות (%)",
-  J12: "דרישות המפרט",
-  B13: "QC/QA",
-  G13: "מבנה",
-  H13: "חתכים",
-  K13: 100,
-  L13: 85,
-  M13: 55,
-  N13: 40,
-  P13: 15,
-  Q13: 25,
-  S13: 6,
-  T13: 27,
-  U13: 2.3,
-  W13: "35 max",
-  H14: "התחלה",
-  I14: "סוף",
-  J14: 100,
-  K14: 80,
-  L14: 60,
-  M14: 30,
-  N14: 20,
-  P14: 5,
+  H4: "שם פרויקט:", H5: "ניהול פרויקט:", H6: "שם הקבלן:", H7: "בקרת איכות:", L7: "הבטחת איכות:",
+  A10: "מס' סידורי", B10: "ביצוע ע\"י ", C10: "מס' ר.ת.", D10: "תאריך ", E10: "מקור החומר", F10: "מקום נטילת מדגם לבדיקה", G10: "מקום הפיזור", J10: "דירוג (  % עובר )", Q10: "גבולות פלסטיות וסומך (%)", T10: "שע\"ח (%)", U10: "אגרגט גס", W10: " לוס אנג'לס (%)", X10: " מיון AASHTO", Y10: "צפיפות מעבדתית מקסימלית", Z10: "רטיבות אופטימלית", AA10: "מספר תעודה", AB10: "מעמד החומר", AC10: "הערות",
+  J11: '3"', K11: '"1.5', L11: '"3/4 ', M11: "#4", N11: "#10", O11: "#40", P11: "#200", Q11: "LL", R11: "PL", S11: "PI", U11: "צפיפות ממשית (ט/מ\"ק) ", V11: "ספיגות (%)",
+  J12: "דרישות המפרט", B13: "QC/QA", G13: "מבנה", H13: "חתכים", K13: 100, L13: 85, M13: 55, N13: 40, P13: 15, Q13: 25, S13: 6, T13: 27, U13: 2.3, W13: "35 max", H14: "התחלה", I14: "סוף", J14: 100, K14: 80, L14: 60, M14: 30, N14: 20, P14: 5,
 };
 
 const buildSubbaseARow15 = (row: ConcentrationRow | undefined, projectMeta: Required<ProjectConcentrationMeta>): Record<string, string | number> => {
   const values = row ? parseSubbaseAValues(row) : {};
-  const certificateNo = row?.certificateNo || "24403";
+  const certificateNo = row?.certificateNo || "";
   const result = evaluateSubbaseA(values);
   return {
-    J4: projectMeta.projectName || row?.title || "",
-    J5: projectMeta.projectManager || "",
-    J6: projectMeta.contractor || row?.contractor || "",
-    J7: projectMeta.qualityControl || "",
-    M7: projectMeta.qualityAssurance || "",
-    A15: 1,
-    B15: row?.inspector || row?.responsible || "QC",
-    C15: row?.checklistNo || 1,
-    D15: row?.executionDate || row?.date || "",
-    E15: row?.notes || "גולני",
-    F15: row?.location || "מערום בשטח",
-    G15: projectMeta.projectName || row?.itemDescription || "",
-    H15: "",
-    I15: "",
-J15: String(valueOrDefault(values.sieve3, "")),
-K15: String(valueOrDefault(values.sieve15, "")),
-L15: String(valueOrDefault(values.sieve34, "")),
-M15: String(valueOrDefault(values.sieve4, "")),
-    N15: String(valueOrDefault(values.sieve10, "")),
-O15: String(valueOrDefault(values.sieve40, "")),
-P15: String(valueOrDefault(values.sieve200, "")),
-Q15: String(valueOrDefault(values.ll, "")),
-R15: String(valueOrDefault(values.pl, "")),
-S15: String(valueOrDefault(values.pi, "")),
-    T15: valueOrDefault(values.swelling, ""),
-    U15: valueOrDefault(values.density, ""),
-    V15: valueOrDefault(values.absorption, ""),
-    W15: valueOrDefault(values.losAngeles, ""),
-    X15: valueOrDefault(values.aashto, ""),
-    Y15: valueOrDefault(values.maxDensity, ""),
-    Z15: valueOrDefault(values.optimumMoisture, ""),
-    AA15: certificateNo,
-    AB15: result,
-    AC15: row?.notes || "",
+    J4: projectMeta.projectName || row?.title || "", J5: projectMeta.projectManager || "", J6: projectMeta.contractor || row?.contractor || "", J7: projectMeta.qualityControl || "", M7: projectMeta.qualityAssurance || "",
+    A15: 1, B15: row?.inspector || row?.responsible || "QC", C15: row?.checklistNo || 1, D15: row?.executionDate || row?.date || "", E15: row?.notes || "", F15: row?.location || "", G15: projectMeta.projectName || row?.itemDescription || "", H15: "", I15: "",
+    J15: String(valueOrDefault(values.sieve3, "")), K15: String(valueOrDefault(values.sieve15, "")), L15: String(valueOrDefault(values.sieve34, "")), M15: String(valueOrDefault(values.sieve4, "")), N15: String(valueOrDefault(values.sieve10, "")), O15: String(valueOrDefault(values.sieve40, "")), P15: String(valueOrDefault(values.sieve200, "")), Q15: String(valueOrDefault(values.ll, "")), R15: String(valueOrDefault(values.pl, "")), S15: String(valueOrDefault(values.pi, "")), T15: valueOrDefault(values.swelling, ""), U15: valueOrDefault(values.density, ""), V15: valueOrDefault(values.absorption, ""), W15: valueOrDefault(values.losAngeles, ""), X15: valueOrDefault(values.aashto, ""), Y15: valueOrDefault(values.maxDensity, ""), Z15: valueOrDefault(values.optimumMoisture, ""), AA15: certificateNo, AB15: result, AC15: row?.notes || "",
   };
 };
-
-const excelNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
 const columnNumber = (letters: string) => {
   let number = 0;
@@ -466,8 +379,20 @@ const columnNumber = (letters: string) => {
   return number;
 };
 
+const columnLetters = (index: number) => {
+  let n = index;
+  let letters = "";
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - mod) / 26);
+  }
+  return letters;
+};
+
 const cellColumnIndex = (cellRef: string) => columnNumber(cellRef.replace(/\d+/g, ""));
 const cellRowIndex = (cellRef: string) => Number(cellRef.replace(/\D+/g, ""));
+const cellRef = (col: number, row: number) => `${columnLetters(col)}${row}`;
 
 const getOrCreateRow = (doc: Document, sheetData: Element, rowNumber: number) => {
   const rows = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row"));
@@ -480,21 +405,22 @@ const getOrCreateRow = (doc: Document, sheetData: Element, rowNumber: number) =>
   return row;
 };
 
-const getOrCreateCell = (doc: Document, row: Element, cellRef: string) => {
+const getOrCreateCell = (doc: Document, row: Element, ref: string) => {
   const cells = Array.from(row.getElementsByTagNameNS(excelNs, "c"));
-  let cell = cells.find((candidate) => candidate.getAttribute("r") === cellRef);
+  let cell = cells.find((candidate) => candidate.getAttribute("r") === ref);
   if (cell) return cell;
   cell = doc.createElementNS(excelNs, "c");
-  cell.setAttribute("r", cellRef);
-  const nextCell = cells.find((candidate) => cellColumnIndex(candidate.getAttribute("r") ?? "A1") > cellColumnIndex(cellRef));
+  cell.setAttribute("r", ref);
+  const nextCell = cells.find((candidate) => cellColumnIndex(candidate.getAttribute("r") ?? "A1") > cellColumnIndex(ref));
   row.insertBefore(cell, nextCell ?? null);
   return cell;
 };
 
-const setCell = (doc: Document, sheetData: Element, cellRef: string, value: string | number) => {
-  const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
-  const cell = getOrCreateCell(doc, row, cellRef);
+const setCell = (doc: Document, sheetData: Element, ref: string, value: string | number, styleId?: string) => {
+  const row = getOrCreateRow(doc, sheetData, cellRowIndex(ref));
+  const cell = getOrCreateCell(doc, row, ref);
   Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
+  if (styleId) cell.setAttribute("s", styleId);
 
   if (typeof value === "number") {
     cell.setAttribute("t", "n");
@@ -512,19 +438,7 @@ const setCell = (doc: Document, sheetData: Element, cellRef: string, value: stri
   }
 };
 
-const columnLetters = (index: number) => {
-  let n = index;
-  let letters = "";
-  while (n > 0) {
-    const mod = (n - 1) % 26;
-    letters = String.fromCharCode(65 + mod) + letters;
-    n = Math.floor((n - mod) / 26);
-  }
-  return letters;
-};
-
-const nextCellRef = (cellRef: string) => `${columnLetters(cellColumnIndex(cellRef) + 1)}${cellRowIndex(cellRef)}`;
-const prevCellRef = (cellRef: string) => `${columnLetters(Math.max(1, cellColumnIndex(cellRef) - 1))}${cellRowIndex(cellRef)}`;
+const nextCellRef = (ref: string) => `${columnLetters(cellColumnIndex(ref) + 1)}${cellRowIndex(ref)}`;
 
 const readSharedStrings = async (zip: JSZip) => {
   const file = zip.file("xl/sharedStrings.xml");
@@ -548,50 +462,67 @@ const cellText = (cell: Element, sharedStrings: string[]) => {
   return cell.getElementsByTagNameNS(excelNs, "v")[0]?.textContent ?? "";
 };
 
+const collectAttachmentNames = (value: any, names: string[], depth = 0) => {
+  if (!value || depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectAttachmentNames(item, names, depth + 1));
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const name = String(value.name ?? value.fileName ?? value.attachmentName ?? value.originalName ?? value.title ?? "").trim();
+  const looksLikeFile = Boolean(value.dataUrl || value.url || value.path || value.type || value.uploadedAt || value.attachedAt || value.attachmentName);
+  if (name && looksLikeFile) names.push(name);
+
+  Object.entries(value).forEach(([key, nested]) => {
+    if (["approval", "signature", "signatures"].includes(key)) return;
+    collectAttachmentNames(nested, names, depth + 1);
+  });
+};
+
+const attachedFilesText = (record: any, row?: ConcentrationRow) => {
+  const names: string[] = [];
+  collectAttachmentNames(record, names);
+  if (row?.fileName) names.push(row.fileName);
+  if (row?.rawAttachment?.name) names.push(row.rawAttachment.name);
+  if (row?.rawItem?.attachments) {
+    row.rawItem.attachments.forEach((att: any) => {
+      if (att?.name) names.push(att.name);
+    });
+  }
+  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean))).join(", ");
+};
+
+const looksLikeIso = (text: unknown) => /\biso\b|איזו|ISO|9001/i.test(String(text ?? ""));
+
 const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
   const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
-    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["I4", "J4"], ["A4", "B4"]] },
-    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["I5", "J5"], ["A5", "B5"]] },
-    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["I6", "J6"], ["A6", "B6"]] },
-    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["H7", "J7"], ["L7", "M7"], ["A7", "B7"]] },
-    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H8", "J8"], ["H7", "J7"], ["A8", "B8"]] },
+    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["G4", "I4"], ["A4", "B4"]] },
+    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["G5", "I5"], ["A5", "B5"]] },
+    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["G6", "I6"], ["A6", "B6"]] },
+    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H7", "J7"], ["G7", "I7"], ["A8", "B8"]] },
+    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["L7", "M7"], ["G8", "I8"], ["A7", "B7"]] },
   ];
-
-  const readCell = (cellRef: string) => {
-    const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
-    const cell = getOrCreateCell(doc, row, cellRef);
-    return normalize(cellText(cell, sharedStrings));
-  };
-
-  const writeIfUseful = (cellRef: string, value: string) => {
-    if (!value) return;
-    const current = readCell(cellRef);
-    // לא דורסים תא שכבר מכיל כותרת; כן ממלאים תא ריק/תא ערך.
-    if (["שם פרויקט", "ניהול פרויקט", "שם הקבלן", "הבטחת איכות", "בקרת איכות"].some((label) => current.includes(normalize(label)))) return;
-    setCell(doc, sheetData, cellRef, value);
-  };
 
   const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
   items.forEach((item) => {
-    let foundLabel = false;
+    let filled = false;
     allCells.forEach((cell) => {
       const ref = cell.getAttribute("r") ?? "";
-      const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
+      const text = normalize(cellText(cell, sharedStrings));
       if (!ref || !text || !text.includes(normalize(item.label))) return;
       setCell(doc, sheetData, ref, `${item.label}:`);
-      writeIfUseful(nextCellRef(ref), item.value);
-      writeIfUseful(prevCellRef(ref), item.value);
-      foundLabel = true;
+      setCell(doc, sheetData, nextCellRef(ref), item.value);
+      filled = true;
     });
-
-    // גיבוי לתבניות שבהן תא הערך רחוק יותר או הכותרות ממוזגות.
     item.fallbacks.forEach(([labelCell, valueCell], index) => {
-      if (foundLabel && index > 0) return;
+      if (index > 0 && filled) return;
       setCell(doc, sheetData, labelCell, `${item.label}:`);
-      writeIfUseful(valueCell, item.value);
+      setCell(doc, sheetData, valueCell, item.value);
     });
   });
 };
+
 const patchWorkbookProjectHeader = async (buffer: ArrayBuffer, meta: Required<ProjectConcentrationMeta>) => {
   const zip = await JSZip.loadAsync(buffer);
   const sharedStrings = await readSharedStrings(zip);
@@ -622,560 +553,221 @@ const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow 
   if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
 
   Object.entries(SUBBASE_A_FIXED_CELLS).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
-  applyProjectHeaderCells(doc, sheetData, [], projectMeta);
   Object.entries(buildSubbaseARow15(row, projectMeta)).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
 
-  const serialized = new XMLSerializer().serializeToString(doc);
-  zip.file(sheetPath, serialized);
-  return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
-const labValue = (row: ConcentrationRow, key: keyof LabCertificateResults) => {
-  const value = row.labResults?.[key];
-  return value === undefined || value === null ? "" : String(value);
-};
-
-const firstNonEmpty = (...values: unknown[]) => {
-  for (const value of values) {
-    const text = String(value ?? "").trim();
-    if (text) return text;
-  }
-  return "";
-};
-
-const approvalSignerName = (record: any) => {
-  const signatures = Array.isArray(record?.approval?.signatures) ? record.approval.signatures : [];
-  const signed = signatures.find((signature: any) => String(signature?.signerName ?? "").trim());
-  return String(signed?.signerName ?? "").trim();
-};
-
-const approvalSignedAt = (record: any) => {
-  const signatures = Array.isArray(record?.approval?.signatures) ? record.approval.signatures : [];
-  const signed = signatures.find((signature: any) => String(signature?.signedAt ?? "").trim());
-  return String(signed?.signedAt ?? "").trim();
-};
-
-const collectAttachmentNames = (value: any, names: string[], depth = 0) => {
-  if (!value || depth > 5) return;
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectAttachmentNames(item, names, depth + 1));
-    return;
-  }
-  if (typeof value !== "object") return;
-
-  const name = String(
-    value.name ??
-    value.fileName ??
-    value.attachmentName ??
-    value.originalName ??
-    value.title ??
-    ""
-  ).trim();
-
-  const looksLikeFile = Boolean(
-    value.dataUrl ||
-    value.url ||
-    value.path ||
-    value.type ||
-    value.uploadedAt ||
-    value.attachedAt ||
-    value.attachmentName
-  );
-
-  if (name && looksLikeFile) names.push(name);
-
-  Object.entries(value).forEach(([key, nested]) => {
-    if (["approval", "signature", "signatures"].includes(key)) return;
-    collectAttachmentNames(nested, names, depth + 1);
-  });
-};
-
-const attachmentNamesForRecord = (record: any, row?: ConcentrationRow) => {
-  const names: string[] = [];
-  collectAttachmentNames(record, names);
-  if (row?.fileName) names.push(row.fileName);
-  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean)));
-};
-
-const attachedFilesText = (record: any, row: ConcentrationRow) => attachmentNamesForRecord(record, row).join(" | ");
-
-const filterAttachmentText = (record: any, row: ConcentrationRow, keywords: string[]) => {
-  const filtered = attachmentNamesForRecord(record, row).filter((name) => includesAny(name, keywords));
-  return filtered.join(" | ");
-};
-
-const certificateNoFromText = (text: string) => extractCertificateNo(text) || "";
-
-const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, index: number): Record<string, string | number> => {
-  const record = row.rawRecord ?? {};
-  const supplier = record?.supplier ?? {};
-  const subcontractor = record?.subcontractor ?? {};
-  const material = record?.material ?? {};
-  const signedAt = approvalSignedAt(record) || row.date || row.executionDate;
-  const signer = "בקרת איכות";
-  const attached = attachedFilesText(record, row);
-
-  if (template.id === "contractors") {
-    const registryDocs = filterAttachmentText(record, row, ["רשם", "קבלן", "סיווג", "אישור", "תעודה"]) || attached;
-    const isoDocs = filterAttachmentText(record, row, ["iso", "איזו", "איכות"]);
-    return {
-      // בתבנית זו "אישור מס" משמש כמספר סידורי — לכן הוא תמיד רץ 1,2,3 לפי השורות.
-      serial: index,
-      approvalNo: index,
-      subcontractorName: firstNonEmpty(subcontractor.subcontractorName, row.contractor, row.title),
-      activityField: firstNonEmpty(subcontractor.field, row.itemDescription),
-      contactPhone: String(subcontractor.contactPhone ?? ""),
-      subProject: firstNonEmpty(record?.subProject, record?.subproject, record?.location, row.location),
-      registryExists: registryDocs || row.certificateNo ? "קיים" : "",
-      registryCertificateNo: row.certificateNo || certificateNoFromText(registryDocs),
-      registryExpiry: String(subcontractor.expiryDate ?? subcontractor.validUntil ?? ""),
-      registryDocuments: registryDocs,
-      isoExists: firstNonEmpty(subcontractor.isoExists, subcontractor.isoStatus, isoDocs ? "קיים" : ""),
-      isoCertificateNo: firstNonEmpty(subcontractor.isoCertificateNo, certificateNoFromText(isoDocs)),
-      isoExpiry: String(subcontractor.isoExpiry ?? subcontractor.isoValidUntil ?? ""),
-      isoDocuments: firstNonEmpty(subcontractor.isoDocuments, isoDocs),
-      qcApprovalDate: signedAt,
-      qcApproverName: signer,
-      qaApprovalDate: signedAt,
-      qaApproverName: signer,
-      status: row.status,
-      notes: row.notes,
-    };
-  }
-
-  if (template.id === "suppliers") {
-    const isoDocs = filterAttachmentText(record, row, ["iso", "איזו", "איכות"]);
-    const standardDocs = filterAttachmentText(record, row, ["תו תקן", "תקן", "הסמכה", "אישור", "תעודה"]) || attached;
-    return {
-      serial: index,
-      approvalNo: index,
-      supplierName: firstNonEmpty(supplier.supplierName, row.contractor, row.title),
-      suppliedMaterial: firstNonEmpty(supplier.suppliedMaterial, row.itemDescription),
-      contactPhone: String(supplier.contactPhone ?? ""),
-      standardExists: standardDocs || row.certificateNo ? "קיים" : "",
-      standardCertificateNo: row.certificateNo || certificateNoFromText(standardDocs),
-      standardExpiry: String(supplier.standardExpiry ?? supplier.standardValidUntil ?? supplier.validUntil ?? ""),
-      standardDocuments: standardDocs,
-      isoExists: firstNonEmpty(supplier.isoExists, supplier.isoStatus, isoDocs ? "קיים" : ""),
-      isoCertificateNo: firstNonEmpty(supplier.isoCertificateNo, certificateNoFromText(isoDocs)),
-      isoExpiry: String(supplier.isoExpiry ?? supplier.isoValidUntil ?? ""),
-      isoDocuments: firstNonEmpty(supplier.isoDocuments, isoDocs),
-      qcApprovalDate: signedAt,
-      qcApproverName: signer,
-      qaApprovalDate: signedAt,
-      qaApproverName: signer,
-      status: row.status,
-      notes: row.notes,
-    };
-  }
-
-  if (template.id === "materials") {
-    return {
-      serial: index,
-      approvalNo: row.certificateNo,
-      materialName: firstNonEmpty(material.materialName, row.title),
-      source: String(material.source ?? ""),
-      usage: firstNonEmpty(material.usage, row.itemDescription),
-      certificateNo: row.certificateNo,
-      documents: attached,
-      approvalDate: signedAt,
-      approverName: signer,
-      status: row.status,
-      notes: row.notes,
-    };
-  }
-
-  if (template.id === "nonconformances") {
-    return {
-      serial: index,
-      title: row.title,
-      location: row.location,
-      date: row.date,
-      responsible: row.responsible,
-      status: row.status,
-      description: row.itemDescription,
-      notes: row.notes,
-      documents: attached,
-    };
-  }
-
-  if (template.id === "trial-sections" || template.id === "supervision") {
-    return {
-      serial: index,
-      title: row.title,
-      location: row.location,
-      date: row.date,
-      description: row.itemDescription,
-      status: row.status,
-      approverName: signer,
-      notes: row.notes,
-      documents: attached,
-    };
-  }
-
-  return {
-    serial: index,
-    checklistNo: row.checklistNo,
-    date: row.date || row.executionDate,
-    title: row.title,
-    category: row.category,
-    location: row.location,
-    contractor: row.contractor,
-    description: row.itemDescription,
-    attachmentKind: row.attachmentKind,
-    certificateNo: row.certificateNo || labValue(row, "certificateNo"),
-    sampleDate: labValue(row, "sampleDate" as keyof LabCertificateResults),
-    source: labValue(row, "source" as keyof LabCertificateResults),
-    maxDensity: labValue(row, "maxDensity" as keyof LabCertificateResults),
-    optimumMoisture: labValue(row, "optimumMoisture" as keyof LabCertificateResults),
-    density: labValue(row, "density" as keyof LabCertificateResults),
-    moisture: labValue(row, "moisture" as keyof LabCertificateResults),
-    compaction: labValue(row, "compaction" as keyof LabCertificateResults),
-    sandEquivalent: labValue(row, "sandEquivalent" as keyof LabCertificateResults),
-    cbr: labValue(row, "cbr" as keyof LabCertificateResults),
-    sieve3: labValue(row, "sieve3" as keyof LabCertificateResults),
-    sieve15: labValue(row, "sieve15" as keyof LabCertificateResults),
-    sieve34: labValue(row, "sieve34" as keyof LabCertificateResults),
-    sieve4: labValue(row, "sieve4" as keyof LabCertificateResults),
-    sieve10: labValue(row, "sieve10" as keyof LabCertificateResults),
-    sieve40: labValue(row, "sieve40" as keyof LabCertificateResults),
-    sieve200: labValue(row, "sieve200" as keyof LabCertificateResults),
-    ll: labValue(row, "ll" as keyof LabCertificateResults),
-    pl: labValue(row, "pl" as keyof LabCertificateResults),
-    pi: labValue(row, "pi" as keyof LabCertificateResults),
-    losAngeles: labValue(row, "losAngeles" as keyof LabCertificateResults),
-    aashto: labValue(row, "aashto" as keyof LabCertificateResults),
-    status: row.status,
-    inspector: row.inspector,
-    notes: row.notes,
-    documents: attached,
-    fileName: row.fileName,
-  };
-};
-
-type CellInfo = { ref: string; row: number; col: number; text: string };
-
-const columnLettersToRange = (startCol: number, endCol: number) => {
-  const cols: string[] = [];
-  for (let col = startCol; col <= endCol; col += 1) cols.push(columnLetters(col));
-  return cols;
-};
-
-const rangeParts = (range: string) => {
-  const [start, end = start] = range.split(":");
+const parseMergeRef = (ref: string) => {
+  const [start, end] = ref.split(":");
   return {
     startCol: cellColumnIndex(start),
     startRow: cellRowIndex(start),
-    endCol: cellColumnIndex(end),
-    endRow: cellRowIndex(end),
+    endCol: cellColumnIndex(end ?? start),
+    endRow: cellRowIndex(end ?? start),
   };
 };
 
-const mergedTextsByColumn = (sheetData: Element, sharedStrings: string[]) => {
-  const doc = sheetData.ownerDocument;
-  const worksheet = sheetData.parentElement;
-  const merged: Record<string, string[]> = {};
-  const mergeCells = worksheet?.getElementsByTagNameNS(excelNs, "mergeCell") ?? [];
-  Array.from(mergeCells).forEach((mergeCell) => {
-    const ref = mergeCell.getAttribute("ref") ?? "";
-    if (!ref.includes(":")) return;
-    const parts = rangeParts(ref);
-    if (parts.startRow < 8 || parts.startRow > 14) return;
-    const startCell = getOrCreateCell(doc, getOrCreateRow(doc, sheetData, parts.startRow), `${columnLetters(parts.startCol)}${parts.startRow}`);
-    const text = cellText(startCell, sharedStrings);
-    if (!text.trim()) return;
-    columnLettersToRange(parts.startCol, parts.endCol).forEach((col) => {
-      merged[col] = [...(merged[col] ?? []), text];
-    });
-  });
-  return merged;
-};
-
-const getHeaderCells = (sheetData: Element, sharedStrings: string[]): CellInfo[] => {
-  const merged = mergedTextsByColumn(sheetData, sharedStrings);
+const findGroupRange = (doc: Document, sheetData: Element, sharedStrings: string[], labels: string[]) => {
   const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
-  return cells
-    .map((cell) => {
-      const ref = cell.getAttribute("r") ?? "";
-      const row = cellRowIndex(ref);
-      const col = cellColumnIndex(ref);
-      const colLetters = ref.replace(/\d+/g, "");
-      const text = [cellText(cell, sharedStrings), ...(merged[colLetters] ?? [])].filter(Boolean).join(" ");
-      return { ref, row, col, text };
-    })
-    .filter((cell) => cell.row >= 8 && cell.row <= 14 && normalize(cell.text));
+  const target = cells.find((cell) => labels.some((label) => normalize(cellText(cell, sharedStrings)).includes(normalize(label))));
+  if (!target) return null;
+  const ref = target.getAttribute("r") ?? "";
+  const targetCol = cellColumnIndex(ref);
+  const targetRow = cellRowIndex(ref);
+  const mergeCells = Array.from(doc.getElementsByTagNameNS(excelNs, "mergeCell"));
+  const merge = mergeCells
+    .map((m) => parseMergeRef(m.getAttribute("ref") ?? ""))
+    .find((r) => targetCol >= r.startCol && targetCol <= r.endCol && targetRow >= r.startRow && targetRow <= r.endRow);
+  return merge ?? { startCol: targetCol, startRow: targetRow, endCol: targetCol + 3, endRow: targetRow };
 };
 
-const headerMatches = (text: string, aliases: string[]) => {
-  const n = normalize(text).replace(/[:：]/g, "");
-  return aliases.some((alias) => n.includes(normalize(alias).replace(/[:：]/g, "")));
-};
-
-const columnByHeader = (headers: CellInfo[], aliases: string[], preferRightMost = true) => {
-  const matches = headers.filter((header) => headerMatches(header.text, aliases));
-  if (!matches.length) return null;
-  matches.sort((a, b) => preferRightMost ? a.col - b.col : b.col - a.col);
-  return matches[0].col;
-};
-
-const columnsByHeader = (headers: CellInfo[], aliases: string[]) =>
-  Array.from(new Set(headers.filter((header) => headerMatches(header.text, aliases)).map((header) => header.col))).sort((a, b) => a - b);
-
-const getHeaderBottomRow = (headers: CellInfo[]) => {
-  const relevant = headers.filter((header) => header.row >= 10 && header.row <= 13);
-  if (!relevant.length) return 12;
-  return Math.max(...relevant.map((header) => header.row));
-};
-
-const renameHeaderCell = (doc: Document, sheetData: Element, sharedStrings: string[], aliases: string[], newText: string) => {
-  const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
-  let changed = false;
-
-  // קודם מנסים לשנות את התא המקורי שבו כתובה הכותרת, לא תא משנה שמקבל טקסט ממיזוג.
-  cells.forEach((cell) => {
+const renameHeader = (doc: Document, sheetData: Element, sharedStrings: string[], fromLabels: string[], toLabel: string) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
     const ref = cell.getAttribute("r") ?? "";
-    const text = cellText(cell, sharedStrings);
-    if (!ref || !headerMatches(text, aliases)) return;
-    setCell(doc, sheetData, ref, newText);
-    changed = true;
+    if (!ref) return;
+    const current = cellText(cell, sharedStrings);
+    if (fromLabels.some((label) => normalize(current).includes(normalize(label)))) setCell(doc, sheetData, ref, toLabel, cell.getAttribute("s") ?? undefined);
   });
-
-  if (changed) return;
-
-  // גיבוי: אם הכותרת הגיעה מתא ממוזג, נאתר את תא הכותרת לפי headers.
-  const headers = getHeaderCells(sheetData, sharedStrings);
-  const target = headers.find((header) => headerMatches(header.text, aliases));
-  if (!target) return;
-  setCell(doc, sheetData, target.ref, newText);
 };
 
-const findFirstWritableRow = (sheetData: Element, sharedStrings: string[], template?: ConcentrationTemplate) => {
-  if (template?.id === "subbase-a") return 15;
-  const headers = getHeaderCells(sheetData, sharedStrings);
-  return Math.max(13, getHeaderBottomRow(headers) + 1);
-};
-
-const buildColumnMapping = (sheetData: Element, sharedStrings: string[], template: ConcentrationTemplate): Record<string, number | number[]> => {
-  const headers = getHeaderCells(sheetData, sharedStrings);
-  const col = (aliases: string[], preferRightMost = true): number => columnByHeader(headers, aliases, preferRightMost) ?? 0;
-  const cols = (aliases: string[]): number[] => columnsByHeader(headers, aliases);
-
-  if (template.id === "contractors") {
-    const certificateCols = cols(["מס תעודה", "מספר תעודה"]);
-    const existingCols = cols(["קיים/לא קיים", "קיים לא קיים"]);
-    const documentCols = cols(["מסמכים מצורפים", "מסמכים", "תעודות", "תעודות מצורפות"]);
-    const expiryCols = cols(["תוקף", "תוקף תעודה"]);
-    const approvalDateCols = cols(["תאריך אישור"]);
-    const approverCols = cols(["שם המאשר"]);
-    return {
-      // בתבנית הקבלנים העמודה הימנית "אישור מס" משמשת כמספר סידורי.
-      serial: col(["אישור מס", "מס אישור", "מס סידורי", "מס' סידורי"], true),
-      approvalNo: 0,
-      subcontractorName: col(["שם קבלן משנה", "שם קבלן"]),
-      activityField: col(["תחום פעילות", "תחום"]),
-      contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
-      subProject: col(["תת פרויקט", "תת-פרויקט"]),
-      registryExists: (existingCols[0] ?? 0),
-      registryCertificateNo: (certificateCols[0] ?? 0),
-      registryExpiry: (expiryCols[0] ?? 0),
-      registryDocuments: (documentCols[0] ?? 0),
-      isoExists: (existingCols[1] ?? 0),
-      isoCertificateNo: (certificateCols[1] ?? 0),
-      isoExpiry: (expiryCols[1] ?? 0),
-      isoDocuments: (documentCols[1] ?? 0),
-      qcApprovalDate: (approvalDateCols[0] ?? 0),
-      qcApproverName: (approverCols[0] ?? 0),
-      qaApprovalDate: (approvalDateCols[1] ?? 0),
-      qaApproverName: (approverCols[1] ?? 0),
-      status: col(["סטטוס", "מעמד"]),
-      notes: col(["הערות"]),
-    };
+const findColumn = (sheetData: Element, sharedStrings: string[], labels: string[], rowMin = 1, rowMax = 25, fromCol = 1, toCol = 200) => {
+  const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
+  for (const cell of cells) {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) continue;
+    const row = cellRowIndex(ref);
+    const col = cellColumnIndex(ref);
+    if (row < rowMin || row > rowMax || col < fromCol || col > toCol) continue;
+    const text = normalize(cellText(cell, sharedStrings));
+    if (labels.some((label) => text.includes(normalize(label)))) return col;
   }
-
-  if (template.id === "suppliers") {
-    const certificateCols = cols(["מס תעודה", "מספר תעודה"]);
-    const existingCols = cols(["קיים/לא קיים", "קיים לא קיים"]);
-    const documentCols = cols(["מסמכים מצורפים", "מסמכים", "תעודות", "תעודות מצורפות"]);
-    const expiryCols = cols(["תוקף", "תוקף תעודה"]);
-    const approvalDateCols = cols(["תאריך אישור"]);
-    const approverCols = cols(["שם המאשר"]);
-    return {
-      serial: col(["אישור מס", "מס סידורי", "מס' סידורי", "מס"]),
-      approvalNo: 0,
-      supplierName: col(["שם ספק", "ספק"]),
-      suppliedMaterial: col(["חומר מסופק", "סוג חומר", "חומר"]),
-      contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
-      standardExists: (existingCols[0] ?? 0),
-      standardCertificateNo: (certificateCols[0] ?? 0),
-      standardExpiry: (expiryCols[0] ?? 0),
-      standardDocuments: (documentCols[0] ?? 0),
-      isoExists: (existingCols[1] ?? 0),
-      isoCertificateNo: (certificateCols[1] ?? 0),
-      isoExpiry: (expiryCols[1] ?? 0),
-      isoDocuments: (documentCols[1] ?? 0),
-      qcApprovalDate: (approvalDateCols[0] ?? 0),
-      qcApproverName: (approverCols[0] ?? 0),
-      qaApprovalDate: (approvalDateCols[1] ?? 0),
-      qaApproverName: (approverCols[1] ?? 0),
-      status: col(["סטטוס", "מעמד"]),
-      notes: col(["הערות"]),
-    };
-  }
-
-  if (template.id === "materials") {
-    return {
-      serial: col(["מס סידורי", "אישור מס", "מס"]),
-      materialName: col(["שם חומר", "חומר"]),
-      source: col(["מקור", "מקור החומר"]),
-      usage: col(["שימוש", "ייעוד", "תחום"]),
-      certificateNo: col(["מס תעודה", "מספר תעודה", "מס אישור"]),
-      documents: col(["מסמכים מצורפים", "מסמכים"]),
-      approvalDate: col(["תאריך אישור", "תאריך"]),
-      approverName: col(["שם המאשר", "מאשר"]),
-      status: col(["סטטוס", "מעמד"]),
-      notes: col(["הערות"]),
-    };
-  }
-
-  return {
-    serial: col(["מס סידורי", "מס' סידורי", "מס"]),
-    checklistNo: col(["רשימת תיוג", "מס רשימה", "מס ר.ת"]),
-    date: col(["תאריך"]),
-    title: col(["שם", "כותרת", "נושא"]),
-    category: col(["קטגוריה", "סוג"]),
-    location: col(["מיקום", "קטע", "מבנה"]),
-    contractor: col(["קבלן", "מבצע", "ביצוע"]),
-    description: col(["תיאור", "פעילות", "תחום"]),
-    attachmentKind: col(["סוג מסמך", "מסמך"]),
-    certificateNo: col(["מס תעודה", "מספר תעודה", "תעודה"]),
-    sampleDate: col(["תאריך דגימה", "תאריך נטילה"]),
-    source: col(["מקור", "מקור החומר"]),
-    maxDensity: col(["צפיפות מעבדתית", "צפיפות מקסימלית"]),
-    optimumMoisture: col(["רטיבות אופטימלית"]),
-    density: col(["צפיפות"]),
-    moisture: col(["רטיבות"]),
-    compaction: col(["הידוק", "דרגת הידוק"]),
-    sandEquivalent: col(["שווה ערך חול", "שעח"]),
-    cbr: col(["CBR"]),
-    sieve3: col(["3\"", "נפה 3"]),
-    sieve15: col(["1.5", "1.5\""]),
-    sieve34: col(["3/4"]),
-    sieve4: col(["#4"]),
-    sieve10: col(["#10"]),
-    sieve40: col(["#40"]),
-    sieve200: col(["#200"]),
-    ll: col(["LL", "גבול נזילות"]),
-    pl: col(["PL", "גבול פלסטיות"]),
-    pi: col(["PI", "אינדקס"]),
-    losAngeles: col(["לוס", "אנג'לס"]),
-    aashto: col(["AASHTO"]),
-    status: col(["סטטוס", "מעמד", "תוצאה"]),
-    inspector: col(["בודק", "מאשר"]),
-    notes: col(["הערות"]),
-    documents: col(["מסמכים מצורפים", "קובץ", "תעודה מצורפת"]),
-  };
+  return 0;
 };
 
-const genericFallbackColumns = (template: ConcentrationTemplate, startCol: number) => {
-  const keys = template.id === "contractors"
-    ? ["serial", "subcontractorName", "activityField", "contactPhone", "subProject", "registryExists", "registryCertificateNo", "registryExpiry", "registryDocuments", "isoExists", "isoCertificateNo", "isoExpiry", "isoDocuments", "qcApprovalDate", "qcApproverName", "qaApprovalDate", "qaApproverName"]
-    : template.id === "suppliers"
-      ? ["serial", "supplierName", "suppliedMaterial", "contactPhone", "standardExists", "standardCertificateNo", "standardExpiry", "standardDocuments", "isoExists", "isoCertificateNo", "isoExpiry", "isoDocuments", "qcApprovalDate", "qcApproverName", "qaApprovalDate", "qaApproverName", "status", "notes"]
-      : template.id === "materials"
-        ? ["serial", "materialName", "source", "usage", "certificateNo", "documents", "approvalDate", "approverName", "status", "notes"]
-        : ["serial", "checklistNo", "date", "title", "category", "location", "contractor", "description", "attachmentKind", "certificateNo", "sampleDate", "source", "status", "inspector", "notes", "documents"];
-  return Object.fromEntries(keys.map((key, index) => [key, startCol + index]));
+const findColumnInGroup = (sheetData: Element, sharedStrings: string[], group: ReturnType<typeof findGroupRange>, labels: string[]) => {
+  if (!group) return 0;
+  return findColumn(sheetData, sharedStrings, labels, group.startRow, group.startRow + 3, group.startCol, group.endCol);
 };
 
-const ensureBorderStyle = (zip: JSZip) => async () => {
-  const stylesPath = "xl/styles.xml";
-  const stylesFile = zip.file(stylesPath);
-  if (!stylesFile) return "1";
-  const xml = await stylesFile.async("text");
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const styleNs = excelNs;
-  const borders = doc.getElementsByTagNameNS(styleNs, "borders")[0];
-  const cellXfs = doc.getElementsByTagNameNS(styleNs, "cellXfs")[0];
-  if (!borders || !cellXfs) return "1";
-
-  const borderId = Number(borders.getAttribute("count") ?? borders.children.length);
-  const border = doc.createElementNS(styleNs, "border");
-  ["left", "right", "top", "bottom"].forEach((side) => {
-    const el = doc.createElementNS(styleNs, side);
-    el.setAttribute("style", "thin");
-    const color = doc.createElementNS(styleNs, "color");
-    color.setAttribute("auto", "1");
-    el.appendChild(color);
-    border.appendChild(el);
+const rowStyleMap = (sheetData: Element, rowNumber = 13) => {
+  const styles: Record<number, string> = {};
+  const row = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row")).find((candidate) => candidate.getAttribute("r") === String(rowNumber));
+  if (!row) return styles;
+  Array.from(row.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    const s = cell.getAttribute("s") ?? "";
+    if (ref && s) styles[cellColumnIndex(ref)] = s;
   });
-  border.appendChild(doc.createElementNS(styleNs, "diagonal"));
-  borders.appendChild(border);
-  borders.setAttribute("count", String(borderId + 1));
-
-  const xfId = Number(cellXfs.getAttribute("count") ?? cellXfs.children.length);
-  const xf = doc.createElementNS(styleNs, "xf");
-  xf.setAttribute("numFmtId", "0");
-  xf.setAttribute("fontId", "0");
-  xf.setAttribute("fillId", "0");
-  xf.setAttribute("borderId", String(borderId));
-  xf.setAttribute("xfId", "0");
-  xf.setAttribute("applyBorder", "1");
-  xf.setAttribute("applyAlignment", "1");
-  const alignment = doc.createElementNS(styleNs, "alignment");
-  alignment.setAttribute("horizontal", "center");
-  alignment.setAttribute("vertical", "center");
-  alignment.setAttribute("wrapText", "1");
-  xf.appendChild(alignment);
-  cellXfs.appendChild(xf);
-  cellXfs.setAttribute("count", String(xfId + 1));
-
-  zip.file(stylesPath, new XMLSerializer().serializeToString(doc));
-  return String(xfId);
+  return styles;
 };
 
-const setCellWithStyle = (doc: Document, sheetData: Element, cellRef: string, value: string | number, styleId?: string) => {
-  setCell(doc, sheetData, cellRef, value);
-  const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
-  const cell = getOrCreateCell(doc, row, cellRef);
-  if (styleId) cell.setAttribute("s", styleId);
+const clearTableRows = (sheetData: Element, fromRow = 13, toRow = 500) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "row")).forEach((row) => {
+    const n = Number(row.getAttribute("r") ?? 0);
+    if (n >= fromRow && n <= toRow) row.parentNode?.removeChild(row);
+  });
 };
 
-const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<ProjectConcentrationMeta>, rows: ConcentrationRow[] = [], template?: ConcentrationTemplate) => {
+const setByColumn = (doc: Document, sheetData: Element, row: number, col: number, value: unknown, styles: Record<number, string>) => {
+  if (!col) return;
+  const v = value === null || value === undefined ? "" : value;
+  if (v === "") return;
+  setCell(doc, sheetData, cellRef(col, row), typeof v === "number" ? v : String(v), styles[col]);
+};
+
+const approvalSignerName = (record: any) =>
+  String(record?.approval?.signatures?.find?.((s: any) => s?.signerName)?.signerName ?? record?.approvedBy ?? "יונס אברהים");
+
+const approvalDate = (record: any) =>
+  String(record?.approval?.signatures?.find?.((s: any) => s?.signedAt)?.signedAt ?? record?.date ?? "");
+
+const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: ConcentrationRow[], template: ConcentrationTemplate, projectMeta: Required<ProjectConcentrationMeta>) => {
   const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
   const sheetPath = "xl/worksheets/sheet1.xml";
   const worksheetFile = zip.file(sheetPath);
-  if (worksheetFile && rows.length && template) {
-    const sharedStrings = await readSharedStrings(zip);
-    const borderStyleId = await ensureBorderStyle(zip)();
-    const xml = await worksheetFile.async("text");
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
-    const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
-    if (sheetData) {
-      if (template.id === "contractors") {
-        renameHeaderCell(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים"], "סיווג ברשם הקבלנים/תעודות");
-      }
-      if (template.id === "suppliers") {
-        renameHeaderCell(doc, sheetData, sharedStrings, ["תעודת ISO", "תעודת איזו", "ISO"], "תעודת ISO/תעודות");
-      }
-      const startRow = findFirstWritableRow(sheetData, sharedStrings, template);
-      const headers = getHeaderCells(sheetData, sharedStrings);
-      const minHeaderCol = headers.length ? Math.min(...headers.map((h) => h.col)) : 1;
-      const mapping = buildColumnMapping(sheetData, sharedStrings, template);
-      const fallback = genericFallbackColumns(template, minHeaderCol);
-      rows.forEach((row, rowIndex) => {
-        const values = rowValueMap(template, row, rowIndex + 1);
-        Object.entries(values).forEach(([key, value]) => {
-          if (value === undefined || value === null || value === "") return;
-          const mapped = mapping[key] ?? fallback[key];
-          const colNumber = Array.isArray(mapped) ? mapped[0] : mapped;
-          if (!colNumber) return;
-          setCellWithStyle(doc, sheetData, `${columnLetters(colNumber)}${startRow + rowIndex}`, value, borderStyleId);
-        });
-      });
-      zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
-    }
-  }
-  return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
+  const sharedStrings = await readSharedStrings(zip);
+  const styles = rowStyleMap(sheetData, 13);
+
+  const isContractors = template.id === "contractors";
+  const isSuppliers = template.id === "suppliers";
+
+  if (isContractors) renameHeader(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים"], "סיווג ברשם הקבלנים/תעודות");
+
+  const registrationGroup = isContractors
+    ? findGroupRange(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים", "סיווג ברשם הקבלנים/תעודות"])
+    : findGroupRange(doc, sheetData, sharedStrings, ["אישור תי", "רשיון", "הסמכות"]);
+  const isoGroup = findGroupRange(doc, sheetData, sharedStrings, ["תעודת ISO", "ISO"]);
+
+  const columns = {
+    serial: findColumn(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    contractorName: isContractors
+      ? findColumn(sheetData, sharedStrings, ["שם קבלן משנה", "שם הקבלן"], 10, 13)
+      : findColumn(sheetData, sharedStrings, ["שם ספק"], 10, 13),
+    activity: isContractors
+      ? findColumn(sheetData, sharedStrings, ["תחום פעילות"], 10, 13)
+      : findColumn(sheetData, sharedStrings, ["חומר מסופק"], 10, 13),
+    phone: findColumn(sheetData, sharedStrings, ["אנשי קשר וטלפון", "טלפון"], 10, 13),
+    subProject: findColumn(sheetData, sharedStrings, ["תת פרויקט"], 10, 13),
+    regExists: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["קיים/לא", "קיים"]),
+    regNumber: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["מס תעודה", "מס' תעודה", "מספר"]),
+    regExpiry: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["תוקף"]),
+    regDocs: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["מסמכים מצורפים", "מסמכים"]),
+    isoExists: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["קיים/לא", "קיים"]),
+    isoNumber: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["מס תעודה", "מס' תעודה", "מספר"]),
+    isoExpiry: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["תוקף"]),
+    isoDocs: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["מסמכים מצורפים", "מסמכים"]),
+    qaDate: findColumn(sheetData, sharedStrings, ["תאריך אישור ב\"א", "תאריך אישור בא"], 10, 13),
+    qaName: findColumn(sheetData, sharedStrings, ["שם המאשר ב\"א", "שם המאשר בא"], 10, 13),
+    assuranceDate: findColumn(sheetData, sharedStrings, ["תאריך אישור ה\"א", "תאריך אישור הא"], 10, 13),
+    assuranceName: findColumn(sheetData, sharedStrings, ["שם המאשר ה\"א", "שם המאשר הא"], 10, 13),
+  };
+
+  clearTableRows(sheetData, 13, 500);
+
+  rows.forEach((row, index) => {
+    const record = row.rawRecord ?? {};
+    const supplier = record.supplier ?? {};
+    const subcontractor = record.subcontractor ?? {};
+    const material = record.material ?? {};
+    const docs = attachedFilesText(record, row);
+    const isoDocs = docs.split(",").map((d) => d.trim()).filter(looksLikeIso).join(", ");
+    const generalDocs = docs;
+    const approvalNo = String(supplier.approvalNo ?? subcontractor.approvalNo ?? material.certificateNo ?? row.certificateNo ?? "").trim();
+    const rowNumber = 13 + index;
+
+    setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.contractorName, isContractors ? subcontractor.subcontractorName : supplier.supplierName, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.activity, isContractors ? subcontractor.field : supplier.suppliedMaterial, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.phone, subcontractor.contactPhone ?? supplier.contactPhone, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.subProject, record.subProject ?? record.location ?? "", styles);
+
+    if (approvalNo || generalDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regNumber, approvalNo, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regExpiry, subcontractor.validUntil ?? supplier.validUntil ?? record.validUntil ?? "", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regDocs, generalDocs, styles);
+
+    if (isoDocs || looksLikeIso(approvalNo)) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoNumber, looksLikeIso(approvalNo) ? approvalNo : "", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoExpiry, record.isoValidUntil ?? supplier.isoValidUntil ?? subcontractor.isoValidUntil ?? "", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoDocs, isoDocs || (isSuppliers ? generalDocs : ""), styles);
+
+    setByColumn(doc, sheetData, rowNumber, columns.qaDate, approvalDate(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.qaName, approvalSignerName(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.assuranceDate, record.assuranceDate ?? approvalDate(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.assuranceName, record.assuranceName ?? approvalSignerName(record), styles);
+  });
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+
+const patchGenericWorkbook = async (buffer: ArrayBuffer, rows: ConcentrationRow[], template: ConcentrationTemplate, projectMeta: Required<ProjectConcentrationMeta>) => {
+  if (template.preliminarySubtype) return patchPreliminaryWorkbook(buffer, rows, template, projectMeta);
+
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
+  const sharedStrings = await readSharedStrings(zip);
+  const styles = rowStyleMap(sheetData, 13);
+
+  const columns = {
+    serial: findColumn(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    title: findColumn(sheetData, sharedStrings, ["שם", "תיאור", "נושא"], 10, 13) || 2,
+    location: findColumn(sheetData, sharedStrings, ["מיקום", "קטע"], 10, 13),
+    date: findColumn(sheetData, sharedStrings, ["תאריך"], 10, 13),
+    status: findColumn(sheetData, sharedStrings, ["סטטוס", "מעמד"], 10, 13),
+    certificate: findColumn(sheetData, sharedStrings, ["מס תעודה", "תעודה"], 10, 13),
+    docs: findColumn(sheetData, sharedStrings, ["מסמכים", "קבצים", "מצורפים"], 10, 13),
+    notes: findColumn(sheetData, sharedStrings, ["הערות"], 10, 13),
+  };
+
+  clearTableRows(sheetData, 13, 500);
+  rows.forEach((row, index) => {
+    const rowNumber = 13 + index;
+    setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.title, row.itemDescription || row.title, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.location, row.location, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.date, row.executionDate || row.date, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.status, row.status, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.certificate, row.certificateNo, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.docs, attachedFilesText(row.rawRecord, row), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.notes, row.notes, styles);
+  });
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
 export function ConcentrationsSection({
@@ -1186,116 +778,100 @@ export function ConcentrationsSection({
   currentProjectName = "",
   projectMeta,
 }: Props) {
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  const resolvedProjectMeta = useMemo(
-    () => buildProjectConcentrationMeta(currentProjectName, projectMeta),
-    [currentProjectName, projectMeta]
-  );
+  const [message, setMessage] = useState("");
+  const meta = useMemo(() => buildProjectConcentrationMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
 
   const rowsByTemplate = useMemo(() => {
-    const map: Record<string, ConcentrationRow[]> = {};
+    const result: Record<string, ConcentrationRow[]> = {};
     templates.forEach((template) => {
-      if (template.source === "checklists") map[template.id] = rowsFromChecklists(savedChecklists, template);
-      if (template.source === "nonconformances") map[template.id] = rowsFromSimpleRecords(savedNonconformances, template, "nonconformances");
-      if (template.source === "trialSections") map[template.id] = rowsFromSimpleRecords(savedTrialSections, template, "trialSections");
-      if (template.source === "preliminary") map[template.id] = rowsFromSimpleRecords(savedPreliminary, template, "preliminary");
+      if (template.source === "checklists") result[template.id] = rowsFromChecklists(savedChecklists, template);
+      else if (template.source === "nonconformances") result[template.id] = rowsFromSimpleRecords(savedNonconformances, template, "nonconformances");
+      else if (template.source === "trialSections") result[template.id] = rowsFromSimpleRecords(savedTrialSections, template, "trialSections");
+      else result[template.id] = rowsFromSimpleRecords(savedPreliminary, template, "preliminary");
     });
-    return map;
+    return result;
   }, [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary]);
 
-  const visibleTemplates = useMemo(() => {
-    const q = normalize(search);
-    return templates.filter((template) => !q || normalize(`${template.title} ${template.description} ${template.fileName}`).includes(q));
-  }, [search]);
+  const filteredTemplates = useMemo(() => {
+    const q = normalize(query);
+    if (!q) return templates;
+    return templates.filter((template) => normalize([template.title, template.description, template.fileName].join(" ")).includes(q));
+  }, [query]);
 
-  const downloadEmptyTemplate = async (template: ConcentrationTemplate) => {
-    setBusyId(`empty-${template.id}`);
+  const downloadTemplate = async (template: ConcentrationTemplate, withProjectDetails = false) => {
+    setBusyId(template.id + (withProjectDetails ? ":project" : ":auto"));
+    setMessage("");
     try {
       const response = await fetch(getTemplateUrl(template.fileName));
-      if (!response.ok) throw new Error(`לא נמצא קובץ תבנית: ${template.fileName}`);
-      const buffer = await response.arrayBuffer();
-      const blob = template.mode === "subbaseA"
-        ? await patchSubbaseAWorkbook(buffer, undefined, resolvedProjectMeta)
-        : await patchGenericWorkbook(buffer, resolvedProjectMeta, [], template);
-      downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - תבנית עם פרטי פרויקט.xlsx"));
-    } catch (error) {
-      console.error(error);
-      alert(error instanceof Error ? error.message : "אירעה שגיאה בהורדת התבנית");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const downloadAutomatic = async (template: ConcentrationTemplate) => {
-    setBusyId(template.id);
-    try {
-      const response = await fetch(getTemplateUrl(template.fileName));
-      if (!response.ok) throw new Error(`לא נמצא קובץ תבנית: ${template.fileName}`);
+      if (!response.ok) throw new Error(`לא ניתן לטעון את תבנית ${template.fileName}`);
       const buffer = await response.arrayBuffer();
       const rows = rowsByTemplate[template.id] ?? [];
-
-      if (template.mode === "subbaseA") {
-        const preferred = rows.find((r) => r.certificateNo === "24403") ?? rows.find((r) => r.checklistNo === "1") ?? rows[0];
-        const blob = await patchSubbaseAWorkbook(buffer, preferred, resolvedProjectMeta);
-        downloadBlob(blob, "subbase-a - ריכוז אוטומטי.xlsx");
-        return;
-      }
-
-      const blob = await patchGenericWorkbook(buffer, resolvedProjectMeta, rows, template);
-      downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - ריכוז אוטומטי.xlsx"));
+      let blob: Blob;
+      if (template.mode === "subbaseA") blob = await patchSubbaseAWorkbook(buffer, rows[0], meta);
+      else blob = await patchGenericWorkbook(buffer, rows, template, meta);
+      downloadBlob(blob, template.fileName);
+      setMessage(`הופק קובץ ${template.title} עם ${rows.length} רשומות.`);
     } catch (error) {
       console.error(error);
-      alert(error instanceof Error ? error.message : "אירעה שגיאה בהפקת הריכוז");
+      setMessage(error instanceof Error ? error.message : "שגיאה בהורדת הריכוז");
     } finally {
       setBusyId(null);
     }
   };
 
   return (
-    <section dir="rtl" style={{ display: "grid", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <section dir="rtl">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
-          <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
-            כל הריכוזים נבנים אוטומטית מהרשומות המאושרות בפרויקט. תעודות מעבדה שנסרקות ברשימות התיוג נכנסות לריכוזים לפי סוג העבודה והתוצאות שנקלטו.
+          <h2 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>ריכוזים</h2>
+          <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.7 }}>
+            ריכוז מצטבר לפי רשומות מאושרות ותעודות מצורפות. הנתונים נכתבים ישירות לתבניות ה־Excel המקוריות.
           </div>
-          {resolvedProjectMeta.projectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {resolvedProjectMeta.projectName}</div> : null}
+          {currentProjectName ? <div style={{ marginTop: 8, fontWeight: 900 }}>פרויקט נוכחי: {currentProjectName}</div> : null}
         </div>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="חיפוש ריכוז..." style={{ width: 260, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 700 }} />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="חיפוש ריכוז..."
+          style={{ border: "1px solid #cbd5e1", borderRadius: 14, padding: "12px 14px", minWidth: 260, fontWeight: 800 }}
+        />
       </div>
 
-      <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 16, padding: 14, color: "#1e3a8a", fontWeight: 800, lineHeight: 1.7 }}>
-        חשוב: ההפקה שומרת על תבניות ה־Excel המקוריות ומכניסה לתוכן את נתוני הפרויקט, הרשומות המאושרות ותוצאות תעודות המעבדה שנקלטו במערכת.
-      </div>
+      {message ? <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e3a8a", borderRadius: 14, padding: 12, marginBottom: 14, fontWeight: 900 }}>{message}</div> : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-        {visibleTemplates.map((template) => {
-          const count = rowsByTemplate[template.id]?.length ?? 0;
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+        {filteredTemplates.map((template) => {
+          const rows = rowsByTemplate[template.id] ?? [];
+          const busy = busyId?.startsWith(template.id);
           return (
             <div key={template.id} style={{ border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>{template.title}</div>
-                  <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>{template.description}</div>
-                </div>
-                <span style={{ borderRadius: 999, background: "#eef2ff", color: "#3730a3", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{count} תוצאות</span>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>{template.title}</h3>
+                <span style={{ background: "#eef2ff", color: "#3730a3", padding: "6px 10px", borderRadius: 999, fontWeight: 900 }}>{rows.length} תוצאות</span>
               </div>
-
-              <div style={{ marginTop: 12, minHeight: 40, color: count ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {count ? `נמצאו ${count} תעודות/רשומות לשיבוץ בריכוז.` : "אין עדיין תוצאות — ניתן להוריד ריכוז ריק."}
+              <div style={{ color: "#64748b", marginTop: 8, minHeight: 42, lineHeight: 1.6 }}>{template.description}</div>
+              <div style={{ marginTop: 8, color: rows.length ? "#166534" : "#64748b", fontWeight: 900 }}>
+                {rows.length ? `נמצאו ${rows.length} רשומות/תעודות לשיבוץ בריכוז.` : "אין עדיין תוצאות — ניתן להוריד ריכוז ריק."}
               </div>
-
-              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-                <button type="button" disabled={busyId === template.id} onClick={() => downloadAutomatic(template)} style={{ border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: busyId === template.id ? "wait" : "pointer" }}>
-                  {busyId === template.id ? "מפיק ריכוז..." : "הורד ריכוז אוטומטי Excel"}
-                </button>
-                <button type="button" disabled={busyId === `empty-${template.id}`} onClick={() => downloadEmptyTemplate(template)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: busyId === `empty-${template.id}` ? "wait" : "pointer" }}>
-                  {busyId === `empty-${template.id}` ? "מכין תבנית..." : "הורד תבנית עם פרטי פרויקט"}
-                </button>
-                <div style={{ fontSize: 12, color: "#64748b", direction: "ltr", textAlign: "right" }}>{template.fileName}</div>
-              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => downloadTemplate(template)}
+                style={{ width: "100%", marginTop: 14, border: 0, borderRadius: 12, padding: "13px 14px", background: busy ? "#475569" : "#0f172a", color: "#fff", fontWeight: 950, cursor: busy ? "wait" : "pointer" }}
+              >
+                {busy ? "מכין Excel..." : "הורד ריכוז אוטומטי Excel"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => downloadTemplate(template, true)}
+                style={{ width: "100%", marginTop: 8, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", background: "#fff", color: "#0f172a", fontWeight: 900, cursor: busy ? "wait" : "pointer" }}
+              >
+                הורד תבנית עם פרטי פרויקט
+              </button>
+              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 8, textAlign: "left" }}>{template.fileName}</div>
             </div>
           );
         })}
@@ -1303,5 +879,3 @@ export function ConcentrationsSection({
     </section>
   );
 }
-
-export default ConcentrationsSection;
