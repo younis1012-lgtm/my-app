@@ -8,7 +8,6 @@ type CertificateRow = {
   details: string;
   certificateNo: string;
   expiryDate: string;
-  issueDate: string;
   attachments: StoredAttachment[];
   ocrStatus?: string;
 };
@@ -44,12 +43,11 @@ function normalizeCertificates(value: unknown): CertificateRow[] {
     details: String(row?.details ?? row?.name ?? CERTIFICATE_DEFAULTS[index] ?? 'מסמך'),
     certificateNo: String(row?.certificateNo ?? row?.certificate_no ?? ''),
     expiryDate: String(row?.expiryDate ?? row?.expiry_date ?? ''),
-    issueDate: String(row?.issueDate ?? row?.issue_date ?? ''),
     attachments: normalizeAttachments(row?.attachments ?? row?.documents),
     ocrStatus: String(row?.ocrStatus ?? ''),
   }));
   while (normalized.length < 3) {
-    normalized.push({ id: makeId(), exists: true, details: CERTIFICATE_DEFAULTS[normalized.length] ?? 'מסמך', certificateNo: '', expiryDate: '', issueDate: '', attachments: [] });
+    normalized.push({ id: makeId(), exists: true, details: CERTIFICATE_DEFAULTS[normalized.length] ?? 'מסמך', certificateNo: '', expiryDate: '', attachments: [] });
   }
   return normalized;
 }
@@ -67,29 +65,6 @@ function getDataKey(tab: PreliminaryTab) {
   return tab === 'suppliers' ? 'supplier' : tab === 'subcontractors' ? 'subcontractor' : 'material';
 }
 
-function getEntityLabel(tab: PreliminaryTab) {
-  return tab === 'suppliers' ? 'ספקים' : tab === 'subcontractors' ? 'קבלנים' : 'חומרים';
-}
-
-function getNextSequentialApprovalNo(current: string, tab: PreliminaryTab) {
-  const clean = String(current ?? '').trim();
-  if (/^\d+$/.test(clean)) return clean;
-  return '1';
-}
-
-function withAutoApproval(approval: ApprovalFlow, projectMeta?: ProjectMeta): ApprovalFlow {
-  const qc = String(projectMeta?.qualityControl ?? '').trim();
-  const qa = String(projectMeta?.qualityAssurance ?? '').trim();
-  return {
-    ...approval,
-    signatures: approval.signatures.map((signature) => {
-      const role = String(signature.role ?? '');
-      const autoName = role.includes('QC') || role.includes('בקר') || role.includes('בקרת') ? qc : role.includes('QA') || role.includes('הבטחת') ? qa : '';
-      return { ...signature, signerName: signature.signerName || autoName };
-    }),
-  };
-}
-
 function normalizeOcrDate(value: unknown) {
   const text = String(value ?? '').trim();
   if (!text) return '';
@@ -101,9 +76,43 @@ function normalizeOcrDate(value: unknown) {
 }
 
 function cleanCertificateNo(value: unknown) {
-  const text = String(value ?? '').trim();
+  const text = String(value ?? '').trim().replace(/\s+/g, '');
   if (!text || /^20\d{2}$/.test(text)) return '';
-  return text;
+  const slash = text.match(/\d{1,4}\/\d{2,8}/);
+  if (slash) return slash[0];
+  const alphaNum = text.match(/[A-Z]{1,5}[-/]?\d{2,10}/i);
+  if (alphaNum && !/^SUB[-/]?20/i.test(alphaNum[0])) return alphaNum[0];
+  const digits = text.match(/\d{2,8}/);
+  return digits ? digits[0] : '';
+}
+
+function getFallbackProjectName(currentProjectName?: string, projectMeta?: ProjectMeta) {
+  return projectMeta?.projectName || currentProjectName || '';
+}
+
+function getAutoSigner(role: string, currentProjectName?: string, projectMeta?: ProjectMeta) {
+  const r = String(role ?? '');
+  const qc = String(projectMeta?.qualityControl ?? '').trim() || (String(currentProjectName ?? '').includes('806') ? 'יונס אברהים' : '');
+  const qa = String(projectMeta?.qualityAssurance ?? '').trim() || (String(currentProjectName ?? '').includes('806') ? 'תיקו הנדסה בע״מ' : '');
+  if (r.includes('QC') || r.includes('בקר') || r.includes('בקרת')) return qc;
+  if (r.includes('QA') || r.includes('הבטחת')) return qa;
+  return '';
+}
+
+function withAutoApproval(approval: ApprovalFlow, currentProjectName?: string, projectMeta?: ProjectMeta): ApprovalFlow {
+  return {
+    ...approval,
+    signatures: approval.signatures.map((signature) => {
+      const autoName = getAutoSigner(signature.role, currentProjectName, projectMeta);
+      return { ...signature, signerName: signature.signerName || autoName };
+    }),
+  };
+}
+
+function getNextSequentialApprovalNo(current: string) {
+  const clean = String(current ?? '').trim();
+  if (/^\d+$/.test(clean)) return clean;
+  return '1';
 }
 
 export function PreliminarySection(props: {
@@ -134,20 +143,19 @@ export function PreliminarySection(props: {
     setForm((prev: any) => {
       const key = getDataKey(props.preliminaryTab);
       const current = prev[key] ?? {};
-      const nextApproval = withAutoApproval(prev.approval, props.projectMeta);
       return {
         ...prev,
         date: prev.date || today(),
-        approval: nextApproval,
+        approval: withAutoApproval(prev.approval, props.currentProjectName, props.projectMeta),
         [key]: {
           ...current,
-          approvalNo: getNextSequentialApprovalNo(current.approvalNo, props.preliminaryTab),
+          approvalNo: getNextSequentialApprovalNo(current.approvalNo),
           certificates: normalizeCertificates(current.certificates),
         },
       };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.preliminaryTab, props.projectMeta?.qualityControl, props.projectMeta?.qualityAssurance]);
+  }, [props.preliminaryTab, props.projectMeta?.qualityControl, props.projectMeta?.qualityAssurance, props.currentProjectName]);
 
   const setData = (patch: any) => setForm((prev: any) => ({ ...prev, [dataKey]: { ...(prev[dataKey] ?? {}), ...patch } }));
   const updateCertificates = (next: CertificateRow[]) => setData({ certificates: next });
@@ -159,7 +167,7 @@ export function PreliminarySection(props: {
   const uploadAndScan = async (rowId: string, file: File) => {
     try {
       setOcrBusyRow(rowId);
-      setCertificateRow(rowId, { ocrStatus: 'סורק מסמך...' });
+      setCertificateRow(rowId, { ocrStatus: 'סורק את הקובץ ומנסה למלא מספר תעודה ותוקף...' });
       const attachment = await attachmentFromFile(file);
       const row = certificates.find((item) => item.id === rowId);
       const response = await fetch('/api/ocr', {
@@ -168,25 +176,41 @@ export function PreliminarySection(props: {
         body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/octet-stream', dataUrl: attachment.dataUrl, subtype: props.preliminaryTab, documentLabel: row?.details ?? '' }),
       });
       const result = await response.json();
+      if (!response.ok || result?.error) throw new Error(result?.error || 'שגיאת OCR');
+
       const ocr = result?.data ?? {};
       const certificateNo = cleanCertificateNo(ocr.certificateNo);
       const expiryDate = normalizeOcrDate(ocr.expiryDate);
-      const issueDate = normalizeOcrDate(ocr.issueDate);
-      const currentRows = normalizeCertificates(((form as any)[dataKey] ?? {}).certificates);
-      updateCertificates(currentRows.map((item) => item.id === rowId ? {
-        ...item,
-        exists: true,
-        certificateNo: certificateNo || item.certificateNo,
-        expiryDate: expiryDate || item.expiryDate,
-        issueDate: issueDate || item.issueDate,
-        attachments: [...item.attachments, attachment],
-        ocrStatus: certificateNo || expiryDate ? 'נקלט מהמסמך' : 'הקובץ צורף, לא זוהה מספר/תוקף ברור',
-      } : item));
-      if (ocr.supplierName && props.preliminaryTab === 'suppliers') setData({ supplierName: data.supplierName || ocr.supplierName });
-      if (ocr.subcontractorName && props.preliminaryTab === 'subcontractors') setData({ subcontractorName: data.subcontractorName || ocr.subcontractorName });
-      if (ocr.materialName && props.preliminaryTab === 'materials') setData({ materialName: data.materialName || ocr.materialName });
-      if (ocr.suppliedMaterial && props.preliminaryTab === 'suppliers') setData({ suppliedMaterial: data.suppliedMaterial || ocr.suppliedMaterial });
-      if (ocr.contactPhone) setData({ contactPhone: data.contactPhone || ocr.contactPhone });
+
+      setForm((prev: any) => {
+        const key = getDataKey(props.preliminaryTab);
+        const current = prev[key] ?? {};
+        const currentRows = normalizeCertificates(current.certificates);
+        const nextRows = currentRows.map((item) => item.id === rowId ? {
+          ...item,
+          exists: true,
+          certificateNo: certificateNo || item.certificateNo,
+          expiryDate: expiryDate || item.expiryDate,
+          attachments: [...item.attachments, attachment],
+          ocrStatus: certificateNo || expiryDate
+            ? `נקלט מהמסמך${certificateNo ? ` — מספר: ${certificateNo}` : ''}${expiryDate ? `, תוקף: ${expiryDate}` : ''}`
+            : 'הקובץ צורף, אבל לא זוהו מספר תעודה/תוקף. אפשר להקליד ידנית.',
+        } : item);
+
+        const nextData: any = { ...current, certificates: nextRows };
+        if (ocr.supplierName && props.preliminaryTab === 'suppliers' && !nextData.supplierName) nextData.supplierName = ocr.supplierName;
+        if (ocr.subcontractorName && props.preliminaryTab === 'subcontractors' && !nextData.subcontractorName) nextData.subcontractorName = ocr.subcontractorName;
+        if (ocr.materialName && props.preliminaryTab === 'materials' && !nextData.materialName) nextData.materialName = ocr.materialName;
+        if (ocr.suppliedMaterial && props.preliminaryTab === 'suppliers' && !nextData.suppliedMaterial) nextData.suppliedMaterial = ocr.suppliedMaterial;
+        if (ocr.branch && !nextData.branch) nextData.branch = ocr.branch;
+        if (ocr.contactPhone && !nextData.contactPhone) nextData.contactPhone = ocr.contactPhone;
+
+        return {
+          ...prev,
+          approval: withAutoApproval(prev.approval, props.currentProjectName, props.projectMeta),
+          [key]: nextData,
+        };
+      });
     } catch (error: any) {
       setCertificateRow(rowId, { ocrStatus: `שגיאת OCR: ${error?.message ?? 'לא ידוע'}` });
     } finally {
@@ -194,23 +218,10 @@ export function PreliminarySection(props: {
     }
   };
 
-  const addCertificateRow = () => updateCertificates([...certificates, { id: makeId(), exists: true, details: 'מסמך נוסף', certificateNo: '', expiryDate: '', issueDate: '', attachments: [] }]);
+  const addCertificateRow = () => updateCertificates([...certificates, { id: makeId(), exists: true, details: 'מסמך נוסף', certificateNo: '', expiryDate: '', attachments: [] }]);
   const removeCertificateRow = (rowId: string) => updateCertificates(certificates.filter((row) => row.id !== rowId));
 
-  const signerNameForRole = (role: string) => {
-    const r = String(role ?? '');
-    if (r.includes('QC') || r.includes('בקר') || r.includes('בקרת')) return props.projectMeta?.qualityControl ?? '';
-    if (r.includes('QA') || r.includes('הבטחת')) return props.projectMeta?.qualityAssurance ?? '';
-    return '';
-  };
-
-  const fillApprovalNames = () => setForm((prev: any) => ({
-    ...prev,
-    approval: {
-      ...prev.approval,
-      signatures: prev.approval.signatures.map((signature: any) => ({ ...signature, signerName: signature.signerName || signerNameForRole(signature.role) })),
-    },
-  }));
+  const fillApprovalNames = () => setForm((prev: any) => ({ ...prev, approval: withAutoApproval(prev.approval, props.currentProjectName, props.projectMeta) }));
 
   return <div>
     <h2 style={styles.sectionTitle}>בקרה מקדימה</h2>
@@ -227,7 +238,7 @@ export function PreliminarySection(props: {
       </div>
 
       <div style={styles.formGrid}>
-        <Field label="שם הפרויקט"><input style={styles.input} value={props.projectMeta?.projectName || props.currentProjectName || ''} readOnly /></Field>
+        <Field label="שם הפרויקט"><input style={styles.input} value={getFallbackProjectName(props.currentProjectName, props.projectMeta)} readOnly /></Field>
         <Field label="חברת ניהול"><input style={styles.input} value={props.projectMeta?.projectManagement || ''} readOnly /></Field>
         <Field label="קבלן ראשי"><input style={styles.input} value={props.projectMeta?.contractor || ''} readOnly /></Field>
         <Field label="חברת בקרת איכות"><input style={styles.input} value={props.projectMeta?.qualityControl || ''} readOnly /></Field>
@@ -264,21 +275,20 @@ export function PreliminarySection(props: {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              <th style={th}>פרטים</th><th style={th}>קיים / לא קיים</th><th style={th}>מספר תעודה / רישיון</th><th style={th}>תאריך פקיעה / תוקף</th><th style={th}>תאריך הפקה</th><th style={th}>מסמכים מצורפים</th><th style={th}>פעולות</th>
+              <th style={th}>פרטים</th><th style={th}>קיים / לא קיים</th><th style={th}>מספר תעודה / רישיון</th><th style={th}>תאריך פקיעה / תוקף</th><th style={th}>מסמכים מצורפים</th><th style={th}>פעולות</th>
             </tr></thead>
             <tbody>{certificates.map((row) => <tr key={row.id}>
               <td style={td}><input style={styles.input} value={row.details} onChange={(e) => setCertificateRow(row.id, { details: e.target.value })} /></td>
               <td style={td}><select style={styles.input} value={row.exists ? 'כן' : 'לא'} onChange={(e) => setCertificateRow(row.id, { exists: e.target.value === 'כן' })}><option>כן</option><option>לא</option></select></td>
               <td style={td}><input style={styles.input} value={row.certificateNo} onChange={(e) => setCertificateRow(row.id, { certificateNo: e.target.value })} placeholder="לדוגמה 25/3785" /></td>
-              <td style={td}><input style={styles.input} value={row.expiryDate} onChange={(e) => setCertificateRow(row.id, { expiryDate: e.target.value })} placeholder="YYYY-MM-DD או שנה" /></td>
-              <td style={td}><input style={styles.input} value={row.issueDate} onChange={(e) => setCertificateRow(row.id, { issueDate: e.target.value })} placeholder="YYYY-MM-DD" /></td>
+              <td style={td}><input style={styles.input} value={row.expiryDate} onChange={(e) => setCertificateRow(row.id, { expiryDate: e.target.value })} placeholder="לדוגמה 2026-05-12" /></td>
               <td style={td}>
                 <label style={{ ...styles.secondaryBtn, display: 'inline-block', cursor: 'pointer' }}>
-                  {ocrBusyRow === row.id ? 'סורק...' : 'צרף מסמך / צילום'}
-                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" style={{ display: 'none' }} disabled={ocrBusyRow === row.id} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAndScan(row.id, file); event.currentTarget.value = ''; }} />
+                  {ocrBusyRow === row.id ? 'סורק...' : 'צרף וסרוק מסמך / צילום'}
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" style={{ display: 'none' }} disabled={ocrBusyRow === row.id} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAndScan(row.id, file); event.currentTarget.value = ''; }} />
                 </label>
                 <div style={{ fontSize: 12, marginTop: 6, color: row.ocrStatus?.startsWith('שגיאת') ? '#b91c1c' : '#475569' }}>{row.ocrStatus || ''}</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>{row.attachments.map((a) => <div key={a.uploadedAt}>✅ {a.name}</div>)}</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>{row.attachments.map((a) => <div key={`${a.uploadedAt}-${a.name}`}>✅ {a.name}</div>)}</div>
               </td>
               <td style={td}><button type="button" style={styles.dangerBtn} onClick={() => removeCertificateRow(row.id)}>מחיקה</button></td>
             </tr>)}</tbody>
@@ -289,7 +299,7 @@ export function PreliminarySection(props: {
       <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
         <button type="button" style={styles.secondaryBtn} onClick={fillApprovalNames}>מלא שמות מאשרים אוטומטית</button>
       </div>
-      <ApprovalPanel value={form.approval} onChange={(approval) => setForm((prev) => ({ ...prev, approval: withAutoApproval(approval, props.projectMeta) }))} />
+      <ApprovalPanel value={withAutoApproval(form.approval, props.currentProjectName, props.projectMeta)} onChange={(approval) => setForm((prev) => ({ ...prev, approval: withAutoApproval(approval, props.currentProjectName, props.projectMeta) }))} />
 
       <div style={styles.buttonRow}>
         <button style={styles.primaryBtn} onClick={() => props.savePreliminary(props.preliminaryTab)}>{props.editingPreliminaryId ? `עדכן ${props.labelForPreliminary(props.preliminaryTab)}` : `שמור ${props.labelForPreliminary(props.preliminaryTab)}`}</button>

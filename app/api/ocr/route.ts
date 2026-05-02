@@ -14,7 +14,6 @@ type RequestBody = {
 const emptyData = {
   certificateNo: '',
   expiryDate: '',
-  issueDate: '',
   supplierName: '',
   subcontractorName: '',
   materialName: '',
@@ -33,7 +32,6 @@ const jsonSchema = {
   properties: {
     certificateNo: { type: 'string' },
     expiryDate: { type: 'string' },
-    issueDate: { type: 'string' },
     supplierName: { type: 'string' },
     subcontractorName: { type: 'string' },
     materialName: { type: 'string' },
@@ -70,73 +68,108 @@ const heMonths: Record<string, string> = {
   'יולי': '07', 'אוגוסט': '08', 'ספטמבר': '09', 'אוקטובר': '10', 'נובמבר': '11', 'דצמבר': '12',
 };
 
+function normalizeText(value: unknown) {
+  return String(value ?? '')
+    .replace(/[־–—]/g, '-')
+    .replace(/[׳`’]/g, "'")
+    .replace(/\u200f|\u200e/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeDate(value: unknown) {
-  const text = String(value ?? '').trim();
+  const text = normalizeText(value);
   if (!text) return '';
+
   const iso = text.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+
   const dmy = text.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+
   const he = text.match(/\b(\d{1,2})\s+(ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+(20\d{2})\b/);
   if (he) return `${he[3]}-${heMonths[he[2]]}-${he[1].padStart(2, '0')}`;
+
   const year = text.match(/\b(20\d{2})\b/);
   return year ? year[1] : '';
 }
 
-function extractCertificateNoFromText(text: string) {
-  const t = String(text ?? '').replace(/[־–—]/g, '-');
-  const patterns = [
-    /תעודת\s*כיול\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
-    /(?:מס['׳]?|מספר)\s*(?:תעודה|אישור|רישיון|רשיון|כיול)\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
-    /(?:תעודה|אישור|רישיון|רשיון)\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
-    /(?:מס['׳]?|מספר)\s*(?:תעודה|אישור|רישיון|רשיון|כיול)\s*[:#-]?\s*([0-9]{2,8})/i,
-    /(?:תעודת\s*כיול|רישיון|רשיון)\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{2,8})/i,
-  ];
-  for (const pattern of patterns) {
-    const match = t.match(pattern);
-    const candidate = match?.[1]?.replace(/\s+/g, '') ?? '';
-    if (candidate && !/^20\d{2}$/.test(candidate)) return candidate;
-  }
+function isBadCertificateCandidate(value: string) {
+  const text = value.trim();
+  if (!text) return true;
+  if (/^20\d{2}$/.test(text)) return true;
+  if (/^\d{1,2}[./-]\d{1,2}[./-]20\d{2}$/.test(text)) return true;
+  if (/^20\d{2}[./-]\d{1,2}[./-]\d{1,2}$/.test(text)) return true;
+  return false;
+}
+
+function cleanupCertificateCandidate(value: unknown) {
+  const text = normalizeText(value).replace(/\s*\/\s*/g, '/').replace(/[,:;]+$/g, '');
+  if (isBadCertificateCandidate(text)) return '';
+  const slash = text.match(/\b\d{1,4}\/\d{2,8}\b/);
+  if (slash && !isBadCertificateCandidate(slash[0])) return slash[0];
+  const alphaNum = text.match(/\b[A-Z]{1,5}[-/]?\d{2,10}\b/i);
+  if (alphaNum && !/^SUB[-/]?20/i.test(alphaNum[0])) return alphaNum[0];
+  const digits = text.match(/\b\d{2,8}\b/);
+  if (digits && !isBadCertificateCandidate(digits[0])) return digits[0];
   return '';
 }
 
-function extractExpiryFromText(text: string) {
-  const t = String(text ?? '').replace(/[־–—]/g, '-');
-  const patterns = [
-    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(\d{1,2}\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+20\d{2})/i,
-    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]20\d{2})/i,
-    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(20\d{2}[\/.\-]\d{1,2}[\/.\-]\d{1,2})/i,
-    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(20\d{2})/i,
-  ];
-  for (const pattern of patterns) {
-    const match = t.match(pattern);
-    const value = normalizeDate(match?.[1] ?? '');
-    if (value) return value;
-  }
+function extractCertificateNoFromText(raw: string) {
+  const text = normalizeText(raw);
+  const label = '(?:תעודת\\s*כיול|מספר\\s*תעודה|מס[\\'׳]?\\s*תעודה|מספר\\s*רישיון|מספר\\s*רשיון|מס[\\'׳]?\\s*רישיון|מס[\\'׳]?\\s*רשיון|רישיון\\s*מס[\\'׳]?|רשיון\\s*מס[\\'׳]?|מספר\\s*אישור|מס[\\'׳]?\\s*אישור|תעודה\\s*מס[\\'׳]?|אישור\\s*מס[\\'׳]?)';
+  const nearLabel = new RegExp(`${label}[^0-9A-Za-z]{0,30}([A-Z]{0,5}[-/]?\\d{1,4}\\s*\\/\\s*\\d{2,8}|[A-Z]{1,5}[-/]?\\d{2,10}|\\d{2,8})`, 'i');
+  const match = text.match(nearLabel);
+  const candidate = cleanupCertificateCandidate(match?.[1] ?? '');
+  if (candidate) return candidate;
+
+  // fallback: in calibration certificates the certificate number is often in the title line: "תעודת כיול 25/3785"
+  const calibrationTitle = text.match(/תעודת\s*כיול[^0-9]{0,20}(\d{1,4}\s*\/\s*\d{2,8})/i);
+  const calibrationCandidate = cleanupCertificateCandidate(calibrationTitle?.[1] ?? '');
+  if (calibrationCandidate) return calibrationCandidate;
+
+  // fallback: any slash certificate number that is not a date and not a year.
+  const slashCandidates = [...text.matchAll(/\b\d{1,4}\s*\/\s*\d{2,8}\b/g)]
+    .map((m) => cleanupCertificateCandidate(m[0]))
+    .filter(Boolean)
+    .filter((v) => !/^\d{1,2}\/20\d{2}$/.test(v));
+  if (slashCandidates.length) return slashCandidates[0];
+
   return '';
 }
 
-function cleanCertificateNo(value: unknown, rawText: string) {
-  const fromText = extractCertificateNoFromText(rawText);
-  if (fromText) return fromText;
-  const text = String(value ?? '').trim().replace(/\s+/g, '');
-  if (!text) return '';
-  if (/^20\d{2}$/.test(text)) return '';
-  const slash = text.match(/\d{1,4}\/\d{2,8}/);
-  if (slash) return slash[0];
-  const digits = text.match(/\d{2,8}/);
-  return digits ? digits[0] : '';
+function extractExpiryFromText(raw: string) {
+  const text = normalizeText(raw);
+  const label = '(?:תאריך\\s*)?(?:פקיעת\\s*תוקף|פקיעת|תוקף|בתוקף\\s*עד|תאריך\\s*תוקף|תוקף\\s*כיול|פקיעת\\s*תוקף\\s*כיול)';
+  const patterns = [
+    new RegExp(`${label}[^0-9]{0,40}(\\d{1,2}\\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\\s+20\\d{2})`, 'i'),
+    new RegExp(`${label}[^0-9]{0,40}(\\d{1,2}[/.\\-]\\d{1,2}[/.\\-]20\\d{2})`, 'i'),
+    new RegExp(`${label}[^0-9]{0,40}(20\\d{2}[/.\\-]\\d{1,2}[/.\\-]\\d{1,2})`, 'i'),
+    new RegExp(`${label}[^0-9]{0,40}(20\\d{2})`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const normalized = normalizeDate(match?.[1] ?? '');
+    if (normalized) return normalized;
+  }
+
+  // fallback for calibration documents: any Hebrew full date after the certificate number area.
+  const heDate = text.match(/\b\d{1,2}\s+(ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+20\d{2}\b/);
+  if (heDate) return normalizeDate(heDate[0]);
+  return '';
 }
 
-function cleanParsedData(parsed: any, sourceText: string) {
-  const rawText = String(parsed?.rawText || sourceText || '');
+function cleanParsedData(parsed: any, responseText: string) {
+  const combinedText = [parsed?.rawText, parsed?.certificateNo, parsed?.expiryDate, responseText].filter(Boolean).join(' ');
+  const rawText = normalizeText(combinedText);
+  const certificateNo = extractCertificateNoFromText(rawText) || cleanupCertificateCandidate(parsed?.certificateNo);
+  const expiryDate = normalizeDate(parsed?.expiryDate) || extractExpiryFromText(rawText);
   return {
     ...emptyData,
     ...parsed,
     rawText,
-    certificateNo: cleanCertificateNo(parsed?.certificateNo, rawText),
-    expiryDate: normalizeDate(parsed?.expiryDate) || extractExpiryFromText(rawText),
-    issueDate: normalizeDate(parsed?.issueDate),
+    certificateNo,
+    expiryDate,
     confidence: typeof parsed?.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0,
   };
 }
@@ -157,28 +190,30 @@ export async function POST(req: NextRequest) {
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
 
-    const prompt = `אתה OCR מקצועי למסמכי בקרת איכות בעברית/אנגלית.
-קרא את המסמך המצורף ותחזיר JSON בלבד לפי הסכמה.
-סוג רשומה במערכת: ${subtype}. סוג מסמך/שורת תעודה במערכת: ${documentLabel}.
+    const prompt = `אתה סורק OCR מקצועי למסמכי בקרת איכות בעברית/אנגלית.
+קרא את הקובץ המצורף עצמו ואל תסתמך על שם הקובץ.
+סוג רשומה במערכת: ${subtype}. שורת המסמך במערכת: ${documentLabel}.
 
-חובה לסרוק את גוף המסמך עצמו, לא להסתמך על שם הקובץ.
-חובה להחזיר גם rawText: טקסט קצר מהמסמך הכולל את השורות סביב מספר התעודה והתוקף.
+החזר JSON בלבד.
+חובה להחזיר rawText קצר הכולל את השורות המדויקות במסמך שבהן מופיעים מספר התעודה/רישיון ותוקף/פקיעה.
 
-כללים קריטיים:
-1. certificateNo = מספר תעודה / רישיון / אישור / תעודת כיול כפי שמופיע במסמך.
-   דוגמא: אם כתוב "תעודת כיול מס׳ 25/3785" החזר certificateNo="25/3785".
-   אל תחזיר שנה כמו 2025/2026 בתור certificateNo.
-2. expiryDate = תאריך פקיעה/תוקף בלבד.
-   דוגמא: "12 מאי 2026" יוחזר expiryDate="2026-05-12".
-   אם יש רק שנה, החזר "2026".
-3. issueDate = תאריך הפקה/בדיקה אם קיים.
-4. אל תנחש. אם אין ערך ברור, החזר מחרוזת ריקה.
-5. אל תיצור מספרי אישור פנימיים כמו SUB-2026. המספור הפנימי נעשה במערכת בלבד.
-`;
+שדות:
+certificateNo = מספר תעודה / מספר רישיון / מספר אישור / מספר תעודת כיול מתוך המסמך.
+expiryDate = תאריך פקיעה/תוקף מתוך המסמך.
+supplierName / subcontractorName / materialName / suppliedMaterial / branch / contactPhone אם קיימים במסמך.
+
+דוגמא מחייבת:
+אם במסמך כתוב בכותרת: "תעודת כיול מס׳ 25/3785" אז certificateNo חייב להיות "25/3785".
+אם במסמך כתוב: "תאריך פקיעת תוקף כיול 12 מאי 2026" אז expiryDate חייב להיות "2026-05-12".
+
+איסורים:
+אל תחזיר 2025 או 2026 בתור certificateNo.
+אל תיצור מספר פנימי כגון SUB-2026.
+אל תנחש. אם לא קיים ערך ברור במסמך, החזר מחרוזת ריקה.`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
-      content.push({ type: 'input_image', image_url: dataUrl });
+      content.push({ type: 'input_image', image_url: dataUrl, detail: 'high' });
     } else {
       content.push({ type: 'input_file', filename: fileName, file_data: getBase64(dataUrl) });
     }
@@ -187,7 +222,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+        model: process.env.OPENAI_OCR_MODEL || 'gpt-4o',
         input: [{ role: 'user', content }],
         temperature: 0,
         text: { format: { type: 'json_schema', name: 'preliminary_ocr_extract', schema: jsonSchema, strict: true } },
@@ -202,7 +237,8 @@ export async function POST(req: NextRequest) {
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = safeJsonParse(outputText) ?? emptyData;
-    return NextResponse.json({ data: cleanParsedData(parsed, outputText) });
+    const data = cleanParsedData(parsed, outputText);
+    return NextResponse.json({ data });
   } catch (error: any) {
     console.error('OCR route failed', error);
     return NextResponse.json({ error: error?.message || 'OCR route failed' }, { status: 500 });
