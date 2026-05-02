@@ -639,26 +639,46 @@ const approvalSignedAt = (record: any) => {
   return String(signed?.signedAt ?? "").trim();
 };
 
-const attachedFilesText = (record: any, row: ConcentrationRow) => {
-  const candidates = [
-    record?.documents,
-    record?.images,
-    record?.attachments,
-    record?.files,
-    record?.supplier?.documents,
-    record?.subcontractor?.documents,
-    record?.material?.documents,
-  ];
-  const names: string[] = [];
-  candidates.forEach((collection) => {
-    if (!Array.isArray(collection)) return;
-    collection.forEach((file: any) => {
-      const name = String(file?.name ?? file?.fileName ?? file?.attachmentName ?? "").trim();
-      if (name) names.push(name);
-    });
+const collectAttachmentNames = (value: any, names: string[], depth = 0) => {
+  if (!value || depth > 5) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectAttachmentNames(item, names, depth + 1));
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const name = String(
+    value.name ??
+    value.fileName ??
+    value.attachmentName ??
+    value.originalName ??
+    value.title ??
+    ""
+  ).trim();
+
+  const looksLikeFile = Boolean(
+    value.dataUrl ||
+    value.url ||
+    value.path ||
+    value.type ||
+    value.uploadedAt ||
+    value.attachedAt ||
+    value.attachmentName
+  );
+
+  if (name && looksLikeFile) names.push(name);
+
+  Object.entries(value).forEach(([key, nested]) => {
+    if (["approval", "signature", "signatures"].includes(key)) return;
+    collectAttachmentNames(nested, names, depth + 1);
   });
+};
+
+const attachedFilesText = (record: any, row: ConcentrationRow) => {
+  const names: string[] = [];
+  collectAttachmentNames(record, names);
   if (row.fileName) names.push(row.fileName);
-  return Array.from(new Set(names)).join(" | ");
+  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean))).join(" | ");
 };
 
 const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, index: number): Record<string, string | number> => {
@@ -673,7 +693,7 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
   if (template.id === "contractors") {
     return {
       serial: index,
-      approvalNo: row.certificateNo,
+      approvalNo: index,
       subcontractorName: firstNonEmpty(subcontractor.subcontractorName, row.contractor, row.title),
       activityField: firstNonEmpty(subcontractor.field, row.itemDescription),
       contactPhone: String(subcontractor.contactPhone ?? ""),
@@ -872,6 +892,21 @@ const getHeaderBottomRow = (headers: CellInfo[]) => {
 };
 
 const renameHeaderCell = (doc: Document, sheetData: Element, sharedStrings: string[], aliases: string[], newText: string) => {
+  const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
+  let changed = false;
+
+  // קודם מנסים לשנות את התא המקורי שבו כתובה הכותרת, לא תא משנה שמקבל טקסט ממיזוג.
+  cells.forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    const text = cellText(cell, sharedStrings);
+    if (!ref || !headerMatches(text, aliases)) return;
+    setCell(doc, sheetData, ref, newText);
+    changed = true;
+  });
+
+  if (changed) return;
+
+  // גיבוי: אם הכותרת הגיעה מתא ממוזג, נאתר את תא הכותרת לפי headers.
   const headers = getHeaderCells(sheetData, sharedStrings);
   const target = headers.find((header) => headerMatches(header.text, aliases));
   if (!target) return;
@@ -897,8 +932,10 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
     const approvalDateCols = cols(["תאריך אישור"]);
     const approverCols = cols(["שם המאשר"]);
     return {
-      serial: col(["מס סידורי", "מס' סידורי", "אישור מס", "מס"]),
-      approvalNo: col(["אישור מס", "מס אישור"], true),
+      // בתבנית הקבלנים העמודה הימנית "אישור מס" משמשת בפועל כמספר סידורי.
+      // לכן לא כותבים serial בנפרד, כדי שלא תהיה כפילות/דריסה.
+      serial: 0,
+      approvalNo: col(["אישור מס", "מס אישור", "מס סידורי", "מס' סידורי"], true),
       subcontractorName: col(["שם קבלן משנה", "שם קבלן"]),
       activityField: col(["תחום פעילות", "תחום"]),
       contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
