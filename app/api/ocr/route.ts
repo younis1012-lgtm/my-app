@@ -60,12 +60,20 @@ function isImage(mimeType: string) {
   return mimeType.startsWith('image/');
 }
 
+function getBase64(dataUrl: string) {
+  const marker = ';base64,';
+  const idx = dataUrl.indexOf(marker);
+  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl;
+}
+
 const isYearOnly = (value: unknown) => /^(19|20)\d{2}$/.test(String(value ?? '').trim());
 const isDateLikeNumber = (value: string) => /^20\d{6}$/.test(value) || /^\d{8}$/.test(value);
 
 function cleanCertificateNo(value: unknown) {
-  const raw = String(value ?? '').trim();
+  const raw = String(value ?? '').trim().replace(/[‎‏]/g, '');
   if (!raw || isYearOnly(raw)) return '';
+  const slash = raw.match(/\b(\d{1,4}\s*[\/-]\s*\d{2,8})\b/);
+  if (slash) return slash[1].replace(/\s+/g, '');
   const numbers = Array.from(raw.matchAll(/\d{2,8}/g))
     .map((m) => m[0])
     .filter((n) => !isYearOnly(n) && !isDateLikeNumber(n));
@@ -73,10 +81,13 @@ function cleanCertificateNo(value: unknown) {
 }
 
 function normalizeDate(value: unknown) {
-  const raw = String(value ?? '').trim();
+  const raw = String(value ?? '').trim().replace(/[‎‏]/g, '');
   if (!raw) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   if (/^(19|20)\d{2}$/.test(raw)) return `${raw}-12-31`;
+  const months: Record<string, string> = { ינואר:'01', פברואר:'02', מרץ:'03', מרס:'03', אפריל:'04', מאי:'05', יוני:'06', יולי:'07', אוגוסט:'08', ספטמבר:'09', אוקטובר:'10', נובמבר:'11', דצמבר:'12' };
+  const hm = raw.match(/(\d{1,2})\s+([א-ת]+)\s+((?:19|20)\d{2})/);
+  if (hm && months[hm[2]]) return `${hm[3]}-${months[hm[2]]}-${hm[1].padStart(2, '0')}`;
   const dm = raw.match(/(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)?\d{2})/);
   if (dm) {
     const year = dm[3].length === 2 ? `20${dm[3]}` : dm[3];
@@ -84,7 +95,7 @@ function normalizeDate(value: unknown) {
   }
   const ym = raw.match(/((?:19|20)\d{2})[./-](\d{1,2})[./-](\d{1,2})/);
   if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}-${ym[3].padStart(2, '0')}`;
-  const year = raw.match(/(?:תוקף|בתוקף|עד|valid|expiry|expires)[^\d]{0,20}((?:19|20)\d{2})/i);
+  const year = raw.match(/(?:תוקף|בתוקף|פקיעת|עד|valid|expiry|expires)[^\d]{0,30}((?:19|20)\d{2})/i);
   if (year) return `${year[1]}-12-31`;
   return '';
 }
@@ -93,19 +104,20 @@ function extractCertificateCandidatesFromText(text: string) {
   const normalized = String(text ?? '')
     .replace(/[׳’`]/g, "'")
     .replace(/[״“”]/g, '"')
+    .replace(/[\u200e\u200f]/g, '')
     .replace(/\s+/g, ' ');
+  const numberPattern = String.raw`(\d{1,4}\s*[\/-]\s*\d{2,8}|\d{2,8})`;
   const patterns = [
-    /(?:מספר\s*)?(?:ריש[ייו]ון|רשיון)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:ריש[ייו]ון|רשיון)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:מס['"׳״]?|מספר)\s*(?:ריש[ייו]ון|רשיון|תעודה|אישור)\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:תעודה|אישור)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:License|Licence|Certificate|Approval)\s*(?:No\.?|Number|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
-    /(?:ר\.\s*מ\.|רמ)\s*[:#\-]?\s*(\d{2,8})/gi,
+    new RegExp(String.raw`(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)[^\d]{0,40}(?:מס['"׳״]?|מספר|No\.?|#|:)?[^\d]{0,15}` + numberPattern, 'gi'),
+    new RegExp(String.raw`(?:מס['"׳״]?|מספר)[^\d]{0,20}(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)[^\d]{0,20}` + numberPattern, 'gi'),
+    new RegExp(numberPattern + String.raw`[^\n]{0,30}(?:מס['"׳״]?|מספר)?[^\n]{0,20}(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)`, 'gi'),
+    new RegExp(String.raw`(?:License|Licence|Certificate|Calibration|Approval)[^\d]{0,40}(?:No\.?|Number|#|:)?[^\d]{0,15}` + numberPattern, 'gi'),
   ];
   const found: string[] = [];
   for (const pattern of patterns) {
     for (const match of normalized.matchAll(pattern)) {
-      const cleaned = cleanCertificateNo(match[1]);
+      const candidate = match[1] ?? match[2] ?? match[0];
+      const cleaned = cleanCertificateNo(candidate);
       if (cleaned && !found.includes(cleaned)) found.push(cleaned);
     }
   }
@@ -113,10 +125,11 @@ function extractCertificateCandidatesFromText(text: string) {
 }
 
 function extractExpiryFromText(text: string) {
-  const normalized = String(text ?? '').replace(/\s+/g, ' ');
+  const normalized = String(text ?? '').replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ');
+  const datePattern = String.raw`(\d{1,2}[./-]\d{1,2}[./-](?:19|20)?\d{2}|\d{1,2}\s+[א-ת]+\s+(?:19|20)\d{2}|(?:19|20)\d{2})`;
   const patterns = [
-    /(?:תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|פג\s*תוקף|valid\s*until|expiry|expires)[^\d]{0,30}(\d{1,2}[./-]\d{1,2}[./-](?:19|20)?\d{2})/i,
-    /(?:תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|valid\s*until|expiry|expires)[^\d]{0,30}((?:19|20)\d{2})/i,
+    new RegExp(String.raw`(?:תאריך\s*פקיעת\s*תוקף\s*כיול|פקיעת\s*תוקף|תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|valid\s*until|expiry|expires)[^\d]{0,40}` + datePattern, 'i'),
+    new RegExp(datePattern + String.raw`[^\n]{0,40}(?:תאריך\s*פקיעת\s*תוקף\s*כיול|פקיעת\s*תוקף|תוקף|בתוקף|valid\s*until|expiry|expires)`, 'i'),
   ];
   for (const pattern of patterns) {
     const m = normalized.match(pattern);
@@ -194,18 +207,18 @@ export async function POST(req: NextRequest) {
 
 כללים קריטיים:
 1. certificateNo הוא מספר תעודה / מספר רישיון / מספר אישור בלבד.
-2. אם מופיע במסמך "מספר רישיון 947", "רשיון מס' 947", או "רישיון מודד מס' 947" אז certificateNo חייב להיות "947".
+2. אם מופיע במסמך "תעודת כיול מס׳ 25/3785" אז certificateNo חייב להיות "25/3785". אם מופיע "מספר רישיון 947", "רשיון מס' 947", או "רישיון מודד מס' 947" אז certificateNo חייב להיות "947".
 3. לעולם אל תחזיר שנת תוקף כמו 2025 או 2026 בתור certificateNo.
-4. expiryDate הוא תוקף בלבד. אם יש רק שנה, החזר סוף שנה בפורמט YYYY-12-31.
+4. expiryDate הוא תוקף בלבד. אם מופיע "תאריך פקיעת תוקף כיול 12 מאי 2026" אז expiryDate חייב להיות "2026-05-12". אם יש רק שנה, החזר סוף שנה בפורמט YYYY-12-31.
 5. certificateNoCandidates: החזר את כל המספרים האפשריים שמופיעים ליד: מספר רישיון, רשיון, רישיון מס', מספר תעודה, מספר אישור, License No, Certificate No.
-6. rawRelevantText: העתק את השורות הרלוונטיות שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף.
+6. rawRelevantText: העתק את השורות הרלוונטיות המדויקות שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף, כולל שורות בטבלה.
 7. אם אין ערך ברור, החזר מחרוזת ריקה. אל תנחש.`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
       content.push({ type: 'input_image', image_url: dataUrl });
     } else {
-      content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });
+      content.push({ type: 'input_file', filename: fileName, file_data: getBase64(dataUrl) });
     }
 
     const response = await fetch('https://api.openai.com/v1/responses', {

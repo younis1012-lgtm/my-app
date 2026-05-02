@@ -149,24 +149,34 @@ function normalizeApprovalRows(value: unknown): ApprovalTableRow[] {
 }
 
 const isYearLike = (value: unknown) => /^(19|20)\d{2}$/.test(String(value ?? '').trim());
+const hebrewMonths: Record<string, string> = {
+  'ינואר': '01', 'פברואר': '02', 'מרץ': '03', 'מרס': '03', 'אפריל': '04', 'מאי': '05', 'יוני': '06',
+  'יולי': '07', 'אוגוסט': '08', 'ספטמבר': '09', 'אוקטובר': '10', 'נובמבר': '11', 'דצמבר': '12',
+};
 const cleanCertificateNo = (value: unknown) => {
-  const raw = String(value ?? '').trim();
+  const raw = String(value ?? '').trim().replace(/[\u200e\u200f]/g, '');
   if (!raw || isYearLike(raw)) return '';
+  const slash = raw.match(/\b(\d{1,4}\s*[\/-]\s*\d{2,8})\b/);
+  if (slash) return slash[1].replace(/\s+/g, '');
   const numbers = Array.from(raw.matchAll(/\d{2,8}/g)).map((m) => m[0]).filter((n) => !isYearLike(n) && !/^20\d{6}$/.test(n));
   return numbers[0] ?? '';
 };
 const extractCertificateNo = (fileName: string) => {
   // Fallback only: never treat validity years like 2025/2026 as certificate/license numbers.
   const clean = fileName.replace(/\.[^.]+$/, '');
+  const slash = clean.match(/\b(\d{1,4}\s*[\/-]\s*\d{2,8})\b/);
+  if (slash) return slash[1].replace(/\s+/g, '');
   const candidates = Array.from(clean.matchAll(/\d{2,8}/g)).map((m) => m[0]);
   const filtered = candidates.filter((value) => !isYearLike(value) && !/^20\d{6}$/.test(value));
   return filtered[0] ?? '';
 };
 const normalizeDateForInput = (value: unknown) => {
-  const raw = String(value ?? '').trim();
+  const raw = String(value ?? '').trim().replace(/[\u200e\u200f]/g, '');
   if (!raw) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   if (/^(19|20)\d{2}$/.test(raw)) return `${raw}-12-31`;
+  const heb = raw.match(/(\d{1,2})\s+([א-ת]+)\s+((?:19|20)\d{2})/);
+  if (heb && hebrewMonths[heb[2]]) return `${heb[3]}-${hebrewMonths[heb[2]]}-${heb[1].padStart(2, '0')}`;
   const m = raw.match(/(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)?\d{2})/);
   if (m) {
     const year = m[3].length === 2 ? `20${m[3]}` : m[3];
@@ -192,9 +202,9 @@ const extractNumberFromTitle = (title: unknown) => {
 };
 
 const approvalPrefix = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'SUP' : subtype === 'subcontractors' ? 'SUB' : 'MAT';
-const createAutoApprovalNo = (subtype: PreliminaryTab) => `${approvalPrefix(subtype)}-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
-const approvalNoForForm = (form: PreliminaryForm, data: any, subtype?: PreliminaryTab) => {
-  return String(data?.approvalNo ?? '').trim() || extractNumberFromTitle((form as any).title) || (subtype ? createAutoApprovalNo(subtype) : '');
+const createAutoApprovalNo = (_subtype: PreliminaryTab) => '';
+const approvalNoForForm = (form: PreliminaryForm, data: any, _subtype?: PreliminaryTab) => {
+  return String(data?.approvalNo ?? '').trim() || extractNumberFromTitle((form as any).title) || '';
 };
 
 const isQcRole = (role: unknown) => /בקרת\s*איכות|\bQC\b/i.test(String(role ?? ''));
@@ -255,7 +265,7 @@ export function PreliminarySection(props: Props) {
         qualityControlCompany: previous.qualityControlCompany || autoQuality,
         certificates: normalizeCertificates(previous.certificates),
         approvalsTable: withAutomaticApprovalNames(normalizeApprovalRows(previous.approvalsTable), props),
-        approvalNo: previous.approvalNo || extractNumberFromTitle(prev.title) || createAutoApprovalNo(props.preliminaryTab),
+        approvalNo: previous.approvalNo || extractNumberFromTitle(prev.title) || '',
       };
       if (props.preliminaryTab === 'subcontractors') next.subcontractorName = previous.subcontractorName || autoContractor;
       const nextApproval = withAutomaticApprovalFlowNames(prev.approval, props);
@@ -282,8 +292,8 @@ export function PreliminarySection(props: Props) {
     const extracted = await extractPreliminaryDataFromFile(file.name, file.type, attachment.dataUrl, props.preliminaryTab);
     const ocrCertificateNo = cleanCertificateNo(extracted.certificateNo);
     const candidateNo = Array.isArray(extracted.certificateNoCandidates) ? extracted.certificateNoCandidates.map(cleanCertificateNo).find(Boolean) : '';
-    const certificateNo = row.certificateNo || ocrCertificateNo || candidateNo || '';
-    const expiryDate = row.expiryDate || normalizeDateForInput(extracted.expiryDate) || normalizeDateForInput(file.name);
+    const certificateNo = row.certificateNo || ocrCertificateNo || candidateNo || extractCertificateNo(file.name) || '';
+    const expiryDate = row.expiryDate || normalizeDateForInput(extracted.expiryDate) || normalizeDateForInput(extracted.rawRelevantText) || normalizeDateForInput(file.name);
     const details = row.details || cleanOcrValue(extracted.details) || cleanOcrValue(extracted.materialName) || cleanOcrValue(extracted.suppliedMaterial) || file.name.replace(/\.[^.]+$/, '');
 
     updateCertificate(index, {
@@ -295,7 +305,7 @@ export function PreliminarySection(props: Props) {
     });
 
     const entityPatch: Record<string, string> = {};
-    if (certificateNo && !data.approvalNo) entityPatch.approvalNo = certificateNo;
+    // מספר אישור הוא מספר הטופס הסידורי, ולא מספר התעודה/הרישיון.
     if (cleanOcrValue(extracted.branch) && !data.branch) entityPatch.branch = cleanOcrValue(extracted.branch);
     if (cleanOcrValue(extracted.contactPhone) && !data.contactPhone) entityPatch.contactPhone = cleanOcrValue(extracted.contactPhone);
 
