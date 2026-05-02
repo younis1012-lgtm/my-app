@@ -7,11 +7,10 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | string;
+  subtype?: 'suppliers' | 'subcontractors' | 'materials';
 };
 
 const emptyData = {
-  documentType: '',
   certificateNo: '',
   expiryDate: '',
   issueDate: '',
@@ -30,7 +29,6 @@ const jsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    documentType: { type: 'string' },
     certificateNo: { type: 'string' },
     expiryDate: { type: 'string' },
     issueDate: { type: 'string' },
@@ -70,8 +68,8 @@ function normalizeHebrewDate(value: string) {
   if (!raw) return '';
 
   const months: Record<string, string> = {
-    ינואר: '01', פברואר: '02', מרץ: '03', אפריל: '04', מאי: '05', יוני: '06',
-    יולי: '07', אוגוסט: '08', ספטמבר: '09', אוקטובר: '10', נובמבר: '11', דצמבר: '12',
+    'ינואר': '01', 'פברואר': '02', 'מרץ': '03', 'אפריל': '04', 'מאי': '05', 'יוני': '06',
+    'יולי': '07', 'אוגוסט': '08', 'ספטמבר': '09', 'אוקטובר': '10', 'נובמבר': '11', 'דצמבר': '12',
   };
 
   const iso = raw.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
@@ -104,6 +102,47 @@ function cleanCertificateNo(value: string) {
   return candidate;
 }
 
+function extractFromText(text: string, fileName: string) {
+  const combined = `${text || ''}\n${fileName || ''}`;
+  const labels = [
+    'מספר תעודה', 'מספר רישיון', 'מספר רשיון', 'מספר אישור', 'תעודת כיול מס', 'תעודה מס', 'רישיון מס', 'רשיון מס', 'מס׳', "מס'"
+  ];
+
+  let certificateNo = '';
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`${escaped}\\s*[:：]?\\s*([A-Za-z0-9]+(?:[\\/-][A-Za-z0-9]+)*)`, 'i');
+    const match = combined.match(re);
+    const candidate = cleanCertificateNo(match?.[1] || '');
+    if (candidate) {
+      certificateNo = candidate;
+      break;
+    }
+  }
+
+  if (!certificateNo) {
+    const calibration = combined.match(/תעודת\s*כיול\s*(?:מס(?:פר)?|מס׳|מס')?\s*[:：]?\s*([0-9]{1,4}\/[0-9]{1,6})/);
+    certificateNo = cleanCertificateNo(calibration?.[1] || '');
+  }
+
+  let expiryDate = '';
+  const expiryPatterns = [
+    /תאריך\s*(?:פקיעת|פג\s*תוקף|תוקף|פקיעה)[^0-9א-ת]*(\d{1,2}\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+20\d{2})/,
+    /תאריך\s*(?:פקיעת|פג\s*תוקף|תוקף|פקיעה)[^0-9]*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]20\d{2})/,
+    /(?:בתוקף\s*עד|תוקף\s*עד|פג\s*תוקף)[^0-9א-ת]*(\d{1,2}\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+20\d{2})/,
+    /(?:בתוקף\s*עד|תוקף\s*עד|פג\s*תוקף)[^0-9]*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]20\d{2})/,
+  ];
+  for (const re of expiryPatterns) {
+    const match = combined.match(re);
+    if (match?.[1]) {
+      expiryDate = normalizeHebrewDate(match[1]);
+      break;
+    }
+  }
+
+  return { certificateNo, expiryDate };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -115,28 +154,19 @@ export async function POST(req: NextRequest) {
     const fileName = String(body.fileName ?? 'document');
     const mimeType = String(body.mimeType ?? 'application/octet-stream');
     const dataUrl = String(body.dataUrl ?? '');
+    const subtype = body.subtype ?? 'suppliers';
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
 
-    const prompt = `אתה מנגנון OCR כללי למערכת בקרת איכות.
-קרא רק את הקובץ המצורף הנוכחי. אל תשתמש בשם השורה במערכת, אל תשתמש במסמכים קודמים, ואל תנחש.
-החזר JSON בלבד לפי הסכמה.
-
-מטרת החילוץ:
-1. documentType: סוג המסמך כפי שמופיע במסמך עצמו, למשל: תעודת כיול, רישיון מודד, תעודת מעבדה, אישור ספק, אישור קבלן, תעודת חומר, תעודת בדיקה.
-2. certificateNo: המספר המרכזי של המסמך הנוכחי בלבד. זה יכול להיות מספר תעודה / רישיון / אישור / בדיקה. דוגמאות תקינות: 25/3785, 947, Z70091, 345357.
-3. expiryDate: תאריך תוקף / פקיעת תוקף / בתוקף עד. החזר בפורמט YYYY-MM-DD. אם אין תאריך ברור — מחרוזת ריקה.
-4. issueDate: תאריך הנפקה רק אם ברור, אחרת ריק.
-5. שמות ספק/קבלן/חומר אם קיימים במסמך.
-
-כללים קריטיים:
-- אם המסמך הוא תעודת כיול מס׳ 25/3785 — certificateNo חייב להיות 25/3785, ולא 947 ולא 2026.
-- אם המסמך הוא רישיון מודד ומופיע בו מספר רישיון 947 — certificateNo חייב להיות 947.
-- אם יש מספרים רבים במסמך, בחר את המספר הצמוד לכותרת המסמך או לשדה "מספר", "מס׳", "מספר תעודה", "מספר רישיון", "מספר אישור".
-- אל תחזיר שנה בלבד כמו 2025 או 2026 בתור certificateNo.
-- אל תחזיר מספר פנימי של המערכת כמו SUB-2026-...
-- אל תחזיר מספרים מטבלאות ציוד/סדרות אלא אם הם המספר הראשי של המסמך.
-- אם אין ביטחון, השאר ריק וכתוב notes.`;
+    const prompt = `אתה OCR מקצועי למסמכי בקרת איכות בפרויקטי תשתיות בישראל.
+קרא את הקובץ המצורף חזותית והחזר JSON בלבד.
+סוג טופס: ${subtype}.
+חובה לחלץ מהמסמך עצמו, לא משם הקובץ, אלא אם אין מידע במסמך.
+certificateNo = מספר התעודה / מספר הרישיון / מספר האישור שמופיע במסמך. דוגמאות תקינות: 25/3785, 947, Z70091.
+expiryDate = תאריך תוקף / פקיעת תוקף. אם מופיע "12 מאי 2026" החזר 2026-05-12.
+issueDate אינו חשוב, החזר ריק אם לא ברור.
+אל תחזיר מספר אישור פנימי כמו SUB-2026-83698. אל תחזיר שנה בלבד כמו 2026 בתור certificateNo.
+אם יש טבלה, קרא את השורות הסמוכות לכותרות: מספר תעודה, תעודת כיול מס׳, תאריך פקיעת תוקף כיול, תוקף, בתוקף עד.`;
 
     const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
     const content: any[] = [{ type: 'input_text', text: prompt }];
@@ -159,7 +189,7 @@ export async function POST(req: NextRequest) {
         text: {
           format: {
             type: 'json_schema',
-            name: 'generic_document_ocr_extract',
+            name: 'preliminary_ocr_extract',
             schema: jsonSchema,
             strict: true,
           },
@@ -175,11 +205,11 @@ export async function POST(req: NextRequest) {
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = { ...emptyData, ...(safeJsonParse(outputText) ?? {}) };
+    const fallback = extractFromText(`${outputText}\n${parsed.details || ''}\n${parsed.notes || ''}`, fileName);
 
-    parsed.certificateNo = cleanCertificateNo(parsed.certificateNo);
-    parsed.expiryDate = normalizeHebrewDate(parsed.expiryDate);
-    parsed.issueDate = normalizeHebrewDate(parsed.issueDate);
-    parsed.confidence = Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0;
+    parsed.certificateNo = cleanCertificateNo(parsed.certificateNo) || fallback.certificateNo;
+    parsed.expiryDate = normalizeHebrewDate(parsed.expiryDate) || fallback.expiryDate;
+    parsed.issueDate = '';
 
     return NextResponse.json({ data: parsed });
   } catch (error: any) {
