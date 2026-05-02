@@ -3,34 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-type PreliminarySubtype = 'suppliers' | 'subcontractors' | 'materials';
-
 type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: PreliminarySubtype;
+  subtype?: 'suppliers' | 'subcontractors' | 'materials';
 };
 
-type OcrData = {
-  certificateNo: string;
-  expiryDate: string;
-  issueDate: string;
-  supplierName: string;
-  subcontractorName: string;
-  materialName: string;
-  suppliedMaterial: string;
-  branch: string;
-  contactPhone: string;
-  details: string;
-  confidence: number;
-  notes: string;
-  certificateNoCandidates: string[];
-  expiryDateCandidates: string[];
-  extractedText: string;
-};
-
-const emptyData: OcrData = {
+const emptyData = {
   certificateNo: '',
   expiryDate: '',
   issueDate: '',
@@ -43,9 +23,8 @@ const emptyData: OcrData = {
   details: '',
   confidence: 0,
   notes: '',
-  certificateNoCandidates: [],
-  expiryDateCandidates: [],
-  extractedText: '',
+  certificateNoCandidates: [] as string[],
+  rawRelevantText: '',
 };
 
 const jsonSchema = {
@@ -65,17 +44,10 @@ const jsonSchema = {
     confidence: { type: 'number' },
     notes: { type: 'string' },
     certificateNoCandidates: { type: 'array', items: { type: 'string' } },
-    expiryDateCandidates: { type: 'array', items: { type: 'string' } },
-    extractedText: { type: 'string' },
+    rawRelevantText: { type: 'string' },
   },
   required: Object.keys(emptyData),
 };
-
-function getBase64(dataUrl: string) {
-  const marker = ';base64,';
-  const idx = dataUrl.indexOf(marker);
-  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl;
-}
 
 function safeJsonParse(text: string) {
   try { return JSON.parse(text); } catch {}
@@ -88,137 +60,81 @@ function isImage(mimeType: string) {
   return mimeType.startsWith('image/');
 }
 
-function uniqueStrings(values: unknown[]) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  values.forEach((value) => {
-    const text = String(value ?? '').trim();
-    if (!text || seen.has(text)) return;
-    seen.add(text);
-    result.push(text);
-  });
-  return result;
-}
+const isYearOnly = (value: unknown) => /^(19|20)\d{2}$/.test(String(value ?? '').trim());
+const isDateLikeNumber = (value: string) => /^20\d{6}$/.test(value) || /^\d{8}$/.test(value);
 
-function normalizeDigits(value: unknown) {
-  return String(value ?? '')
-    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-    .replace(/[０-９]/g, (d) => String('０１２３４５６７８۹'.indexOf(d)))
-    .trim();
+function cleanCertificateNo(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw || isYearOnly(raw)) return '';
+  const numbers = Array.from(raw.matchAll(/\d{2,8}/g))
+    .map((m) => m[0])
+    .filter((n) => !isYearOnly(n) && !isDateLikeNumber(n));
+  return numbers[0] ?? '';
 }
 
 function normalizeDate(value: unknown) {
-  const raw = normalizeDigits(value).trim();
+  const raw = String(value ?? '').trim();
   if (!raw) return '';
-
-  const iso = raw.match(/\b(20\d{2}|19\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-
-  const dmy = raw.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2}|19\d{2})\b/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
-
-  const year = raw.match(/\b(20\d{2}|19\d{2})\b/);
-  return year?.[1] ?? raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^(19|20)\d{2}$/.test(raw)) return `${raw}-12-31`;
+  const dm = raw.match(/(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)?\d{2})/);
+  if (dm) {
+    const year = dm[3].length === 2 ? `20${dm[3]}` : dm[3];
+    return `${year}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
+  }
+  const ym = raw.match(/((?:19|20)\d{2})[./-](\d{1,2})[./-](\d{1,2})/);
+  if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}-${ym[3].padStart(2, '0')}`;
+  return '';
 }
 
-function isLikelyYearOnly(value: unknown) {
-  return /^(19|20)\d{2}$/.test(normalizeDigits(value));
-}
-
-function cleanCertificateNo(value: unknown) {
-  const raw = normalizeDigits(value)
-    .replace(/מספר|מס׳|מס'|רישיון|רשיון|תעודה|אישור|license|licence|certificate|no\.?|number/gi, ' ')
-    .replace(/[^0-9A-Za-z\-/]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const numbers = raw.match(/\b\d{1,8}\b/g) ?? [];
-  const candidate = numbers.find((num) => !isLikelyYearOnly(num)) ?? '';
-  return candidate;
-}
-
-function extractCertificateCandidatesFromText(text: unknown) {
-  const source = normalizeDigits(text);
+function extractCertificateCandidatesFromText(text: string) {
+  const normalized = String(text ?? '').replace(/[׳’`]/g, "'").replace(/[״“”]/g, '"');
   const patterns = [
-    /(?:מספר\s*)?(?:רישיון|רשיון)\s*(?:מס[׳']?|מספר|no\.?|number)?\s*[:#\-]?\s*(\d{1,8})/gi,
-    /(?:מספר\s*)?(?:תעודה|אישור)\s*(?:מס[׳']?|מספר|no\.?|number)?\s*[:#\-]?\s*(\d{1,8})/gi,
-    /(?:license|licence|certificate|approval)\s*(?:no\.?|number)?\s*[:#\-]?\s*(\d{1,8})/gi,
-  ];
-
-  const found: string[] = [];
-  patterns.forEach((pattern) => {
-    for (const match of source.matchAll(pattern)) {
-      const candidate = cleanCertificateNo(match[1]);
-      if (candidate && !isLikelyYearOnly(candidate)) found.push(candidate);
-    }
-  });
-  return uniqueStrings(found);
-}
-
-function extractExpiryCandidatesFromText(text: unknown) {
-  const source = normalizeDigits(text);
-  const patterns = [
-    /(?:תוקף|בתוקף|valid\s*until|expiry|expiration)\s*[:#\-]?\s*(\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2})/gi,
-    /(?:תוקף|בתוקף|valid\s*until|expiry|expiration)\s*[:#\-]?\s*((?:19|20)\d{2}[./-]\d{1,2}[./-]\d{1,2})/gi,
-    /(?:תוקף|בתוקף|valid\s*until|expiry|expiration)\s*[:#\-]?\s*((?:19|20)\d{2})/gi,
+    /(?:מספר\s*)?(?:ריש[ייו]ון|רשיון)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:מספר\s*)?(?:תעודה|אישור)\s*(?:מס['"׳״]?|מספר|No\.?|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:License|Licence|Certificate|Approval)\s*(?:No\.?|Number|#|:)?\s*[:#\-]?\s*(\d{2,8})/gi,
+    /(?:ר\.\s*מ\.|רמ)\s*[:#\-]?\s*(\d{2,8})/gi,
   ];
   const found: string[] = [];
-  patterns.forEach((pattern) => {
-    for (const match of source.matchAll(pattern)) {
-      const candidate = normalizeDate(match[1]);
-      if (candidate) found.push(candidate);
+  for (const pattern of patterns) {
+    for (const match of normalized.matchAll(pattern)) {
+      const cleaned = cleanCertificateNo(match[1]);
+      if (cleaned && !found.includes(cleaned)) found.push(cleaned);
     }
-  });
-  return uniqueStrings(found);
+  }
+  return found;
 }
 
-function postProcessOcrData(raw: Partial<OcrData>, fileName: string): OcrData {
-  const merged: OcrData = {
-    ...emptyData,
-    ...raw,
-    certificateNoCandidates: Array.isArray(raw.certificateNoCandidates) ? raw.certificateNoCandidates.map(String) : [],
-    expiryDateCandidates: Array.isArray(raw.expiryDateCandidates) ? raw.expiryDateCandidates.map(String) : [],
-    confidence: Number.isFinite(Number(raw.confidence)) ? Number(raw.confidence) : 0,
-  };
+function postProcess(raw: any, fileName: string) {
+  const merged: any = { ...emptyData, ...(raw && typeof raw === 'object' ? raw : {}) };
+  const rawRelevantText = String(merged.rawRelevantText ?? '');
+  const candidateSources = [
+    ...(Array.isArray(merged.certificateNoCandidates) ? merged.certificateNoCandidates : []),
+    ...extractCertificateCandidatesFromText(rawRelevantText),
+    ...extractCertificateCandidatesFromText(String(merged.notes ?? '')),
+    ...extractCertificateCandidatesFromText(String(merged.details ?? '')),
+    merged.certificateNo,
+  ];
 
-  const searchableText = [
-    merged.extractedText,
-    merged.notes,
-    merged.details,
-  ].filter(Boolean).join('\n');
+  const candidates = candidateSources
+    .map(cleanCertificateNo)
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
 
-  const textCertificateCandidates = extractCertificateCandidatesFromText(searchableText);
-  const parsedCertificateCandidates = uniqueStrings([
-    ...textCertificateCandidates,
-    ...merged.certificateNoCandidates.map(cleanCertificateNo),
-    cleanCertificateNo(merged.certificateNo),
-  ]).filter((candidate) => candidate && !isLikelyYearOnly(candidate));
-
-  // Prefer numbers that were next to רישיון/רשיון/תעודה/אישור in extracted text.
-  merged.certificateNo = parsedCertificateCandidates[0] ?? '';
-
-  const textExpiryCandidates = extractExpiryCandidatesFromText(searchableText);
-  const parsedExpiryCandidates = uniqueStrings([
-    ...textExpiryCandidates,
-    ...merged.expiryDateCandidates.map(normalizeDate),
-    normalizeDate(merged.expiryDate),
-  ]).filter(Boolean);
-
-  merged.expiryDate = parsedExpiryCandidates[0] ?? '';
+  merged.certificateNo = candidates[0] ?? '';
+  merged.certificateNoCandidates = candidates;
+  merged.expiryDate = normalizeDate(merged.expiryDate);
   merged.issueDate = normalizeDate(merged.issueDate);
 
-  // Final guard: never allow a plain year as certificate/license number.
-  if (isLikelyYearOnly(merged.certificateNo)) merged.certificateNo = '';
-
-  // If OCR still did not find a certificate number, only use filename when it has a clear non-year number.
+  // Last-resort filename fallback only if no OCR number exists, and never use years/dates.
   if (!merged.certificateNo) {
-    const fileNums = uniqueStrings((normalizeDigits(fileName).match(/\b\d{2,8}\b/g) ?? [])).filter((n) => !isLikelyYearOnly(n));
-    merged.certificateNo = fileNums[0] ?? '';
+    const fromName = Array.from(String(fileName ?? '').matchAll(/\d{2,8}/g))
+      .map((m) => cleanCertificateNo(m[0]))
+      .filter(Boolean);
+    merged.certificateNo = fromName[0] ?? '';
   }
 
-  merged.certificateNoCandidates = parsedCertificateCandidates;
-  merged.expiryDateCandidates = parsedExpiryCandidates;
+  if (isYearOnly(merged.certificateNo)) merged.certificateNo = '';
   return merged;
 }
 
@@ -240,24 +156,22 @@ export async function POST(req: NextRequest) {
     const prompt = `אתה מנגנון OCR מקצועי למערכת בקרת איכות בפרויקטי תשתיות בישראל.
 קרא את הקובץ המצורף והחזר JSON בלבד לפי הסכמה.
 סוג הטופס במערכת: ${subtype}.
-חלץ רק מידע שקיים במסמך. אל תנחש.
 
-כללים חשובים:
+כללים קריטיים:
 1. certificateNo הוא מספר תעודה / מספר רישיון / מספר אישור בלבד.
-2. אם מופיע במסמך "מספר רישיון 947" אז certificateNo חייב להיות "947".
+2. אם מופיע במסמך "מספר רישיון 947" או "רישיון מס' 947" אז certificateNo חייב להיות "947".
 3. לעולם אל תחזיר שנת תוקף כמו 2025 או 2026 בתור certificateNo.
-4. expiryDate הוא תוקף בלבד. אם מופיעה רק שנה, החזר שנה כמחרוזת, לדוגמה "2026".
-5. certificateNoCandidates: החזר את כל המספרים האפשריים שמופיעים ליד "מספר רישיון", "רישיון מס׳", "מספר תעודה", "מספר אישור", "License No", "Certificate No". אל תכניס שנים לרשימה זו.
-6. expiryDateCandidates: החזר את כל התאריכים/שנים שמופיעים ליד "תוקף", "בתוקף", "Valid until", "Expiry".
-7. extractedText: החזר טקסט OCR קצר ורלוונטי סביב השדות שמצאת, לא את כל המסמך אם הוא ארוך.
-8. תאריכים מלאים החזר בפורמט YYYY-MM-DD בלבד. אם אין ערך ברור החזר מחרוזת ריקה.
-9. confidence בין 0 ל-1 לפי רמת הביטחון.`;
+4. expiryDate הוא תוקף בלבד. אם יש רק שנה, החזר תאריך סוף שנה בפורמט YYYY-12-31.
+5. certificateNoCandidates: החזר את כל המספרים האפשריים שמופיעים ליד: מספר רישיון, רשיון, רישיון מס', מספר תעודה, מספר אישור, License No, Certificate No.
+6. rawRelevantText: העתק בקצרה את השורות הרלוונטיות מהמסמך שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף.
+7. אם אין ערך ברור, החזר מחרוזת ריקה. אל תנחש.`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
       content.push({ type: 'input_image', image_url: dataUrl });
     } else {
-      content.push({ type: 'input_file', filename: fileName, file_data: getBase64(dataUrl) });
+      // Responses API expects file_data as a data URL for local file content.
+      content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });
     }
 
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -289,8 +203,7 @@ export async function POST(req: NextRequest) {
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = safeJsonParse(outputText) ?? emptyData;
-    const data = postProcessOcrData(parsed, fileName);
-    return NextResponse.json({ data });
+    return NextResponse.json({ data: postProcess(parsed, fileName) });
   } catch (error: any) {
     console.error('OCR route failed', error);
     return NextResponse.json({ error: error?.message || 'OCR route failed' }, { status: 500 });

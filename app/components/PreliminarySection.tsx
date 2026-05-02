@@ -77,7 +77,7 @@ const cleanOcrValue = (value: unknown) => String(value ?? '').trim();
 
 async function extractPreliminaryDataFromFile(fileName: string, mimeType: string, dataUrl: string, subtype: PreliminaryTab): Promise<OcrExtractResult> {
   try {
-    const response = await fetch('/api/ocr-extract', {
+    const response = await fetch('/api/ocr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileName, mimeType, dataUrl, subtype }),
@@ -102,11 +102,25 @@ const defaultApprovalRows = (): ApprovalTableRow[] => [
   { id: 'qa', role: 'הבטחת איכות (QA)', name: '', date: '', status: '' },
 ];
 
+const DEFAULT_PROJECT_PROFILE = {
+  projectName: 'כביש 806 צלמון שלב א׳',
+  projectManagement: 'א.ש. רונן הנדסה אזרחית בע"מ',
+  contractor: 'מפלסי הגליל סלילה עפר ופיתוח בע"מ',
+  qualityAssurance: 'תיקו הנדסה בע"מ',
+  qualityControl: 'יונס אברהים',
+};
+
 const getMetaValue = (meta: ProjectMeta | undefined, key: keyof ProjectMeta) => String(meta?.[key] ?? '').trim();
-const getProjectName = (props: Props) => getMetaValue(props.projectMeta, 'projectName') || String(props.currentProjectName ?? '').trim();
-const getProjectManagement = (props: Props) => getMetaValue(props.projectMeta, 'projectManagement') || getMetaValue(props.projectMeta, 'projectManager');
-const getContractor = (props: Props) => getMetaValue(props.projectMeta, 'contractor');
-const getQualityCompany = (props: Props) => getMetaValue(props.projectMeta, 'qualityAssurance') || getMetaValue(props.projectMeta, 'qualityControl') || 'קונטרולינג פריים בע״מ';
+const useDefault806Profile = (props: Props) => {
+  const text = `${props.currentProjectName ?? ''} ${props.projectMeta?.projectName ?? ''}`;
+  return /806|צלמון/.test(text) || !String(props.currentProjectName ?? '').trim();
+};
+const getProjectName = (props: Props) => getMetaValue(props.projectMeta, 'projectName') || (useDefault806Profile(props) ? DEFAULT_PROJECT_PROFILE.projectName : String(props.currentProjectName ?? '').trim());
+const getProjectManagement = (props: Props) => getMetaValue(props.projectMeta, 'projectManagement') || getMetaValue(props.projectMeta, 'projectManager') || (useDefault806Profile(props) ? DEFAULT_PROJECT_PROFILE.projectManagement : '');
+const getContractor = (props: Props) => getMetaValue(props.projectMeta, 'contractor') || (useDefault806Profile(props) ? DEFAULT_PROJECT_PROFILE.contractor : '');
+const getQaApproverName = (props: Props) => getMetaValue(props.projectMeta, 'qualityAssurance') || (useDefault806Profile(props) ? DEFAULT_PROJECT_PROFILE.qualityAssurance : '');
+const getQcApproverName = (props: Props) => getMetaValue(props.projectMeta, 'qualityControl') || (useDefault806Profile(props) ? DEFAULT_PROJECT_PROFILE.qualityControl : '');
+const getQualityCompany = (props: Props) => getQaApproverName(props) || getQcApproverName(props) || 'קונטרולינג פריים בע״מ';
 
 function normalizeCertificates(value: unknown): CertificateRow[] {
   if (!Array.isArray(value) || !value.length) return defaultCertificates();
@@ -132,17 +146,31 @@ function normalizeApprovalRows(value: unknown): ApprovalTableRow[] {
   return rows.length >= 2 ? rows : [...rows, ...defaultApprovalRows().slice(rows.length)];
 }
 
+const isYearLike = (value: unknown) => /^(19|20)\d{2}$/.test(String(value ?? '').trim());
+const cleanCertificateNo = (value: unknown) => {
+  const raw = String(value ?? '').trim();
+  if (!raw || isYearLike(raw)) return '';
+  const numbers = Array.from(raw.matchAll(/\d{2,8}/g)).map((m) => m[0]).filter((n) => !isYearLike(n) && !/^20\d{6}$/.test(n));
+  return numbers[0] ?? '';
+};
 const extractCertificateNo = (fileName: string) => {
   // Fallback only: never treat validity years like 2025/2026 as certificate/license numbers.
   const clean = fileName.replace(/\.[^.]+$/, '');
-  const candidates = Array.from(clean.matchAll(/\d{3,}/g)).map((m) => m[0]);
-  const filtered = candidates.filter((value) => {
-    const n = Number(value);
-    if (n >= 1900 && n <= 2099) return false; // year, not certificate number
-    if (/^20\d{6}$/.test(value)) return false; // date-like yyyymmdd
-    return true;
-  });
+  const candidates = Array.from(clean.matchAll(/\d{2,8}/g)).map((m) => m[0]);
+  const filtered = candidates.filter((value) => !isYearLike(value) && !/^20\d{6}$/.test(value));
   return filtered[0] ?? '';
+};
+const normalizeDateForInput = (value: unknown) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^(19|20)\d{2}$/.test(raw)) return `${raw}-12-31`;
+  const m = raw.match(/(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)?\d{2})/);
+  if (m) {
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  return '';
 };
 
 function fileToAttachment(file: File): Promise<StoredAttachment> {
@@ -161,21 +189,38 @@ const extractNumberFromTitle = (title: unknown) => {
   return match?.[1] ?? '';
 };
 
-const approvalNoForForm = (form: PreliminaryForm, data: any) => {
-  return String(data?.approvalNo ?? '').trim() || extractNumberFromTitle((form as any).title);
+const approvalPrefix = (subtype: PreliminaryTab) => subtype === 'suppliers' ? 'SUP' : subtype === 'subcontractors' ? 'SUB' : 'MAT';
+const createAutoApprovalNo = (subtype: PreliminaryTab) => `${approvalPrefix(subtype)}-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+const approvalNoForForm = (form: PreliminaryForm, data: any, subtype?: PreliminaryTab) => {
+  return String(data?.approvalNo ?? '').trim() || extractNumberFromTitle((form as any).title) || (subtype ? createAutoApprovalNo(subtype) : '');
 };
 
 const isQcRole = (role: unknown) => /בקרת\s*איכות|\bQC\b/i.test(String(role ?? ''));
 const isQaRole = (role: unknown) => /הבטחת\s*איכות|\bQA\b/i.test(String(role ?? ''));
 
 const withAutomaticApprovalNames = (rows: ApprovalTableRow[], props: Props): ApprovalTableRow[] => {
-  const qcName = getMetaValue(props.projectMeta, 'qualityControl');
-  const qaName = getMetaValue(props.projectMeta, 'qualityAssurance');
+  const qcName = getQcApproverName(props);
+  const qaName = getQaApproverName(props);
   return rows.map((row) => {
-    if (!String(row.name ?? '').trim() && isQcRole(row.role) && qcName) return { ...row, name: qcName };
-    if (!String(row.name ?? '').trim() && isQaRole(row.role) && qaName) return { ...row, name: qaName };
+    if (isQcRole(row.role) && qcName) return { ...row, name: row.name || qcName };
+    if (isQaRole(row.role) && qaName) return { ...row, name: row.name || qaName };
     return row;
   });
+};
+
+const withAutomaticApprovalFlowNames = (approval: any, props: Props) => {
+  if (!approval || typeof approval !== 'object' || !Array.isArray(approval.signatures)) return approval;
+  const qcName = getQcApproverName(props);
+  const qaName = getQaApproverName(props);
+  return {
+    ...approval,
+    signatures: approval.signatures.map((signature: any) => {
+      const role = String(signature?.role ?? '');
+      if (!String(signature?.signerName ?? '').trim() && isQcRole(role) && qcName) return { ...signature, signerName: qcName };
+      if (!String(signature?.signerName ?? '').trim() && isQaRole(role) && qaName) return { ...signature, signerName: qaName };
+      return signature;
+    }),
+  };
 };
 
 export function PreliminarySection(props: Props) {
@@ -208,13 +253,14 @@ export function PreliminarySection(props: Props) {
         qualityControlCompany: previous.qualityControlCompany || autoQuality,
         certificates: normalizeCertificates(previous.certificates),
         approvalsTable: withAutomaticApprovalNames(normalizeApprovalRows(previous.approvalsTable), props),
-        approvalNo: previous.approvalNo || extractNumberFromTitle(prev.title),
+        approvalNo: previous.approvalNo || extractNumberFromTitle(prev.title) || createAutoApprovalNo(props.preliminaryTab),
       };
       if (props.preliminaryTab === 'subcontractors') next.subcontractorName = previous.subcontractorName || autoContractor;
-      if (JSON.stringify(previous) === JSON.stringify(next)) return prev;
-      return { ...prev, [entityKey]: next };
+      const nextApproval = withAutomaticApprovalFlowNames(prev.approval, props);
+      if (JSON.stringify(previous) === JSON.stringify(next) && JSON.stringify(prev.approval) === JSON.stringify(nextApproval)) return prev;
+      return { ...prev, [entityKey]: next, approval: nextApproval };
     });
-  }, [props.preliminaryTab, props.guardedBody, props.currentProjectName, JSON.stringify(props.projectMeta ?? {})]);
+  }, [props.preliminaryTab, props.guardedBody, props.currentProjectName, JSON.stringify(props.projectMeta ?? {}), form.title]);
 
   const certificates = normalizeCertificates(data.certificates);
   const approvalRows = withAutomaticApprovalNames(normalizeApprovalRows(data.approvalsTable), props);
@@ -232,9 +278,9 @@ export function PreliminarySection(props: Props) {
     const attachment = await fileToAttachment(file);
     const row = certificates[index];
     const extracted = await extractPreliminaryDataFromFile(file.name, file.type, attachment.dataUrl, props.preliminaryTab);
-    const ocrCertificateNo = cleanOcrValue(extracted.certificateNo);
+    const ocrCertificateNo = cleanCertificateNo(extracted.certificateNo);
     const certificateNo = row.certificateNo || ocrCertificateNo || extractCertificateNo(file.name);
-    const expiryDate = row.expiryDate || cleanOcrValue(extracted.expiryDate);
+    const expiryDate = row.expiryDate || normalizeDateForInput(extracted.expiryDate);
     const details = row.details || cleanOcrValue(extracted.details) || cleanOcrValue(extracted.materialName) || cleanOcrValue(extracted.suppliedMaterial) || file.name.replace(/\.[^.]+$/, '');
 
     updateCertificate(index, {
@@ -246,6 +292,7 @@ export function PreliminarySection(props: Props) {
     });
 
     const entityPatch: Record<string, string> = {};
+    if (certificateNo && !data.approvalNo) entityPatch.approvalNo = certificateNo;
     if (cleanOcrValue(extracted.branch) && !data.branch) entityPatch.branch = cleanOcrValue(extracted.branch);
     if (cleanOcrValue(extracted.contactPhone) && !data.contactPhone) entityPatch.contactPhone = cleanOcrValue(extracted.contactPhone);
 
@@ -312,7 +359,7 @@ export function PreliminarySection(props: Props) {
             <div style={styles.formGrid}>
               <Field label="כותרת"><input style={styles.input} value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
               <Field label="סטטוס"><select style={styles.input} value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">טיוטה</option><option value="מאושר">מאושר</option><option value="לא מאושר">לא מאושר</option></select></Field>
-              <Field label="מספר אישור"><input style={styles.input} value={approvalNoForForm(form, data)} onChange={(e) => patchEntity({ approvalNo: e.target.value })} /></Field>
+              <Field label="מספר אישור"><input style={styles.input} value={approvalNoForForm(form, data, props.preliminaryTab)} onChange={(e) => patchEntity({ approvalNo: e.target.value })} /></Field>
               <Field label="סניף"><input style={styles.input} value={data.branch ?? ''} onChange={(e) => patchEntity({ branch: e.target.value })} /></Field>
               <Field label="אנשי קשר וטלפון"><input style={styles.input} value={data.contactPhone ?? data.contact ?? ''} onChange={(e) => patchEntity({ contactPhone: e.target.value, contact: e.target.value })} /></Field>
 
