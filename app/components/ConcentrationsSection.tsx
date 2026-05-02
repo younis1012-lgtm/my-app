@@ -667,7 +667,7 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
   const subcontractor = record?.subcontractor ?? {};
   const material = record?.material ?? {};
   const signedAt = approvalSignedAt(record) || row.date || row.executionDate;
-  const signer = approvalSignerName(record) || row.inspector || row.responsible;
+  const signer = approvalSignerName(record) || row.inspector || row.responsible || "בקרת איכות";
   const attached = attachedFilesText(record, row);
 
   if (template.id === "contractors") {
@@ -879,8 +879,8 @@ const findFirstWritableRow = (sheetData: Element, sharedStrings: string[], templ
 
 const buildColumnMapping = (sheetData: Element, sharedStrings: string[], template: ConcentrationTemplate): Record<string, number | number[]> => {
   const headers = getHeaderCells(sheetData, sharedStrings);
-  const col = (aliases: string[], preferRightMost = true) => columnByHeader(headers, aliases, preferRightMost);
-  const cols = (aliases: string[]) => columnsByHeader(headers, aliases);
+  const col = (aliases: string[], preferRightMost = true): number => columnByHeader(headers, aliases, preferRightMost) ?? 0;
+  const cols = (aliases: string[]): number[] => columnsByHeader(headers, aliases);
 
   if (template.id === "contractors") {
     const certificateCols = cols(["מס תעודה", "מספר תעודה"]);
@@ -896,18 +896,18 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
       activityField: col(["תחום פעילות", "תחום"]),
       contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
       subProject: col(["תת פרויקט", "תת-פרויקט"]),
-      registryExists: existingCols[0],
-      registryCertificateNo: certificateCols[0],
-      registryExpiry: expiryCols[0],
-      registryDocuments: documentCols[0],
-      isoExists: existingCols[1],
-      isoCertificateNo: certificateCols[1],
-      isoExpiry: expiryCols[1],
-      isoDocuments: documentCols[1],
-      qcApprovalDate: approvalDateCols[0],
-      qcApproverName: approverCols[0],
-      qaApprovalDate: approvalDateCols[1],
-      qaApproverName: approverCols[1],
+      registryExists: (existingCols[0] ?? 0),
+      registryCertificateNo: (certificateCols[0] ?? 0),
+      registryExpiry: (expiryCols[0] ?? 0),
+      registryDocuments: (documentCols[0] ?? 0),
+      isoExists: (existingCols[1] ?? 0),
+      isoCertificateNo: (certificateCols[1] ?? 0),
+      isoExpiry: (expiryCols[1] ?? 0),
+      isoDocuments: (documentCols[1] ?? 0),
+      qcApprovalDate: (approvalDateCols[0] ?? 0),
+      qcApproverName: (approverCols[0] ?? 0),
+      qaApprovalDate: (approvalDateCols[1] ?? 0),
+      qaApproverName: (approverCols[1] ?? 0),
       status: col(["סטטוס", "מעמד"]),
       notes: col(["הערות"]),
     };
