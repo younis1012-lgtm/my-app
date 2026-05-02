@@ -524,6 +524,7 @@ const columnLetters = (index: number) => {
 };
 
 const nextCellRef = (cellRef: string) => `${columnLetters(cellColumnIndex(cellRef) + 1)}${cellRowIndex(cellRef)}`;
+const prevCellRef = (cellRef: string) => `${columnLetters(Math.max(1, cellColumnIndex(cellRef) - 1))}${cellRowIndex(cellRef)}`;
 
 const readSharedStrings = async (zip: JSZip) => {
   const file = zip.file("xl/sharedStrings.xml");
@@ -549,33 +550,48 @@ const cellText = (cell: Element, sharedStrings: string[]) => {
 
 const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
   const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
-    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["A4", "B4"]] },
-    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["A5", "B5"]] },
-    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["A6", "B6"]] },
-    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["L7", "M7"], ["A7", "B7"]] },
-    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H7", "J7"], ["A8", "B8"]] },
+    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["I4", "J4"], ["A4", "B4"]] },
+    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["I5", "J5"], ["A5", "B5"]] },
+    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["I6", "J6"], ["A6", "B6"]] },
+    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["H7", "J7"], ["L7", "M7"], ["A7", "B7"]] },
+    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H8", "J8"], ["H7", "J7"], ["A8", "B8"]] },
   ];
+
+  const readCell = (cellRef: string) => {
+    const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
+    const cell = getOrCreateCell(doc, row, cellRef);
+    return normalize(cellText(cell, sharedStrings));
+  };
+
+  const writeIfUseful = (cellRef: string, value: string) => {
+    if (!value) return;
+    const current = readCell(cellRef);
+    // לא דורסים תא שכבר מכיל כותרת; כן ממלאים תא ריק/תא ערך.
+    if (["שם פרויקט", "ניהול פרויקט", "שם הקבלן", "הבטחת איכות", "בקרת איכות"].some((label) => current.includes(normalize(label)))) return;
+    setCell(doc, sheetData, cellRef, value);
+  };
 
   const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
   items.forEach((item) => {
-    let filled = false;
+    let foundLabel = false;
     allCells.forEach((cell) => {
       const ref = cell.getAttribute("r") ?? "";
       const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
       if (!ref || !text || !text.includes(normalize(item.label))) return;
       setCell(doc, sheetData, ref, `${item.label}:`);
-      setCell(doc, sheetData, nextCellRef(ref), item.value);
-      filled = true;
+      writeIfUseful(nextCellRef(ref), item.value);
+      writeIfUseful(prevCellRef(ref), item.value);
+      foundLabel = true;
     });
 
+    // גיבוי לתבניות שבהן תא הערך רחוק יותר או הכותרות ממוזגות.
     item.fallbacks.forEach(([labelCell, valueCell], index) => {
-      if (index > 0 && filled) return;
+      if (foundLabel && index > 0) return;
       setCell(doc, sheetData, labelCell, `${item.label}:`);
-      setCell(doc, sheetData, valueCell, item.value);
+      writeIfUseful(valueCell, item.value);
     });
   });
 };
-
 const patchWorkbookProjectHeader = async (buffer: ArrayBuffer, meta: Required<ProjectConcentrationMeta>) => {
   const zip = await JSZip.loadAsync(buffer);
   const sharedStrings = await readSharedStrings(zip);
@@ -674,12 +690,21 @@ const collectAttachmentNames = (value: any, names: string[], depth = 0) => {
   });
 };
 
-const attachedFilesText = (record: any, row: ConcentrationRow) => {
+const attachmentNamesForRecord = (record: any, row?: ConcentrationRow) => {
   const names: string[] = [];
   collectAttachmentNames(record, names);
-  if (row.fileName) names.push(row.fileName);
-  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean))).join(" | ");
+  if (row?.fileName) names.push(row.fileName);
+  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean)));
 };
+
+const attachedFilesText = (record: any, row: ConcentrationRow) => attachmentNamesForRecord(record, row).join(" | ");
+
+const filterAttachmentText = (record: any, row: ConcentrationRow, keywords: string[]) => {
+  const filtered = attachmentNamesForRecord(record, row).filter((name) => includesAny(name, keywords));
+  return filtered.join(" | ");
+};
+
+const certificateNoFromText = (text: string) => extractCertificateNo(text) || "";
 
 const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, index: number): Record<string, string | number> => {
   const record = row.rawRecord ?? {};
@@ -691,21 +716,24 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
   const attached = attachedFilesText(record, row);
 
   if (template.id === "contractors") {
+    const registryDocs = filterAttachmentText(record, row, ["רשם", "קבלן", "סיווג", "אישור", "תעודה"]) || attached;
+    const isoDocs = filterAttachmentText(record, row, ["iso", "איזו", "איכות"]);
     return {
+      // בתבנית זו "אישור מס" משמש כמספר סידורי — לכן הוא תמיד רץ 1,2,3 לפי השורות.
       serial: index,
       approvalNo: index,
       subcontractorName: firstNonEmpty(subcontractor.subcontractorName, row.contractor, row.title),
       activityField: firstNonEmpty(subcontractor.field, row.itemDescription),
       contactPhone: String(subcontractor.contactPhone ?? ""),
       subProject: firstNonEmpty(record?.subProject, record?.subproject, record?.location, row.location),
-      registryExists: row.certificateNo || attached ? "קיים" : "",
-      registryCertificateNo: row.certificateNo,
+      registryExists: registryDocs || row.certificateNo ? "קיים" : "",
+      registryCertificateNo: row.certificateNo || certificateNoFromText(registryDocs),
       registryExpiry: String(subcontractor.expiryDate ?? subcontractor.validUntil ?? ""),
-      registryDocuments: attached,
-      isoExists: String(subcontractor.isoExists ?? subcontractor.isoStatus ?? ""),
-      isoCertificateNo: String(subcontractor.isoCertificateNo ?? ""),
+      registryDocuments: registryDocs,
+      isoExists: firstNonEmpty(subcontractor.isoExists, subcontractor.isoStatus, isoDocs ? "קיים" : ""),
+      isoCertificateNo: firstNonEmpty(subcontractor.isoCertificateNo, certificateNoFromText(isoDocs)),
       isoExpiry: String(subcontractor.isoExpiry ?? subcontractor.isoValidUntil ?? ""),
-      isoDocuments: String(subcontractor.isoDocuments ?? ""),
+      isoDocuments: firstNonEmpty(subcontractor.isoDocuments, isoDocs),
       qcApprovalDate: signedAt,
       qcApproverName: signer,
       qaApprovalDate: signedAt,
@@ -716,14 +744,22 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
   }
 
   if (template.id === "suppliers") {
+    const isoDocs = filterAttachmentText(record, row, ["iso", "איזו", "איכות"]);
+    const standardDocs = filterAttachmentText(record, row, ["תו תקן", "תקן", "הסמכה", "אישור", "תעודה"]) || attached;
     return {
       serial: index,
-      approvalNo: row.certificateNo,
+      approvalNo: index,
       supplierName: firstNonEmpty(supplier.supplierName, row.contractor, row.title),
       suppliedMaterial: firstNonEmpty(supplier.suppliedMaterial, row.itemDescription),
       contactPhone: String(supplier.contactPhone ?? ""),
-      certificateNo: row.certificateNo,
-      documents: attached,
+      standardExists: standardDocs || row.certificateNo ? "קיים" : "",
+      standardCertificateNo: row.certificateNo || certificateNoFromText(standardDocs),
+      standardExpiry: String(supplier.standardExpiry ?? supplier.standardValidUntil ?? supplier.validUntil ?? ""),
+      standardDocuments: standardDocs,
+      isoExists: firstNonEmpty(supplier.isoExists, supplier.isoStatus, isoDocs ? "קיים" : ""),
+      isoCertificateNo: firstNonEmpty(supplier.isoCertificateNo, certificateNoFromText(isoDocs)),
+      isoExpiry: String(supplier.isoExpiry ?? supplier.isoValidUntil ?? ""),
+      isoDocuments: firstNonEmpty(supplier.isoDocuments, isoDocs),
       qcApprovalDate: signedAt,
       qcApproverName: signer,
       qaApprovalDate: signedAt,
@@ -932,10 +968,9 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
     const approvalDateCols = cols(["תאריך אישור"]);
     const approverCols = cols(["שם המאשר"]);
     return {
-      // בתבנית הקבלנים העמודה הימנית "אישור מס" משמשת בפועל כמספר סידורי.
-      // לכן לא כותבים serial בנפרד, כדי שלא תהיה כפילות/דריסה.
-      serial: 0,
-      approvalNo: col(["אישור מס", "מס אישור", "מס סידורי", "מס' סידורי"], true),
+      // בתבנית הקבלנים העמודה הימנית "אישור מס" משמשת כמספר סידורי.
+      serial: col(["אישור מס", "מס אישור", "מס סידורי", "מס' סידורי"], true),
+      approvalNo: 0,
       subcontractorName: col(["שם קבלן משנה", "שם קבלן"]),
       activityField: col(["תחום פעילות", "תחום"]),
       contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
@@ -958,16 +993,30 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
   }
 
   if (template.id === "suppliers") {
+    const certificateCols = cols(["מס תעודה", "מספר תעודה"]);
+    const existingCols = cols(["קיים/לא קיים", "קיים לא קיים"]);
+    const documentCols = cols(["מסמכים מצורפים", "מסמכים", "תעודות", "תעודות מצורפות"]);
+    const expiryCols = cols(["תוקף", "תוקף תעודה"]);
+    const approvalDateCols = cols(["תאריך אישור"]);
+    const approverCols = cols(["שם המאשר"]);
     return {
-      serial: col(["מס סידורי", "אישור מס", "מס"]),
-      approvalNo: col(["אישור מס", "מס אישור"]),
+      serial: col(["אישור מס", "מס סידורי", "מס' סידורי", "מס"]),
+      approvalNo: 0,
       supplierName: col(["שם ספק", "ספק"]),
       suppliedMaterial: col(["חומר מסופק", "סוג חומר", "חומר"]),
       contactPhone: col(["אנשי קשר וטלפון", "טלפון", "איש קשר"]),
-      certificateNo: col(["מס תעודה", "מספר תעודה", "מס אישור"]),
-      documents: col(["מסמכים מצורפים", "מסמכים"]),
-      qcApprovalDate: col(["תאריך אישור"]),
-      qcApproverName: col(["שם המאשר"]),
+      standardExists: (existingCols[0] ?? 0),
+      standardCertificateNo: (certificateCols[0] ?? 0),
+      standardExpiry: (expiryCols[0] ?? 0),
+      standardDocuments: (documentCols[0] ?? 0),
+      isoExists: (existingCols[1] ?? 0),
+      isoCertificateNo: (certificateCols[1] ?? 0),
+      isoExpiry: (expiryCols[1] ?? 0),
+      isoDocuments: (documentCols[1] ?? 0),
+      qcApprovalDate: (approvalDateCols[0] ?? 0),
+      qcApproverName: (approverCols[0] ?? 0),
+      qaApprovalDate: (approvalDateCols[1] ?? 0),
+      qaApproverName: (approverCols[1] ?? 0),
       status: col(["סטטוס", "מעמד"]),
       notes: col(["הערות"]),
     };
@@ -1029,9 +1078,9 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
 
 const genericFallbackColumns = (template: ConcentrationTemplate, startCol: number) => {
   const keys = template.id === "contractors"
-    ? ["serial", "approvalNo", "subcontractorName", "activityField", "contactPhone", "subProject", "registryExists", "registryCertificateNo", "registryExpiry", "registryDocuments", "isoExists", "isoCertificateNo", "isoExpiry", "isoDocuments", "qcApprovalDate", "qcApproverName", "qaApprovalDate", "qaApproverName"]
+    ? ["serial", "subcontractorName", "activityField", "contactPhone", "subProject", "registryExists", "registryCertificateNo", "registryExpiry", "registryDocuments", "isoExists", "isoCertificateNo", "isoExpiry", "isoDocuments", "qcApprovalDate", "qcApproverName", "qaApprovalDate", "qaApproverName"]
     : template.id === "suppliers"
-      ? ["serial", "approvalNo", "supplierName", "suppliedMaterial", "contactPhone", "certificateNo", "documents", "qcApprovalDate", "qcApproverName", "status", "notes"]
+      ? ["serial", "supplierName", "suppliedMaterial", "contactPhone", "standardExists", "standardCertificateNo", "standardExpiry", "standardDocuments", "isoExists", "isoCertificateNo", "isoExpiry", "isoDocuments", "qcApprovalDate", "qcApproverName", "qaApprovalDate", "qaApproverName", "status", "notes"]
       : template.id === "materials"
         ? ["serial", "materialName", "source", "usage", "certificateNo", "documents", "approvalDate", "approverName", "status", "notes"]
         : ["serial", "checklistNo", "date", "title", "category", "location", "contractor", "description", "attachmentKind", "certificateNo", "sampleDate", "source", "status", "inspector", "notes", "documents"];
@@ -1104,6 +1153,9 @@ const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<P
     if (sheetData) {
       if (template.id === "contractors") {
         renameHeaderCell(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים"], "סיווג ברשם הקבלנים/תעודות");
+      }
+      if (template.id === "suppliers") {
+        renameHeaderCell(doc, sheetData, sharedStrings, ["תעודת ISO", "תעודת איזו", "ISO"], "תעודת ISO/תעודות");
       }
       const startRow = findFirstWritableRow(sheetData, sharedStrings, template);
       const headers = getHeaderCells(sheetData, sharedStrings);
