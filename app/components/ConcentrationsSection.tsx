@@ -31,6 +31,7 @@ type ConcentrationTemplate = {
   keywords: string[];
   source: SourceType;
   mode?: "subbaseA" | "generic";
+  preliminarySubtype?: "suppliers" | "subcontractors" | "materials";
 };
 
 type ConcentrationRow = {
@@ -57,13 +58,13 @@ type ConcentrationRow = {
 
 const templates: ConcentrationTemplate[] = [
   { id: "nonconformances", title: "דוח ריכוז אי התאמות", fileName: "non-conformance.xlsx", description: "ריכוז אי התאמות לפי הטופס המקורי", keywords: ["אי התאמה", "אי תאמות"], source: "nonconformances" },
-  { id: "suppliers", title: "ריכוז ספקים", fileName: "suppliers.xlsx", description: "ריכוז ספקים לפי הטופס המקורי", keywords: ["ספק", "ספקים"], source: "preliminary" },
-  { id: "contractors", title: "ריכוז קבלנים", fileName: "contractors.xlsx", description: "ריכוז קבלנים לפי הטופס המקורי", keywords: ["קבלן", "קבלנים", "קבלן משנה"], source: "preliminary" },
+  { id: "suppliers", title: "ריכוז ספקים", fileName: "suppliers.xlsx", description: "ריכוז ספקים לפי הטופס המקורי", keywords: ["ספק", "ספקים"], source: "preliminary", preliminarySubtype: "suppliers" },
+  { id: "contractors", title: "ריכוז קבלנים", fileName: "contractors.xlsx", description: "ריכוז קבלנים לפי הטופס המקורי", keywords: ["קבלן", "קבלנים", "קבלן משנה"], source: "preliminary", preliminarySubtype: "subcontractors" },
   { id: "asphalt", title: "ריכוז בדיקות אספלט", fileName: "asphalt.xlsx", description: "בדיקות אספלט / FWD / מישוריות", keywords: ["אספלט", "FWD", "שכבה סופית", "מישוריות"], source: "checklists" },
   { id: "density", title: "ריכוז בדיקות צפיפות", fileName: "density.xlsx", description: "צפיפות / הידוק / רטיבות / מצעים", keywords: ["צפיפות", "הידוק", "רטיבות", "דרגת", "תכולת", "מצע", "מצעים"], source: "checklists" },
   { id: "concrete", title: "ריכוז בטון", fileName: "concrete.xlsx", description: "בדיקות בטון", keywords: ["בטון", "יציקה", "קוביות", "חוזק"], source: "checklists" },
   { id: "supervision", title: "ריכוז דוחות פיקוח עליון", fileName: "supervision.xlsx", description: "דוחות פיקוח עליון", keywords: ["פיקוח עליון", "דוח פיקוח"], source: "trialSections" },
-  { id: "materials", title: "ריכוז חומרים", fileName: "materials.xlsx", description: "אישורי חומרים", keywords: ["חומר", "חומרים", "תקן", "מפרט", "תעודת התאמה"], source: "preliminary" },
+  { id: "materials", title: "ריכוז חומרים", fileName: "materials.xlsx", description: "אישורי חומרים", keywords: ["חומר", "חומרים", "תקן", "מפרט", "תעודת התאמה"], source: "preliminary", preliminarySubtype: "materials" },
   { id: "trial-sections", title: "ריכוז קטעי ניסוי", fileName: "trial-sections.xlsx", description: "קטעי ניסוי", keywords: ["קטע ניסוי", "קטעי ניסוי"], source: "trialSections" },
   { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "subbase-a.xlsx", description: "מצע א׳ — שורות 10-14 נשמרות בדיוק, שורה 15 מתמלאת מהתעודה המצורפת", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists", mode: "subbaseA" },
   { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "selected-material.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
@@ -81,6 +82,19 @@ const includesAny = (text: string, keywords: string[]) => {
   const n = normalize(text);
   return keywords.some((keyword) => n.includes(normalize(keyword)));
 };
+
+const isApproved = (record: any) =>
+  record?.status === "מאושר" ||
+  record?.status === "approved" ||
+  record?.status === "נעול" ||
+  record?.approval?.status === "approved";
+
+const isRelevantPreliminaryRecord = (record: any, template: ConcentrationTemplate) => {
+  if (template.preliminarySubtype) return record?.subtype === template.preliminarySubtype;
+  return includesAny(recordText(record), template.keywords);
+};
+
+
 
 const attachmentLabel = (kind: unknown) =>
   kind === "lab" ? "תעודת מעבדה" : kind === "measurement" ? "רשימת מדידה" : "מסמך";
@@ -162,11 +176,12 @@ const recordText = (record: any) => {
 
 const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate): ConcentrationRow[] => {
   const rows: ConcentrationRow[] = [];
-  checklists.forEach((checklist) => {
+  checklists.filter(isApproved).forEach((checklist) => {
     (Array.isArray(checklist?.items) ? checklist.items : []).forEach((item: any) => {
       const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
       attachments.forEach((attachment: any) => {
-        const fullText = [recordText(checklist), item?.description, item?.notes, attachment?.name, attachment?.kind].join(" ");
+        const labResults = attachment?.labResults ?? attachment?.results ?? item?.labResults ?? item?.results;
+        const fullText = [recordText(checklist), item?.description, item?.notes, attachment?.name, attachment?.kind, JSON.stringify(labResults ?? {})].join(" ");
         if (!includesAny(fullText, template.keywords)) return;
         rows.push({
           sourceType: "checklists",
@@ -184,10 +199,10 @@ const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate):
           executionDate: String(item?.executionDate ?? ""),
           notes: String(item?.notes ?? ""),
           attachmentKind: attachmentLabel(attachment?.kind),
-          certificateNo: extractCertificateNo(attachment?.name),
+          certificateNo: String(labResults?.certificateNo ?? extractCertificateNo(attachment?.name)),
           fileName: String(attachment?.name ?? ""),
           uploadedAt: String(attachment?.uploadedAt ?? ""),
-          labResults: attachment?.labResults ?? attachment?.results ?? item?.labResults ?? item?.results,
+          labResults,
         });
       });
     });
@@ -197,7 +212,8 @@ const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate):
 
 const rowsFromSimpleRecords = (records: any[], template: ConcentrationTemplate, sourceType: SourceType): ConcentrationRow[] =>
   records
-    .filter((record) => includesAny(recordText(record), template.keywords))
+    .filter(isApproved)
+    .filter((record) => sourceType === "preliminary" ? isRelevantPreliminaryRecord(record, template) : includesAny(recordText(record), template.keywords))
     .map((record) => ({
       sourceType,
       recordId: String(record?.id ?? ""),
@@ -208,11 +224,11 @@ const rowsFromSimpleRecords = (records: any[], template: ConcentrationTemplate, 
       contractor: String(record?.contractor ?? record?.supplier?.supplierName ?? record?.subcontractor?.subcontractorName ?? ""),
       date: String(record?.date ?? ""),
       itemDescription: String(record?.description ?? record?.spec ?? record?.material?.usage ?? record?.supplier?.suppliedMaterial ?? record?.subcontractor?.field ?? ""),
-      responsible: String(record?.approvedBy ?? record?.raisedBy ?? ""),
-      inspector: String(record?.approvedBy ?? record?.raisedBy ?? ""),
-      status: String(record?.status ?? ""),
+      responsible: String(record?.approvedBy ?? record?.raisedBy ?? record?.approval?.signatures?.[0]?.signerName ?? ""),
+      inspector: String(record?.approvedBy ?? record?.raisedBy ?? record?.approval?.signatures?.[0]?.signerName ?? ""),
+      status: String(record?.status ?? record?.approval?.status ?? ""),
       executionDate: String(record?.date ?? ""),
-      notes: String(record?.notes ?? record?.actionRequired ?? ""),
+      notes: String(record?.notes ?? record?.actionRequired ?? record?.supplier?.notes ?? record?.subcontractor?.notes ?? record?.material?.notes ?? ""),
       attachmentKind: "רשומה",
       certificateNo: String(record?.supplier?.approvalNo ?? record?.subcontractor?.approvalNo ?? record?.material?.certificateNo ?? ""),
       fileName: "",
@@ -591,8 +607,94 @@ const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow 
   return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
-const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<ProjectConcentrationMeta>) => {
+const labValue = (row: ConcentrationRow, key: keyof LabCertificateResults) => {
+  const value = row.labResults?.[key];
+  return value === undefined || value === null ? "" : String(value);
+};
+
+const genericRowValues = (template: ConcentrationTemplate, row: ConcentrationRow, index: number): Array<string | number> => {
+  if (template.id === "contractors") {
+    return [index, row.contractor || row.title, row.itemDescription, row.certificateNo, row.date, row.status, row.inspector, row.notes];
+  }
+  if (template.id === "suppliers") {
+    return [index, row.contractor || row.title, row.itemDescription, row.certificateNo, row.date, row.status, row.inspector, row.notes];
+  }
+  if (template.id === "materials") {
+    return [index, row.title, row.itemDescription, row.contractor, row.certificateNo, row.date, row.status, row.inspector, row.notes];
+  }
+  if (template.id === "nonconformances") {
+    return [index, row.title, row.location, row.date, row.responsible, row.status, row.itemDescription, row.notes];
+  }
+  if (template.id === "trial-sections" || template.id === "supervision") {
+    return [index, row.title, row.location, row.date, row.itemDescription, row.status, row.inspector, row.notes];
+  }
+
+  return [
+    index,
+    row.checklistNo,
+    row.date || row.executionDate,
+    row.title,
+    row.category,
+    row.location,
+    row.contractor,
+    row.itemDescription,
+    row.attachmentKind,
+    row.certificateNo || labValue(row, "certificateNo"),
+    labValue(row, "sampleDate" as keyof LabCertificateResults),
+    labValue(row, "source" as keyof LabCertificateResults),
+    labValue(row, "maxDensity" as keyof LabCertificateResults),
+    labValue(row, "optimumMoisture" as keyof LabCertificateResults),
+    labValue(row, "density" as keyof LabCertificateResults),
+    labValue(row, "moisture" as keyof LabCertificateResults),
+    labValue(row, "compaction" as keyof LabCertificateResults),
+    labValue(row, "sandEquivalent" as keyof LabCertificateResults),
+    labValue(row, "cbr" as keyof LabCertificateResults),
+    labValue(row, "sieve3" as keyof LabCertificateResults),
+    labValue(row, "sieve15" as keyof LabCertificateResults),
+    labValue(row, "sieve34" as keyof LabCertificateResults),
+    labValue(row, "sieve4" as keyof LabCertificateResults),
+    labValue(row, "sieve10" as keyof LabCertificateResults),
+    labValue(row, "sieve40" as keyof LabCertificateResults),
+    labValue(row, "sieve200" as keyof LabCertificateResults),
+    labValue(row, "ll" as keyof LabCertificateResults),
+    labValue(row, "pl" as keyof LabCertificateResults),
+    labValue(row, "pi" as keyof LabCertificateResults),
+    labValue(row, "losAngeles" as keyof LabCertificateResults),
+    labValue(row, "aashto" as keyof LabCertificateResults),
+    row.status,
+    row.inspector,
+    row.notes,
+    row.fileName,
+  ];
+};
+
+const findFirstWritableRow = (sheetData: Element) => {
+  const rows = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row"));
+  const occupied = rows
+    .map((row) => Number(row.getAttribute("r") ?? 0))
+    .filter((row) => Number.isFinite(row) && row > 0);
+  const last = occupied.length ? Math.max(...occupied) : 14;
+  return Math.max(15, last + 1);
+};
+
+const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<ProjectConcentrationMeta>, rows: ConcentrationRow[] = [], template?: ConcentrationTemplate) => {
   const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (worksheetFile && rows.length && template) {
+    const xml = await worksheetFile.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+    if (sheetData) {
+      const startRow = findFirstWritableRow(sheetData);
+      rows.forEach((row, rowIndex) => {
+        genericRowValues(template, row, rowIndex + 1).forEach((value, colIndex) => {
+          setCell(doc, sheetData, `${columnLetters(colIndex + 1)}${startRow + rowIndex}`, value);
+        });
+      });
+      zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+    }
+  }
   return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
@@ -636,7 +738,7 @@ export function ConcentrationsSection({
       const buffer = await response.arrayBuffer();
       const blob = template.mode === "subbaseA"
         ? await patchSubbaseAWorkbook(buffer, undefined, resolvedProjectMeta)
-        : await patchGenericWorkbook(buffer, resolvedProjectMeta);
+        : await patchGenericWorkbook(buffer, resolvedProjectMeta, [], template);
       downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - תבנית עם פרטי פרויקט.xlsx"));
     } catch (error) {
       console.error(error);
@@ -661,7 +763,7 @@ export function ConcentrationsSection({
         return;
       }
 
-      const blob = await patchGenericWorkbook(buffer, resolvedProjectMeta);
+      const blob = await patchGenericWorkbook(buffer, resolvedProjectMeta, rows, template);
       downloadBlob(blob, template.fileName.replace(/\.xlsx$/i, " - ריכוז אוטומטי.xlsx"));
     } catch (error) {
       console.error(error);
@@ -677,7 +779,7 @@ export function ConcentrationsSection({
         <div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
           <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
-            ריכוז מצע א׳ נבנה מתבנית המקור: שורות 10-14 נשמרות עם אותה חלוקה, אותם צבעים ודרישות מפרט קבועות. שורה 15 מתמלאת מתעודה 24403 / רשימת תיוג מס׳ 1.
+            כל הריכוזים נבנים אוטומטית מהרשומות המאושרות בפרויקט. תעודות מעבדה שנסרקות ברשימות התיוג נכנסות לריכוזים לפי סוג העבודה והתוצאות שנקלטו.
           </div>
           {resolvedProjectMeta.projectName ? <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {resolvedProjectMeta.projectName}</div> : null}
         </div>
@@ -685,7 +787,7 @@ export function ConcentrationsSection({
       </div>
 
       <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 16, padding: 14, color: "#1e3a8a", fontWeight: 800, lineHeight: 1.7 }}>
-        חשוב: ריכוז מצע א׳ משתמש ב־XML Patch ולא בונה Excel מחדש — לכן העיצוב המקורי, המיזוגים והצבעים נשמרים ככל האפשר.
+        חשוב: ההפקה שומרת על תבניות ה־Excel המקוריות ומכניסה לתוכן את נתוני הפרויקט, הרשומות המאושרות ותוצאות תעודות המעבדה שנקלטו במערכת.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
