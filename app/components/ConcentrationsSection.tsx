@@ -667,7 +667,7 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
   const subcontractor = record?.subcontractor ?? {};
   const material = record?.material ?? {};
   const signedAt = approvalSignedAt(record) || row.date || row.executionDate;
-  const signer = approvalSignerName(record) || row.inspector || row.responsible || "בקרת איכות";
+  const signer = "בקרת איכות";
   const attached = attachedFilesText(record, row);
 
   if (template.id === "contractors") {
@@ -678,7 +678,7 @@ const rowValueMap = (template: ConcentrationTemplate, row: ConcentrationRow, ind
       activityField: firstNonEmpty(subcontractor.field, row.itemDescription),
       contactPhone: String(subcontractor.contactPhone ?? ""),
       subProject: firstNonEmpty(record?.subProject, record?.subproject, record?.location, row.location),
-      registryExists: row.certificateNo ? "קיים" : "",
+      registryExists: row.certificateNo || attached ? "קיים" : "",
       registryCertificateNo: row.certificateNo,
       registryExpiry: String(subcontractor.expiryDate ?? subcontractor.validUntil ?? ""),
       registryDocuments: attached,
@@ -871,6 +871,13 @@ const getHeaderBottomRow = (headers: CellInfo[]) => {
   return Math.max(...relevant.map((header) => header.row));
 };
 
+const renameHeaderCell = (doc: Document, sheetData: Element, sharedStrings: string[], aliases: string[], newText: string) => {
+  const headers = getHeaderCells(sheetData, sharedStrings);
+  const target = headers.find((header) => headerMatches(header.text, aliases));
+  if (!target) return;
+  setCell(doc, sheetData, target.ref, newText);
+};
+
 const findFirstWritableRow = (sheetData: Element, sharedStrings: string[], template?: ConcentrationTemplate) => {
   if (template?.id === "subbase-a") return 15;
   const headers = getHeaderCells(sheetData, sharedStrings);
@@ -885,7 +892,7 @@ const buildColumnMapping = (sheetData: Element, sharedStrings: string[], templat
   if (template.id === "contractors") {
     const certificateCols = cols(["מס תעודה", "מספר תעודה"]);
     const existingCols = cols(["קיים/לא קיים", "קיים לא קיים"]);
-    const documentCols = cols(["מסמכים מצורפים", "מסמכים"]);
+    const documentCols = cols(["מסמכים מצורפים", "מסמכים", "תעודות", "תעודות מצורפות"]);
     const expiryCols = cols(["תוקף", "תוקף תעודה"]);
     const approvalDateCols = cols(["תאריך אישור"]);
     const approverCols = cols(["שם המאשר"]);
@@ -1058,6 +1065,9 @@ const patchGenericWorkbook = async (buffer: ArrayBuffer, projectMeta: Required<P
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
     if (sheetData) {
+      if (template.id === "contractors") {
+        renameHeaderCell(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים"], "סיווג ברשם הקבלנים/תעודות");
+      }
       const startRow = findFirstWritableRow(sheetData, sharedStrings, template);
       const headers = getHeaderCells(sheetData, sharedStrings);
       const minHeaderCol = headers.length ? Math.min(...headers.map((h) => h.col)) : 1;
