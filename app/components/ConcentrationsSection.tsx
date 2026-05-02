@@ -524,23 +524,104 @@ const isoCertificateLabel = (docs: string) => {
 const nonIsoDocumentsText = (docs: string) => splitDocumentNames(docs).filter((name) => !looksLikeIso(name)).join(", ");
 const isoDocumentsText = (docs: string) => splitDocumentNames(docs).filter(looksLikeIso).join(", ");
 
+const normalizeKey = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[׳`’']/g, "")
+    .replace(/[\s_\-]+/g, "")
+    .trim()
+    .toLowerCase();
+
+const deepFindValue = (value: any, keys: string[], depth = 0): string => {
+  if (!value || depth > 6) return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = deepFindValue(item, keys, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (typeof value !== "object") return "";
+  const normalizedKeys = keys.map(normalizeKey);
+  for (const [key, nested] of Object.entries(value)) {
+    const nk = normalizeKey(key);
+    if (normalizedKeys.some((wanted) => nk === wanted || nk.includes(wanted))) {
+      if (nested !== null && nested !== undefined && String(nested).trim() !== "") return String(nested).trim();
+    }
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (["signature", "signatures"].includes(key)) continue;
+    const found = deepFindValue(nested, keys, depth + 1);
+    if (found) return found;
+  }
+  return "";
+};
+
+const firstNonEmpty = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+const approvalNumberFromRecord = (record: any, fallback: number) => {
+  const fromFields = firstNonEmpty(
+    record?.approvalNo,
+    record?.approvalNumber,
+    record?.preliminaryNo,
+    record?.supplier?.approvalNo,
+    record?.supplier?.approvalNumber,
+    record?.subcontractor?.approvalNo,
+    record?.subcontractor?.approvalNumber,
+    record?.material?.certificateNo,
+    deepFindValue(record, ["approvalNo", "approvalNumber", "preliminaryNo", "מספר אישור", "אישור מס"])
+  );
+  if (fromFields) return fromFields;
+  const titleMatch = String(record?.title ?? "").match(/(?:מס[׳'’]?|#)?\s*(\d+)/);
+  return titleMatch?.[1] ?? String(fallback);
+};
+
+const certificateNumberFromDocs = (docs: string) => {
+  const first = splitDocumentNames(docs)[0] ?? "";
+  return first ? withoutExtension(first) : "";
+};
+
+const clearCellValue = (cell: Element) => {
+  Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
+  cell.removeAttribute("t");
+};
+
+const clearRowsContent = (sheetData: Element, fromRow: number, toRow: number) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) return;
+    const row = cellRowIndex(ref);
+    if (row >= fromRow && row <= toRow) clearCellValue(cell);
+  });
+};
+
 const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
   const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
-    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H4", "J4"], ["G4", "I4"], ["A4", "B4"]] },
-    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H5", "J5"], ["G5", "I5"], ["A5", "B5"]] },
-    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H6", "J6"], ["G6", "I6"], ["A6", "B6"]] },
-    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H7", "J7"], ["G7", "I7"], ["A8", "B8"]] },
-    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["L7", "M7"], ["G8", "I8"], ["A7", "B7"]] },
+    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H5", "J5"], ["G5", "I5"], ["A5", "B5"]] },
+    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H6", "J6"], ["G6", "I6"], ["A6", "B6"]] },
+    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H7", "J7"], ["G7", "I7"], ["A7", "B7"]] },
+    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["H8", "J8"], ["G8", "I8"], ["A8", "B8"]] },
+    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H9", "J9"], ["G9", "I9"], ["A9", "B9"]] },
   ];
 
   const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
   items.forEach((item) => {
+    if (!item.value) return;
     let filled = false;
     allCells.forEach((cell) => {
       const ref = cell.getAttribute("r") ?? "";
-      const text = normalize(cellText(cell, sharedStrings));
-      if (!ref || !text || !text.includes(normalize(item.label))) return;
-      setCell(doc, sheetData, ref, `${item.label}:`);
+      if (!ref) return;
+      const row = cellRowIndex(ref);
+      // לא נוגעים בכותרת העליונה של התבנית. ממלאים רק את טבלת פרטי הפרויקט.
+      if (row < 5 || row > 9) return;
+      const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
+      if (!text || !text.includes(normalize(item.label))) return;
+      setCell(doc, sheetData, ref, `${item.label}:`, cell.getAttribute("s") ?? undefined);
       setCell(doc, sheetData, nextCellRef(ref), item.value);
       filled = true;
     });
@@ -695,6 +776,9 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
   const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
   if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
   const sharedStrings = await readSharedStrings(zip);
+  // מנקים את הכותרת העליונה הכפולה (השורות הצהובות שסומנו בצילום) בלי למחוק את טבלת פרטי הפרויקט.
+  clearRowsContent(sheetData, 3, 4);
+  applyProjectHeaderCells(doc, sheetData, sharedStrings, projectMeta);
   const styles = rowStyleMap(sheetData, 13);
 
   const isContractors = template.id === "contractors";
@@ -708,7 +792,8 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
   const isoGroup = findGroupRange(doc, sheetData, sharedStrings, ["תעודת ISO", "ISO"]);
 
   const columns = {
-    serial: findColumnRightmost(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    approval: findColumnRightmost(sheetData, sharedStrings, ["אישור מס"], 10, 13) || findColumnRightmost(sheetData, sharedStrings, ["מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    serial: findColumn(sheetData, sharedStrings, ["מס סידורי", "מס' סידורי"], 10, 13),
     contractorName: isContractors
       ? findColumn(sheetData, sharedStrings, ["שם קבלן משנה", "שם הקבלן"], 10, 13)
       : findColumn(sheetData, sharedStrings, ["שם ספק"], 10, 13),
@@ -741,10 +826,35 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     const docs = attachedFilesText(record, row);
     const isoDocs = isoDocumentsText(docs);
     const nonIsoDocs = nonIsoDocumentsText(docs);
-    const approvalNo = String(supplier.approvalNo ?? subcontractor.approvalNo ?? material.certificateNo ?? row.certificateNo ?? "").trim();
     const rowNumber = 13 + index;
+    const approvalNo = approvalNumberFromRecord(record, index + 1);
+    const registrationNumber = firstNonEmpty(
+      supplier.standardCertificateNo,
+      supplier.licenseNo,
+      supplier.accreditationNo,
+      supplier.certificateNo,
+      subcontractor.registrationNo,
+      subcontractor.contractorRegistrationNo,
+      subcontractor.certificateNo,
+      material.certificateNo,
+      isContractors ? approvalNo : "",
+      deepFindValue(record, ["standardCertificateNo", "licenseNo", "accreditationNo", "certificateNo", "registrationNo", "מס תעודה", "מספר תעודה"]),
+      certificateNumberFromDocs(isSuppliers ? nonIsoDocs : (nonIsoDocs || docs))
+    );
+    const registrationExpiry = firstNonEmpty(
+      supplier.standardValidUntil,
+      supplier.licenseValidUntil,
+      supplier.accreditationValidUntil,
+      supplier.validUntil,
+      subcontractor.validUntil,
+      subcontractor.registrationValidUntil,
+      record.validUntil,
+      deepFindValue(record, ["standardValidUntil", "licenseValidUntil", "accreditationValidUntil", "validUntil", "expiry", "תוקף"])
+    );
 
-    // מספר סידורי אמיתי לפי סדר השורות בריכוז בלבד.
+    // עמודת "אישור מס" מקבלת את מספר האישור מתוך המערכת, לא מספור עיוור.
+    setByColumn(doc, sheetData, rowNumber, columns.approval, approvalNo, styles);
+    // אם קיימת עמודת מס׳ סידורי נפרדת — ממלאים אותה 1,2,3.
     setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
     setByColumn(doc, sheetData, rowNumber, columns.contractorName, isContractors ? subcontractor.subcontractorName : supplier.supplierName, styles);
     setByColumn(doc, sheetData, rowNumber, columns.activity, isContractors ? subcontractor.field : supplier.suppliedMaterial, styles);
@@ -754,15 +864,28 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     // קבלנים: כל תעודה שלא שייכת ל-ISO נכנסת לסיווג ברשם הקבלנים/תעודות.
     // ספקים: ISO נכנס רק לקבוצת ISO ולא לקבוצת ת״י/הסמכות.
     const registrationDocs = isSuppliers ? nonIsoDocs : (nonIsoDocs || docs);
-    if (approvalNo || registrationDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
-    setByColumn(doc, sheetData, rowNumber, columns.regNumber, approvalNo, styles);
-    setByColumn(doc, sheetData, rowNumber, columns.regExpiry, subcontractor.validUntil ?? supplier.validUntil ?? record.validUntil ?? "", styles);
+    if (registrationNumber || registrationExpiry || registrationDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regNumber, registrationNumber, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regExpiry, registrationExpiry, styles);
     setByColumn(doc, sheetData, rowNumber, columns.regDocs, registrationDocs, styles);
 
-    const isoNumber = String(record.isoCertificateNo ?? supplier.isoCertificateNo ?? subcontractor.isoCertificateNo ?? (looksLikeIso(approvalNo) ? approvalNo : isoCertificateLabel(isoDocs))).trim();
-    if (isoDocs || isoNumber) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
+    const isoNumber = firstNonEmpty(
+      record.isoCertificateNo,
+      supplier.isoCertificateNo,
+      subcontractor.isoCertificateNo,
+      deepFindValue(record, ["isoCertificateNo", "isoNo", "isoNumber", "מס תעודת iso"]),
+      looksLikeIso(approvalNo) ? approvalNo : "",
+      isoCertificateLabel(isoDocs)
+    );
+    const isoExpiry = firstNonEmpty(
+      record.isoValidUntil,
+      supplier.isoValidUntil,
+      subcontractor.isoValidUntil,
+      deepFindValue(record, ["isoValidUntil", "isoExpiry", "תוקף iso"])
+    );
+    if (isoDocs || isoNumber || isoExpiry) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
     setByColumn(doc, sheetData, rowNumber, columns.isoNumber, isoNumber, styles);
-    setByColumn(doc, sheetData, rowNumber, columns.isoExpiry, record.isoValidUntil ?? supplier.isoValidUntil ?? subcontractor.isoValidUntil ?? "", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoExpiry, isoExpiry, styles);
     setByColumn(doc, sheetData, rowNumber, columns.isoDocs, isoDocs, styles);
 
     setByColumn(doc, sheetData, rowNumber, columns.qaDate, approvalDate(record), styles);
