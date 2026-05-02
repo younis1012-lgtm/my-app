@@ -8,6 +8,7 @@ type RequestBody = {
   mimeType?: string;
   dataUrl?: string;
   subtype?: 'suppliers' | 'subcontractors' | 'materials';
+  documentLabel?: string;
 };
 
 const emptyData = {
@@ -23,8 +24,7 @@ const emptyData = {
   details: '',
   confidence: 0,
   notes: '',
-  certificateNoCandidates: [] as string[],
-  rawRelevantText: '',
+  rawText: '',
 };
 
 const jsonSchema = {
@@ -43,11 +43,16 @@ const jsonSchema = {
     details: { type: 'string' },
     confidence: { type: 'number' },
     notes: { type: 'string' },
-    certificateNoCandidates: { type: 'array', items: { type: 'string' } },
-    rawRelevantText: { type: 'string' },
+    rawText: { type: 'string' },
   },
   required: Object.keys(emptyData),
 };
+
+function getBase64(dataUrl: string) {
+  const marker = ';base64,';
+  const idx = dataUrl.indexOf(marker);
+  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl;
+}
 
 function safeJsonParse(text: string) {
   try { return JSON.parse(text); } catch {}
@@ -60,124 +65,80 @@ function isImage(mimeType: string) {
   return mimeType.startsWith('image/');
 }
 
-function getBase64(dataUrl: string) {
-  const marker = ';base64,';
-  const idx = dataUrl.indexOf(marker);
-  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl;
-}
-
-const isYearOnly = (value: unknown) => /^(19|20)\d{2}$/.test(String(value ?? '').trim());
-const isDateLikeNumber = (value: string) => /^20\d{6}$/.test(value) || /^\d{8}$/.test(value);
-
-function cleanCertificateNo(value: unknown) {
-  const raw = String(value ?? '').trim().replace(/[‎‏]/g, '');
-  if (!raw || isYearOnly(raw)) return '';
-  const slash = raw.match(/\b(\d{1,4}\s*[\/-]\s*\d{2,8})\b/);
-  if (slash) return slash[1].replace(/\s+/g, '');
-  const numbers = Array.from(raw.matchAll(/\d{2,8}/g))
-    .map((m) => m[0])
-    .filter((n) => !isYearOnly(n) && !isDateLikeNumber(n));
-  return numbers[0] ?? '';
-}
+const heMonths: Record<string, string> = {
+  'ינואר': '01', 'פברואר': '02', 'מרץ': '03', 'אפריל': '04', 'מאי': '05', 'יוני': '06',
+  'יולי': '07', 'אוגוסט': '08', 'ספטמבר': '09', 'אוקטובר': '10', 'נובמבר': '11', 'דצמבר': '12',
+};
 
 function normalizeDate(value: unknown) {
-  const raw = String(value ?? '').trim().replace(/[‎‏]/g, '');
-  if (!raw) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  if (/^(19|20)\d{2}$/.test(raw)) return `${raw}-12-31`;
-  const months: Record<string, string> = { ינואר:'01', פברואר:'02', מרץ:'03', מרס:'03', אפריל:'04', מאי:'05', יוני:'06', יולי:'07', אוגוסט:'08', ספטמבר:'09', אוקטובר:'10', נובמבר:'11', דצמבר:'12' };
-  const hm = raw.match(/(\d{1,2})\s+([א-ת]+)\s+((?:19|20)\d{2})/);
-  if (hm && months[hm[2]]) return `${hm[3]}-${months[hm[2]]}-${hm[1].padStart(2, '0')}`;
-  const dm = raw.match(/(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)?\d{2})/);
-  if (dm) {
-    const year = dm[3].length === 2 ? `20${dm[3]}` : dm[3];
-    return `${year}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
-  }
-  const ym = raw.match(/((?:19|20)\d{2})[./-](\d{1,2})[./-](\d{1,2})/);
-  if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}-${ym[3].padStart(2, '0')}`;
-  const year = raw.match(/(?:תוקף|בתוקף|פקיעת|עד|valid|expiry|expires)[^\d]{0,30}((?:19|20)\d{2})/i);
-  if (year) return `${year[1]}-12-31`;
-  return '';
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const iso = text.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const dmy = text.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const he = text.match(/\b(\d{1,2})\s+(ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+(20\d{2})\b/);
+  if (he) return `${he[3]}-${heMonths[he[2]]}-${he[1].padStart(2, '0')}`;
+  const year = text.match(/\b(20\d{2})\b/);
+  return year ? year[1] : '';
 }
 
-function extractCertificateCandidatesFromText(text: string) {
-  const normalized = String(text ?? '')
-    .replace(/[׳’`]/g, "'")
-    .replace(/[״“”]/g, '"')
-    .replace(/[\u200e\u200f]/g, '')
-    .replace(/\s+/g, ' ');
-  const numberPattern = String.raw`(\d{1,4}\s*[\/-]\s*\d{2,8}|\d{2,8})`;
+function extractCertificateNoFromText(text: string) {
+  const t = String(text ?? '').replace(/[־–—]/g, '-');
   const patterns = [
-    new RegExp(String.raw`(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)[^\d]{0,40}(?:מס['"׳״]?|מספר|No\.?|#|:)?[^\d]{0,15}` + numberPattern, 'gi'),
-    new RegExp(String.raw`(?:מס['"׳״]?|מספר)[^\d]{0,20}(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)[^\d]{0,20}` + numberPattern, 'gi'),
-    new RegExp(numberPattern + String.raw`[^\n]{0,30}(?:מס['"׳״]?|מספר)?[^\n]{0,20}(?:תעודת\s*כיול|תעודה|אישור|ריש[ייו]ון|רשיון)`, 'gi'),
-    new RegExp(String.raw`(?:License|Licence|Certificate|Calibration|Approval)[^\d]{0,40}(?:No\.?|Number|#|:)?[^\d]{0,15}` + numberPattern, 'gi'),
+    /תעודת\s*כיול\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
+    /(?:מס['׳]?|מספר)\s*(?:תעודה|אישור|רישיון|רשיון|כיול)\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
+    /(?:תעודה|אישור|רישיון|רשיון)\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{1,4}\s*\/\s*[0-9]{2,8})/i,
+    /(?:מס['׳]?|מספר)\s*(?:תעודה|אישור|רישיון|רשיון|כיול)\s*[:#-]?\s*([0-9]{2,8})/i,
+    /(?:תעודת\s*כיול|רישיון|רשיון)\s*(?:מס['׳]?|מספר)?\s*[:#-]?\s*([0-9]{2,8})/i,
   ];
-  const found: string[] = [];
   for (const pattern of patterns) {
-    for (const match of normalized.matchAll(pattern)) {
-      const candidate = match[1] ?? match[2] ?? match[0];
-      const cleaned = cleanCertificateNo(candidate);
-      if (cleaned && !found.includes(cleaned)) found.push(cleaned);
-    }
+    const match = t.match(pattern);
+    const candidate = match?.[1]?.replace(/\s+/g, '') ?? '';
+    if (candidate && !/^20\d{2}$/.test(candidate)) return candidate;
   }
-  return found;
+  return '';
 }
 
 function extractExpiryFromText(text: string) {
-  const normalized = String(text ?? '').replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ');
-  const datePattern = String.raw`(\d{1,2}[./-]\d{1,2}[./-](?:19|20)?\d{2}|\d{1,2}\s+[א-ת]+\s+(?:19|20)\d{2}|(?:19|20)\d{2})`;
+  const t = String(text ?? '').replace(/[־–—]/g, '-');
   const patterns = [
-    new RegExp(String.raw`(?:תאריך\s*פקיעת\s*תוקף\s*כיול|פקיעת\s*תוקף|תוקף|בתוקף|תוקף\s*עד|עד\s*תאריך|valid\s*until|expiry|expires)[^\d]{0,40}` + datePattern, 'i'),
-    new RegExp(datePattern + String.raw`[^\n]{0,40}(?:תאריך\s*פקיעת\s*תוקף\s*כיול|פקיעת\s*תוקף|תוקף|בתוקף|valid\s*until|expiry|expires)`, 'i'),
+    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(\d{1,2}\s+(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+20\d{2})/i,
+    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]20\d{2})/i,
+    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(20\d{2}[\/.\-]\d{1,2}[\/.\-]\d{1,2})/i,
+    /(?:תאריך\s*)?(?:פקיעת|פג|תוקף|בתוקף\s*עד|תאריך\s*תוקף)\s*(?:תוקף\s*)?(?:כיול)?\s*[:#-]?\s*(20\d{2})/i,
   ];
   for (const pattern of patterns) {
-    const m = normalized.match(pattern);
-    if (m) {
-      const d = normalizeDate(m[1]);
-      if (d) return d;
-    }
+    const match = t.match(pattern);
+    const value = normalizeDate(match?.[1] ?? '');
+    if (value) return value;
   }
   return '';
 }
 
-function postProcess(raw: any, fileName: string, outputText: string) {
-  const merged: any = { ...emptyData, ...(raw && typeof raw === 'object' ? raw : {}) };
-  const allText = [
-    outputText,
-    merged.rawRelevantText,
-    merged.notes,
-    merged.details,
-    merged.certificateNo,
-    ...(Array.isArray(merged.certificateNoCandidates) ? merged.certificateNoCandidates : []),
-  ].join('\n');
+function cleanCertificateNo(value: unknown, rawText: string) {
+  const fromText = extractCertificateNoFromText(rawText);
+  if (fromText) return fromText;
+  const text = String(value ?? '').trim().replace(/\s+/g, '');
+  if (!text) return '';
+  if (/^20\d{2}$/.test(text)) return '';
+  const slash = text.match(/\d{1,4}\/\d{2,8}/);
+  if (slash) return slash[0];
+  const digits = text.match(/\d{2,8}/);
+  return digits ? digits[0] : '';
+}
 
-  const candidateSources = [
-    ...(Array.isArray(merged.certificateNoCandidates) ? merged.certificateNoCandidates : []),
-    ...extractCertificateCandidatesFromText(allText),
-    merged.certificateNo,
-  ];
-
-  const candidates = candidateSources
-    .map(cleanCertificateNo)
-    .filter(Boolean)
-    .filter((value, index, arr) => arr.indexOf(value) === index);
-
-  merged.certificateNo = candidates[0] ?? '';
-  merged.certificateNoCandidates = candidates;
-  merged.expiryDate = normalizeDate(merged.expiryDate) || extractExpiryFromText(allText) || normalizeDate(fileName);
-  merged.issueDate = normalizeDate(merged.issueDate);
-
-  // Do not use filename numbers for certificateNo unless they are not years/dates and OCR found nothing.
-  if (!merged.certificateNo) {
-    const fromName = Array.from(String(fileName ?? '').matchAll(/\d{2,8}/g))
-      .map((m) => cleanCertificateNo(m[0]))
-      .filter(Boolean);
-    merged.certificateNo = fromName[0] ?? '';
-  }
-
-  if (isYearOnly(merged.certificateNo)) merged.certificateNo = '';
-  return merged;
+function cleanParsedData(parsed: any, sourceText: string) {
+  const rawText = String(parsed?.rawText || sourceText || '');
+  return {
+    ...emptyData,
+    ...parsed,
+    rawText,
+    certificateNo: cleanCertificateNo(parsed?.certificateNo, rawText),
+    expiryDate: normalizeDate(parsed?.expiryDate) || extractExpiryFromText(rawText),
+    issueDate: normalizeDate(parsed?.issueDate),
+    confidence: typeof parsed?.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -192,27 +153,28 @@ export async function POST(req: NextRequest) {
     const mimeType = String(body.mimeType ?? 'application/octet-stream');
     const dataUrl = String(body.dataUrl ?? '');
     const subtype = body.subtype ?? 'suppliers';
+    const documentLabel = String(body.documentLabel ?? '');
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
 
-    const prompt = `אתה מנגנון OCR מקצועי למערכת בקרת איכות בפרויקטי תשתיות בישראל.
-קרא את הקובץ המצורף ונתח אותו ויזואלית, כולל PDF סרוק, תמונה, טופס בעברית או באנגלית.
-החזר JSON בלבד לפי הסכמה.
-סוג הטופס במערכת: ${subtype}.
+    const prompt = `אתה OCR מקצועי למסמכי בקרת איכות בעברית/אנגלית.
+קרא את המסמך המצורף ותחזיר JSON בלבד לפי הסכמה.
+סוג רשומה במערכת: ${subtype}. סוג מסמך/שורת תעודה במערכת: ${documentLabel}.
 
-חובה לזהות מתוך המסמך עצמו, לא רק משם הקובץ:
-- מספר תעודה / מספר רישיון / מספר אישור
-- תאריך תוקף / בתוקף עד / valid until / expiry
-- שם ספק / קבלן משנה / חומר, אם קיימים
+חובה לסרוק את גוף המסמך עצמו, לא להסתמך על שם הקובץ.
+חובה להחזיר גם rawText: טקסט קצר מהמסמך הכולל את השורות סביב מספר התעודה והתוקף.
 
 כללים קריטיים:
-1. certificateNo הוא מספר תעודה / מספר רישיון / מספר אישור בלבד.
-2. אם מופיע במסמך "תעודת כיול מס׳ 25/3785" אז certificateNo חייב להיות "25/3785". אם מופיע "מספר רישיון 947", "רשיון מס' 947", או "רישיון מודד מס' 947" אז certificateNo חייב להיות "947".
-3. לעולם אל תחזיר שנת תוקף כמו 2025 או 2026 בתור certificateNo.
-4. expiryDate הוא תוקף בלבד. אם מופיע "תאריך פקיעת תוקף כיול 12 מאי 2026" אז expiryDate חייב להיות "2026-05-12". אם יש רק שנה, החזר סוף שנה בפורמט YYYY-12-31.
-5. certificateNoCandidates: החזר את כל המספרים האפשריים שמופיעים ליד: מספר רישיון, רשיון, רישיון מס', מספר תעודה, מספר אישור, License No, Certificate No.
-6. rawRelevantText: העתק את השורות הרלוונטיות המדויקות שבהן מופיעים מספר רישיון/תעודה/אישור ותוקף, כולל שורות בטבלה.
-7. אם אין ערך ברור, החזר מחרוזת ריקה. אל תנחש.`;
+1. certificateNo = מספר תעודה / רישיון / אישור / תעודת כיול כפי שמופיע במסמך.
+   דוגמא: אם כתוב "תעודת כיול מס׳ 25/3785" החזר certificateNo="25/3785".
+   אל תחזיר שנה כמו 2025/2026 בתור certificateNo.
+2. expiryDate = תאריך פקיעה/תוקף בלבד.
+   דוגמא: "12 מאי 2026" יוחזר expiryDate="2026-05-12".
+   אם יש רק שנה, החזר "2026".
+3. issueDate = תאריך הפקה/בדיקה אם קיים.
+4. אל תנחש. אם אין ערך ברור, החזר מחרוזת ריקה.
+5. אל תיצור מספרי אישור פנימיים כמו SUB-2026. המספור הפנימי נעשה במערכת בלבד.
+`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (isImage(mimeType)) {
@@ -223,22 +185,12 @@ export async function POST(req: NextRequest) {
 
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1',
+        model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
         input: [{ role: 'user', content }],
         temperature: 0,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'preliminary_ocr_extract',
-            schema: jsonSchema,
-            strict: true,
-          },
-        },
+        text: { format: { type: 'json_schema', name: 'preliminary_ocr_extract', schema: jsonSchema, strict: true } },
       }),
     });
 
@@ -250,7 +202,7 @@ export async function POST(req: NextRequest) {
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = safeJsonParse(outputText) ?? emptyData;
-    return NextResponse.json({ data: postProcess(parsed, fileName, outputText) });
+    return NextResponse.json({ data: cleanParsedData(parsed, outputText) });
   } catch (error: any) {
     console.error('OCR route failed', error);
     return NextResponse.json({ error: error?.message || 'OCR route failed' }, { status: 500 });
