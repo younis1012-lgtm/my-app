@@ -7193,6 +7193,13 @@ export default function Page() {
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
+    .prelim-report{width:100%;margin:0 0 12px;table-layout:fixed;border-collapse:collapse;page-break-inside:avoid}
+    .prelim-report th,.prelim-report td{font-size:13px;line-height:1.25;height:24px;padding:4px 6px;border:1px solid #111827;text-align:center;vertical-align:middle;background:#fff}
+    .prelim-report .prelim-title{font-size:24px;font-weight:900;text-align:center;line-height:1.15}
+    .prelim-report .prelim-section-title{font-size:20px;font-weight:900;text-align:center;height:32px}
+    .prelim-report .prelim-label{font-weight:900;text-align:right;width:32%}
+    .prelim-report .prelim-value{height:26px}
+    .prelim-report .prelim-small{font-size:12px;font-weight:800}
     @page{size:A4 portrait;margin:8mm}
     @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-logo-box{height:54px}.company-full-logo{height:48px!important;max-height:48px!important;max-width:108px!important}.company-footer{margin-top:8px}.company-footer-single{height:18px;font-size:8.5px;line-height:16px}.trial-report{width:100%}}
   `;
@@ -7490,53 +7497,94 @@ export default function Page() {
       ["מס׳ תעודת מעבדה", (controlProcessForm as any).labCertificateNo],
     ])}${requiredDocumentsExportTable(controlProcessForm.requiredDocuments)}${signaturesTable(controlProcessForm.approval)}`;
 
+  const preliminaryFormTitle = (subtype: PreliminaryTab) =>
+    subtype === "suppliers"
+      ? "אישור ספקים"
+      : subtype === "subcontractors"
+        ? "אישור קבלן משנה"
+        : "אישור חומרים";
+
+  const preliminaryEditionDate = (subtype: PreliminaryTab) =>
+    subtype === "subcontractors" ? "01.11.2025" : "2022-02-01";
+
+  const preliminaryEdition = (subtype: PreliminaryTab) =>
+    subtype === "subcontractors" ? "א׳" : "א";
+
+  const approvalStatusLabel = (status: unknown) =>
+    status === "approved" || status === "מאושר"
+      ? "מאושר"
+      : status === "rejected" || status === "לא מאושר"
+        ? "לא מאושר"
+        : "";
+
+  const approvalSignatureForRole = (approval: ApprovalFlow | undefined, roleKeywords: string[]) => {
+    const normalized = normalizeApproval(approval);
+    return (
+      normalized.signatures.find((signature) =>
+        roleKeywords.some((keyword) => String(signature.role ?? "").includes(keyword)),
+      ) ??
+      normalized.signatures.find((signature) => !String(signature.role ?? "").includes("הבטחת")) ??
+      normalized.signatures[0]
+    );
+  };
+
+  const preliminaryApprovalTable = (approval: ApprovalFlow | undefined, subtype: PreliminaryTab) => {
+    const normalized = normalizeApproval(approval);
+    const qc = approvalSignatureForRole(approval, ["בקרת", "בקר איכות", "QC"]);
+    const qa = approvalSignatureForRole(approval, ["הבטחת", "QA"]);
+    const qcLabel = subtype === "subcontractors" ? "בקרת איכות (QC)" : "בקרת איכות";
+    const qaLabel = subtype === "subcontractors" ? "הבטחת איכות (QA)" : "הבטחת איכות";
+    const row = (role: string, signature: any) =>
+      `<tr><td class="prelim-label">${safeText(role)}</td><td>${valueOrBlank(signature?.signerName, 22)}</td><td>${valueOrBlank(signature?.signedAt, 22)}</td><td>${valueOrBlank(approvalStatusLabel(normalized.status), 22)}</td></tr>`;
+    return `<table class="prelim-report"><tbody><tr><th colspan="4" class="prelim-section-title">אישורים</th></tr><tr><th>תפקיד</th><th>שם</th><th>תאריך</th><th>סטטוס (מאושר / לא מאושר)</th></tr>${row(qcLabel, qc)}${row(qaLabel, qa)}</tbody></table>`;
+  };
+
+  const preliminaryCertificateRows = (subtype: PreliminaryTab, certificateNo: unknown) => {
+    const certificateName = subtype === "suppliers" ? "תעודת ISO" : "";
+    const extraEmptyRows = subtype === "materials" ? 1 : 0;
+    const row = (details: unknown = certificateName) =>
+      `<tr><td>${valueOrBlank(details, 24)}</td><td>${blankCell(24)}</td><td>${valueOrBlank(certificateNo, 24)}</td><td>${blankCell(24)}</td><td>${blankCell(24)}</td></tr>`;
+    return `<table class="prelim-report"><tbody><tr><th colspan="5" class="prelim-section-title">תעודות</th></tr><tr><th>פרטים</th><th>קיים / לא קיים</th><th>מספר תעודה</th><th>תוקף</th><th>מסמכים מצורפים</th></tr>${row()}${Array.from({ length: extraEmptyRows }).map(() => row("")).join("")}</tbody></table>`;
+  };
+
+  const preliminaryHeaderTable = (subtype: PreliminaryTab) =>
+    `<table class="prelim-report"><tbody><tr><td rowspan="2" class="prelim-title">${safeText(preliminaryFormTitle(subtype))}</td><th>מהדורה</th><th>תאריך</th></tr><tr><td>${safeText(preliminaryEdition(subtype))}</td><td>${safeText(preliminaryEditionDate(subtype))}</td></tr></tbody></table>`;
+
+  const preliminaryProjectTable = () =>
+    `<table class="prelim-report"><tbody><tr><td>${valueOrBlank(currentProjectLegend.projectName || projectName, 26)}</td><td class="prelim-label">שם הפרויקט</td></tr><tr><td>${valueOrBlank(currentProjectLegend.projectManagement, 26)}</td><td class="prelim-label">חברת ניהול</td></tr><tr><td>${valueOrBlank(currentProjectLegend.contractor, 26)}</td><td class="prelim-label">קבלן ראשי</td></tr><tr><td>${valueOrBlank(currentProjectLegend.qualityControl || CONTROL_QUALITY_COMPANY_NAME, 26)}</td><td class="prelim-label">חברת בקרת איכות</td></tr></tbody></table>`;
+
+  const preliminaryDetailsTable = (rows: Array<[string, unknown]>) =>
+    `<table class="prelim-report"><tbody>${rows.map(([label, value]) => `<tr><td>${valueOrBlank(value, 26)}</td><td class="prelim-label">${safeText(label)}</td></tr>`).join("")}</tbody></table>`;
+
   const preliminaryRows = () => {
     if (preliminaryTab === "suppliers") {
       const s = supplierPreliminaryForm.supplier ?? ({} as any);
-      return (
-        baseRows([
-          ["סוג בקרה", "ספקים"],
-          ["כותרת", supplierPreliminaryForm.title],
-          ["תאריך", supplierPreliminaryForm.date],
-          ["סטטוס", supplierPreliminaryForm.status],
-          ["שם ספק", (s as any).supplierName],
-          ["חומר מסופק", (s as any).suppliedMaterial],
-          ["טלפון", (s as any).contactPhone],
-          ["מספר אישור", (s as any).approvalNo],
-          ["הערות", (s as any).notes, 90],
-        ]) + signaturesTable(supplierPreliminaryForm.approval)
-      );
+      return `${preliminaryHeaderTable("suppliers")}${preliminaryProjectTable()}${preliminaryDetailsTable([
+        ["מספר אישור", (s as any).approvalNo],
+        ["שם ספק", (s as any).supplierName],
+        ["סניף", (s as any).branch],
+        ["אנשי קשר וטלפון", (s as any).contactPhone],
+        ["חומר מסופק", (s as any).suppliedMaterial],
+      ])}${preliminaryCertificateRows("suppliers", (s as any).certificateNo)}${preliminaryApprovalTable(supplierPreliminaryForm.approval, "suppliers")}`;
     }
     if (preliminaryTab === "subcontractors") {
       const s = subcontractorPreliminaryForm.subcontractor ?? ({} as any);
-      return (
-        baseRows([
-          ["סוג בקרה", "קבלנים"],
-          ["כותרת", subcontractorPreliminaryForm.title],
-          ["תאריך", subcontractorPreliminaryForm.date],
-          ["סטטוס", subcontractorPreliminaryForm.status],
-          ["שם קבלן משנה", (s as any).subcontractorName],
-          ["תחום", (s as any).field],
-          ["טלפון", (s as any).contactPhone],
-          ["מספר אישור", (s as any).approvalNo],
-          ["הערות", (s as any).notes, 90],
-        ]) + signaturesTable(subcontractorPreliminaryForm.approval)
-      );
+      return `${preliminaryHeaderTable("subcontractors")}${preliminaryProjectTable()}${preliminaryDetailsTable([
+        ["מספר אישור", (s as any).approvalNo],
+        ["שם קבלן משנה", (s as any).subcontractorName],
+        ["סניף", (s as any).branch],
+        ["אנשי קשר וטלפון", (s as any).contactPhone],
+        ["שירות עבודה", (s as any).field],
+      ])}${preliminaryCertificateRows("subcontractors", (s as any).certificateNo)}${preliminaryApprovalTable(subcontractorPreliminaryForm.approval, "subcontractors")}`;
     }
     const m = materialPreliminaryForm.material ?? ({} as any);
-    return (
-      baseRows([
-        ["סוג בקרה", "חומרים"],
-        ["כותרת", materialPreliminaryForm.title],
-        ["תאריך", materialPreliminaryForm.date],
-        ["סטטוס", materialPreliminaryForm.status],
-        ["שם חומר", (m as any).materialName],
-        ["מקור", (m as any).source],
-        ["שימוש", (m as any).usage],
-        ["מספר תעודה", (m as any).certificateNo],
-        ["הערות", (m as any).notes, 90],
-      ]) + signaturesTable(materialPreliminaryForm.approval)
-    );
+    return `${preliminaryHeaderTable("materials")}${preliminaryProjectTable()}${preliminaryDetailsTable([
+      ["מספר אישור", (m as any).approvalNo ?? (m as any).certificateNo],
+      ["שם ספק", (m as any).supplierName ?? (m as any).source],
+      ["סניף", (m as any).branch],
+      ["אנשי קשר וטלפון", (m as any).contactPhone],
+      ["חומר מסופק", (m as any).materialName],
+    ])}${preliminaryCertificateRows("materials", (m as any).certificateNo)}${preliminaryApprovalTable(materialPreliminaryForm.approval, "materials")}`;
   };
 
   const exportHtml = (forcedChecklistNo?: number) => {
