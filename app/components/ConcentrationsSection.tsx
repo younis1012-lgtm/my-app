@@ -600,6 +600,47 @@ const certificateNumberFromDocs = (docs: string) => {
   return first ? withoutExtension(first) : "";
 };
 
+const certificateNumberFromFieldsOnly = (record: any, keys: string[]) => {
+  const value = deepFindValue(record, keys);
+  return value && !looksLikeIso(value) ? value : "";
+};
+
+const supplierIsoNumberFallback = (supplier: any, record: any, isoDocs: string, nonIsoDocs: string) => {
+  // אם קיימת רק תעודת ISO, ובמערכת נשמר מספר תעודה בשדה כללי/ישן,
+  // מתייחסים אליו כאל מספר ISO ולא כאל אישור ת״י/הסמכות.
+  if (!isoDocs || nonIsoDocs) return "";
+  return firstNonEmpty(
+    supplier.isoCertificateNo,
+    supplier.isoNo,
+    supplier.isoNumber,
+    supplier.standardCertificateNo,
+    supplier.tiCertificateNo,
+    supplier.tavTekenCertificateNo,
+    supplier.licenseNo,
+    supplier.accreditationNo,
+    record.isoCertificateNo,
+    record.isoNo,
+    record.isoNumber,
+    deepFindValue(record, ["isoCertificateNo", "isoNo", "isoNumber", "iso certificate", "מס תעודת iso", "מספר iso", "certificateNo", "certificateNumber"])
+  );
+};
+
+const supplierIsoExpiryFallback = (supplier: any, record: any, isoDocs: string, nonIsoDocs: string) => {
+  if (!isoDocs || nonIsoDocs) return "";
+  return firstNonEmpty(
+    supplier.isoValidUntil,
+    supplier.isoExpiry,
+    supplier.standardValidUntil,
+    supplier.tiValidUntil,
+    supplier.tavTekenValidUntil,
+    supplier.licenseValidUntil,
+    supplier.accreditationValidUntil,
+    record.isoValidUntil,
+    record.isoExpiry,
+    deepFindValue(record, ["isoValidUntil", "isoExpiry", "תוקף iso", "validUntil", "expiry"])
+  );
+};
+
 const clearCellValue = (cell: Element) => {
   Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
   cell.removeAttribute("t");
@@ -838,7 +879,7 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     const nonIsoDocs = nonIsoDocumentsText(docs);
     const rowNumber = 13 + index;
     const approvalNo = approvalNumberFromRecord(record, index + 1);
-    const supplierRegistrationNumber = firstNonEmpty(
+    const supplierRegistrationNumber = nonIsoDocs ? firstNonEmpty(
       supplier.standardCertificateNo,
       supplier.tiCertificateNo,
       supplier.tavTekenCertificateNo,
@@ -846,22 +887,20 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
       supplier.accreditationNo,
       deepFindValue(record, ["standardCertificateNo", "tiCertificateNo", "tavTekenCertificateNo", "licenseNo", "accreditationNo", "מס תעודת תי", "מספר תי", "מספר הסמכה", "מספר רשיון"]),
       certificateNumberFromDocs(nonIsoDocs)
-    );
-    const supplierRegistrationExpiry = firstNonEmpty(
+    ) : "";
+    const supplierRegistrationExpiry = nonIsoDocs ? firstNonEmpty(
       supplier.standardValidUntil,
       supplier.tiValidUntil,
       supplier.tavTekenValidUntil,
       supplier.licenseValidUntil,
       supplier.accreditationValidUntil,
       deepFindValue(record, ["standardValidUntil", "tiValidUntil", "tavTekenValidUntil", "licenseValidUntil", "accreditationValidUntil", "תוקף תי", "תוקף הסמכה", "תוקף רשיון"])
-    );
+    ) : "";
     const contractorRegistrationNumber = firstNonEmpty(
       subcontractor.registrationNo,
       subcontractor.contractorRegistrationNo,
       subcontractor.certificateNo,
-      isContractors ? approvalNo : "",
-      deepFindValue(record, ["registrationNo", "contractorRegistrationNo", "מס תעודה", "מספר תעודה", "רשם הקבלנים"]),
-      certificateNumberFromDocs(nonIsoDocs || docs)
+      certificateNumberFromFieldsOnly(record, ["registrationNo", "contractorRegistrationNo", "מס תעודה", "מספר תעודה", "רשם הקבלנים"])
     );
     const contractorRegistrationExpiry = firstNonEmpty(
       subcontractor.validUntil,
