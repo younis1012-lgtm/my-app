@@ -523,6 +523,20 @@ const isoCertificateLabel = (docs: string) => {
 
 const nonIsoDocumentsText = (docs: string) => splitDocumentNames(docs).filter((name) => !looksLikeIso(name)).join(", ");
 const isoDocumentsText = (docs: string) => splitDocumentNames(docs).filter(looksLikeIso).join(", ");
+const genericExpiryFromRecord = (record: any) => firstNonEmpty(
+  record?.validUntil,
+  record?.expiry,
+  record?.expiryDate,
+  record?.certificateValidUntil,
+  record?.certificateExpiry,
+  record?.supplier?.validUntil,
+  record?.supplier?.expiry,
+  record?.supplier?.expiryDate,
+  record?.supplier?.certificateValidUntil,
+  record?.supplier?.certificateExpiry,
+  deepFindValue(record, ["validUntil", "expiry", "expiryDate", "certificateValidUntil", "certificateExpiry", "תוקף", "תאריך תוקף"])
+);
+
 
 const normalizeKey = (value: unknown) =>
   String(value ?? "")
@@ -601,33 +615,25 @@ const clearRowsContent = (sheetData: Element, fromRow: number, toRow: number) =>
 };
 
 const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
-  const items: Array<{ label: string; value: string; fallbacks: Array<[string, string]> }> = [
-    { label: "שם פרויקט", value: meta.projectName, fallbacks: [["H5", "J5"], ["G5", "I5"], ["A5", "B5"]] },
-    { label: "ניהול פרויקט", value: meta.projectManager, fallbacks: [["H6", "J6"], ["G6", "I6"], ["A6", "B6"]] },
-    { label: "שם הקבלן", value: meta.contractor, fallbacks: [["H7", "J7"], ["G7", "I7"], ["A7", "B7"]] },
-    { label: "הבטחת איכות", value: meta.qualityAssurance, fallbacks: [["H8", "J8"], ["G8", "I8"], ["A8", "B8"]] },
-    { label: "בקרת איכות", value: meta.qualityControl, fallbacks: [["H9", "J9"], ["G9", "I9"], ["A9", "B9"]] },
+  // ממלאים רק את טבלת פרטי הפרויקט המרכזית. לא מחפשים תוויות בצד ימין כדי לא ליצור כפילות.
+  // בנוסף מנקים את הכפילות שנוצרה בעבר בצד ימין של הגיליון.
+  ["A5", "B5", "C5", "D5", "A6", "B6", "C6", "D6", "A7", "B7", "C7", "D7", "A8", "B8", "C8", "D8", "A9", "B9", "C9", "D9"].forEach((cellRef) => {
+    const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
+    const cell = getOrCreateCell(doc, row, cellRef);
+    clearCellValue(cell);
+  });
+
+  const items: Array<{ labelCell: string; valueCell: string; label: string; value: string }> = [
+    { labelCell: "H5", valueCell: "J5", label: "שם פרויקט", value: meta.projectName },
+    { labelCell: "H6", valueCell: "J6", label: "ניהול פרויקט", value: meta.projectManager },
+    { labelCell: "H7", valueCell: "J7", label: "שם הקבלן", value: meta.contractor },
+    { labelCell: "H8", valueCell: "J8", label: "הבטחת איכות", value: meta.qualityAssurance },
+    { labelCell: "H9", valueCell: "J9", label: "בקרת איכות", value: meta.qualityControl },
   ];
 
-  const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
   items.forEach((item) => {
-    if (!item.value) return;
-    allCells.forEach((cell) => {
-      const ref = cell.getAttribute("r") ?? "";
-      if (!ref) return;
-      const row = cellRowIndex(ref);
-      if (row < 5 || row > 9) return;
-      const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
-      if (!text || !text.includes(normalize(item.label))) return;
-      setCell(doc, sheetData, ref, `${item.label}:`, cell.getAttribute("s") ?? undefined);
-      setCell(doc, sheetData, nextCellRef(ref), item.value);
-    });
-
-    // גיבוי קשיח לתבניות הקיימות: ממלא את שורות פרטי הפרויקט גם אם התא הממוזג/RTL לא זוהה.
-    item.fallbacks.forEach(([labelCell, valueCell]) => {
-      setCell(doc, sheetData, labelCell, `${item.label}:`);
-      setCell(doc, sheetData, valueCell, item.value);
-    });
+    setCell(doc, sheetData, item.labelCell, `${item.label}:`);
+    setCell(doc, sheetData, item.valueCell, item.value || "");
   });
 };
 
@@ -892,9 +898,19 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     );
     const isoExpiry = firstNonEmpty(
       record.isoValidUntil,
+      record.isoExpiry,
+      record.isoExpiryDate,
       supplier.isoValidUntil,
+      supplier.isoExpiry,
+      supplier.isoExpiryDate,
+      supplier.isoCertificateValidUntil,
+      supplier.isoCertificateExpiry,
       subcontractor.isoValidUntil,
-      deepFindValue(record, ["isoValidUntil", "isoExpiry", "תוקף iso"])
+      subcontractor.isoExpiry,
+      subcontractor.isoExpiryDate,
+      deepFindValue(record, ["isoValidUntil", "isoExpiry", "isoExpiryDate", "isoCertificateValidUntil", "isoCertificateExpiry", "תוקף iso", "תוקף איזו"]),
+      // אם לרשומת ספק צורפה רק תעודת ISO, תוקף כללי של התעודה שייך ל-ISO ולא לת״י/הסמכות.
+      isSuppliers && isoDocs && !nonIsoDocs ? genericExpiryFromRecord(record) : ""
     );
     if (isoDocs || isoNumber || isoExpiry) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
     setByColumn(doc, sheetData, rowNumber, columns.isoNumber, isoNumber, styles);
