@@ -27,7 +27,9 @@ export const uploadFileToSupabase = async (
 
   if (error) throw error;
 
-  const { data } = supabase.storage.from("attachments").getPublicUrl(filePath);
+  const { data } = supabase.storage
+    .from("attachments")
+    .getPublicUrl(filePath);
 
   return data.publicUrl;
 };
