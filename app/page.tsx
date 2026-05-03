@@ -27,11 +27,7 @@ import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
-import {
-  isSupabaseConfigured,
-  supabase,
-  uploadFileToSupabase,
-} from "../lib/supabaseClient";
+import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 const STORAGE_KEY = "yk-quality-stage4-multifile";
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT =
@@ -210,8 +206,8 @@ type RequiredDocument = {
   attached: boolean;
   attachmentName?: string;
   attachedAt?: string;
-  fileType?: string;
-  dataUrl?: string;
+  attachmentDataUrl?: string;
+  attachmentType?: string;
 };
 
 type AuditEntry = {
@@ -355,8 +351,10 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] =>
         attached: Boolean(item?.attached),
         attachmentName: String(item?.attachmentName ?? ""),
         attachedAt: String(item?.attachedAt ?? ""),
-        fileType: String(item?.fileType ?? item?.typeMime ?? ""),
-        dataUrl: String(item?.dataUrl ?? item?.url ?? ""),
+        attachmentDataUrl: String(
+          item?.attachmentDataUrl ?? item?.dataUrl ?? item?.url ?? "",
+        ),
+        attachmentType: String(item?.attachmentType ?? item?.type ?? ""),
       }))
     : [];
 
@@ -1056,7 +1054,7 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
         .map((item: any) => ({
           name: String(item.name ?? "קובץ"),
           type: String(item.type ?? ""),
-          dataUrl: String(item.dataUrl ?? item.url ?? ""),
+          dataUrl: String(item.dataUrl ?? ""),
           uploadedAt: String(item.uploadedAt ?? ""),
         }))
         .filter((item) => item.dataUrl)
@@ -1079,7 +1077,7 @@ const normalizeChecklistAttachments = (
           id: String(item.id ?? `${Date.now()}-${index}`),
           name: String(item.name ?? "קובץ"),
           type: String(item.type ?? ""),
-          dataUrl: String(item.dataUrl ?? item.url ?? ""),
+          dataUrl: String(item.dataUrl ?? ""),
           uploadedAt: String(item.uploadedAt ?? ""),
           kind:
             item.kind === "lab" || item.kind === "measurement"
@@ -1602,21 +1600,16 @@ function ChecklistAttachmentsPanel({
                               padding: "4px 6px",
                             }}
                           >
-                            <a
-                              href={attachment.dataUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <span
                               title={attachment.name}
                               style={{
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
-                                color: "#0369a1",
-                                fontWeight: 800,
                               }}
                             >
-                              📎 {attachment.name}
-                            </a>
+                              ✅ {attachment.name}
+                            </span>
                             <button
                               type="button"
                               onClick={() => onRemove(item.id, attachment.id)}
@@ -2423,21 +2416,16 @@ function ChecklistsSection({
                                 padding: "6px 8px",
                               }}
                             >
-                              <a
-                                href={attachment.dataUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <span
                                 title={attachment.name}
                                 style={{
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                   whiteSpace: "nowrap",
-                                  color: "#0369a1",
-                                  fontWeight: 800,
                                 }}
                               >
-                                📎 {attachment.name}
-                              </a>
+                                ✅ {attachment.name}
+                              </span>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -2888,19 +2876,30 @@ function RfiSection({
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const publicUrl = await uploadFileToSupabase(file, "rfi");
+        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+        const filePath = `rfi/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+        const uploadResult = await supabase.storage
+          .from("rfi-documents")
+          .upload(filePath, file, {
+            upsert: false,
+            contentType: file.type || undefined,
+          });
+
+        if (uploadResult.error) throw uploadResult.error;
+
+        const { data } = supabase.storage
+          .from("rfi-documents")
+          .getPublicUrl(filePath);
         appendAttachment({
           name: file.name,
           type: file.type,
-          dataUrl: publicUrl,
+          dataUrl: data.publicUrl,
           uploadedAt: nowLocal(),
         });
         return;
       } catch (error) {
         console.error("RFI document upload failed", error);
-        alert(
-          "העלאת הקובץ ל-Supabase נכשלה. ודא שקיים bucket בשם attachments והוא Public.",
-        );
+        alert("העלאת הקובץ ל-Supabase נכשלה. הקובץ לא צורף.");
         return;
       }
     }
@@ -3975,38 +3974,48 @@ function ControlProcessesSection({
   };
   const attachDocument = async (id: string, file?: File) => {
     if (!file || readOnly) return;
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const publicUrl = await uploadFileToSupabase(file, "control-processes");
-        updateDocument(id, {
-          attached: true,
-          attachmentName: file.name,
-          attachedAt: nowLocal(),
-          fileType: file.type,
-          dataUrl: publicUrl,
-          required: false,
-        });
-        return;
-      } catch (error) {
-        console.error("Control process document upload failed", error);
-        alert(
-          "העלאת הקובץ ל-Supabase נכשלה. ודא שקיים bucket בשם attachments והוא Public.",
-        );
-        return;
-      }
+    const maxSizeMb = 20;
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
+      return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () =>
+    const applyAttachment = (dataUrl: string) =>
       updateDocument(id, {
         attached: true,
         attachmentName: file.name,
         attachedAt: nowLocal(),
-        fileType: file.type,
-        dataUrl: String(reader.result ?? ""),
+        attachmentDataUrl: dataUrl,
+        attachmentType: file.type,
         required: false,
       });
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+        const filePath = `control-processes/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+        const uploadResult = await supabase.storage
+          .from("attachments")
+          .upload(filePath, file, {
+            upsert: false,
+            contentType: file.type || undefined,
+          });
+
+        if (uploadResult.error) throw uploadResult.error;
+
+        const { data } = supabase.storage
+          .from("attachments")
+          .getPublicUrl(filePath);
+        applyAttachment(data.publicUrl);
+        return;
+      } catch (error) {
+        console.error("Control process document upload failed", error);
+        alert("העלאת הקובץ ל-Supabase נכשלה. הקובץ יישמר מקומית בטופס.");
+      }
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => applyAttachment(String(reader.result ?? ""));
     reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     reader.readAsDataURL(file);
   };
@@ -4441,12 +4450,15 @@ function ControlProcessesSection({
                       }}
                     >
                       {doc.attached ? (
-                        doc.dataUrl ? (
+                        doc.attachmentDataUrl ? (
                           <a
-                            href={doc.dataUrl}
+                            href={doc.attachmentDataUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: "#0369a1", fontWeight: 900 }}
+                            style={{
+                              color: "#0369a1",
+                              textDecoration: "underline",
+                            }}
                           >
                             📎 {doc.attachmentName || "פתח קובץ"}
                           </a>
@@ -6286,17 +6298,18 @@ export default function Page() {
           : prev.items.filter((item) => item.id !== id),
     }));
 
-  const uploadChecklistItemAttachment = async (
+  const uploadChecklistItemAttachment = (
     itemId: string,
     kind: ChecklistAttachmentKind,
     file: File,
   ) => {
-    const appendChecklistAttachment = (dataUrl: string) => {
+    const reader = new FileReader();
+    reader.onload = () => {
       const attachment: ChecklistAttachment = {
         id: crypto.randomUUID(),
         name: file.name,
         type: file.type,
-        dataUrl,
+        dataUrl: String(reader.result ?? ""),
         uploadedAt: nowLocal(),
         kind,
       };
@@ -6316,25 +6329,6 @@ export default function Page() {
         ),
       }));
     };
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        appendChecklistAttachment(
-          await uploadFileToSupabase(file, "checklists"),
-        );
-        return;
-      } catch (error) {
-        console.error("Checklist attachment upload failed", error);
-        alert(
-          "העלאת הקובץ ל-Supabase נכשלה. ודא שקיים bucket בשם attachments והוא Public.",
-        );
-        return;
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onload = () =>
-      appendChecklistAttachment(String(reader.result ?? ""));
     reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     reader.readAsDataURL(file);
   };
@@ -7171,7 +7165,7 @@ export default function Page() {
       })),
     );
     if (!rows.length) return "";
-    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th><th>תאריך צירוף</th><th>קובץ</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${safeText(attachment.name)}</td><td>${safeText(attachment.uploadedAt)}</td><td>${attachmentPreviewHtml(attachment)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th><th>תאריך צירוף</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td><td>${safeText(attachment.uploadedAt)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const exportStyles = `
@@ -7211,31 +7205,39 @@ export default function Page() {
       return trialSectionForm.title || "קטע ניסוי";
     if (section === "preliminary")
       return currentPreliminaryForm.title || "בקרה מקדימה";
+    if (section === "controlProcesses")
+      return controlProcessForm.title || "בקרה מקדימה / תעודת ייחוס";
     return "טופס";
   };
 
   const baseRows = (rows: Array<[string, unknown, number?]>) =>
     `<table><tbody>${rows.map(([label, value, height]) => `<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 34)}</td></tr>`).join("")}</tbody></table>`;
 
-  const attachmentPreviewHtml = (file: {
-    name?: string;
-    type?: string;
-    dataUrl?: string;
-    uploadedAt?: string;
-  }) => {
-    const src = String(file.dataUrl ?? "");
-    const type = String(file.type ?? "");
-    if (!src) return "";
-    if (type.startsWith("image/") || src.startsWith("data:image/")) {
-      return `<div class="attachment-preview"><img src="${src}" alt="${safeText(file.name ?? "קובץ מצורף")}" /></div>`;
-    }
-    return `<a class="attachment-download" href="${src}" download="${safeText(file.name ?? "attachment")}">פתח / הורד קובץ מצורף</a>`;
+  const attachmentLink = (name: unknown, url: unknown) => {
+    const href = String(url ?? "").trim();
+    const label = safeText(name || "פתח קובץ מצורף");
+    return href
+      ? `<a href="${safeText(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      : label;
+  };
+
+  const attachmentPreview = (file: StoredAttachment) => {
+    const src = String(file.dataUrl ?? "").trim();
+    if (
+      !src ||
+      !(
+        String(file.type ?? "").startsWith("image/") ||
+        src.startsWith("data:image/")
+      )
+    )
+      return "";
+    return `<div style="margin-top:2px"><img src="${safeText(src)}" style="max-width:120px;max-height:90px;object-fit:contain" /></div>`;
   };
 
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th><th>קובץ</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.name)}</td><td>${safeText(file.type || "קובץ")}</td><td>${safeText(file.uploadedAt)}</td><td>${attachmentPreviewHtml(file)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const signatureCell = (value: unknown) => {
@@ -7466,14 +7468,16 @@ export default function Page() {
     </table>`;
   };
 
-  const controlProcessExportHtml = () => {
-    const docs = normalizeRequiredDocuments(
-      controlProcessForm.requiredDocuments,
+  const requiredDocumentsExportTable = (items: unknown) => {
+    const docs = normalizeRequiredDocuments(items).filter(
+      (doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl,
     );
-    const docsHtml = docs.length
-      ? `<h2>מסמכים שצורפו לתעודת הייחוס</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>שם קובץ</th><th>תאריך צירוף</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${safeText(doc.description)}</td><td>${safeText(doc.attachmentName || "")}</td><td>${safeText(doc.attachedAt || "")}</td><td>${attachmentPreviewHtml({ name: doc.attachmentName, type: doc.fileType, dataUrl: doc.dataUrl, uploadedAt: doc.attachedAt })}</td></tr>`).join("")}</tbody></table>`
-      : "";
-    return `${baseRows([
+    if (!docs.length) return "";
+    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>קובץ</th><th>תאריך צירוף</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td><td>${safeText(doc.attachedAt)}</td></tr>`).join("")}</tbody></table>`;
+  };
+
+  const controlProcessExportHtml = () =>
+    `${baseRows([
       ["מס׳ תעודה / ר״ת", controlProcessForm.processNo],
       ["שם התעודה", controlProcessForm.title],
       ["תחום / סוג עבודה", controlProcessForm.workType],
@@ -7482,8 +7486,9 @@ export default function Page() {
       ["מחתך", controlProcessForm.fromSection],
       ["עד חתך", controlProcessForm.toSection],
       ["סטטוס", controlProcessForm.status],
-    ])}${docsHtml}${signaturesTable(controlProcessForm.approval)}`;
-  };
+      ["ספק / מפעל", (controlProcessForm as any).supplier],
+      ["מס׳ תעודת מעבדה", (controlProcessForm as any).labCertificateNo],
+    ])}${requiredDocumentsExportTable(controlProcessForm.requiredDocuments)}${signaturesTable(controlProcessForm.approval)}`;
 
   const preliminaryRows = () => {
     if (preliminaryTab === "suppliers") {
