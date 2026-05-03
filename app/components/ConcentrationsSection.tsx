@@ -612,21 +612,19 @@ const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedString
   const allCells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
   items.forEach((item) => {
     if (!item.value) return;
-    let filled = false;
     allCells.forEach((cell) => {
       const ref = cell.getAttribute("r") ?? "";
       if (!ref) return;
       const row = cellRowIndex(ref);
-      // לא נוגעים בכותרת העליונה של התבנית. ממלאים רק את טבלת פרטי הפרויקט.
       if (row < 5 || row > 9) return;
       const text = normalize(cellText(cell, sharedStrings)).replace(/[:：]/g, "");
       if (!text || !text.includes(normalize(item.label))) return;
       setCell(doc, sheetData, ref, `${item.label}:`, cell.getAttribute("s") ?? undefined);
       setCell(doc, sheetData, nextCellRef(ref), item.value);
-      filled = true;
     });
-    item.fallbacks.forEach(([labelCell, valueCell], index) => {
-      if (index > 0 && filled) return;
+
+    // גיבוי קשיח לתבניות הקיימות: ממלא את שורות פרטי הפרויקט גם אם התא הממוזג/RTL לא זוהה.
+    item.fallbacks.forEach(([labelCell, valueCell]) => {
       setCell(doc, sheetData, labelCell, `${item.label}:`);
       setCell(doc, sheetData, valueCell, item.value);
     });
@@ -834,29 +832,38 @@ const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: Concentration
     const nonIsoDocs = nonIsoDocumentsText(docs);
     const rowNumber = 13 + index;
     const approvalNo = approvalNumberFromRecord(record, index + 1);
-    const registrationNumber = firstNonEmpty(
+    const supplierRegistrationNumber = firstNonEmpty(
       supplier.standardCertificateNo,
+      supplier.tiCertificateNo,
+      supplier.tavTekenCertificateNo,
       supplier.licenseNo,
       supplier.accreditationNo,
-      supplier.certificateNo,
+      deepFindValue(record, ["standardCertificateNo", "tiCertificateNo", "tavTekenCertificateNo", "licenseNo", "accreditationNo", "מס תעודת תי", "מספר תי", "מספר הסמכה", "מספר רשיון"]),
+      certificateNumberFromDocs(nonIsoDocs)
+    );
+    const supplierRegistrationExpiry = firstNonEmpty(
+      supplier.standardValidUntil,
+      supplier.tiValidUntil,
+      supplier.tavTekenValidUntil,
+      supplier.licenseValidUntil,
+      supplier.accreditationValidUntil,
+      deepFindValue(record, ["standardValidUntil", "tiValidUntil", "tavTekenValidUntil", "licenseValidUntil", "accreditationValidUntil", "תוקף תי", "תוקף הסמכה", "תוקף רשיון"])
+    );
+    const contractorRegistrationNumber = firstNonEmpty(
       subcontractor.registrationNo,
       subcontractor.contractorRegistrationNo,
       subcontractor.certificateNo,
-      material.certificateNo,
       isContractors ? approvalNo : "",
-      deepFindValue(record, ["standardCertificateNo", "licenseNo", "accreditationNo", "certificateNo", "registrationNo", "מס תעודה", "מספר תעודה"]),
-      certificateNumberFromDocs(isSuppliers ? nonIsoDocs : (nonIsoDocs || docs))
+      deepFindValue(record, ["registrationNo", "contractorRegistrationNo", "מס תעודה", "מספר תעודה", "רשם הקבלנים"]),
+      certificateNumberFromDocs(nonIsoDocs || docs)
     );
-    const registrationExpiry = firstNonEmpty(
-      supplier.standardValidUntil,
-      supplier.licenseValidUntil,
-      supplier.accreditationValidUntil,
-      supplier.validUntil,
+    const contractorRegistrationExpiry = firstNonEmpty(
       subcontractor.validUntil,
       subcontractor.registrationValidUntil,
-      record.validUntil,
-      deepFindValue(record, ["standardValidUntil", "licenseValidUntil", "accreditationValidUntil", "validUntil", "expiry", "תוקף"])
+      deepFindValue(record, ["registrationValidUntil", "validUntil", "expiry", "תוקף רשם", "תוקף"])
     );
+    const registrationNumber = isSuppliers ? supplierRegistrationNumber : (isContractors ? contractorRegistrationNumber : firstNonEmpty(material.certificateNo, certificateNumberFromDocs(nonIsoDocs || docs)));
+    const registrationExpiry = isSuppliers ? supplierRegistrationExpiry : (isContractors ? contractorRegistrationExpiry : firstNonEmpty(record.validUntil, deepFindValue(record, ["validUntil", "expiry", "תוקף"])));
 
     // עמודת "אישור מס" מקבלת את מספר האישור מתוך המערכת, לא מספור עיוור.
     setByColumn(doc, sheetData, rowNumber, columns.approval, approvalNo, styles);
