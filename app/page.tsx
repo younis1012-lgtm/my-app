@@ -2044,6 +2044,47 @@ function ChecklistsSection({
   };
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
+  const topTableInputStyle: React.CSSProperties = {
+    width: "100%",
+    border: 0,
+    outline: "none",
+    background: "transparent",
+    fontWeight: 800,
+    textAlign: "center",
+    minHeight: 30,
+    padding: "4px 6px",
+    boxSizing: "border-box",
+  };
+  const topTableCellStyle: React.CSSProperties = {
+    border: "1px solid #0f172a",
+    padding: 4,
+  };
+  const topTableHeaderStyle: React.CSSProperties = {
+    border: "1px solid #0f172a",
+    padding: 7,
+    background: "#f8fafc",
+    fontWeight: 950,
+    textAlign: "center",
+  };
+  const renderTopInput = (
+    field: string,
+    value: unknown,
+    placeholder = "",
+    options?: { readOnly?: boolean; type?: string },
+  ) => (
+    <input
+      type={options?.type ?? "text"}
+      value={String(value ?? "")}
+      readOnly={options?.readOnly}
+      placeholder={placeholder}
+      onChange={(event) => setField(field, event.target.value)}
+      style={{
+        ...topTableInputStyle,
+        background: options?.readOnly ? "#f8fafc" : "transparent",
+        cursor: options?.readOnly ? "default" : "text",
+      }}
+    />
+  );
   const templateEntries = Object.entries(checklistTemplates) as Array<
     [ChecklistTemplateKey, any]
   >;
@@ -2255,34 +2296,58 @@ function ChecklistsSection({
           >
             <tbody>
               <tr>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "18%" }}>מספר הליך</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>{checklistForm.checklistNo || ""}</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "18%" }}>שם הנוהל</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 900 }}>{checklistForm.title || checklistTemplateLabel(checklistForm.templateKey)}</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "14%" }}>מהדורה</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>א׳</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "12%" }}>תאריך</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>{checklistForm.date || ""}</td>
+                <th style={{ ...topTableHeaderStyle, width: "14%" }}>מספר הליך</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("procedureNo", (checklistForm as any).procedureNo, "מספר הליך")}
+                </td>
+                <th style={{ ...topTableHeaderStyle, width: "16%" }}>שם הנוהל</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("title", checklistForm.title || checklistTemplateLabel(checklistForm.templateKey), "שם הנוהל")}
+                </td>
+                <th style={{ ...topTableHeaderStyle, width: "12%" }}>מהדורה</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("edition", (checklistForm as any).edition ?? "א׳", "מהדורה")}
+                </td>
+                <th style={{ ...topTableHeaderStyle, width: "12%" }}>תאריך</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("date", checklistForm.date, "תאריך", { type: "date" })}
+                </td>
               </tr>
               <tr>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>שם הפרויקט</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{projectName || ""}</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>קבלן מבצע</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.contractor || ""}</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מס׳ תוכנית ביצוע</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.location || ""}</td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מספר רשימת תיוג</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.checklistNo || ""}</td>
+                <th style={topTableHeaderStyle}>שם הפרויקט</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("projectNameDisplay", (checklistForm as any).projectNameDisplay || projectName, "שם הפרויקט")}
+                </td>
+                <th style={topTableHeaderStyle}>קבלן מבצע</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("contractor", checklistForm.contractor, "קבלן מבצע")}
+                </td>
+                <th style={topTableHeaderStyle}>מס׳ תוכנית ביצוע</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("location", checklistForm.location, "מס׳ תוכנית ביצוע")}
+                </td>
+                <th style={topTableHeaderStyle}>מספר רשימת תיוג</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("checklistNo", checklistForm.checklistNo, "מספר רשימת תיוג")}
+                </td>
               </tr>
               <tr>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מק״מ / חתך</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>כביש / מבנה</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>יום / לילה</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
-                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>הערות</th>
-                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.notes || ""}</td>
+                <th style={topTableHeaderStyle}>מק״מ / חתך</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("stationSection", (checklistForm as any).stationSection, "מק״מ / חתך")}
+                </td>
+                <th style={topTableHeaderStyle}>כביש / מבנה</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("roadStructure", (checklistForm as any).roadStructure, "כביש / מבנה")}
+                </td>
+                <th style={topTableHeaderStyle}>יום / לילה</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("dayNight", (checklistForm as any).dayNight, "יום / לילה")}
+                </td>
+                <th style={topTableHeaderStyle}>הערות</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("notes", checklistForm.notes, "הערות")}
+                </td>
               </tr>
             </tbody>
           </table>
