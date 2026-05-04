@@ -2627,13 +2627,14 @@ function ChecklistsSection({
                 <th
                   style={{
                     border: "1px solid #94a3b8",
-                    padding: 8,
-                    width: 62,
+                    padding: 4,
+                    width: 38,
                     background: "#f8fafc",
                     fontWeight: 950,
+                    fontSize: 12,
                   }}
                 >
-                  לא להדפסה
+                  ל.ר
                 </th>
               </tr>
             </thead>
@@ -3031,15 +3032,15 @@ function ChecklistsSection({
                             toggleChecklistItemPrintExclusion(item.id)
                           }
                           style={{
-                            width: 24,
-                            height: 24,
-                            border: "1.5px solid #0f172a",
-                            borderRadius: 3,
+                            width: 18,
+                            height: 18,
+                            border: "1.2px solid #334155",
+                            borderRadius: 2,
                             background: "#fff",
                             cursor: "pointer",
                             fontWeight: 950,
-                            fontSize: 18,
-                            lineHeight: "18px",
+                            fontSize: 13,
+                            lineHeight: "13px",
                             padding: 0,
                           }}
                         >
