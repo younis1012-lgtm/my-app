@@ -7777,6 +7777,28 @@ export default function Page() {
     return valueOrBlank(combined, height);
   };
 
+  const embeddedAttachmentForExport = (
+    file: { name?: string; type?: string; dataUrl?: string },
+    title?: string,
+  ) => {
+    const src = String(file?.dataUrl ?? "").trim();
+    if (!src) return "";
+    const type = String(file?.type ?? "").toLowerCase();
+    const name = safeText(file?.name || title || "קובץ מצורף");
+    const isImage = type.startsWith("image/") || src.startsWith("data:image/");
+    const isPdf = type.includes("pdf") || src.startsWith("data:application/pdf");
+
+    if (isImage) {
+      return `<div class="attachment-page"><h2>${name}</h2><img class="attachment-image-full" src="${safeText(src)}" /></div>`;
+    }
+
+    if (isPdf) {
+      return `<div class="attachment-page"><h2>${name}</h2><div class="attachment-note">קובץ PDF מצורף לטופס. אם הדפדפן אינו מדפיס את התצוגה המקדימה, ניתן לפתוח אותו מהקישור.</div><div class="attachment-link-box">${attachmentLink(name, src)}</div><object class="attachment-pdf-object" data="${safeText(src)}" type="application/pdf"><iframe class="attachment-pdf-object" src="${safeText(src)}"></iframe></object></div>`;
+    }
+
+    return `<div class="attachment-page"><h2>${name}</h2><div class="attachment-link-box">${attachmentLink(name, src)}</div></div>`;
+  };
+
   const checklistAttachmentsExportTable = (items: unknown) => {
     const rows = normalizeChecklistItems(items).flatMap((item: any) =>
       normalizeChecklistAttachments(item.attachments).map((attachment) => ({
@@ -7785,7 +7807,13 @@ export default function Page() {
       })),
     );
     if (!rows.length) return "";
-    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")}</tbody></table>`;
+    const table = `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")}</tbody></table>`;
+    const embedded = rows
+      .map(({ item, attachment }) =>
+        embeddedAttachmentForExport(attachment, `${checklistAttachmentLabel(attachment.kind)} - ${String(item.description ?? "")}`),
+      )
+      .join("");
+    return `${table}${embedded}`;
   };
 
   const exportStyles = `
@@ -7811,6 +7839,12 @@ export default function Page() {
     .checklist-top-table th{font-size:11px}.checklist-top-table td{font-size:11px;font-weight:600;min-height:28px}
     .check-table .activity{text-align:right;font-weight:600}.check-table img{max-width:100px;max-height:42px}
     .checklist-attachments-export td{text-align:right}
+    .attachment-page{page-break-before:always;break-before:page;margin-top:8px;min-height:180mm}
+    .attachment-page h2{font-size:16px;text-align:center;margin:0 0 8px;border-bottom:1px solid #111827;padding-bottom:5px}
+    .attachment-image-full{display:block;margin:0 auto;max-width:100%;max-height:175mm;object-fit:contain}
+    .attachment-pdf-object{width:100%;height:175mm;border:1px solid #111827;background:#fff}
+    .attachment-note{font-size:12px;text-align:center;margin:0 0 8px;color:#334155}
+    .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
@@ -7861,7 +7895,9 @@ export default function Page() {
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
+    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
+    const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
+    return `${table}${embedded}`;
   };
 
   const signatureCell = (value: unknown) => {
@@ -8131,7 +8167,7 @@ export default function Page() {
     printWindow.document.write(exportHtml(exportChecklistNo));
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => printWindow.print(), 300);
+    setTimeout(() => printWindow.print(), 700);
   };
 
   const showExportButtons = [
@@ -8310,20 +8346,6 @@ export default function Page() {
                 onClick={exportPdf}
               >
                 הורד PDF
-              </button>
-              <button
-                type="button"
-                style={styles.secondaryBtn}
-                onClick={exportExcel}
-              >
-                הורד Excel
-              </button>
-              <button
-                type="button"
-                style={styles.secondaryBtn}
-                onClick={exportWord}
-              >
-                הורד Word
               </button>
             </div>
           )}
