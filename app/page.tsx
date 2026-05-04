@@ -35,7 +35,6 @@ const SUPABASE_HEADER_ERROR_FRAGMENT =
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 const APP_VERSION = "2026-05-04-checklist-top-editable-cache-refresh-v2";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
-const APP_BUILD_SIGNATURE_STORAGE_KEY = `${STORAGE_KEY}-build-signature`;
 
 type AppSection =
   | Section
@@ -2046,18 +2045,26 @@ function ChecklistsSection({
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
   const topTableInputStyle: React.CSSProperties = {
     width: "100%",
+    minWidth: 0,
     border: 0,
     outline: "none",
     background: "transparent",
-    fontWeight: 800,
+    fontWeight: 900,
     textAlign: "center",
-    minHeight: 30,
-    padding: "4px 6px",
+    minHeight: 34,
+    padding: "6px 8px",
     boxSizing: "border-box",
+    whiteSpace: "normal",
   };
   const topTableCellStyle: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: 4,
+    padding: 3,
+    minWidth: 120,
+    verticalAlign: "middle",
+  };
+  const topTableWideCellStyle: React.CSSProperties = {
+    ...topTableCellStyle,
+    minWidth: 240,
   };
   const topTableHeaderStyle: React.CSSProperties = {
     border: "1px solid #0f172a",
@@ -2065,6 +2072,8 @@ function ChecklistsSection({
     background: "#f8fafc",
     fontWeight: 950,
     textAlign: "center",
+    whiteSpace: "nowrap",
+    minWidth: 105,
   };
   const renderTopInput = (
     field: string,
@@ -2288,38 +2297,39 @@ function ChecklistsSection({
             dir="rtl"
             style={{
               width: "100%",
+              minWidth: 1180,
               borderCollapse: "collapse",
               background: "#fff",
-              tableLayout: "fixed",
+              tableLayout: "auto",
               border: "2px solid #0f172a",
             }}
           >
             <tbody>
               <tr>
-                <th style={{ ...topTableHeaderStyle, width: "14%" }}>מספר הליך</th>
+                <th style={topTableHeaderStyle}>מספר הליך</th>
                 <td style={topTableCellStyle}>
                   {renderTopInput("procedureNo", (checklistForm as any).procedureNo, "מספר הליך")}
                 </td>
-                <th style={{ ...topTableHeaderStyle, width: "16%" }}>שם הנוהל</th>
-                <td style={topTableCellStyle}>
+                <th style={topTableHeaderStyle}>שם הנוהל</th>
+                <td style={topTableWideCellStyle} colSpan={3}>
                   {renderTopInput("title", checklistForm.title || checklistTemplateLabel(checklistForm.templateKey), "שם הנוהל")}
                 </td>
-                <th style={{ ...topTableHeaderStyle, width: "12%" }}>מהדורה</th>
+                <th style={topTableHeaderStyle}>מהדורה</th>
                 <td style={topTableCellStyle}>
                   {renderTopInput("edition", (checklistForm as any).edition ?? "א׳", "מהדורה")}
                 </td>
-                <th style={{ ...topTableHeaderStyle, width: "12%" }}>תאריך</th>
+                <th style={topTableHeaderStyle}>תאריך</th>
                 <td style={topTableCellStyle}>
                   {renderTopInput("date", checklistForm.date, "תאריך", { type: "date" })}
                 </td>
               </tr>
               <tr>
                 <th style={topTableHeaderStyle}>שם הפרויקט</th>
-                <td style={topTableCellStyle}>
+                <td style={topTableWideCellStyle} colSpan={3}>
                   {renderTopInput("projectNameDisplay", (checklistForm as any).projectNameDisplay || projectName, "שם הפרויקט")}
                 </td>
                 <th style={topTableHeaderStyle}>קבלן מבצע</th>
-                <td style={topTableCellStyle}>
+                <td style={topTableWideCellStyle}>
                   {renderTopInput("contractor", checklistForm.contractor, "קבלן מבצע")}
                 </td>
                 <th style={topTableHeaderStyle}>מס׳ תוכנית ביצוע</th>
@@ -2336,16 +2346,16 @@ function ChecklistsSection({
                 <td style={topTableCellStyle}>
                   {renderTopInput("stationSection", (checklistForm as any).stationSection, "מק״מ / חתך")}
                 </td>
+                <th style={topTableHeaderStyle}>עד ק״מ / חתך</th>
+                <td style={topTableCellStyle}>
+                  {renderTopInput("toStationSection", (checklistForm as any).toStationSection, "עד ק״מ / חתך")}
+                </td>
                 <th style={topTableHeaderStyle}>כביש / מבנה</th>
                 <td style={topTableCellStyle}>
                   {renderTopInput("roadStructure", (checklistForm as any).roadStructure, "כביש / מבנה")}
                 </td>
-                <th style={topTableHeaderStyle}>יום / לילה</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("dayNight", (checklistForm as any).dayNight, "יום / לילה")}
-                </td>
                 <th style={topTableHeaderStyle}>הערות</th>
-                <td style={topTableCellStyle}>
+                <td style={topTableWideCellStyle} colSpan={3}>
                   {renderTopInput("notes", checklistForm.notes, "הערות")}
                 </td>
               </tr>
@@ -5149,91 +5159,22 @@ export default function Page() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const collectBuildSignatureFromHtml = (html: string) => {
-      const matches = Array.from(
-        html.matchAll(/\/_next\/static\/[^"'<>\s]+/g),
-        (match) => match[0],
-      );
-      return Array.from(new Set(matches)).sort().join("|");
-    };
+    // אין רענון אוטומטי בזמן עבודה כדי לא למחוק נתונים שהוזנו בטופס.
+    // בעת רענון ידני רגיל של הדף הדפדפן מתבקש למשוך את הגרסה העדכנית.
+    [
+      ["Cache-Control", "no-cache, no-store, must-revalidate"],
+      ["Pragma", "no-cache"],
+      ["Expires", "0"],
+    ].forEach(([httpEquiv, content]) => {
+      const selector = `meta[http-equiv="${httpEquiv}"]`;
+      const existing = document.head.querySelector<HTMLMetaElement>(selector);
+      const meta = existing ?? document.createElement("meta");
+      meta.httpEquiv = httpEquiv;
+      meta.content = content;
+      if (!existing) document.head.appendChild(meta);
+    });
 
-    const collectCurrentBuildSignature = () =>
-      Array.from(document.querySelectorAll<HTMLScriptElement>('script[src*="/_next/static/"]'))
-        .map((script) => script.src)
-        .sort()
-        .join("|");
-
-    const clearBrowserCaches = async () => {
-      if (!("caches" in window)) return;
-      try {
-        const names = await caches.keys();
-        await Promise.all(names.map((name) => caches.delete(name)));
-      } catch {
-        // Cache cleanup is best-effort only.
-      }
-    };
-
-    const reloadWithoutCache = async () => {
-      await clearBrowserCaches();
-      const url = new URL(window.location.href);
-      url.searchParams.set("appVersion", APP_VERSION);
-      window.location.replace(url.toString());
-    };
-
-    const savedVersion = window.localStorage.getItem(APP_VERSION_STORAGE_KEY);
-    if (savedVersion && savedVersion !== APP_VERSION) {
-      window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
-      reloadWithoutCache();
-      return;
-    }
     window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
-
-    const addNoCacheMeta = () => {
-      [
-        ["Cache-Control", "no-cache, no-store, must-revalidate"],
-        ["Pragma", "no-cache"],
-        ["Expires", "0"],
-      ].forEach(([httpEquiv, content]) => {
-        const selector = `meta[http-equiv="${httpEquiv}"]`;
-        const existing = document.head.querySelector<HTMLMetaElement>(selector);
-        const meta = existing ?? document.createElement("meta");
-        meta.httpEquiv = httpEquiv;
-        meta.content = content;
-        if (!existing) document.head.appendChild(meta);
-      });
-    };
-    addNoCacheMeta();
-
-    const currentSignature = collectCurrentBuildSignature();
-    if (currentSignature) {
-      window.localStorage.setItem(APP_BUILD_SIGNATURE_STORAGE_KEY, currentSignature);
-    }
-
-    const checkForNewBuild = async () => {
-      try {
-        const response = await fetch(`${window.location.pathname}?v=${Date.now()}`, {
-          cache: "no-store",
-          headers: { "Cache-Control": "no-cache" },
-        });
-        if (!response.ok) return;
-        const html = await response.text();
-        const latestSignature = collectBuildSignatureFromHtml(html);
-        const savedSignature = window.localStorage.getItem(APP_BUILD_SIGNATURE_STORAGE_KEY) || currentSignature;
-        if (latestSignature && savedSignature && latestSignature !== savedSignature) {
-          window.localStorage.setItem(APP_BUILD_SIGNATURE_STORAGE_KEY, latestSignature);
-          await reloadWithoutCache();
-        }
-      } catch {
-        // If the network check fails, keep the current page open.
-      }
-    };
-
-    const timer = window.setInterval(checkForNewBuild, 60000);
-    window.addEventListener("focus", checkForNewBuild);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", checkForNewBuild);
-    };
   }, []);
   const [section, setSection] = useState<AppSection>("home");
   const [preliminaryTab, setPreliminaryTab] =
@@ -7988,7 +7929,7 @@ export default function Page() {
         <tbody>
           <tr><th>חוזה מס׳</th><th>שם פרויקט</th><th>כביש מס׳:</th><th colspan="2">מספר רשימת תיוג</th></tr>
           <tr><td>${valueOrBlank("", 22)}</td><td>${safeText(defaultProjectName)}</td><td>${safeText(location)}</td><td colspan="2">${valueOrBlank(currentChecklistNo, 22)}</td></tr>
-          <tr><th>תאריך מתן העבודה:</th><th>יום / לילה</th><th>מק״מ / חתך</th><th>עד ק״מ / חתך</th><th></th></tr>
+          <tr><th>תאריך מתן העבודה:</th><th>הערות</th><th>מק״מ / חתך</th><th>עד ק״מ / חתך</th><th></th></tr>
           <tr><td>${valueOrBlank(checklistForm.date, 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
           <tr><th>ניהול פרויקט</th><td>${valueOrBlank(projectManager, 22)}</td><th>שם קבלן:</th><td colspan="2">${safeText(contractor)}</td></tr>
           <tr><th>שם קבלן:</th><td>${safeText(contractor)}</td><th>שטח צביעה יומי (מ״ר):</th><td colspan="2">${valueOrBlank("", 22)}</td></tr>
@@ -8017,7 +7958,7 @@ export default function Page() {
       <tbody>
         <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
         <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
-        <tr><th>מחתך / היסט / לחתך</th><th>עד ק״מ / חתך</th><th>מק״מ / חתך</th><th>יום / לילה</th><th>הערות</th></tr>
+        <tr><th>מחתך / היסט / לחתך</th><th>עד ק״מ / חתך</th><th>מק״מ / חתך</th><th>הערות</th><th></th></tr>
         <tr><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
       </tbody>
     </table>
