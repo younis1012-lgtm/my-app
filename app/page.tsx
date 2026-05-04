@@ -2053,22 +2053,54 @@ function ChecklistsSection({
     }));
   };
 
-  const descriptionStartsWithTestKeyword = (description: unknown) => {
-    const text = String(description ?? "").trim();
-    return /^(בדיק|בדיקה|בדיקות|מעבדה|תעודת מעבדה|הידוק|צפיפות|רטיבות|מישוריות|FWD|CBR|אספלט|בטון|מצע|מצעים)/.test(text);
+  const uploadChecklistItemSignature = (
+    itemId: string,
+    signatureValue: ProcessSignature,
+    autoName: string,
+    file?: File,
+  ) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateItemSignature(itemId, {
+        ...signatureValue,
+        signerName: signatureValue.signerName || autoName,
+        signature: String(reader.result ?? ""),
+        signedAt:
+          signatureValue.signedAt || new Date().toISOString().slice(0, 10),
+      });
+    };
+    reader.onerror = () => alert("לא ניתן לקרוא את קובץ החתימה");
+    reader.readAsDataURL(file);
   };
 
-  const getChecklistAttachmentKindsForItem = (item: ChecklistItem): ChecklistAttachmentKind[] => {
+  const descriptionStartsWithTestKeyword = (description: unknown) => {
+    const text = String(description ?? "").trim();
+    return /^(בדיק|בדיקה|בדיקות|מעבדה|תעודת מעבדה|הידוק|צפיפות|רטיבות|מישוריות|FWD|CBR|אספלט|בטון|מצע|מצעים)/.test(
+      text,
+    );
+  };
+
+  const getChecklistAttachmentKindsForItem = (
+    item: ChecklistItem,
+  ): ChecklistAttachmentKind[] => {
     const kinds = new Set<ChecklistAttachmentKind>();
     const requiredKind = getChecklistAttachmentRequirement(item.description);
     if (requiredKind) kinds.add(requiredKind);
-    if (String(item.responsible ?? "").includes("מודד")) kinds.add("measurement");
+    if (String(item.responsible ?? "").includes("מודד"))
+      kinds.add("measurement");
     if (descriptionStartsWithTestKeyword(item.description)) kinds.add("lab");
     return Array.from(kinds);
   };
 
-  const checklistAttachmentActionLabel = (kind: ChecklistAttachmentKind, item: ChecklistItem) => {
-    if (kind === "measurement" && String(item.responsible ?? "").includes("מודד")) {
+  const checklistAttachmentActionLabel = (
+    kind: ChecklistAttachmentKind,
+    item: ChecklistItem,
+  ) => {
+    if (
+      kind === "measurement" &&
+      String(item.responsible ?? "").includes("מודד")
+    ) {
       return "צרף מסמך מול מודד";
     }
     if (kind === "lab" && descriptionStartsWithTestKeyword(item.description)) {
@@ -2117,10 +2149,22 @@ function ChecklistsSection({
           </button>
           <button
             type="button"
-            style={editingChecklistId ? styles.primaryBtn : { ...styles.secondaryBtn, opacity: 0.65, cursor: "not-allowed" }}
+            style={
+              editingChecklistId
+                ? styles.primaryBtn
+                : {
+                    ...styles.secondaryBtn,
+                    opacity: 0.65,
+                    cursor: "not-allowed",
+                  }
+            }
             onClick={saveChecklist}
             disabled={!editingChecklistId}
-            title={editingChecklistId ? "עדכון רשימת התיוג שנפתחה לעריכה" : "כדי לעדכן יש לפתוח רשימה קיימת לעריכה"}
+            title={
+              editingChecklistId
+                ? "עדכון רשימת התיוג שנפתחה לעריכה"
+                : "כדי לעדכן יש לפתוח רשימה קיימת לעריכה"
+            }
           >
             עדכן רשימה
           </button>
@@ -2219,7 +2263,9 @@ function ChecklistsSection({
               סעיפי בקרה
             </h3>
             <div style={{ color: "#64748b", marginTop: 4 }}>
-              כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם, חתימה, תאריך ומס׳ תוכנית / תעודת מעבדה. ניתן לשמור, לעדכן, לצרף מסמך מול מודד ולצרף מסמכי בדיקה/מעבדה לפי תיאור התהליך.
+              כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם,
+              חתימה, תאריך ומס׳ תוכנית / תעודת מעבדה. ניתן לשמור, לעדכן, לצרף
+              מסמך מול מודד ולצרף מסמכי בדיקה/מעבדה לפי תיאור התהליך.
             </div>
           </div>
           <button
@@ -2244,14 +2290,94 @@ function ChecklistsSection({
           >
             <thead>
               <tr>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "31%", background: "#f8fafc", fontWeight: 950 }}>תיאור פעולת הבקרה</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "12%", background: "#f8fafc", fontWeight: 950 }}>באחריות</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "11%", background: "#f8fafc", fontWeight: 950 }}>שם</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "12%", background: "#f8fafc", fontWeight: 950 }}>חתימה</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "9%", background: "#f8fafc", fontWeight: 950 }}>תאריך</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "16%", background: "#f8fafc", fontWeight: 950 }}>מס׳ תוכנית / תעודת מעבדה</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: 64, background: "#f8fafc", fontWeight: 950 }}>פעולות</th>
-                <th style={{ border: "1px solid #94a3b8", padding: 8, width: 62, background: "#f8fafc", fontWeight: 950 }}>לא להדפסה</th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "31%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  תיאור פעולת הבקרה
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "12%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  באחריות
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "11%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  שם
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "12%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  חתימה
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "9%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  תאריך
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "16%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  מס׳ תוכנית / תעודת מעבדה
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: 64,
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  פעולות
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: 62,
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  לא להדפסה
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2260,9 +2386,14 @@ function ChecklistsSection({
                   item: ChecklistItem & { attachments?: ChecklistAttachment[] },
                   index: number,
                 ) => {
-                  const attachmentKinds = getChecklistAttachmentKindsForItem(item);
-                  const attachments = normalizeChecklistAttachments(item.attachments).filter(
-                    (attachment) => !attachmentKinds.length || attachmentKinds.includes(attachment.kind),
+                  const attachmentKinds =
+                    getChecklistAttachmentKindsForItem(item);
+                  const attachments = normalizeChecklistAttachments(
+                    item.attachments,
+                  ).filter(
+                    (attachment) =>
+                      !attachmentKinds.length ||
+                      attachmentKinds.includes(attachment.kind),
                   );
                   const autoName =
                     resolveResponsibleName(item.responsible, projectName) ||
@@ -2273,13 +2404,21 @@ function ChecklistsSection({
                     item.responsible || "גורם אחראי",
                     autoName,
                   );
-                  const isImageSignature = String(signatureValue.signature || "").startsWith("data:image/");
-                  const isExcludedFromPrint = Boolean((item as any).excludedFromPrint);
+                  const isImageSignature = String(
+                    signatureValue.signature || "",
+                  ).startsWith("data:image/");
+                  const isExcludedFromPrint = Boolean(
+                    (item as any).excludedFromPrint,
+                  );
                   const cellStyle: React.CSSProperties = {
                     border: "1px solid #94a3b8",
                     padding: 6,
                     verticalAlign: "top",
-                    background: isExcludedFromPrint ? "#f1f5f9" : index % 2 ? "#f8fafc" : "#fff",
+                    background: isExcludedFromPrint
+                      ? "#f1f5f9"
+                      : index % 2
+                        ? "#f8fafc"
+                        : "#fff",
                     opacity: isExcludedFromPrint ? 0.72 : 1,
                   };
                   const compactInputStyle: React.CSSProperties = {
@@ -2298,17 +2437,29 @@ function ChecklistsSection({
                         <textarea
                           value={item.description ?? ""}
                           onChange={(event) =>
-                            updateChecklistItem(item.id, "description", event.target.value)
+                            updateChecklistItem(
+                              item.id,
+                              "description",
+                              event.target.value,
+                            )
                           }
                           placeholder="תיאור פעולת הבקרה"
-                          style={{ ...compactInputStyle, minHeight: 70, resize: "vertical" }}
+                          style={{
+                            ...compactInputStyle,
+                            minHeight: 70,
+                            resize: "vertical",
+                          }}
                         />
                       </td>
                       <td style={cellStyle}>
                         <select
                           value={item.responsible || ""}
                           onChange={(event) =>
-                            updateChecklistItem(item.id, "responsible", event.target.value)
+                            updateChecklistItem(
+                              item.id,
+                              "responsible",
+                              event.target.value,
+                            )
                           }
                           style={compactInputStyle}
                         >
@@ -2324,7 +2475,10 @@ function ChecklistsSection({
                           value={autoName}
                           readOnly
                           title={autoName}
-                          style={{ ...compactInputStyle, background: "#f1f5f9" }}
+                          style={{
+                            ...compactInputStyle,
+                            background: "#f1f5f9",
+                          }}
                         />
                       </td>
                       <td style={cellStyle}>
@@ -2333,12 +2487,31 @@ function ChecklistsSection({
                             <img
                               src={signatureValue.signature}
                               alt="חתימה"
-                              style={{ maxWidth: "100%", maxHeight: 54, border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", padding: 3 }}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: 54,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 8,
+                                background: "#fff",
+                                padding: 3,
+                              }}
                             />
                             <button
                               type="button"
-                              style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
-                              onClick={() => updateItemSignature(item.id, { ...signatureValue, signature: "", signedAt: signatureValue.signedAt || item.executionDate || "" })}
+                              style={{
+                                ...styles.secondaryBtn,
+                                padding: "6px 8px",
+                              }}
+                              onClick={() =>
+                                updateItemSignature(item.id, {
+                                  ...signatureValue,
+                                  signature: "",
+                                  signedAt:
+                                    signatureValue.signedAt ||
+                                    item.executionDate ||
+                                    "",
+                                })
+                              }
                             >
                               נקה
                             </button>
@@ -2350,42 +2523,105 @@ function ChecklistsSection({
                               updateItemSignature(item.id, {
                                 ...signatureValue,
                                 role: item.responsible || "גורם אחראי",
-                                signerName: signatureValue.signerName || autoName,
+                                signerName:
+                                  signatureValue.signerName || autoName,
                                 signature: event.target.value,
-                                signedAt: signatureValue.signedAt || item.executionDate || "",
+                                signedAt:
+                                  signatureValue.signedAt ||
+                                  item.executionDate ||
+                                  "",
                               })
                             }
                             placeholder="חתימה"
                             style={compactInputStyle}
                           />
                         )}
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            flexWrap: "wrap",
+                            marginTop: 6,
+                          }}
+                        >
                           <button
                             type="button"
-                            style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
+                            style={{
+                              ...styles.secondaryBtn,
+                              padding: "6px 8px",
+                            }}
                             onClick={() =>
                               updateItemSignature(item.id, {
                                 ...signatureValue,
                                 role: item.responsible || "גורם אחראי",
-                                signerName: signatureValue.signerName || autoName,
+                                signerName:
+                                  signatureValue.signerName || autoName,
                                 signature: signatureValue.signature || autoName,
-                                signedAt: signatureValue.signedAt || item.executionDate || new Date().toISOString().slice(0, 10),
+                                signedAt:
+                                  signatureValue.signedAt ||
+                                  item.executionDate ||
+                                  new Date().toISOString().slice(0, 10),
                               })
                             }
                           >
                             חתום
                           </button>
-                          {savedSignatureForSigner?.(autoName, item.responsible) ? (
+                          <label
+                            style={{
+                              ...styles.secondaryBtn,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              cursor: "pointer",
+                              padding: "6px 8px",
+                            }}
+                            title="הוסף חתימה כתמונה מתוך קובץ"
+                          >
+                            הוסף חתימה
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: "none" }}
+                              onChange={(event) => {
+                                uploadChecklistItemSignature(
+                                  item.id,
+                                  {
+                                    ...signatureValue,
+                                    role: item.responsible || "גורם אחראי",
+                                    signerName:
+                                      signatureValue.signerName || autoName,
+                                  },
+                                  autoName,
+                                  event.target.files?.[0],
+                                );
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                          {savedSignatureForSigner?.(
+                            autoName,
+                            item.responsible,
+                          ) ? (
                             <button
                               type="button"
-                              style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
+                              style={{
+                                ...styles.secondaryBtn,
+                                padding: "6px 8px",
+                              }}
                               onClick={() =>
                                 updateItemSignature(item.id, {
                                   ...signatureValue,
                                   role: item.responsible || "גורם אחראי",
-                                  signerName: signatureValue.signerName || autoName,
-                                  signature: savedSignatureForSigner?.(autoName, item.responsible) || "",
-                                  signedAt: signatureValue.signedAt || item.executionDate || new Date().toISOString().slice(0, 10),
+                                  signerName:
+                                    signatureValue.signerName || autoName,
+                                  signature:
+                                    savedSignatureForSigner?.(
+                                      autoName,
+                                      item.responsible,
+                                    ) || "",
+                                  signedAt:
+                                    signatureValue.signedAt ||
+                                    item.executionDate ||
+                                    new Date().toISOString().slice(0, 10),
                                 })
                               }
                             >
@@ -2399,8 +2635,15 @@ function ChecklistsSection({
                           type="date"
                           value={item.executionDate ?? ""}
                           onChange={(event) => {
-                            updateChecklistItem(item.id, "executionDate", event.target.value);
-                            updateItemSignature(item.id, { ...signatureValue, signedAt: event.target.value });
+                            updateChecklistItem(
+                              item.id,
+                              "executionDate",
+                              event.target.value,
+                            );
+                            updateItemSignature(item.id, {
+                              ...signatureValue,
+                              signedAt: event.target.value,
+                            });
                           }}
                           style={compactInputStyle}
                         />
@@ -2409,15 +2652,33 @@ function ChecklistsSection({
                         <input
                           value={item.notes ?? ""}
                           onChange={(event) =>
-                            updateChecklistItem(item.id, "notes", event.target.value)
+                            updateChecklistItem(
+                              item.id,
+                              "notes",
+                              event.target.value,
+                            )
                           }
                           placeholder="מס׳ תוכנית / תעודת מעבדה"
                           style={compactInputStyle}
                         />
                         {attachmentKinds.length ? (
-                          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                          <div
+                            style={{ marginTop: 8, display: "grid", gap: 6 }}
+                          >
                             {attachmentKinds.map((kind) => (
-                              <label key={kind} style={{ display: "inline-block", cursor: "pointer", border: "1px solid #0f172a", borderRadius: 8, padding: "6px 8px", fontWeight: 900, background: "#fff", textAlign: "center" }}>
+                              <label
+                                key={kind}
+                                style={{
+                                  display: "inline-block",
+                                  cursor: "pointer",
+                                  border: "1px solid #0f172a",
+                                  borderRadius: 8,
+                                  padding: "6px 8px",
+                                  fontWeight: 900,
+                                  background: "#fff",
+                                  textAlign: "center",
+                                }}
+                              >
                                 📎 {checklistAttachmentActionLabel(kind, item)}
                                 <input
                                   type="file"
@@ -2425,7 +2686,8 @@ function ChecklistsSection({
                                   style={{ display: "none" }}
                                   onChange={(event) => {
                                     const file = event.target.files?.[0];
-                                    if (file) onUploadAttachment(item.id, kind, file);
+                                    if (file)
+                                      onUploadAttachment(item.id, kind, file);
                                     event.currentTarget.value = "";
                                   }}
                                 />
@@ -2434,14 +2696,54 @@ function ChecklistsSection({
                             {attachments.length ? (
                               <div style={{ display: "grid", gap: 4 }}>
                                 {attachments.map((attachment) => (
-                                  <div key={attachment.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 12, border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 6px" }}>
-                                    <span title={attachment.name} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>✅ {attachment.name}</span>
-                                    <button type="button" onClick={() => onRemoveAttachment(item.id, attachment.id)} style={{ border: 0, background: "transparent", cursor: "pointer", color: "#b91c1c", fontWeight: 900 }}>×</button>
+                                  <div
+                                    key={attachment.id}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      gap: 6,
+                                      fontSize: 12,
+                                      border: "1px solid #e2e8f0",
+                                      borderRadius: 8,
+                                      padding: "4px 6px",
+                                    }}
+                                  >
+                                    <span
+                                      title={attachment.name}
+                                      style={{
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      ✅ {attachment.name}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onRemoveAttachment(
+                                          item.id,
+                                          attachment.id,
+                                        )
+                                      }
+                                      style={{
+                                        border: 0,
+                                        background: "transparent",
+                                        cursor: "pointer",
+                                        color: "#b91c1c",
+                                        fontWeight: 900,
+                                      }}
+                                    >
+                                      ×
+                                    </button>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <span style={{ color: "#64748b", fontSize: 12 }}>טרם צורף מסמך</span>
+                              <span style={{ color: "#64748b", fontSize: 12 }}>
+                                טרם צורף מסמך
+                              </span>
                             )}
                           </div>
                         ) : null}
@@ -2455,11 +2757,19 @@ function ChecklistsSection({
                           מחק
                         </button>
                       </td>
-                      <td style={{ ...cellStyle, textAlign: "center", verticalAlign: "middle" }}>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          textAlign: "center",
+                          verticalAlign: "middle",
+                        }}
+                      >
                         <button
                           type="button"
                           title="סמן כדי להסתיר שורה זו בקובץ הסופי להדפסה"
-                          onClick={() => toggleChecklistItemPrintExclusion(item.id)}
+                          onClick={() =>
+                            toggleChecklistItemPrintExclusion(item.id)
+                          }
                           style={{
                             width: 24,
                             height: 24,
@@ -6094,16 +6404,14 @@ export default function Page() {
           .from("projects")
           .update({ is_active: false })
           .neq("id", id);
-        const result = await supabase!
-          .from("projects")
-          .insert({
-            id,
-            name: project.name,
-            description: project.description,
-            manager: project.manager,
-            is_active: true,
-            created_at: nowIso(),
-          });
+        const result = await supabase!.from("projects").insert({
+          id,
+          name: project.name,
+          description: project.description,
+          manager: project.manager,
+          is_active: true,
+          created_at: nowIso(),
+        });
         if (result.error) throw result.error;
         await refreshCloudData();
       } else {
@@ -7325,7 +7633,8 @@ export default function Page() {
     const isRelevantChecklistItem = (item: ChecklistItem) =>
       String(item.status ?? "").trim() !== "לא רלוונטי";
     const isVisibleInFinalPrint = (item: ChecklistItem) =>
-      !Boolean((item as any).excludedFromPrint) && isRelevantChecklistItem(item);
+      !Boolean((item as any).excludedFromPrint) &&
+      isRelevantChecklistItem(item);
     const displayedItems = isAsphaltSite
       ? items.filter(isVisibleInFinalPrint)
       : items.filter((item) => !Boolean((item as any).excludedFromPrint));
@@ -7386,28 +7695,49 @@ export default function Page() {
     }
 
     if (isBaseCourse) {
-      const getItemSignature = (item: any) => normalizeProcessSignature((item as any).signature, item.responsible || "גורם אחראי", resolveResponsibleName(item.responsible, projectName) || item.inspector || "");
+      const getItemSignature = (item: any) =>
+        normalizeProcessSignature(
+          (item as any).signature,
+          item.responsible || "גורם אחראי",
+          resolveResponsibleName(item.responsible, projectName) ||
+            item.inspector ||
+            "",
+        );
       const renderSignatureValue = (item: any) => {
         const sig = getItemSignature(item);
         return signatureCell(sig.signature || "");
       };
       const renderCheckerName = (item: any) => {
         const sig = getItemSignature(item);
-        return valueOrBlank(sig.signerName || resolveResponsibleName(item.responsible, projectName) || item.inspector, 20);
+        return valueOrBlank(
+          sig.signerName ||
+            resolveResponsibleName(item.responsible, projectName) ||
+            item.inspector,
+          20,
+        );
       };
       const renderCheckerDate = (item: any) => {
         const sig = getItemSignature(item);
         return valueOrBlank(sig.signedAt || item.executionDate, 18);
       };
-      const certificateCell = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
-        const attachments = normalizeChecklistAttachments((item as any).attachments);
-        const names = attachments.map((attachment) => attachment.name).filter(Boolean).join(" / ");
+      const certificateCell = (
+        item: ChecklistItem & { attachments?: ChecklistAttachment[] },
+      ) => {
+        const attachments = normalizeChecklistAttachments(
+          (item as any).attachments,
+        );
+        const names = attachments
+          .map((attachment) => attachment.name)
+          .filter(Boolean)
+          .join(" / ");
         return valueOrBlank(names || item.notes || "", 18);
       };
-      const activityRows = displayedItems.map((item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
-        const blocked = String(item.status ?? "").trim() === "לא רלוונטי";
-        const blockedClass = blocked ? ' class="crossed"' : "";
-        return `<tr>
+      const activityRows = displayedItems
+        .map(
+          (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
+            const blocked = String(item.status ?? "").trim() === "לא רלוונטי";
+            const blockedClass = blocked ? ' class="crossed"' : "";
+            return `<tr>
           <td class="activity">${valueOrBlank(item.description, 20)}</td>
           <td>${valueOrBlank(item.responsible || "בקרת איכות", 18)}</td>
           <td>${renderCheckerName(item)}</td>
@@ -7415,7 +7745,9 @@ export default function Page() {
           <td${blockedClass}>${blocked ? "" : renderCheckerDate(item)}</td>
           <td${blockedClass}>${blocked ? "" : certificateCell(item)}</td>
         </tr>`;
-      }).join("");
+          },
+        )
+        .join("");
       return `<div class="checklist-one-to-one">
         <div class="checklist-main-title">רשימת תיוג לעבודות פיזור מצעים</div>
         <table class="checklist-meta-main">
@@ -7972,7 +8304,9 @@ export default function Page() {
                 checklistTemplateLabel={checklistTemplateLabel}
                 applyChecklistTemplate={applyChecklistTemplate}
                 updateChecklistItem={updateChecklistItem}
-                toggleChecklistItemPrintExclusion={toggleChecklistItemPrintExclusion}
+                toggleChecklistItemPrintExclusion={
+                  toggleChecklistItemPrintExclusion
+                }
                 addChecklistItem={addChecklistItem}
                 removeChecklistItem={removeChecklistItem}
                 saveChecklist={saveChecklist}
