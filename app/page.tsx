@@ -33,7 +33,7 @@ const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT =
   "String contains non ISO-8859-1 code point";
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
-const APP_VERSION = "2026-05-04-attachments-signature-refresh-v1";
+const APP_VERSION = "2026-05-04-checklist-top-editable-cache-refresh-v2";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 const APP_BUILD_SIGNATURE_STORAGE_KEY = `${STORAGE_KEY}-build-signature`;
 
@@ -5173,13 +5173,36 @@ export default function Page() {
       }
     };
 
+    const reloadWithoutCache = async () => {
+      await clearBrowserCaches();
+      const url = new URL(window.location.href);
+      url.searchParams.set("appVersion", APP_VERSION);
+      window.location.replace(url.toString());
+    };
+
     const savedVersion = window.localStorage.getItem(APP_VERSION_STORAGE_KEY);
     if (savedVersion && savedVersion !== APP_VERSION) {
       window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
-      clearBrowserCaches().finally(() => window.location.reload());
+      reloadWithoutCache();
       return;
     }
     window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
+
+    const addNoCacheMeta = () => {
+      [
+        ["Cache-Control", "no-cache, no-store, must-revalidate"],
+        ["Pragma", "no-cache"],
+        ["Expires", "0"],
+      ].forEach(([httpEquiv, content]) => {
+        const selector = `meta[http-equiv="${httpEquiv}"]`;
+        const existing = document.head.querySelector<HTMLMetaElement>(selector);
+        const meta = existing ?? document.createElement("meta");
+        meta.httpEquiv = httpEquiv;
+        meta.content = content;
+        if (!existing) document.head.appendChild(meta);
+      });
+    };
+    addNoCacheMeta();
 
     const currentSignature = collectCurrentBuildSignature();
     if (currentSignature) {
@@ -5198,8 +5221,7 @@ export default function Page() {
         const savedSignature = window.localStorage.getItem(APP_BUILD_SIGNATURE_STORAGE_KEY) || currentSignature;
         if (latestSignature && savedSignature && latestSignature !== savedSignature) {
           window.localStorage.setItem(APP_BUILD_SIGNATURE_STORAGE_KEY, latestSignature);
-          await clearBrowserCaches();
-          window.location.reload();
+          await reloadWithoutCache();
         }
       } catch {
         // If the network check fails, keep the current page open.
