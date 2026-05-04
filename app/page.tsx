@@ -7784,7 +7784,7 @@ export default function Page() {
       })),
     );
     if (!rows.length) return "";
-    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th><th>תאריך צירוף</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td><td>${safeText(attachment.uploadedAt)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const exportStyles = `
@@ -7860,7 +7860,7 @@ export default function Page() {
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th><th>תאריך העלאה</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td><td>${safeText(file.uploadedAt)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const signatureCell = (value: unknown) => {
@@ -8007,7 +8007,7 @@ export default function Page() {
       (doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl,
     );
     if (!docs.length) return "";
-    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>קובץ</th><th>תאריך צירוף</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td><td>${safeText(doc.attachedAt)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const controlProcessExportHtml = () =>
