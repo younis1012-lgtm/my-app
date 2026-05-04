@@ -2292,84 +2292,99 @@ function ChecklistsSection({
           </label>
         </div>
 
-        <div style={{ marginTop: 16, overflowX: "auto" }}>
-          <table
-            dir="rtl"
+        <div
+          style={{
+            marginTop: 18,
+            border: "1px solid #e2e8f0",
+            borderRadius: 16,
+            padding: 14,
+            background: "#fff",
+          }}
+        >
+          <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 12 }}>
+            פרטי רשימת התיוג
+          </div>
+          <div
             style={{
-              width: "100%",
-              minWidth: 1180,
-              borderCollapse: "collapse",
-              background: "#fff",
-              tableLayout: "auto",
-              border: "2px solid #0f172a",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+              gap: 12,
             }}
           >
-            <tbody>
-              <tr>
-                <th style={topTableHeaderStyle}>מספר הליך</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("procedureNo", (checklistForm as any).procedureNo, "מספר הליך")}
-                </td>
-                <th style={topTableHeaderStyle}>שם הנוהל</th>
-                <td style={topTableWideCellStyle} colSpan={3}>
-                  {renderTopInput("title", checklistForm.title || checklistTemplateLabel(checklistForm.templateKey), "שם הנוהל")}
-                </td>
-                <th style={topTableHeaderStyle}>מהדורה</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("edition", (checklistForm as any).edition ?? "א׳", "מהדורה")}
-                </td>
-                <th style={topTableHeaderStyle}>תאריך</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("date", checklistForm.date, "תאריך", { type: "date" })}
-                </td>
-              </tr>
-              <tr>
-                <th style={topTableHeaderStyle}>שם הפרויקט</th>
-                <td style={topTableWideCellStyle} colSpan={3}>
-                  {renderTopInput("projectNameDisplay", (checklistForm as any).projectNameDisplay || projectName, "שם הפרויקט")}
-                </td>
-                <th style={topTableHeaderStyle}>קבלן מבצע</th>
-                <td style={topTableWideCellStyle}>
-                  {renderTopInput("contractor", checklistForm.contractor, "קבלן מבצע")}
-                </td>
-                <th style={topTableHeaderStyle}>מס׳ תוכנית ביצוע</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("location", checklistForm.location, "מס׳ תוכנית ביצוע")}
-                </td>
-                <th style={topTableHeaderStyle}>מספר רשימת תיוג</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("checklistNo", checklistForm.checklistNo, "מספר רשימת תיוג")}
-                </td>
-              </tr>
-              <tr>
-                <th style={topTableHeaderStyle}>מק״מ / חתך</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("stationSection", (checklistForm as any).stationSection, "מק״מ / חתך")}
-                </td>
-                <th style={topTableHeaderStyle}>עד ק״מ / חתך</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("toStationSection", (checklistForm as any).toStationSection, "עד ק״מ / חתך")}
-                </td>
-                <th style={topTableHeaderStyle}>כביש / מבנה</th>
-                <td style={topTableCellStyle}>
-                  {renderTopInput("roadStructure", (checklistForm as any).roadStructure, "כביש / מבנה")}
-                </td>
-                <th style={topTableHeaderStyle}>הערות</th>
-                <td style={topTableWideCellStyle} colSpan={3}>
-                  {renderTopInput("notes", checklistForm.notes, "הערות")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+            <label>
+              <span style={labelStyle}>שם הפרויקט</span>
+              <input
+                value={(checklistForm as any).projectNameDisplay || projectName || ""}
+                onChange={(event) => setField("projectNameDisplay", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>קבלן מבצע</span>
+              <input
+                value={checklistForm.contractor ?? ""}
+                onChange={(event) => setField("contractor", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
+              <input
+                value={checklistForm.location ?? ""}
+                onChange={(event) => setField("location", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>כביש / מבנה</span>
+              <input
+                value={(checklistForm as any).roadStructure ?? ""}
+                onChange={(event) => setField("roadStructure", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מספר רשימת תיוג</span>
+              <input
+                value={checklistForm.checklistNo ?? ""}
+                onChange={(event) => setField("checklistNo", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מחתך</span>
+              <input
+                value={(checklistForm as any).stationSection ?? ""}
+                onChange={(event) => setField("stationSection", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>לחתך</span>
+              <input
+                value={(checklistForm as any).toStationSection ?? ""}
+                onChange={(event) => setField("toStationSection", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>היטס</span>
+              <input
+                value={(checklistForm as any).offset ?? ""}
+                onChange={(event) => setField("offset", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+          </div>
+          <label style={{ display: "block", marginTop: 12 }}>
+            <span style={labelStyle}>הערות</span>
+            <textarea
+              value={checklistForm.notes ?? ""}
+              onChange={(event) => setField("notes", event.target.value)}
+              style={{ ...inputStyle, minHeight: 90, resize: "vertical" }}
+            />
+          </label>
         </div>
-        <label style={{ display: "block", marginTop: 12 }}>
-          <span style={labelStyle}>הערות כלליות</span>
-          <textarea
-            value={checklistForm.notes ?? ""}
-            onChange={(event) => setField("notes", event.target.value)}
-            style={{ ...inputStyle, minHeight: 84, resize: "vertical" }}
-          />
-        </label>
       </div>
       <div style={{ ...cardStyle, background: "#fff" }}>
         <div
