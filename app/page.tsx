@@ -2174,6 +2174,7 @@ function ChecklistsSection({
             alignItems: "center",
             gap: 12,
             marginBottom: 12,
+            flexWrap: "wrap",
           }}
         >
           <div>
@@ -2181,8 +2182,7 @@ function ChecklistsSection({
               סעיפי בקרה
             </h3>
             <div style={{ color: "#64748b", marginTop: 4 }}>
-              בחירת האחראי מתבצעת בתוך כל סעיף. שם הבודק מתעדכן אוטומטית לפי
-              אנשי הקשר של הפרויקט.
+              כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם, חתימה, תאריך ומס׳ תוכנית / תעודת מעבדה.
             </div>
           </div>
           <button
@@ -2193,268 +2193,232 @@ function ChecklistsSection({
             הוסף שורה
           </button>
         </div>
-        <div style={{ display: "grid", gap: 14 }}>
-          {checklistForm.items.map(
-            (
-              item: ChecklistItem & { attachments?: ChecklistAttachment[] },
-              index: number,
-            ) => {
-              const requiredKind = getChecklistAttachmentRequirement(
-                item.description,
-              );
-              const attachments = normalizeChecklistAttachments(
-                item.attachments,
-              ).filter(
-                (attachment) =>
-                  !requiredKind || attachment.kind === requiredKind,
-              );
-              const autoName =
-                resolveResponsibleName(item.responsible, projectName) ||
-                item.inspector ||
-                "";
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 16,
-                    padding: 14,
-                    background: "#f8fafc",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 10,
-                    }}
-                  >
-                    <strong>שורה {index + 1}</strong>
-                    <button
-                      type="button"
-                      onClick={() => removeChecklistItem(item.id)}
-                      style={{ ...styles.dangerBtn, padding: "8px 12px" }}
-                    >
-                      מחק שורה
-                    </button>
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: 12,
-                    }}
-                  >
-                    <label style={{ gridColumn: "span 2" }}>
-                      <span style={labelStyle}>תיאור</span>
-                      <input
-                        value={item.description ?? ""}
-                        onChange={(event) =>
-                          updateChecklistItem(
-                            item.id,
-                            "description",
-                            event.target.value,
-                          )
-                        }
-                        style={inputStyle}
-                      />
-                    </label>
-                    <label>
-                      <span style={labelStyle}>אחראי</span>
-                      <select
-                        value={item.responsible || ""}
-                        onChange={(event) =>
-                          updateChecklistItem(
-                            item.id,
-                            "responsible",
-                            event.target.value,
-                          )
-                        }
-                        style={inputStyle}
-                      >
-                        {RESPONSIBLE_ROLE_OPTIONS.map((role) => (
-                          <option key={role || "empty"} value={role}>
-                            {role || "בחר גורם אחראי"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span style={labelStyle}>שם בודק</span>
-                      <input
-                        value={autoName}
-                        readOnly
-                        style={{ ...inputStyle, background: "#f1f5f9" }}
-                      />
-                    </label>
-                    <label>
-                      <span style={labelStyle}>סטטוס</span>
-                      <select
-                        value={item.status ?? "לא נבדק"}
-                        onChange={(event) =>
-                          updateChecklistItem(
-                            item.id,
-                            "status",
-                            event.target.value,
-                          )
-                        }
-                        style={inputStyle}
-                      >
-                        <option value="לא נבדק">לא נבדק</option>
-                        <option value="תקין">תקין</option>
-                        <option value="לא תקין">לא תקין</option>
-                        <option value="לא רלוונטי">לא רלוונטי</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span style={labelStyle}>תאריך ביצוע</span>
-                      <input
-                        type="date"
-                        value={item.executionDate ?? ""}
-                        onChange={(event) =>
-                          updateChecklistItem(
-                            item.id,
-                            "executionDate",
-                            event.target.value,
-                          )
-                        }
-                        style={inputStyle}
-                      />
-                    </label>
-                  </div>
-                  <label style={{ display: "block", marginTop: 12 }}>
-                    <span style={labelStyle}>הערות</span>
-                    <input
-                      value={item.notes ?? ""}
-                      onChange={(event) =>
-                        updateChecklistItem(
-                          item.id,
-                          "notes",
-                          event.target.value,
-                        )
-                      }
-                      style={inputStyle}
-                    />
-                  </label>
-                  <ProcessSignatureFields
-                    role={item.responsible || "גורם אחראי"}
-                    defaultSignerName={autoName}
-                    value={normalizeProcessSignature(
-                      (item as any).signature,
-                      item.responsible || "גורם אחראי",
-                      autoName,
-                    )}
-                    onChange={(signature) =>
-                      updateItemSignature(item.id, signature)
-                    }
-                    savedSignatureDataUrl={savedSignatureForSigner?.(
-                      autoName,
-                      item.responsible,
-                    )}
-                  />
-                  {requiredKind && (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        border: "1px dashed #94a3b8",
-                        borderRadius: 14,
-                        padding: 10,
-                        background: "#fff",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div style={{ fontWeight: 900 }}>
-                          מסמך נדרש: {checklistAttachmentLabel(requiredKind)}
-                        </div>
-                        <label
-                          style={{
-                            display: "inline-block",
-                            cursor: "pointer",
-                            border: "1px solid #0f172a",
-                            borderRadius: 10,
-                            padding: "8px 12px",
-                            fontWeight: 900,
-                            background: "#fff",
-                          }}
+
+        <div style={{ overflowX: "auto" }}>
+          <table
+            dir="rtl"
+            style={{
+              width: "100%",
+              minWidth: 980,
+              borderCollapse: "collapse",
+              background: "#fff",
+              tableLayout: "fixed",
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "34%", background: "#f8fafc", fontWeight: 950 }}>תיאור פעולת הבקרה</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "13%", background: "#f8fafc", fontWeight: 950 }}>באחריות</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "12%", background: "#f8fafc", fontWeight: 950 }}>שם</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "13%", background: "#f8fafc", fontWeight: 950 }}>חתימה</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "10%", background: "#f8fafc", fontWeight: 950 }}>תאריך</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: "18%", background: "#f8fafc", fontWeight: 950 }}>מס׳ תוכנית / תעודת מעבדה</th>
+                <th style={{ border: "1px solid #94a3b8", padding: 8, width: 72, background: "#f8fafc", fontWeight: 950 }}>פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {checklistForm.items.map(
+                (
+                  item: ChecklistItem & { attachments?: ChecklistAttachment[] },
+                  index: number,
+                ) => {
+                  const requiredKind = getChecklistAttachmentRequirement(item.description);
+                  const attachments = normalizeChecklistAttachments(item.attachments).filter(
+                    (attachment) => !requiredKind || attachment.kind === requiredKind,
+                  );
+                  const autoName =
+                    resolveResponsibleName(item.responsible, projectName) ||
+                    item.inspector ||
+                    "";
+                  const signatureValue = normalizeProcessSignature(
+                    (item as any).signature,
+                    item.responsible || "גורם אחראי",
+                    autoName,
+                  );
+                  const isImageSignature = String(signatureValue.signature || "").startsWith("data:image/");
+                  const cellStyle: React.CSSProperties = {
+                    border: "1px solid #94a3b8",
+                    padding: 6,
+                    verticalAlign: "top",
+                    background: index % 2 ? "#f8fafc" : "#fff",
+                  };
+                  const compactInputStyle: React.CSSProperties = {
+                    width: "100%",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 8,
+                    padding: "7px 8px",
+                    background: "#fff",
+                    fontWeight: 700,
+                    minHeight: 36,
+                    boxSizing: "border-box",
+                  };
+                  return (
+                    <tr key={item.id}>
+                      <td style={cellStyle}>
+                        <textarea
+                          value={item.description ?? ""}
+                          onChange={(event) =>
+                            updateChecklistItem(item.id, "description", event.target.value)
+                          }
+                          placeholder="תיאור פעולת הבקרה"
+                          style={{ ...compactInputStyle, minHeight: 70, resize: "vertical" }}
+                        />
+                      </td>
+                      <td style={cellStyle}>
+                        <select
+                          value={item.responsible || ""}
+                          onChange={(event) =>
+                            updateChecklistItem(item.id, "responsible", event.target.value)
+                          }
+                          style={compactInputStyle}
                         >
-                          📎 צרף {checklistAttachmentLabel(requiredKind)}
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                            style={{ display: "none" }}
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (file)
-                                onUploadAttachment(item.id, requiredKind, file);
-                              event.currentTarget.value = "";
-                            }}
-                          />
-                        </label>
-                      </div>
-                      <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                        {attachments.length ? (
-                          attachments.map((attachment) => (
-                            <div
-                              key={attachment.id}
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                gap: 8,
-                                border: "1px solid #e2e8f0",
-                                borderRadius: 8,
-                                padding: "6px 8px",
-                              }}
+                          {RESPONSIBLE_ROLE_OPTIONS.map((role) => (
+                            <option key={role || "empty"} value={role}>
+                              {role || "בחר"}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={cellStyle}>
+                        <input
+                          value={autoName}
+                          readOnly
+                          title={autoName}
+                          style={{ ...compactInputStyle, background: "#f1f5f9" }}
+                        />
+                      </td>
+                      <td style={cellStyle}>
+                        {isImageSignature ? (
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <img
+                              src={signatureValue.signature}
+                              alt="חתימה"
+                              style={{ maxWidth: "100%", maxHeight: 54, border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", padding: 3 }}
+                            />
+                            <button
+                              type="button"
+                              style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
+                              onClick={() => updateItemSignature(item.id, { ...signatureValue, signature: "", signedAt: signatureValue.signedAt || item.executionDate || "" })}
                             >
-                              <span
-                                title={attachment.name}
-                                style={{
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                ✅ {attachment.name}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onRemoveAttachment(item.id, attachment.id)
-                                }
-                                style={{
-                                  border: 0,
-                                  background: "transparent",
-                                  cursor: "pointer",
-                                  color: "#b91c1c",
-                                  fontWeight: 900,
-                                }}
-                              >
-                                מחיקה
-                              </button>
-                            </div>
-                          ))
+                              נקה
+                            </button>
+                          </div>
                         ) : (
-                          <span style={{ color: "#64748b" }}>
-                            טרם צורף מסמך
-                          </span>
+                          <input
+                            value={signatureValue.signature}
+                            onChange={(event) =>
+                              updateItemSignature(item.id, {
+                                ...signatureValue,
+                                role: item.responsible || "גורם אחראי",
+                                signerName: signatureValue.signerName || autoName,
+                                signature: event.target.value,
+                                signedAt: signatureValue.signedAt || item.executionDate || "",
+                              })
+                            }
+                            placeholder="חתימה"
+                            style={compactInputStyle}
+                          />
                         )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            },
-          )}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                          <button
+                            type="button"
+                            style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
+                            onClick={() =>
+                              updateItemSignature(item.id, {
+                                ...signatureValue,
+                                role: item.responsible || "גורם אחראי",
+                                signerName: signatureValue.signerName || autoName,
+                                signature: signatureValue.signature || autoName,
+                                signedAt: signatureValue.signedAt || item.executionDate || new Date().toISOString().slice(0, 10),
+                              })
+                            }
+                          >
+                            חתום
+                          </button>
+                          {savedSignatureForSigner?.(autoName, item.responsible) ? (
+                            <button
+                              type="button"
+                              style={{ ...styles.secondaryBtn, padding: "6px 8px" }}
+                              onClick={() =>
+                                updateItemSignature(item.id, {
+                                  ...signatureValue,
+                                  role: item.responsible || "גורם אחראי",
+                                  signerName: signatureValue.signerName || autoName,
+                                  signature: savedSignatureForSigner?.(autoName, item.responsible) || "",
+                                  signedAt: signatureValue.signedAt || item.executionDate || new Date().toISOString().slice(0, 10),
+                                })
+                              }
+                            >
+                              חתימה שמורה
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td style={cellStyle}>
+                        <input
+                          type="date"
+                          value={item.executionDate ?? ""}
+                          onChange={(event) => {
+                            updateChecklistItem(item.id, "executionDate", event.target.value);
+                            updateItemSignature(item.id, { ...signatureValue, signedAt: event.target.value });
+                          }}
+                          style={compactInputStyle}
+                        />
+                      </td>
+                      <td style={cellStyle}>
+                        <input
+                          value={item.notes ?? ""}
+                          onChange={(event) =>
+                            updateChecklistItem(item.id, "notes", event.target.value)
+                          }
+                          placeholder="מס׳ תוכנית / תעודת מעבדה"
+                          style={compactInputStyle}
+                        />
+                        {requiredKind ? (
+                          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                            <label style={{ display: "inline-block", cursor: "pointer", border: "1px solid #0f172a", borderRadius: 8, padding: "6px 8px", fontWeight: 900, background: "#fff", textAlign: "center" }}>
+                              📎 צרף {checklistAttachmentLabel(requiredKind)}
+                              <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                                style={{ display: "none" }}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  if (file) onUploadAttachment(item.id, requiredKind, file);
+                                  event.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                            {attachments.length ? (
+                              <div style={{ display: "grid", gap: 4 }}>
+                                {attachments.map((attachment) => (
+                                  <div key={attachment.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 12, border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 6px" }}>
+                                    <span title={attachment.name} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>✅ {attachment.name}</span>
+                                    <button type="button" onClick={() => onRemoveAttachment(item.id, attachment.id)} style={{ border: 0, background: "transparent", cursor: "pointer", color: "#b91c1c", fontWeight: 900 }}>×</button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: "#64748b", fontSize: 12 }}>טרם צורף מסמך</span>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td style={{ ...cellStyle, textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => removeChecklistItem(item.id)}
+                          style={{ ...styles.dangerBtn, padding: "7px 10px" }}
+                        >
+                          מחק
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                },
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -7193,13 +7157,11 @@ export default function Page() {
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:20px}
     .trial-report .large-value{height:48px}
-    .prelim-report{width:100%;margin:0 0 12px;table-layout:fixed;border-collapse:collapse;page-break-inside:avoid}
-    .prelim-report th,.prelim-report td{font-size:13px;line-height:1.25;height:24px;padding:4px 6px;border:1px solid #111827;text-align:center;vertical-align:middle;background:#fff}
-    .prelim-report .prelim-title{font-size:24px;font-weight:900;text-align:center;line-height:1.15}
-    .prelim-report .prelim-section-title{font-size:20px;font-weight:900;text-align:center;height:32px}
-    .prelim-report .prelim-label{font-weight:900;text-align:right;width:32%}
-    .prelim-report .prelim-value{height:26px}
-    .prelim-report .prelim-small{font-size:12px;font-weight:800}
+    .checklist-one-to-one{font-size:8.5px;color:#111;direction:rtl}
+    .checklist-one-to-one .checklist-main-title{font-size:14px;font-weight:900;text-align:center;text-decoration:underline;margin:3px 0 7px;line-height:1.25}
+    .checklist-one-to-one table{border-collapse:collapse;width:100%;table-layout:fixed;margin:0 0 3px;border:1px solid #111}
+    .checklist-one-to-one th,.checklist-one-to-one td{border:1px solid #111;color:#111;background:#fff;padding:1px 2px;text-align:center;vertical-align:middle;line-height:1.05;font-size:8px;height:14px}
+    .checklist-one-to-one th{font-weight:800}.checklist-one-to-one .label{font-weight:800}.checklist-one-to-one .activity{text-align:right;font-weight:600}.checklist-one-to-one .section-title{font-weight:900;font-size:8.5px;height:16px}.checklist-one-to-one .field-value{font-weight:500}.checklist-one-to-one .crossed{background:linear-gradient(to top right,transparent 49%,#111 50%,transparent 51%),linear-gradient(to bottom right,transparent 49%,#111 50%,transparent 51%)}
     @page{size:A4 portrait;margin:8mm}
     @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-logo-box{height:54px}.company-full-logo{height:48px!important;max-height:48px!important;max-width:108px!important}.company-footer{margin-top:8px}.company-footer-single{height:18px;font-size:8.5px;line-height:16px}.trial-report{width:100%}}
   `;
@@ -7349,23 +7311,60 @@ export default function Page() {
     }
 
     if (isBaseCourse) {
-      return `<table class="doc-header">
-        <tbody>
-          <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">מספר נוהל:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-          <tr><td class="empty" colspan="2">&nbsp;</td><td colspan="2">${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
-        </tbody>
-      </table>
-      <table class="source-meta">
-        <tbody>
-          <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
-          <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
-          <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך / היסט / לחתך</th></tr>
-          <tr><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
-          <tr><th>מקור החומר</th><th colspan="2">תאור חומר המילוי</th><th colspan="2">מיון החומר</th></tr>
-          <tr><td>${valueOrBlank("", 22)}</td><td colspan="2">${valueOrBlank("", 22)}</td><td colspan="2">${valueOrBlank("", 22)}</td></tr>
-        </tbody>
-      </table>
-      ${renderChecklistRows("source")}${checklistAttachmentsExportTable(displayedItems)}`;
+      const getItemSignature = (item: any) => normalizeProcessSignature((item as any).signature, item.responsible || "גורם אחראי", resolveResponsibleName(item.responsible, projectName) || item.inspector || "");
+      const renderSignatureValue = (item: any) => {
+        const sig = getItemSignature(item);
+        return signatureCell(sig.signature || "");
+      };
+      const renderCheckerName = (item: any) => {
+        const sig = getItemSignature(item);
+        return valueOrBlank(sig.signerName || resolveResponsibleName(item.responsible, projectName) || item.inspector, 20);
+      };
+      const renderCheckerDate = (item: any) => {
+        const sig = getItemSignature(item);
+        return valueOrBlank(sig.signedAt || item.executionDate, 18);
+      };
+      const certificateCell = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
+        const attachments = normalizeChecklistAttachments((item as any).attachments);
+        const names = attachments.map((attachment) => attachment.name).filter(Boolean).join(" / ");
+        return valueOrBlank(names || item.notes || "", 18);
+      };
+      const activityRows = displayedItems.map((item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
+        const blocked = String(item.status ?? "").trim() === "לא רלוונטי";
+        const blockedClass = blocked ? ' class="crossed"' : "";
+        return `<tr>
+          <td class="activity">${valueOrBlank(item.description, 20)}</td>
+          <td>${valueOrBlank(item.responsible || "בקרת איכות", 18)}</td>
+          <td>${renderCheckerName(item)}</td>
+          <td${blockedClass}>${blocked ? "" : renderSignatureValue(item)}</td>
+          <td${blockedClass}>${blocked ? "" : renderCheckerDate(item)}</td>
+          <td${blockedClass}>${blocked ? "" : certificateCell(item)}</td>
+        </tr>`;
+      }).join("");
+      return `<div class="checklist-one-to-one">
+        <div class="checklist-main-title">רשימת תיוג לעבודות פיזור מצעים</div>
+        <table class="checklist-meta-main">
+          <tbody>
+            <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
+            <tr><td class="field-value">${safeText(defaultProjectName)}</td><td class="field-value">${safeText(contractor)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+          </tbody>
+        </table>
+        <table class="checklist-meta-secondary">
+          <tbody>
+            <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך</th><th>היסט</th><th>לחתך</th></tr>
+            <tr><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td></tr>
+            <tr><th colspan="2">מקור החומר</th><th colspan="4">תאור חומר המילוי</th><th>מיון החומר</th></tr>
+            <tr><td colspan="2">${blankCell(14)}</td><td colspan="4">${blankCell(14)}</td><td>${blankCell(14)}</td></tr>
+          </tbody>
+        </table>
+        <table class="checklist-process-table">
+          <thead>
+            <tr><th colspan="6" class="section-title">אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+            <tr><th style="width:38%">תאור פעילות הבקרה</th><th style="width:13%">באחריות</th><th style="width:12%">שם</th><th style="width:12%">חתימה</th><th style="width:11%">תאריך</th><th style="width:14%">מס׳ תוכנית / תעודת בדיקה</th></tr>
+          </thead>
+          <tbody>${activityRows}</tbody>
+        </table>
+      </div>${checklistAttachmentsExportTable(displayedItems)}`;
     }
 
     if (isPainting) {
@@ -7497,94 +7496,53 @@ export default function Page() {
       ["מס׳ תעודת מעבדה", (controlProcessForm as any).labCertificateNo],
     ])}${requiredDocumentsExportTable(controlProcessForm.requiredDocuments)}${signaturesTable(controlProcessForm.approval)}`;
 
-  const preliminaryFormTitle = (subtype: PreliminaryTab) =>
-    subtype === "suppliers"
-      ? "אישור ספקים"
-      : subtype === "subcontractors"
-        ? "אישור קבלן משנה"
-        : "אישור חומרים";
-
-  const preliminaryEditionDate = (subtype: PreliminaryTab) =>
-    subtype === "subcontractors" ? "01.11.2025" : "2022-02-01";
-
-  const preliminaryEdition = (subtype: PreliminaryTab) =>
-    subtype === "subcontractors" ? "א׳" : "א";
-
-  const approvalStatusLabel = (status: unknown) =>
-    status === "approved" || status === "מאושר"
-      ? "מאושר"
-      : status === "rejected" || status === "לא מאושר"
-        ? "לא מאושר"
-        : "";
-
-  const approvalSignatureForRole = (approval: ApprovalFlow | undefined, roleKeywords: string[]) => {
-    const normalized = normalizeApproval(approval);
-    return (
-      normalized.signatures.find((signature) =>
-        roleKeywords.some((keyword) => String(signature.role ?? "").includes(keyword)),
-      ) ??
-      normalized.signatures.find((signature) => !String(signature.role ?? "").includes("הבטחת")) ??
-      normalized.signatures[0]
-    );
-  };
-
-  const preliminaryApprovalTable = (approval: ApprovalFlow | undefined, subtype: PreliminaryTab) => {
-    const normalized = normalizeApproval(approval);
-    const qc = approvalSignatureForRole(approval, ["בקרת", "בקר איכות", "QC"]);
-    const qa = approvalSignatureForRole(approval, ["הבטחת", "QA"]);
-    const qcLabel = subtype === "subcontractors" ? "בקרת איכות (QC)" : "בקרת איכות";
-    const qaLabel = subtype === "subcontractors" ? "הבטחת איכות (QA)" : "הבטחת איכות";
-    const row = (role: string, signature: any) =>
-      `<tr><td class="prelim-label">${safeText(role)}</td><td>${valueOrBlank(signature?.signerName, 22)}</td><td>${valueOrBlank(signature?.signedAt, 22)}</td><td>${valueOrBlank(approvalStatusLabel(normalized.status), 22)}</td></tr>`;
-    return `<table class="prelim-report"><tbody><tr><th colspan="4" class="prelim-section-title">אישורים</th></tr><tr><th>תפקיד</th><th>שם</th><th>תאריך</th><th>סטטוס (מאושר / לא מאושר)</th></tr>${row(qcLabel, qc)}${row(qaLabel, qa)}</tbody></table>`;
-  };
-
-  const preliminaryCertificateRows = (subtype: PreliminaryTab, certificateNo: unknown) => {
-    const certificateName = subtype === "suppliers" ? "תעודת ISO" : "";
-    const extraEmptyRows = subtype === "materials" ? 1 : 0;
-    const row = (details: unknown = certificateName) =>
-      `<tr><td>${valueOrBlank(details, 24)}</td><td>${blankCell(24)}</td><td>${valueOrBlank(certificateNo, 24)}</td><td>${blankCell(24)}</td><td>${blankCell(24)}</td></tr>`;
-    return `<table class="prelim-report"><tbody><tr><th colspan="5" class="prelim-section-title">תעודות</th></tr><tr><th>פרטים</th><th>קיים / לא קיים</th><th>מספר תעודה</th><th>תוקף</th><th>מסמכים מצורפים</th></tr>${row()}${Array.from({ length: extraEmptyRows }).map(() => row("")).join("")}</tbody></table>`;
-  };
-
-  const preliminaryHeaderTable = (subtype: PreliminaryTab) =>
-    `<table class="prelim-report"><tbody><tr><td rowspan="2" class="prelim-title">${safeText(preliminaryFormTitle(subtype))}</td><th>מהדורה</th><th>תאריך</th></tr><tr><td>${safeText(preliminaryEdition(subtype))}</td><td>${safeText(preliminaryEditionDate(subtype))}</td></tr></tbody></table>`;
-
-  const preliminaryProjectTable = () =>
-    `<table class="prelim-report"><tbody><tr><td>${valueOrBlank(currentProjectLegend.projectName || projectName, 26)}</td><td class="prelim-label">שם הפרויקט</td></tr><tr><td>${valueOrBlank(currentProjectLegend.projectManagement, 26)}</td><td class="prelim-label">חברת ניהול</td></tr><tr><td>${valueOrBlank(currentProjectLegend.contractor, 26)}</td><td class="prelim-label">קבלן ראשי</td></tr><tr><td>${valueOrBlank(currentProjectLegend.qualityControl || CONTROL_QUALITY_COMPANY_NAME, 26)}</td><td class="prelim-label">חברת בקרת איכות</td></tr></tbody></table>`;
-
-  const preliminaryDetailsTable = (rows: Array<[string, unknown]>) =>
-    `<table class="prelim-report"><tbody>${rows.map(([label, value]) => `<tr><td>${valueOrBlank(value, 26)}</td><td class="prelim-label">${safeText(label)}</td></tr>`).join("")}</tbody></table>`;
-
   const preliminaryRows = () => {
     if (preliminaryTab === "suppliers") {
       const s = supplierPreliminaryForm.supplier ?? ({} as any);
-      return `${preliminaryHeaderTable("suppliers")}${preliminaryProjectTable()}${preliminaryDetailsTable([
-        ["מספר אישור", (s as any).approvalNo],
-        ["שם ספק", (s as any).supplierName],
-        ["סניף", (s as any).branch],
-        ["אנשי קשר וטלפון", (s as any).contactPhone],
-        ["חומר מסופק", (s as any).suppliedMaterial],
-      ])}${preliminaryCertificateRows("suppliers", (s as any).certificateNo)}${preliminaryApprovalTable(supplierPreliminaryForm.approval, "suppliers")}`;
+      return (
+        baseRows([
+          ["סוג בקרה", "ספקים"],
+          ["כותרת", supplierPreliminaryForm.title],
+          ["תאריך", supplierPreliminaryForm.date],
+          ["סטטוס", supplierPreliminaryForm.status],
+          ["שם ספק", (s as any).supplierName],
+          ["חומר מסופק", (s as any).suppliedMaterial],
+          ["טלפון", (s as any).contactPhone],
+          ["מספר אישור", (s as any).approvalNo],
+          ["הערות", (s as any).notes, 90],
+        ]) + signaturesTable(supplierPreliminaryForm.approval)
+      );
     }
     if (preliminaryTab === "subcontractors") {
       const s = subcontractorPreliminaryForm.subcontractor ?? ({} as any);
-      return `${preliminaryHeaderTable("subcontractors")}${preliminaryProjectTable()}${preliminaryDetailsTable([
-        ["מספר אישור", (s as any).approvalNo],
-        ["שם קבלן משנה", (s as any).subcontractorName],
-        ["סניף", (s as any).branch],
-        ["אנשי קשר וטלפון", (s as any).contactPhone],
-        ["שירות עבודה", (s as any).field],
-      ])}${preliminaryCertificateRows("subcontractors", (s as any).certificateNo)}${preliminaryApprovalTable(subcontractorPreliminaryForm.approval, "subcontractors")}`;
+      return (
+        baseRows([
+          ["סוג בקרה", "קבלנים"],
+          ["כותרת", subcontractorPreliminaryForm.title],
+          ["תאריך", subcontractorPreliminaryForm.date],
+          ["סטטוס", subcontractorPreliminaryForm.status],
+          ["שם קבלן משנה", (s as any).subcontractorName],
+          ["תחום", (s as any).field],
+          ["טלפון", (s as any).contactPhone],
+          ["מספר אישור", (s as any).approvalNo],
+          ["הערות", (s as any).notes, 90],
+        ]) + signaturesTable(subcontractorPreliminaryForm.approval)
+      );
     }
     const m = materialPreliminaryForm.material ?? ({} as any);
-    return `${preliminaryHeaderTable("materials")}${preliminaryProjectTable()}${preliminaryDetailsTable([
-      ["מספר אישור", (m as any).approvalNo ?? (m as any).certificateNo],
-      ["שם ספק", (m as any).supplierName ?? (m as any).source],
-      ["סניף", (m as any).branch],
-      ["אנשי קשר וטלפון", (m as any).contactPhone],
-      ["חומר מסופק", (m as any).materialName],
-    ])}${preliminaryCertificateRows("materials", (m as any).certificateNo)}${preliminaryApprovalTable(materialPreliminaryForm.approval, "materials")}`;
+    return (
+      baseRows([
+        ["סוג בקרה", "חומרים"],
+        ["כותרת", materialPreliminaryForm.title],
+        ["תאריך", materialPreliminaryForm.date],
+        ["סטטוס", materialPreliminaryForm.status],
+        ["שם חומר", (m as any).materialName],
+        ["מקור", (m as any).source],
+        ["שימוש", (m as any).usage],
+        ["מספר תעודה", (m as any).certificateNo],
+        ["הערות", (m as any).notes, 90],
+      ]) + signaturesTable(materialPreliminaryForm.approval)
+    );
   };
 
   const exportHtml = (forcedChecklistNo?: number) => {
