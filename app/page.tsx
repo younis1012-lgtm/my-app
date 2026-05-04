@@ -33,6 +33,9 @@ const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT =
   "String contains non ISO-8859-1 code point";
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
+const APP_VERSION = "2026-05-04-attachments-signature-refresh-v1";
+const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
+const APP_BUILD_SIGNATURE_STORAGE_KEY = `${STORAGE_KEY}-build-signature`;
 
 type AppSection =
   | Section
@@ -2222,7 +2225,7 @@ function ChecklistsSection({
             />
           </label>
           <label>
-            <span style={labelStyle}>מיקום / קטע עבודה</span>
+            <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
             <input
               value={checklistForm.location ?? ""}
               onChange={(event) => setField("location", event.target.value)}
@@ -2237,6 +2240,52 @@ function ChecklistsSection({
               style={inputStyle}
             />
           </label>
+        </div>
+
+        <div style={{ marginTop: 16, overflowX: "auto" }}>
+          <table
+            dir="rtl"
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              background: "#fff",
+              tableLayout: "fixed",
+              border: "2px solid #0f172a",
+            }}
+          >
+            <tbody>
+              <tr>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "18%" }}>מספר הליך</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>{checklistForm.checklistNo || ""}</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "18%" }}>שם הנוהל</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 900 }}>{checklistForm.title || checklistTemplateLabel(checklistForm.templateKey)}</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "14%" }}>מהדורה</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>א׳</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc", width: "12%" }}>תאריך</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7, fontWeight: 800 }}>{checklistForm.date || ""}</td>
+              </tr>
+              <tr>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>שם הפרויקט</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{projectName || ""}</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>קבלן מבצע</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.contractor || ""}</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מס׳ תוכנית ביצוע</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.location || ""}</td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מספר רשימת תיוג</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.checklistNo || ""}</td>
+              </tr>
+              <tr>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>מק״מ / חתך</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>כביש / מבנה</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>יום / לילה</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}></td>
+                <th style={{ border: "1px solid #0f172a", padding: 7, background: "#f8fafc" }}>הערות</th>
+                <td style={{ border: "1px solid #0f172a", padding: 7 }}>{checklistForm.notes || ""}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <label style={{ display: "block", marginTop: 12 }}>
           <span style={labelStyle}>הערות כלליות</span>
@@ -2264,7 +2313,7 @@ function ChecklistsSection({
             </h3>
             <div style={{ color: "#64748b", marginTop: 4 }}>
               כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם,
-              חתימה, תאריך ומס׳ תוכנית / תעודת מעבדה. ניתן לשמור, לעדכן, לצרף
+              חתימה, תאריך ותעודת מעבדה / הערות. ניתן לשמור, לעדכן, לצרף
               מסמך מול מודד ולצרף מסמכי בדיקה/מעבדה לפי תיאור התהליך.
             </div>
           </div>
@@ -2354,7 +2403,7 @@ function ChecklistsSection({
                     fontWeight: 950,
                   }}
                 >
-                  מס׳ תוכנית / תעודת מעבדה
+                  תעודת מעבדה / הערות
                 </th>
                 <th
                   style={{
@@ -2658,7 +2707,7 @@ function ChecklistsSection({
                               event.target.value,
                             )
                           }
-                          placeholder="מס׳ תוכנית / תעודת מעבדה"
+                          placeholder="תעודת מעבדה / הערות"
                           style={compactInputStyle}
                         />
                         {attachmentKinds.length ? (
@@ -5032,6 +5081,73 @@ function ControlProcessesSection({
 }
 
 export default function Page() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const collectBuildSignatureFromHtml = (html: string) => {
+      const matches = Array.from(
+        html.matchAll(/\/_next\/static\/[^"'<>\s]+/g),
+        (match) => match[0],
+      );
+      return Array.from(new Set(matches)).sort().join("|");
+    };
+
+    const collectCurrentBuildSignature = () =>
+      Array.from(document.querySelectorAll<HTMLScriptElement>('script[src*="/_next/static/"]'))
+        .map((script) => script.src)
+        .sort()
+        .join("|");
+
+    const clearBrowserCaches = async () => {
+      if (!("caches" in window)) return;
+      try {
+        const names = await caches.keys();
+        await Promise.all(names.map((name) => caches.delete(name)));
+      } catch {
+        // Cache cleanup is best-effort only.
+      }
+    };
+
+    const savedVersion = window.localStorage.getItem(APP_VERSION_STORAGE_KEY);
+    if (savedVersion && savedVersion !== APP_VERSION) {
+      window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
+      clearBrowserCaches().finally(() => window.location.reload());
+      return;
+    }
+    window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
+
+    const currentSignature = collectCurrentBuildSignature();
+    if (currentSignature) {
+      window.localStorage.setItem(APP_BUILD_SIGNATURE_STORAGE_KEY, currentSignature);
+    }
+
+    const checkForNewBuild = async () => {
+      try {
+        const response = await fetch(`${window.location.pathname}?v=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        });
+        if (!response.ok) return;
+        const html = await response.text();
+        const latestSignature = collectBuildSignatureFromHtml(html);
+        const savedSignature = window.localStorage.getItem(APP_BUILD_SIGNATURE_STORAGE_KEY) || currentSignature;
+        if (latestSignature && savedSignature && latestSignature !== savedSignature) {
+          window.localStorage.setItem(APP_BUILD_SIGNATURE_STORAGE_KEY, latestSignature);
+          await clearBrowserCaches();
+          window.location.reload();
+        }
+      } catch {
+        // If the network check fails, keep the current page open.
+      }
+    };
+
+    const timer = window.setInterval(checkForNewBuild, 60000);
+    window.addEventListener("focus", checkForNewBuild);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkForNewBuild);
+    };
+  }, []);
   const [section, setSection] = useState<AppSection>("home");
   const [preliminaryTab, setPreliminaryTab] =
     useState<PreliminaryTab>("suppliers");
@@ -6702,7 +6818,7 @@ export default function Page() {
     if (!String(controlProcessForm.title ?? "").trim())
       return alert("יש להזין שם תהליך בקרה");
     if (!String(controlProcessForm.location ?? "").trim())
-      return alert("יש להזין מיקום / קטע עבודה");
+      return alert("יש להזין מס׳ תוכנית ביצוע");
     const actor =
       projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
     const existing = editingControlProcessId
@@ -7752,7 +7868,7 @@ export default function Page() {
         <div class="checklist-main-title">רשימת תיוג לעבודות פיזור מצעים</div>
         <table class="checklist-meta-main">
           <tbody>
-            <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
+            <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
             <tr><td class="field-value">${safeText(defaultProjectName)}</td><td class="field-value">${safeText(contractor)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(currentChecklistNo, 18)}</td></tr>
           </tbody>
         </table>
@@ -7812,7 +7928,7 @@ export default function Page() {
     </table>
     <table class="source-meta">
       <tbody>
-        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>קטע עבודה</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
+        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
         <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
         <tr><th>מחתך / היסט / לחתך</th><th>עד ק״מ / חתך</th><th>מק״מ / חתך</th><th>יום / לילה</th><th>הערות</th></tr>
         <tr><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
