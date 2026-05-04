@@ -7673,37 +7673,36 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:4px;color:#0f172a;font-size:8px;background:#fff}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:8px;color:#0f172a;font-size:11px;background:#fff}
     .export-page{width:100%;box-sizing:border-box;margin:0 auto}
     h1{display:none}
-    h2{font-size:9px;margin:2px 0 1px;border-bottom:1px solid #111827;padding-bottom:1px;text-align:right}
-    table{border-collapse:collapse;width:100%;margin:0 0 2px;table-layout:fixed;page-break-inside:avoid}
-    th,td{border:1px solid #111827;padding:1px 2px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.05}
-    th{background:#fff;font-weight:700}
-    .meta{display:none}.blank-cell{min-height:8px}.header-title{font-size:13px;font-weight:900}.small{font-size:8px}.empty{background:#fff}
-    .doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px;background:#fff}
-    .wide-label{font-weight:700}.no-border{border:0!important}.signature td{height:14px}
-    .company-header{width:100%;margin:0 0 7px;page-break-inside:avoid;box-sizing:border-box;border:0!important}
-    .company-header-line,.company-footer-line{height:3px;background:#8a7d5b;width:100%;margin:0;border:0!important}
-    .company-header-logo-box{height:58px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:3px 0;overflow:hidden}
-    .company-full-logo{height:52px!important;max-height:52px!important;width:auto!important;max-width:115px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
-    .company-footer{width:100%;margin:9px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
-    .company-footer-single{height:20px;line-height:18px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:2px 5px;white-space:nowrap}
+    h2{font-size:13px;margin:8px 0 4px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
+    table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
+    th,td{border:1px solid #111827;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
+    th{background:#f8fafc;font-weight:800}
+    .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
+    .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
+    .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:28px}
+    .company-header{width:100%;margin:0 0 12px;page-break-inside:avoid;box-sizing:border-box;border:0!important}
+    .company-header-line,.company-footer-line{height:4px;background:#8a7d5b;width:100%;margin:0;border:0!important}
+    .company-header-logo-box{height:72px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:5px 0;overflow:hidden}
+    .company-full-logo{height:62px!important;max-height:62px!important;width:auto!important;max-width:130px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-footer{width:100%;margin:12px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
+    .company-footer-single{height:26px;line-height:22px;font-size:11px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:3px 5px;white-space:nowrap}
     .company-footer-service{display:inline-block;margin-left:22px;text-align:left;border:0!important;background:transparent!important}
     .company-footer-contact{display:inline-block;text-align:right;direction:rtl;border:0!important;background:transparent!important}
-    .trial-report{width:100%;margin:0 0 3px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:9px;line-height:1.15;height:18px;padding:2px 4px}
-    .trial-report .trial-title{font-size:15px;font-weight:900;text-align:center}
+    .checklist-export-title{font-size:19px;font-weight:900;text-align:center;text-decoration:underline;margin:8px 0 10px}
+    .checklist-top-table th{font-size:11px}.checklist-top-table td{font-size:11px;font-weight:600;min-height:28px}
+    .check-table .activity{text-align:right;font-weight:600}.check-table img{max-width:100px;max-height:42px}
+    .checklist-attachments-export td{text-align:right}
+    .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
+    .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
+    .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
-    .trial-report .value{height:20px}
-    .trial-report .large-value{height:48px}
-    .checklist-one-to-one{font-size:8.5px;color:#111;direction:rtl}
-    .checklist-one-to-one .checklist-main-title{font-size:14px;font-weight:900;text-align:center;text-decoration:underline;margin:3px 0 7px;line-height:1.25}
-    .checklist-one-to-one table{border-collapse:collapse;width:100%;table-layout:fixed;margin:0 0 3px;border:1px solid #111}
-    .checklist-one-to-one th,.checklist-one-to-one td{border:1px solid #111;color:#111;background:#fff;padding:1px 2px;text-align:center;vertical-align:middle;line-height:1.05;font-size:8px;height:14px}
-    .checklist-one-to-one th{font-weight:800}.checklist-one-to-one .label{font-weight:800}.checklist-one-to-one .activity{text-align:right;font-weight:600}.checklist-one-to-one .section-title{font-weight:900;font-size:8.5px;height:16px}.checklist-one-to-one .field-value{font-weight:500}.checklist-one-to-one .crossed{background:linear-gradient(to top right,transparent 49%,#111 50%,transparent 51%),linear-gradient(to bottom right,transparent 49%,#111 50%,transparent 51%)}
-    @page{size:A4 portrait;margin:8mm}
-    @media print{button{display:none} body{padding:0;font-size:8px}.header-title{font-size:13px} th,td{padding:1px 2px}.doc-header td{height:15px}.source-meta td{height:14px}.check-table td{height:14px}.check-table th{height:14px}.company-header{margin-bottom:6px}.company-header-logo-box{height:54px}.company-full-logo{height:48px!important;max-height:48px!important;max-width:108px!important}.company-footer{margin-top:8px}.company-footer-single{height:18px;font-size:8.5px;line-height:16px}.trial-report{width:100%}}
+    .trial-report .value{height:26px}
+    .trial-report .large-value{height:56px}
+    @page{size:A4 landscape;margin:8mm}
+    @media print{button{display:none} body{padding:0;font-size:10px} th,td{padding:3px 4px}.header-title{font-size:15px}.company-header-logo-box{height:58px}.company-full-logo{height:52px!important;max-height:52px!important;max-width:115px!important}.company-footer-single{font-size:10px}}
   `;
 
   const recordTitleForExport = () => {
@@ -7762,222 +7761,95 @@ export default function Page() {
   };
 
   const checklistExportHtml = (forcedChecklistNo?: number) => {
-    const items = normalizeChecklistItems(checklistForm.items);
-    const templateKey = normalizeChecklistTemplateKey(
-      checklistForm.templateKey,
-    );
+    const rawItems = normalizeChecklistItems(checklistForm.items) as Array<ChecklistItem & { attachments?: ChecklistAttachment[]; signature?: ProcessSignature; excludedFromPrint?: boolean }>;
+    const templateKey = normalizeChecklistTemplateKey(checklistForm.templateKey);
     const template = checklistTemplates[templateKey] as any;
     const title = checklistForm.title || template.title || "רשימת תיוג";
-    const procedureNo = template.procedureNo || "051.21.01";
-    const edition = template.edition || "א׳";
-    const procedureDate = template.procedureDate || "20/05/2010";
+    const procedureNo = template.procedureNo || "";
+    const edition = template.edition || "";
+    const procedureDate = template.procedureDate || "";
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    const defaultProjectName = profile?.projectName || projectName;
     const currentChecklistNo =
       forcedChecklistNo ??
       getExistingEditingChecklistNo() ??
       (checklistForm as any).checklistNo ??
       "";
-    const contractor = checklistForm.contractor || profile?.contractor || "";
-    const projectManager = profile?.projectManager || "";
-    const qaCompany = profile?.qaCompany || "";
-    const location = checklistForm.location || "";
-    const titleText = `${title} ${template.label ?? ""} ${template.category ?? ""}`;
-    const isBaseCourse = /מצע|מצעים/.test(titleText);
-    const isPainting = /צבע/.test(titleText);
-    const isAsphaltSite =
-      templateKey === "asphaltSite" || /אספלט באתר/.test(titleText);
-    // בטופס אספלט מציגים במערכת את כל תהליכי הבקרה.
-    // בייצוא Word/PDF מסתירים רק שורות שסומנו במפורש כ״לא רלוונטי״.
-    const isRelevantChecklistItem = (item: ChecklistItem) =>
-      String(item.status ?? "").trim() !== "לא רלוונטי";
-    const isVisibleInFinalPrint = (item: ChecklistItem) =>
-      !Boolean((item as any).excludedFromPrint) &&
-      isRelevantChecklistItem(item);
-    const displayedItems = isAsphaltSite
-      ? items.filter(isVisibleInFinalPrint)
-      : items.filter((item) => !Boolean((item as any).excludedFromPrint));
 
-    const renderChecklistRows = (columns: "source" | "system" = "source") => {
-      if (columns === "system") {
-        return `<table class="check-table">
-          <thead>
-            <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-            <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th><th>מס׳</th></tr>
-          </thead>
-          <tbody>
-            ${displayedItems.map((item, index) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td><td>${index + 1}</td></tr>`).join("")}
-          </tbody>
-        </table>`;
-      }
-      return `<table class="check-table">
-        <thead>
-          <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה&nbsp;&nbsp;&nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-          <tr><th style="width:36%">תאור פעילות הבקרה</th><th>באחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>מס׳ תוכנית/ תעודת בדיקה</th></tr>
-        </thead>
-        <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td></tr>`).join("")}
-        </tbody>
-      </table>`;
+    // הייצוא מבוסס על מה שהמשתמש מילא בפועל במערכת, ולא על תבנית קשיחה מוכנה מראש.
+    const exportProjectName =
+      (checklistForm as any).projectNameDisplay || profile?.projectName || projectName || "";
+    const exportContractor = checklistForm.contractor || profile?.contractor || "";
+    const executionPlanNo = checklistForm.location || "";
+    const roadStructure = (checklistForm as any).roadStructure || "";
+    const stationSection = (checklistForm as any).stationSection || "";
+    const toStationSection = (checklistForm as any).toStationSection || "";
+    const offset = (checklistForm as any).offset || "";
+    const notes = checklistForm.notes || "";
+
+    const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
+
+    const getItemSignature = (item: any) =>
+      normalizeProcessSignature(
+        item.signature,
+        item.responsible || "גורם אחראי",
+        resolveResponsibleName(item.responsible, projectName) || item.inspector || "",
+      );
+
+    const itemSignerName = (item: any) => {
+      const sig = getItemSignature(item);
+      return sig.signerName || resolveResponsibleName(item.responsible, projectName) || item.inspector || "";
     };
 
-    if (isAsphaltSite) {
-      return `<table class="doc-header">
-        <tbody>
-          <tr><td>מס׳ רשימת תיוג</td><td>מס׳ נוהל</td><td colspan="4">שם הנוהל</td><td>מהדורה</td><td>תאריך</td></tr>
-          <tr><td>${valueOrBlank(currentChecklistNo, 22)}</td><td>${valueOrBlank(procedureNo, 22)}</td><td colspan="4" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
-        </tbody>
-      </table>
-      <table class="source-meta">
-        <tbody>
-          <tr><th>קבלן ראשי</th><td colspan="3">${safeText(contractor)}</td><th>שם הפרויקט</th><td colspan="3">${safeText(defaultProjectName)}</td></tr>
-          <tr><th>חברת ניהול</th><td colspan="3">${valueOrBlank(projectManager, 22)}</td><th>מס׳ חוזה</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>חברת בקרת איכות</th><td colspan="3">${safeText(CONTROL_QUALITY_COMPANY_NAME)}</td><th>חברת הבטחת איכות</th><td colspan="3">${valueOrBlank(qaCompany, 22)}</td></tr>
-          <tr><th>תת פרויקט</th><td colspan="3">${valueOrBlank("", 22)}</td><th>תאריך ביצוע</th><td colspan="3">${valueOrBlank(checklistForm.date, 22)}</td></tr>
-          <tr><th>כמות</th><td colspan="3">${valueOrBlank("", 22)}</td><th>מבנה</th><td colspan="3">${valueOrBlank(location, 22)}</td></tr>
-          <tr><th>מס׳ שכבה</th><td colspan="3">${valueOrBlank("", 22)}</td><th>שטח מבוקר (מ״ר)</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>מחתך</th><td colspan="3">${valueOrBlank("", 22)}</td><th>לחתך</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>צד / מיקום</th><td colspan="3">${valueOrBlank(location, 22)}</td><th>עובי מתוכנן</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>מפעל מייצר</th><td colspan="3">${valueOrBlank("", 22)}</td><th>סוג תערובת</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>שם קבוצת הפיזור</th><td colspan="3">${valueOrBlank("", 22)}</td><th>סוג אמולסיה</th><td colspan="3">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>אלמנט</th><td colspan="7">${valueOrBlank("", 22)}</td></tr>
-        </tbody>
-      </table>
-      <table class="check-table">
-        <thead>
-          <tr><th style="width:38%">תאור העבודה לבקרה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr>
-        </thead>
-        <tbody>
-          ${displayedItems.map((item) => `<tr><td>${valueOrBlank(item.description, 34)}</td><td>${valueOrBlank(item.responsible, 30)}</td><td>${valueOrBlank(resolveResponsibleName(item.responsible, projectName) || item.inspector, 30)}</td><td>${blankCell(34)}</td><td>${valueOrBlank(item.executionDate, 30)}</td><td>${checklistNotesOrAttachments(item, 34)}</td></tr>`).join("")}
-        </tbody>
-      </table>`;
-    }
+    const itemSignature = (item: any) => {
+      const sig = getItemSignature(item);
+      return signatureCell(sig.signature || "");
+    };
 
-    if (isBaseCourse) {
-      const getItemSignature = (item: any) =>
-        normalizeProcessSignature(
-          (item as any).signature,
-          item.responsible || "גורם אחראי",
-          resolveResponsibleName(item.responsible, projectName) ||
-            item.inspector ||
-            "",
-        );
-      const renderSignatureValue = (item: any) => {
-        const sig = getItemSignature(item);
-        return signatureCell(sig.signature || "");
-      };
-      const renderCheckerName = (item: any) => {
-        const sig = getItemSignature(item);
-        return valueOrBlank(
-          sig.signerName ||
-            resolveResponsibleName(item.responsible, projectName) ||
-            item.inspector,
-          20,
-        );
-      };
-      const renderCheckerDate = (item: any) => {
-        const sig = getItemSignature(item);
-        return valueOrBlank(sig.signedAt || item.executionDate, 18);
-      };
-      const certificateCell = (
-        item: ChecklistItem & { attachments?: ChecklistAttachment[] },
-      ) => {
-        const attachments = normalizeChecklistAttachments(
-          (item as any).attachments,
-        );
-        const names = attachments
-          .map((attachment) => attachment.name)
-          .filter(Boolean)
-          .join(" / ");
-        return valueOrBlank(names || item.notes || "", 18);
-      };
-      const activityRows = displayedItems
-        .map(
-          (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
-            const blocked = String(item.status ?? "").trim() === "לא רלוונטי";
-            const blockedClass = blocked ? ' class="crossed"' : "";
-            return `<tr>
-          <td class="activity">${valueOrBlank(item.description, 20)}</td>
-          <td>${valueOrBlank(item.responsible || "בקרת איכות", 18)}</td>
-          <td>${renderCheckerName(item)}</td>
-          <td${blockedClass}>${blocked ? "" : renderSignatureValue(item)}</td>
-          <td${blockedClass}>${blocked ? "" : renderCheckerDate(item)}</td>
-          <td${blockedClass}>${blocked ? "" : certificateCell(item)}</td>
-        </tr>`;
-          },
-        )
-        .join("");
-      return `<div class="checklist-one-to-one">
-        <div class="checklist-main-title">רשימת תיוג לעבודות פיזור מצעים</div>
-        <table class="checklist-meta-main">
-          <tbody>
-            <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
-            <tr><td class="field-value">${safeText(defaultProjectName)}</td><td class="field-value">${safeText(contractor)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(location, 18)}</td><td class="field-value">${valueOrBlank(currentChecklistNo, 18)}</td></tr>
-          </tbody>
-        </table>
-        <table class="checklist-meta-secondary">
-          <tbody>
-            <tr><th>מס׳ שכבה</th><th>מס׳ שכבות מתוכנן</th><th>עובי השכבה</th><th>שטח השכבה</th><th>מחתך</th><th>היסט</th><th>לחתך</th></tr>
-            <tr><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td><td>${blankCell(14)}</td></tr>
-            <tr><th colspan="2">מקור החומר</th><th colspan="4">תאור חומר המילוי</th><th>מיון החומר</th></tr>
-            <tr><td colspan="2">${blankCell(14)}</td><td colspan="4">${blankCell(14)}</td><td>${blankCell(14)}</td></tr>
-          </tbody>
-        </table>
-        <table class="checklist-process-table">
-          <thead>
-            <tr><th colspan="6" class="section-title">אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-            <tr><th style="width:38%">תאור פעילות הבקרה</th><th style="width:13%">באחריות</th><th style="width:12%">שם</th><th style="width:12%">חתימה</th><th style="width:11%">תאריך</th><th style="width:14%">מס׳ תוכנית / תעודת בדיקה</th></tr>
-          </thead>
-          <tbody>${activityRows}</tbody>
-        </table>
-      </div>${checklistAttachmentsExportTable(displayedItems)}`;
-    }
+    const itemDate = (item: any) => {
+      const sig = getItemSignature(item);
+      return sig.signedAt || item.executionDate || "";
+    };
 
-    if (isPainting) {
-      return `<table class="doc-header">
-        <tbody>
-          <tr><td>מספר הליך:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-          <tr><td>${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
-        </tbody>
-      </table>
-      <table class="source-meta">
-        <tbody>
-          <tr><th>חוזה מס׳</th><th>שם פרויקט</th><th>כביש מס׳:</th><th colspan="2">מספר רשימת תיוג</th></tr>
-          <tr><td>${valueOrBlank("", 22)}</td><td>${safeText(defaultProjectName)}</td><td>${safeText(location)}</td><td colspan="2">${valueOrBlank(currentChecklistNo, 22)}</td></tr>
-          <tr><th>תאריך מתן העבודה:</th><th>הערות</th><th>מק״מ / חתך</th><th>עד ק״מ / חתך</th><th></th></tr>
-          <tr><td>${valueOrBlank(checklistForm.date, 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
-          <tr><th>ניהול פרויקט</th><td>${valueOrBlank(projectManager, 22)}</td><th>שם קבלן:</th><td colspan="2">${safeText(contractor)}</td></tr>
-          <tr><th>שם קבלן:</th><td>${safeText(contractor)}</td><th>שטח צביעה יומי (מ״ר):</th><td colspan="2">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>קבלן משנה:</th><td>${valueOrBlank("", 22)}</td><th>תחילת קטע יומי (ק״מ / חתך):</th><td colspan="2">${valueOrBlank("", 22)}</td></tr>
-          <tr><th>קבלן משנה לעבודות צבע:</th><td>${valueOrBlank("", 22)}</td><th>סוף קטע יומי (ק״מ / חתך):</th><td colspan="2">${valueOrBlank("", 22)}</td></tr>
-        </tbody>
-      </table>
-      <table class="approval-table">
-        <thead><tr><th>תאור העבודה</th><th>אחריות</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead>
-        <tbody>
-          <tr><td>אישור מוקדם לצורך העבודה עפ״י נוהל 33.13</td><td>בקרת איכות</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
-          <tr><td>שלמות השינויים בגוף המסמך</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
-          <tr><td>אישור מנהל הבטחת איכות</td><td>מנהל הבטחת איכות</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td><td>${blankCell(22)}</td></tr>
-        </tbody>
-      </table>
-      ${renderChecklistRows("system")}${checklistAttachmentsExportTable(displayedItems)}`;
-    }
+    const itemLabOrNotes = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
+      const attachments = normalizeChecklistAttachments((item as any).attachments);
+      const attachmentNames = attachments.map((attachment) => attachment.name).filter(Boolean).join(" / ");
+      return attachmentNames || item.notes || "";
+    };
 
-    return `<table class="doc-header">
+    const rowsHtml = displayedItems.length
+      ? displayedItems.map((item) => `<tr>
+          <td class="activity">${valueOrBlank(item.description, 42)}</td>
+          <td>${valueOrBlank(item.responsible, 28)}</td>
+          <td>${valueOrBlank(itemSignerName(item), 28)}</td>
+          <td>${itemSignature(item)}</td>
+          <td>${valueOrBlank(itemDate(item), 22)}</td>
+          <td>${valueOrBlank(itemLabOrNotes(item), 38)}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="6">לא מולאו סעיפי בקרה</td></tr>`;
+
+    return `<div class="checklist-export-title">${safeText(title)}</div>
+    <table class="doc-header">
       <tbody>
         <tr><td>מספר הליך:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-        <tr><td>${safeText(procedureNo)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${safeText(edition)}</td><td>${safeText(procedureDate)}</td></tr>
+        <tr><td>${valueOrBlank(procedureNo, 20)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
       </tbody>
     </table>
-    <table class="source-meta">
+    <table class="checklist-top-table source-meta">
       <tbody>
-        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש/ מבנה</th><th>מספר רשימת תיוג</th></tr>
-        <tr><td>${safeText(defaultProjectName)}</td><td>${safeText(contractor)}</td><td>${safeText(location)}</td><td>${safeText(location)}</td><td>${valueOrBlank(currentChecklistNo, 22)}</td></tr>
-        <tr><th>מחתך / היסט / לחתך</th><th>עד ק״מ / חתך</th><th>מק״מ / חתך</th><th>הערות</th><th></th></tr>
-        <tr><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td><td>${valueOrBlank("", 22)}</td></tr>
+        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
+        <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(executionPlanNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+        <tr><th>מחתך</th><th>לחתך</th><th>היטס</th><th colspan="2">הערות</th></tr>
+        <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
       </tbody>
     </table>
-    ${renderChecklistRows("source")}${checklistAttachmentsExportTable(displayedItems)}`;
+    <table class="check-table">
+      <thead>
+        <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה &nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+        <tr><th style="width:34%">תיאור פעולת הבקרה</th><th style="width:14%">באחריות</th><th style="width:14%">שם</th><th style="width:12%">חתימה</th><th style="width:11%">תאריך</th><th style="width:15%">תעודת מעבדה / הערות</th></tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    ${checklistAttachmentsExportTable(displayedItems)}`;
   };
 
   const nonconformanceExportHtml = () =>
@@ -8158,7 +8030,7 @@ export default function Page() {
     downloadTextFile(
       `${recordTitleForExport()}.xls`,
       "application/vnd.ms-excel;charset=utf-8",
-      exportHtml(getExportChecklistNo()),
+      `﻿${exportHtml(getExportChecklistNo())}`,
     );
   const exportPdf = () => {
     const exportChecklistNo = getExportChecklistNo();
