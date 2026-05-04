@@ -66,6 +66,14 @@ const PROJECT_PROFILES: ProjectProfile[] = [
   },
 ];
 
+
+const ROAD_806_SURVEYOR_STAMP_DATA_URL = "data:image/jpeg;base64,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";
+const isRoad806ProjectName = (value: unknown) => {
+  const text = normalizeHebrewProjectName(value);
+  return text.includes("806") || text.includes("צלמון");
+};
+const isSurveyorRoleValue = (value: unknown) => String(value ?? "").includes("מודד");
+
 const PROJECT_ID_ALIASES: Record<string, string> = {
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
@@ -2543,9 +2551,25 @@ function ChecklistsSection({
                     item.responsible || "גורם אחראי",
                     autoName,
                   );
+                  const fixedSurveyorSignature =
+                    isRoad806ProjectName(projectName) &&
+                    isSurveyorRoleValue(item.responsible)
+                      ? ROAD_806_SURVEYOR_STAMP_DATA_URL
+                      : "";
+                  const displayedSignatureValue: ProcessSignature = fixedSurveyorSignature && !signatureValue.signature
+                    ? {
+                        ...signatureValue,
+                        signerName: signatureValue.signerName || autoName,
+                        signature: fixedSurveyorSignature,
+                        signedAt:
+                          signatureValue.signedAt ||
+                          item.executionDate ||
+                          new Date().toISOString().slice(0, 10),
+                      }
+                    : signatureValue;
                   const isImageSignature = String(
-                    signatureValue.signature || "",
-                  ).startsWith("data:image/");
+                    displayedSignatureValue.signature || "",
+                  ).startsWith("data:image/") || String(displayedSignatureValue.signature || "").startsWith("data:image/jpeg");
                   const isExcludedFromPrint = Boolean(
                     (item as any).excludedFromPrint,
                   );
@@ -2624,7 +2648,7 @@ function ChecklistsSection({
                         {isImageSignature ? (
                           <div style={{ display: "grid", gap: 6 }}>
                             <img
-                              src={signatureValue.signature}
+                              src={displayedSignatureValue.signature}
                               alt="חתימה"
                               style={{
                                 maxWidth: "100%",
@@ -2695,7 +2719,7 @@ function ChecklistsSection({
                                 role: item.responsible || "גורם אחראי",
                                 signerName:
                                   signatureValue.signerName || autoName,
-                                signature: signatureValue.signature || autoName,
+                                signature: fixedSurveyorSignature || signatureValue.signature || autoName,
                                 signedAt:
                                   signatureValue.signedAt ||
                                   item.executionDate ||
@@ -5581,6 +5605,10 @@ export default function Page() {
   };
 
   const savedSignatureForSigner = (signerName: string, role?: string) => {
+    if (isRoad806ProjectName(projectName) && isSurveyorRoleValue(role)) {
+      return ROAD_806_SURVEYOR_STAMP_DATA_URL;
+    }
+
     const normalizedName = normalizeAccessValue(signerName);
     const normalizedRole = normalizeAccessValue(role);
     const found = accessUsers.find((user) => {
@@ -7788,6 +7816,12 @@ export default function Page() {
 
     const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
 
+    const fixedSurveyorSignatureForExport = (item: any) =>
+      isRoad806ProjectName(exportProjectName || projectName) &&
+      isSurveyorRoleValue(item.responsible)
+        ? ROAD_806_SURVEYOR_STAMP_DATA_URL
+        : "";
+
     const getItemSignature = (item: any) =>
       normalizeProcessSignature(
         item.signature,
@@ -7802,7 +7836,7 @@ export default function Page() {
 
     const itemSignature = (item: any) => {
       const sig = getItemSignature(item);
-      return signatureCell(sig.signature || "");
+      return signatureCell(sig.signature || fixedSurveyorSignatureForExport(item) || "");
     };
 
     const itemDate = (item: any) => {
