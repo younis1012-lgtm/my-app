@@ -8190,7 +8190,7 @@ export default function Page() {
     const declaredMimeType = String(mimeType || "").trim();
 
     if (src.startsWith("data:")) {
-      const match = src.match(/^data:([^;]+);base64,(.*)$/s);
+      const match = src.match(/^data:([^;]+);base64,([\s\S]*)$/);
       if (!match) return null;
       return {
         filename,
