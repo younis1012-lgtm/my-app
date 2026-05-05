@@ -5,8 +5,9 @@ export const maxDuration = 60;
 
 type EmailAttachment = {
   filename: string;
-  contentBase64: string;
+  contentBase64?: string;
   mimeType?: string;
+  url?: string;
 };
 
 type RequestBody = {
@@ -56,6 +57,42 @@ async function getAccessToken() {
   }
 
   return data.access_token as string;
+}
+
+async function resolveAttachments(attachments: EmailAttachment[] = []): Promise<EmailAttachment[]> {
+  const resolved: EmailAttachment[] = [];
+
+  for (const attachment of attachments) {
+    const filename = attachment.filename || "attachment";
+    const mimeType = attachment.mimeType || "application/octet-stream";
+
+    if (attachment.contentBase64) {
+      resolved.push({
+        filename,
+        mimeType,
+        contentBase64: String(attachment.contentBase64)
+          .replace(/^data:[^;]+;base64,/, "")
+          .replace(/\s/g, ""),
+      });
+      continue;
+    }
+
+    if (attachment.url && /^https?:\/\//i.test(attachment.url)) {
+      const fileResponse = await fetch(attachment.url);
+      if (!fileResponse.ok) continue;
+      const arrayBuffer = await fileResponse.arrayBuffer();
+      resolved.push({
+        filename,
+        mimeType:
+          attachment.mimeType ||
+          fileResponse.headers.get("content-type") ||
+          "application/octet-stream",
+        contentBase64: Buffer.from(arrayBuffer).toString("base64"),
+      });
+    }
+  }
+
+  return resolved;
 }
 
 function buildRawEmail({
@@ -128,6 +165,7 @@ export async function POST(req: NextRequest) {
     const html = body.html;
 
     const accessToken = await getAccessToken();
+    const attachments = await resolveAttachments(body.attachments ?? []);
 
     const rawEmail = buildRawEmail({
       from,
@@ -135,7 +173,7 @@ export async function POST(req: NextRequest) {
       subject,
       text,
       html,
-      attachments: body.attachments ?? [],
+      attachments,
     });
 
     const gmailResponse = await fetch(

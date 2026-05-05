@@ -8171,6 +8171,104 @@ export default function Page() {
     setTimeout(() => printWindow.print(), 700);
   };
 
+  type OutgoingEmailAttachment = {
+    filename: string;
+    contentBase64?: string;
+    mimeType?: string;
+    url?: string;
+  };
+
+  const dataUrlToEmailAttachment = (
+    name: unknown,
+    dataUrl: unknown,
+    mimeType?: unknown,
+  ): OutgoingEmailAttachment | null => {
+    const src = String(dataUrl ?? "").trim();
+    if (!src) return null;
+
+    const filename = String(name || "קובץ מצורף").trim() || "קובץ מצורף";
+    const declaredMimeType = String(mimeType || "").trim();
+
+    if (src.startsWith("data:")) {
+      const match = src.match(/^data:([^;]+);base64,(.*)$/s);
+      if (!match) return null;
+      return {
+        filename,
+        mimeType: declaredMimeType || match[1] || "application/octet-stream",
+        contentBase64: match[2],
+      };
+    }
+
+    if (/^https?:\/\//i.test(src)) {
+      return {
+        filename,
+        mimeType: declaredMimeType || "application/octet-stream",
+        url: src,
+      };
+    }
+
+    return null;
+  };
+
+  const uniqueEmailAttachments = (
+    attachments: Array<OutgoingEmailAttachment | null | undefined>,
+  ) => {
+    const seen = new Set<string>();
+    return attachments.filter((attachment): attachment is OutgoingEmailAttachment => {
+      if (!attachment) return false;
+      const key = `${attachment.filename}|${attachment.contentBase64 || attachment.url || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const collectCurrentFormEmailAttachments = (): OutgoingEmailAttachment[] => {
+    const attachments: Array<OutgoingEmailAttachment | null> = [];
+
+    if (section === "checklists") {
+      const items = Array.isArray((checklistForm as any)?.items)
+        ? (checklistForm as any).items
+        : [];
+
+      items.forEach((item: any) => {
+        normalizeChecklistAttachments(item?.attachments).forEach((file) => {
+          attachments.push(
+            dataUrlToEmailAttachment(file.name, file.dataUrl, file.type),
+          );
+        });
+      });
+    }
+
+    if (section === "rfi") {
+      normalizeAttachments((rfiForm as any)?.attachments).forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
+    }
+
+    if (section === "trialSections") {
+      normalizeAttachments((trialSectionForm as any)?.images).forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
+    }
+
+    if (section === "controlProcesses") {
+      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach(
+        (doc) => {
+          attachments.push(
+            dataUrlToEmailAttachment(
+              doc.attachmentName || doc.description || "מסמך מצורף",
+              doc.attachmentDataUrl,
+              doc.attachmentType,
+            ),
+          );
+        },
+      );
+    }
+
+    return uniqueEmailAttachments(attachments);
+  };
+
   const sendCurrentFormEmail = async () => {
     try {
       const recipientEmail = window.prompt(
@@ -8190,6 +8288,8 @@ export default function Page() {
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
+      const attachments = collectCurrentFormEmailAttachments();
+
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -8198,17 +8298,21 @@ export default function Page() {
           subject: `${title} - ${projectName}`,
           html,
           text: `מצורף ${title} מפרויקט ${projectName}`,
-          attachments: [],
+          attachments,
           projectId: currentProject?.id || projectName || "806",
         }),
       });
 
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || "שליחת המייל נכשלה");
+        throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
       }
 
-      alert(`המייל נשלח בהצלחה אל ${normalizedRecipient}`);
+      alert(
+        `המייל נשלח בהצלחה אל ${normalizedRecipient}` +
+          (attachments.length ? `
+צורפו ${attachments.length} קבצים.` : ""),
+      );
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
