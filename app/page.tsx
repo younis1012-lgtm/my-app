@@ -8173,16 +8173,33 @@ export default function Page() {
 
   const sendCurrentFormEmail = async () => {
     try {
+      const recipientEmail = window.prompt(
+        "לאיזה מייל לשלוח?",
+        FIXED_EMAIL_RECIPIENT,
+      );
+
+      const normalizedRecipient = String(recipientEmail || "").trim();
+      if (!normalizedRecipient) return;
+
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(normalizedRecipient)) {
+        alert("כתובת המייל אינה תקינה");
+        return;
+      }
+
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
-      const response = await fetch("/api/send-email", {
+      const response = await fetch("/api/send-checklist-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
           html,
-          filename: `${title}.html`,
+          text: `מצורף ${title} מפרויקט ${projectName}`,
+          attachments: [],
+          projectId: currentProject?.id || projectName || "806",
         }),
       });
 
@@ -8191,7 +8208,7 @@ export default function Page() {
         throw new Error(result?.error || "שליחת המייל נכשלה");
       }
 
-      alert(`המייל נשלח בהצלחה אל ${FIXED_EMAIL_RECIPIENT}`);
+      alert(`המייל נשלח בהצלחה אל ${normalizedRecipient}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
