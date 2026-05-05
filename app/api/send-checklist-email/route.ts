@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import puppeteer from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,11 +32,13 @@ async function getAccessToken() {
 }
 
 // =======================
-// 🧾 HTML → PDF
+// 🧾 HTML → PDF (VERCEL)
 // =======================
 async function htmlToPdfBuffer(html: string) {
   const browser = await puppeteer.launch({
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: chromium.args,
+    executablePath: await chromium.executablePath(),
+    headless: true,
   });
 
   const page = await browser.newPage();
@@ -51,7 +54,7 @@ async function htmlToPdfBuffer(html: string) {
 }
 
 // =======================
-// 📦 BUILD EMAIL
+// 📦 EMAIL
 // =======================
 function base64UrlEncode(input: string) {
   return Buffer.from(input)
@@ -89,7 +92,6 @@ function buildRawEmail({
     "",
     `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 7bit",
     "",
     text,
     "",
@@ -111,17 +113,12 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const html = body.html;
-
-    if (!html) {
-      return NextResponse.json(
-        { error: "Missing HTML" },
-        { status: 400 }
-      );
+    if (!body.html) {
+      return NextResponse.json({ error: "Missing HTML" }, { status: 400 });
     }
 
-    // 🎯 convert to PDF
-    const pdfBuffer = await htmlToPdfBuffer(html);
+    // 🎯 create PDF
+    const pdfBuffer = await htmlToPdfBuffer(body.html);
 
     const rawEmail = buildRawEmail({
       from: DEFAULT_SENDER_EMAIL,
@@ -151,9 +148,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
