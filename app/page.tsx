@@ -8178,6 +8178,24 @@ export default function Page() {
     url?: string;
   };
 
+  const utf8ToBase64 = (value: string) => {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary);
+  };
+
+  const buildExportHtmlAttachment = (title: string, html: string): OutgoingEmailAttachment => {
+    const safeTitle = String(title || "טופס").replace(/[\\/:*?"<>|]/g, "-").trim() || "טופס";
+    return {
+      filename: `${safeTitle}.html`,
+      mimeType: "text/html; charset=UTF-8",
+      contentBase64: utf8ToBase64(html),
+    };
+  };
+
   const dataUrlToEmailAttachment = (
     name: unknown,
     dataUrl: unknown,
@@ -8288,7 +8306,16 @@ export default function Page() {
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
-      const attachments = collectCurrentFormEmailAttachments();
+      const formAttachment = buildExportHtmlAttachment(title, html);
+      const attachments = uniqueEmailAttachments([
+        formAttachment,
+        ...collectCurrentFormEmailAttachments(),
+      ]);
+      const emailBodyHtml = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7">
+        <h2>${title} - ${projectName}</h2>
+        <p>מצורף הטופס כקובץ HTML, ובנוסף כל המסמכים/התמונות שצורפו בטופס.</p>
+        <p>מספר קבצים מצורפים: ${attachments.length}</p>
+      </div>`;
 
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
@@ -8296,8 +8323,8 @@ export default function Page() {
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html,
-          text: `מצורף ${title} מפרויקט ${projectName}`,
+          html: emailBodyHtml,
+          text: `מצורף ${title} מפרויקט ${projectName}. מספר קבצים מצורפים: ${attachments.length}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
         }),

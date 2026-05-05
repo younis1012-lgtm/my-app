@@ -5,8 +5,9 @@ export const maxDuration = 60;
 
 type EmailAttachment = {
   filename: string;
-  contentBase64: string;
+  contentBase64?: string;
   mimeType?: string;
+  url?: string;
 };
 
 type RequestBody = {
@@ -27,6 +28,23 @@ function base64UrlEncode(input: string) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
+}
+
+function toBase64Utf8(input: string) {
+  return Buffer.from(input || "", "utf8").toString("base64");
+}
+
+function splitBase64(input: string) {
+  return String(input || "").replace(/\s/g, "").replace(/(.{76})/g, "$1
+");
+}
+
+function encodeMimeWord(value: string) {
+  return `=?UTF-8?B?${Buffer.from(value || "attachment", "utf8").toString("base64")}?=`;
+}
+
+function filenameStar(value: string) {
+  return `UTF-8''${encodeURIComponent(value || "attachment")}`;
 }
 
 async function getAccessToken() {
@@ -58,7 +76,33 @@ async function getAccessToken() {
   return data.access_token as string;
 }
 
-function buildRawEmail({
+async function normalizeAttachment(attachment: EmailAttachment): Promise<EmailAttachment | null> {
+  const filename = String(attachment.filename || "attachment").trim() || "attachment";
+  const mimeType = String(attachment.mimeType || "application/octet-stream").trim() || "application/octet-stream";
+
+  if (attachment.contentBase64) {
+    const contentBase64 = String(attachment.contentBase64)
+      .replace(/^data:[^;]+;base64,/, "")
+      .replace(/\s/g, "");
+    return contentBase64 ? { filename, mimeType, contentBase64 } : null;
+  }
+
+  if (attachment.url && /^https?:\/\//i.test(attachment.url)) {
+    const res = await fetch(attachment.url);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const contentType = res.headers.get("content-type") || mimeType;
+    return {
+      filename,
+      mimeType: contentType,
+      contentBase64: Buffer.from(arrayBuffer).toString("base64"),
+    };
+  }
+
+  return null;
+}
+
+async function buildRawEmail({
   from,
   to,
   subject,
@@ -74,11 +118,14 @@ function buildRawEmail({
   attachments?: EmailAttachment[];
 }) {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const normalizedAttachments = (await Promise.all(attachments.map(normalizeAttachment))).filter(
+    (item): item is EmailAttachment => Boolean(item?.contentBase64),
+  );
 
   const headers = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: =?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`,
+    `Subject: ${encodeMimeWord(subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
@@ -88,33 +135,31 @@ function buildRawEmail({
   bodyParts.push(
     `--${boundary}`,
     `Content-Type: ${html ? "text/html" : "text/plain"}; charset="UTF-8"`,
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    html || text || "",
+    splitBase64(toBase64Utf8(html || text || "")),
   );
 
-  for (const attachment of attachments) {
+  for (const attachment of normalizedAttachments) {
     const mimeType = attachment.mimeType || "application/octet-stream";
     const filename = attachment.filename || "attachment";
-    const cleanBase64 = String(attachment.contentBase64 || "")
-      .replace(/^data:[^;]+;base64,/, "")
-      .replace(/\s/g, "");
-
+    const cleanBase64 = String(attachment.contentBase64 || "").replace(/\s/g, "");
     if (!cleanBase64) continue;
 
     bodyParts.push(
       `--${boundary}`,
-      `Content-Type: ${mimeType}; name="${filename}"`,
+      `Content-Type: ${mimeType}; name="${encodeMimeWord(filename)}"`,
       "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename="${filename}"`,
+      `Content-Disposition: attachment; filename="${encodeMimeWord(filename)}"; filename*=${filenameStar(filename)}`,
       "",
-      cleanBase64,
+      splitBase64(cleanBase64),
     );
   }
 
   bodyParts.push(`--${boundary}--`);
 
-  return [...headers, "", ...bodyParts].join("\r\n");
+  return [...headers, "", ...bodyParts].join("
+");
 }
 
 export async function POST(req: NextRequest) {
@@ -129,7 +174,7 @@ export async function POST(req: NextRequest) {
 
     const accessToken = await getAccessToken();
 
-    const rawEmail = buildRawEmail({
+    const rawEmail = await buildRawEmail({
       from,
       to,
       subject,
