@@ -8125,9 +8125,10 @@ export default function Page() {
               : section === "controlProcesses"
                 ? controlProcessExportHtml()
                 : "";
+    const attachmentSummary = section === "checklists" ? "" : currentFormAttachmentSummaryTable();
     const header = exportCompanyHeader();
     const footer = exportCompanyFooter();
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${footer}</div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${attachmentSummary}${footer}</div></body></html>`;
   };
 
   const downloadTextFile = (
@@ -8233,6 +8234,89 @@ export default function Page() {
     });
   };
 
+  const attachmentFromAnyObject = (value: any): OutgoingEmailAttachment | null => {
+    if (!value || typeof value !== "object") return null;
+
+    const src =
+      value.dataUrl ??
+      value.dataURL ??
+      value.attachmentDataUrl ??
+      value.attachment_data_url ??
+      value.fileDataUrl ??
+      value.file_data_url ??
+      value.contentDataUrl ??
+      value.content_data_url ??
+      value.url ??
+      value.href ??
+      "";
+
+    const name =
+      value.name ??
+      value.filename ??
+      value.fileName ??
+      value.file_name ??
+      value.attachmentName ??
+      value.attachment_name ??
+      value.title ??
+      value.description ??
+      "מסמך מצורף";
+
+    const type =
+      value.mimeType ??
+      value.mime_type ??
+      value.type ??
+      value.attachmentType ??
+      value.attachment_type ??
+      value.contentType ??
+      value.content_type ??
+      "application/octet-stream";
+
+    return dataUrlToEmailAttachment(name, src, type);
+  };
+
+  const collectAttachmentsDeep = (root: unknown): OutgoingEmailAttachment[] => {
+    const result: Array<OutgoingEmailAttachment | null> = [];
+    const visited = new WeakSet<object>();
+
+    const visit = (value: any) => {
+      if (!value || typeof value !== "object") return;
+      if (visited.has(value)) return;
+      visited.add(value);
+
+      const direct = attachmentFromAnyObject(value);
+      if (direct) result.push(direct);
+
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+
+      Object.keys(value).forEach((key) => {
+        if (["approval", "signature", "signatures", "auditTrail", "audit_log"].includes(key)) return;
+        visit(value[key]);
+      });
+    };
+
+    visit(root);
+    return uniqueEmailAttachments(result);
+  };
+
+  const currentExportSourceObject = () => {
+    if (section === "checklists") return checklistForm;
+    if (section === "nonconformances") return nonconformanceForm as any;
+    if (section === "trialSections") return trialSectionForm as any;
+    if (section === "preliminary") return currentPreliminaryForm as any;
+    if (section === "controlProcesses") return controlProcessForm as any;
+    if (section === "rfi") return rfiForm as any;
+    return null;
+  };
+
+  const currentFormAttachmentSummaryTable = () => {
+    const attachments = collectAttachmentsDeep(currentExportSourceObject());
+    if (!attachments.length) return "";
+    return `<h2>מסמכים שצורפו לטופס</h2><table class="checklist-attachments-export"><thead><tr><th>שם קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.filename)}</td><td>${safeText(file.mimeType || "קובץ")}</td></tr>`).join("")}</tbody></table><div class="attachment-note">המסמכים המצורפים מוטמעים כנספחים בעמודים הבאים של קובץ ה-PDF המאוחד.</div>`;
+  };
+
   const collectCurrentFormEmailAttachments = (): OutgoingEmailAttachment[] => {
     const attachments: Array<OutgoingEmailAttachment | null> = [];
 
@@ -8250,58 +8334,15 @@ export default function Page() {
       });
     }
 
-    if (section === "rfi") {
-      [
-        ...normalizeAttachments((rfiForm as any)?.documents),
-        ...normalizeAttachments((rfiForm as any)?.attachments),
-      ].forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
-
-    if (section === "preliminary") {
-      const form: any = currentPreliminaryForm as any;
-      const nested =
-        preliminaryTab === "suppliers"
-          ? form?.supplier
-          : preliminaryTab === "subcontractors"
-            ? form?.subcontractor
-            : form?.material;
-      [
-        ...normalizeAttachments(form?.documents),
-        ...normalizeAttachments(form?.attachments),
-        ...normalizeAttachments(form?.images),
-        ...normalizeAttachments(nested?.documents),
-        ...normalizeAttachments(nested?.attachments),
-        ...normalizeAttachments(nested?.images),
-      ].forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
-
-    if (section === "trialSections") {
-      normalizeAttachments((trialSectionForm as any)?.images).forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
-
-    if (section === "controlProcesses") {
-      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach(
-        (doc) => {
-          attachments.push(
-            dataUrlToEmailAttachment(
-              doc.attachmentName || doc.description || "מסמך מצורף",
-              doc.attachmentDataUrl,
-              doc.attachmentType,
-            ),
-          );
-        },
-      );
-    }
+    // איסוף כללי לכל סוגי הטפסים: ספקים, קבלנים, חומרים, אי-התאמות, קטעי ניסוי ותהליכי בקרה.
+    // המטרה היא שלא להסתמך על שם שדה אחד בלבד כמו images/documents/requiredDocuments.
+    // כל אובייקט שמכיל dataUrl / attachmentDataUrl / url ייכנס ל-PDF המאוחד.
+    collectAttachmentsDeep(currentExportSourceObject()).forEach((file) => {
+      attachments.push(file);
+    });
 
     return uniqueEmailAttachments(attachments);
   };
-
 
   const loadExternalScript = async (src: string, test: () => boolean, label: string) => {
     if (test()) return;
