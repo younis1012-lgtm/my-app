@@ -3,170 +3,136 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type MailAttachment = {
+type EmailAttachment = {
   filename?: string;
   mimeType?: string;
   contentBase64?: string;
+  url?: string;
 };
 
-type SendEmailBody = {
-  to?: string | string[];
-  cc?: string | string[];
-  bcc?: string | string[];
-  replyTo?: string;
-  subject?: string;
-  text?: string;
-  html?: string;
-  attachments?: MailAttachment[];
+const encodeMimeWord = (value: string) =>
+  `=?UTF-8?B?${Buffer.from(String(value || ""), "utf8").toString("base64")}?=`;
+
+const normalizeBase64 = (value: unknown) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const dataUrlMatch = raw.match(/^data:[^;]+;base64,([\s\S]*)$/);
+  return (dataUrlMatch ? dataUrlMatch[1] : raw).replace(/\s/g, "");
 };
 
-function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing environment variable: ${name}`);
-  return value;
-}
+const splitBase64 = (value: string) => normalizeBase64(value).replace(/(.{76})/g, "$1\r\n");
 
-function normalizeRecipients(value?: string | string[]) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
-  }
-  return String(value || "").trim();
-}
-
-function encodeMimeWord(value: string) {
-  return `=?UTF-8?B?${Buffer.from(String(value || ""), "utf8").toString("base64")}?=`;
-}
-
-function stripDataUrl(value: string) {
-  return String(value || "").replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
-}
-
-function foldBase64(value: string) {
-  return stripDataUrl(value).replace(/(.{76})/g, "$1\r\n");
-}
-
-function base64Url(value: string | Buffer) {
-  return Buffer.from(value)
+const base64Url = (value: string) =>
+  Buffer.from(value, "utf8")
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
-}
 
-function textPart(contentType: string, content: string) {
-  return [
-    `Content-Type: ${contentType}; charset=UTF-8`,
-    "Content-Transfer-Encoding: base64",
-    "",
-    Buffer.from(String(content || ""), "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n"),
-  ].join("\r\n");
-}
+async function getAccessToken() {
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-async function getGoogleAccessToken() {
+  if (!refreshToken || !clientId || !clientSecret) {
+    throw new Error("Missing Google OAuth environment variables");
+  }
+
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: requiredEnv("GOOGLE_CLIENT_ID"),
-      client_secret: requiredEnv("GOOGLE_CLIENT_SECRET"),
-      refresh_token: requiredEnv("GOOGLE_REFRESH_TOKEN"),
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
 
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.access_token) {
-    throw new Error(result?.error_description || result?.error || "Failed to get Google access token");
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || "Failed to get Gmail access token");
   }
-
-  return String(result.access_token);
+  return String(data.access_token);
 }
 
-function buildRawEmail(body: SendEmailBody, from: string) {
-  const to = normalizeRecipients(body.to);
-  const cc = normalizeRecipients(body.cc);
-  const bcc = normalizeRecipients(body.bcc);
-  const replyTo = normalizeRecipients(body.replyTo);
-  const subject = String(body.subject || "").trim();
-  const attachments = (body.attachments || []).filter((attachment) => attachment?.contentBase64);
+async function attachmentToMimePart(attachment: EmailAttachment) {
+  const filename = String(attachment.filename || "attachment");
+  const mimeType = String(attachment.mimeType || "application/octet-stream");
+  let contentBase64 = normalizeBase64(attachment.contentBase64);
 
-  if (!to) throw new Error("Missing recipient email");
-  if (!subject) throw new Error("Missing email subject");
-  if (!body.text && !body.html) throw new Error("Missing email content: send text or html");
-
-  const mixedBoundary = `mixed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const altBoundary = `alt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    cc ? `Cc: ${cc}` : "",
-    bcc ? `Bcc: ${bcc}` : "",
-    replyTo ? `Reply-To: ${replyTo}` : "",
-    `Subject: ${encodeMimeWord(subject)}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
-  ].filter(Boolean);
-
-  const parts: string[] = [];
-
-  parts.push(`--${mixedBoundary}`);
-  if (body.text && body.html) {
-    parts.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
-    parts.push("");
-    parts.push(`--${altBoundary}`);
-    parts.push(textPart("text/plain", body.text));
-    parts.push(`--${altBoundary}`);
-    parts.push(textPart("text/html", body.html));
-    parts.push(`--${altBoundary}--`);
-  } else if (body.html) {
-    parts.push(textPart("text/html", body.html));
-  } else {
-    parts.push(textPart("text/plain", body.text || ""));
+  if (!contentBase64 && attachment.url && /^https?:\/\//i.test(attachment.url)) {
+    const response = await fetch(attachment.url);
+    if (!response.ok) throw new Error(`Cannot download attachment: ${filename}`);
+    const arrayBuffer = await response.arrayBuffer();
+    contentBase64 = Buffer.from(arrayBuffer).toString("base64");
   }
 
-  for (const attachment of attachments) {
-    const filename = attachment.filename || "attachment";
-    const mimeType = attachment.mimeType || "application/octet-stream";
-    parts.push(`--${mixedBoundary}`);
-    parts.push(`Content-Type: ${mimeType}; name="${encodeMimeWord(filename)}"`);
-    parts.push(`Content-Disposition: attachment; filename="${encodeMimeWord(filename)}"`);
-    parts.push("Content-Transfer-Encoding: base64");
-    parts.push("");
-    parts.push(foldBase64(attachment.contentBase64 || ""));
-  }
+  if (!contentBase64) return "";
 
-  parts.push(`--${mixedBoundary}--`);
-  return `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
+  return [
+    `Content-Type: ${mimeType}; name="${encodeMimeWord(filename)}"`,
+    `Content-Disposition: attachment; filename="${encodeMimeWord(filename)}"`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    splitBase64(contentBase64),
+  ].join("\r\n");
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as SendEmailBody;
-    const from = requiredEnv("EMAIL_USER");
-    const accessToken = await getGoogleAccessToken();
-    const raw = buildRawEmail(body, from);
+    const body = await req.json();
+    const to = String(body.to || "").trim();
+    const subject = String(body.subject || "").trim() || "הודעה מהמערכת";
+    const html = String(body.html || body.text || "");
+    const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+    const from = process.env.EMAIL_USER;
 
-    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    if (!from) throw new Error("Missing EMAIL_USER environment variable");
+    if (!to) throw new Error("Missing recipient email");
+
+    const boundary = `mixed_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const parts: string[] = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${encodeMimeWord(subject)}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      splitBase64(Buffer.from(html || " ", "utf8").toString("base64")),
+    ];
+
+    for (const attachment of attachments as EmailAttachment[]) {
+      const part = await attachmentToMimePart(attachment);
+      if (part) parts.push(`--${boundary}`, part);
+    }
+
+    parts.push(`--${boundary}--`, "");
+
+    const accessToken = await getAccessToken();
+    const raw = base64Url(parts.join("\r\n"));
+
+    const gmailResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ raw: base64Url(raw) }),
+      body: JSON.stringify({ raw }),
     });
 
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result?.error?.message || result?.error_description || "Gmail send failed");
+    const result = await gmailResponse.json().catch(() => ({}));
+    if (!gmailResponse.ok) {
+      throw new Error(result?.error?.message || "Gmail send failed");
     }
 
     return NextResponse.json({ success: true, id: result.id });
-  } catch (error: unknown) {
-    console.error(error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Unknown email error" },
-      { status: 500 },
-    );
+  } catch (error: any) {
+    console.error("send-email failed", error);
+    return NextResponse.json({ success: false, error: error?.message || "Email send failed" }, { status: 500 });
   }
 }

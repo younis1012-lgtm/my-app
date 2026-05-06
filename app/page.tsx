@@ -7800,87 +7800,22 @@ export default function Page() {
     return `<div class="attachment-page"><h2>${name}</h2><div class="attachment-link-box">${attachmentLink(name, src)}</div></div>`;
   };
 
-  type ExportAttachmentRow = {
-    itemDescription: string;
-    kind: ChecklistAttachmentKind | "other";
-    name: string;
-    type: string;
-    dataUrl: string;
-  };
-
-  const collectChecklistExportAttachments = (source: unknown): ExportAttachmentRow[] => {
-    const rows: ExportAttachmentRow[] = [];
-    const seen = new Set<string>();
-
-    const add = (file: any, itemDescription = "") => {
-      if (!file || typeof file !== "object") return;
-      const dataUrl = String(
-        file.dataUrl ?? file.attachmentDataUrl ?? file.url ?? file.src ?? "",
-      ).trim();
-      if (!dataUrl) return;
-
-      const name = String(
-        file.name ?? file.filename ?? file.attachmentName ?? file.title ?? "קובץ מצורף",
-      ).trim() || "קובץ מצורף";
-      const type = String(
-        file.type ?? file.mimeType ?? file.attachmentType ?? "application/octet-stream",
-      ).trim();
-      const kind =
-        file.kind === "lab" || file.kind === "measurement" ? file.kind : "other";
-      const key = `${itemDescription}|${name}|${dataUrl.slice(0, 140)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      rows.push({ itemDescription, kind, name, type, dataUrl });
-    };
-
-    const scanObject = (value: unknown, itemDescription = "") => {
-      if (!value || typeof value !== "object") return;
-      const obj: any = value;
-
-      normalizeChecklistAttachments(obj.attachments).forEach((file) =>
-        add(file, itemDescription || String(obj.description ?? obj.title ?? "")),
-      );
-      normalizeAttachments(obj.attachments).forEach((file) =>
-        add(file, itemDescription || String(obj.description ?? obj.title ?? "")),
-      );
-      normalizeAttachments(obj.images).forEach((file) =>
-        add(file, itemDescription || String(obj.description ?? obj.title ?? "")),
-      );
-      add(obj, itemDescription || String(obj.description ?? obj.title ?? ""));
-
-      if (Array.isArray(obj.requiredDocuments)) {
-        normalizeRequiredDocuments(obj.requiredDocuments).forEach((doc) =>
-          add(doc, String(doc.description ?? obj.description ?? obj.title ?? "")),
-        );
-      }
-    };
-
-    if (Array.isArray(source)) {
-      source.forEach((item: any) =>
-        scanObject(item, String(item?.description ?? item?.title ?? "")),
-      );
-    } else {
-      scanObject(source);
-    }
-
-    return rows;
-  };
-
   const checklistAttachmentsExportTable = (items: unknown) => {
-    const rows = collectChecklistExportAttachments(items);
-    if (!rows.length) return "";
-
-    const table = `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${valueOrBlank(row.itemDescription, 28)}</td><td>${safeText(checklistAttachmentLabel(row.kind))}</td><td>${attachmentLink(row.name, row.dataUrl)}</td></tr>`).join("")}</tbody></table>`;
-
+    const rows = normalizeChecklistItems(items).flatMap((item: any) =>
+      normalizeChecklistAttachments(item.attachments).map((attachment) => ({
+        item,
+        attachment,
+      })),
+    );
+    const tableRows = rows.length
+      ? rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")
+      : `<tr><td colspan="3">לא נמצאו קבצים מצורפים ברשימת התיוג הנוכחית</td></tr>`;
+    const table = `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${tableRows}</tbody></table>`;
     const embedded = rows
-      .map((row) =>
-        embeddedAttachmentForExport(
-          { name: row.name, type: row.type, dataUrl: row.dataUrl },
-          `${checklistAttachmentLabel(row.kind)} - ${row.itemDescription}`,
-        ),
+      .map(({ item, attachment }) =>
+        embeddedAttachmentForExport(attachment, `${checklistAttachmentLabel(attachment.kind)} - ${String(item.description ?? "")}`),
       )
       .join("");
-
     return `${table}${embedded}`;
   };
 
@@ -8069,7 +8004,7 @@ export default function Page() {
       </thead>
       <tbody>${rowsHtml}</tbody>
     </table>
-    ${checklistAttachmentsExportTable([checklistForm, ...rawItems])}`;
+    ${checklistAttachmentsExportTable(displayedItems)}`;
   };
 
   const nonconformanceExportHtml = () =>
@@ -8293,34 +8228,76 @@ export default function Page() {
   const collectCurrentFormEmailAttachments = (): OutgoingEmailAttachment[] => {
     const attachments: Array<OutgoingEmailAttachment | null> = [];
 
-    const pushRows = (rows: ExportAttachmentRow[]) => {
-      rows.forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    };
-
     if (section === "checklists") {
       const items = Array.isArray((checklistForm as any)?.items)
         ? (checklistForm as any).items
         : [];
-      pushRows(collectChecklistExportAttachments([checklistForm, ...items]));
+
+      items.forEach((item: any) => {
+        normalizeChecklistAttachments(item?.attachments).forEach((file) => {
+          attachments.push(
+            dataUrlToEmailAttachment(file.name, file.dataUrl, file.type),
+          );
+        });
+      });
     }
 
     if (section === "rfi") {
-      pushRows(collectChecklistExportAttachments(rfiForm));
+      normalizeAttachments((rfiForm as any)?.attachments).forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
     }
 
     if (section === "trialSections") {
-      pushRows(collectChecklistExportAttachments(trialSectionForm));
+      normalizeAttachments((trialSectionForm as any)?.images).forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
     }
 
     if (section === "controlProcesses") {
-      pushRows(collectChecklistExportAttachments(controlProcessForm));
+      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach(
+        (doc) => {
+          attachments.push(
+            dataUrlToEmailAttachment(
+              doc.attachmentName || doc.description || "מסמך מצורף",
+              doc.attachmentDataUrl,
+              doc.attachmentType,
+            ),
+          );
+        },
+      );
     }
 
     return uniqueEmailAttachments(attachments);
   };
 
+
+
+  const prepareHtmlForPdfContainer = (fullHtml: string) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(fullHtml, "text/html");
+    const styleHtml = Array.from(doc.head.querySelectorAll("style"))
+      .map((style) => `<style>${style.textContent || ""}</style>`)
+      .join("");
+    return `${styleHtml}<div class="export-page">${doc.body.innerHTML}</div>`;
+  };
+
+  const waitForPdfAssets = async (container: HTMLElement) => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const images = Array.from(container.querySelectorAll("img"));
+    await Promise.all(
+      images.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            const image = img as HTMLImageElement;
+            if (image.complete) return resolve();
+            image.onload = () => resolve();
+            image.onerror = () => resolve();
+            setTimeout(resolve, 2500);
+          }),
+      ),
+    );
+  };
 
   const loadHtml2Pdf = async () => {
     const existing = (window as any).html2pdf;
@@ -8348,21 +8325,6 @@ export default function Page() {
     return loaded;
   };
 
-  const waitForExportAssets = async (root: HTMLElement) => {
-    const images = Array.from(root.querySelectorAll("img"));
-    await Promise.all(
-      images.map(
-        (img) =>
-          new Promise<void>((resolve) => {
-            if (img.complete) return resolve();
-            img.addEventListener("load", () => resolve(), { once: true });
-            img.addEventListener("error", () => resolve(), { once: true });
-          }),
-      ),
-    );
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  };
-
   const sendCurrentFormEmail = async () => {
     try {
       const recipientEmail = window.prompt(
@@ -8386,31 +8348,21 @@ export default function Page() {
       const html2pdf = await loadHtml2Pdf();
 
       const pdfContainer = document.createElement("div");
-      const parser = new DOMParser();
-      const parsedDocument = parser.parseFromString(html, "text/html");
-      pdfContainer.innerHTML = parsedDocument.body.innerHTML;
-
-      const styleElement = document.createElement("style");
-      styleElement.textContent = exportStyles;
-      pdfContainer.prepend(styleElement);
-
-      pdfContainer.style.position = "fixed";
+      pdfContainer.innerHTML = prepareHtmlForPdfContainer(html);
+      pdfContainer.style.position = "absolute";
       pdfContainer.style.left = "0";
       pdfContainer.style.top = "0";
       pdfContainer.style.width = "1123px";
       pdfContainer.style.minHeight = "794px";
       pdfContainer.style.background = "#fff";
-      pdfContainer.style.opacity = "0.01";
+      pdfContainer.style.zIndex = "2147483647";
       pdfContainer.style.pointerEvents = "none";
-      pdfContainer.style.zIndex = "-1";
       document.body.appendChild(pdfContainer);
 
       let pdfDataUrl = "";
       try {
-        await waitForExportAssets(pdfContainer);
-
+        await waitForPdfAssets(pdfContainer);
         const pdfBlob: Blob = await html2pdf()
-          .from(pdfContainer)
           .set({
             margin: 8,
             filename: `${title}.pdf`,
@@ -8422,14 +8374,16 @@ export default function Page() {
               scrollX: 0,
               scrollY: 0,
               windowWidth: 1123,
+              windowHeight: Math.max(794, pdfContainer.scrollHeight),
             },
             jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
             pagebreak: { mode: ["css", "legacy"] },
           })
+          .from(pdfContainer)
           .outputPdf("blob");
 
-        if (!pdfBlob || pdfBlob.size < 2500) {
-          throw new Error("יצירת ה-PDF נכשלה או שנוצר קובץ ריק");
+        if (!pdfBlob || pdfBlob.size < 1500) {
+          throw new Error("יצירת PDF נכשלה: הקובץ שנוצר ריק");
         }
 
         pdfDataUrl = await new Promise<string>((resolve, reject) => {
@@ -8473,8 +8427,10 @@ export default function Page() {
 
       alert(
         `המייל נשלח בהצלחה אל ${normalizedRecipient}` +
-          (attachments.length ? `
-צורפו ${attachments.length} קבצים.` : ""),
+          `
+PDF נוצר ונשלח.` +
+          `
+קבצים נוספים שנמצאו בטופס: ${Math.max(0, attachments.length - 1)}` ,
       );
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
