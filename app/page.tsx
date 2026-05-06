@@ -9164,8 +9164,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "מיקום / שימוש", value: (record) => record.location || record.area },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadControlProcess(record.id)}
-                onDelete={(record) => deleteControlProcess(record.id)}
+                onOpen={(id) => { const record = projectControlProcesses.find((item) => item.id === id); if (record) loadControlProcess(record); }}
+                onDelete={deleteControlProcess}
                 onNew={resetControlProcessForm}
               />
             <ControlProcessesSection
@@ -9197,8 +9197,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadRfi(record.id)}
-                onDelete={(record) => deleteRfi(record.id)}
+                onOpen={(id) => { const record = projectRfis.find((item) => item.id === id); if (record) loadRfi(record); }}
+                onDelete={deleteRfi}
                 onNew={resetRfiForm}
               />
             <RfiSection
@@ -9277,8 +9277,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadChecklist(record.id)}
-                onDelete={(record) => deleteChecklist(record.id)}
+                onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
+                onDelete={deleteChecklist}
                 onNew={resetChecklistForm}
               />
               <ChecklistsSection
@@ -9316,8 +9316,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "חומרה", value: (record) => record.severity },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadNonconformance(record.id)}
-                onDelete={(record) => deleteNonconformance(record.id)}
+                onOpen={(id) => { const record = projectNonconformances.find((item) => item.id === id); if (record) loadNonconformance(record); }}
+                onDelete={deleteNonconformance}
                 onNew={resetNonconformanceEditor}
               />
             <EnhancedNonconformancesSection
@@ -9343,8 +9343,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadTrialSection(record.id)}
-                onDelete={(record) => deleteTrialSection(record.id)}
+                onOpen={(id) => { const record = projectTrialSections.find((item) => item.id === id); if (record) loadTrialSection(record); }}
+                onDelete={deleteTrialSection}
                 onNew={resetTrialSectionEditor}
               />
             <TrialSectionsSection
@@ -9370,8 +9370,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={(record) => loadPreliminary(record.id)}
-                onDelete={(record) => deletePreliminary(record.id)}
+                onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
+                onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
               />
             <PreliminarySection
