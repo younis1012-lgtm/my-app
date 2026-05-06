@@ -6,7 +6,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",
-    "html2pdf.js": "^0.10.2",
+    "html2pdf.js": "^0.10.3",
     "jszip": "latest",
     "next": "latest",
     "nodemailer": "^8.0.7",

@@ -118,6 +118,10 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
       container.remove();
       const pdfDataUrl = await blobToDataUrl(pdfBlob);
 
+      if (!pdfDataUrl.startsWith("data:application/pdf;base64,")) {
+        throw new Error("יצירת PDF נכשלה");
+      }
+
       const uploadedAttachments = (props.checklistForm.items || [])
         .flatMap((item) => item.attachments || [])
         .filter((attachment) => Boolean(attachment.dataUrl))

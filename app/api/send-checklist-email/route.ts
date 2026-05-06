@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type EmailAttachment = {
-  filename?: string;
+  filename: string;
   contentBase64?: string;
   mimeType?: string;
   url?: string;
@@ -14,7 +14,6 @@ type RequestBody = {
   to?: string;
   subject?: string;
   text?: string;
-  html?: string;
   attachments?: EmailAttachment[];
   senderEmail?: string;
 };
@@ -35,12 +34,6 @@ function splitBase64(input: string) {
     .replace(/(.{76})/g, "$1\r\n");
 }
 
-function stripDataUrl(value: string) {
-  return String(value || "")
-    .replace(/^data:[^;]+;base64,/i, "")
-    .replace(/\s/g, "");
-}
-
 function encodeMimeWord(value: string) {
   return `=?UTF-8?B?${Buffer.from(value || "attachment", "utf8").toString("base64")}?=`;
 }
@@ -49,12 +42,10 @@ function filenameStar(value: string) {
   return `UTF-8''${encodeURIComponent(value || "attachment")}`;
 }
 
-function safeFileName(filename: string, mimeType: string) {
-  const clean = String(filename || "attachment").trim() || "attachment";
-  if (mimeType === "application/pdf" && !clean.toLowerCase().endsWith(".pdf")) {
-    return `${clean}.pdf`;
-  }
-  return clean;
+function cleanBase64(value?: string) {
+  return String(value || "")
+    .replace(/^data:[^;]+;base64,/i, "")
+    .replace(/\s/g, "");
 }
 
 async function getAccessToken() {
@@ -78,20 +69,18 @@ async function getAccessToken() {
   });
 
   const data = await res.json();
-
   if (!res.ok || !data.access_token) {
     throw new Error(data?.error_description || data?.error || "Failed to refresh Gmail access token");
   }
-
   return data.access_token as string;
 }
 
 async function normalizeAttachment(attachment: EmailAttachment) {
+  const filename = String(attachment.filename || "attachment").trim() || "attachment";
   const mimeType = String(attachment.mimeType || "application/octet-stream").trim() || "application/octet-stream";
-  const filename = safeFileName(String(attachment.filename || "attachment"), mimeType);
 
   if (attachment.contentBase64) {
-    const contentBase64 = stripDataUrl(attachment.contentBase64);
+    const contentBase64 = cleanBase64(attachment.contentBase64);
     return contentBase64 ? { filename, mimeType, contentBase64 } : null;
   }
 
@@ -114,14 +103,12 @@ async function buildRawEmail({
   to,
   subject,
   text,
-  html,
   attachments = [],
 }: {
   from: string;
   to: string;
   subject: string;
   text: string;
-  html?: string;
   attachments?: EmailAttachment[];
 }) {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -137,18 +124,18 @@ async function buildRawEmail({
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
 
-  const bodyParts: string[] = [];
+  const parts: string[] = [];
 
-  bodyParts.push(
+  parts.push(
     `--${boundary}`,
-    `Content-Type: ${html ? "text/html" : "text/plain"}; charset="UTF-8"`,
+    `Content-Type: text/plain; charset="UTF-8"`,
     "Content-Transfer-Encoding: base64",
     "",
-    splitBase64(Buffer.from(html || text || "", "utf8").toString("base64"))
+    splitBase64(Buffer.from(text || "מצורף קובץ PDF.", "utf8").toString("base64"))
   );
 
   for (const attachment of normalizedAttachments) {
-    bodyParts.push(
+    parts.push(
       `--${boundary}`,
       `Content-Type: ${attachment.mimeType}; name="${encodeMimeWord(attachment.filename)}"`,
       "Content-Transfer-Encoding: base64",
@@ -158,24 +145,35 @@ async function buildRawEmail({
     );
   }
 
-  bodyParts.push(`--${boundary}--`);
-
-  return [...headers, "", ...bodyParts].join("\r\n");
+  parts.push(`--${boundary}--`);
+  return [...headers, "", ...parts].join("\r\n");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RequestBody;
 
-    const accessToken = await getAccessToken();
+    const attachments = body.attachments ?? [];
+    const hasPdf = attachments.some(
+      (attachment) =>
+        attachment.mimeType === "application/pdf" ||
+        String(attachment.filename || "").toLowerCase().endsWith(".pdf")
+    );
 
+    if (!hasPdf) {
+      return NextResponse.json(
+        { success: false, error: "No PDF attachment received from frontend" },
+        { status: 400 }
+      );
+    }
+
+    const accessToken = await getAccessToken();
     const rawEmail = await buildRawEmail({
       from: body.senderEmail || process.env.EMAIL_USER || DEFAULT_SENDER_EMAIL,
       to: body.to || DEFAULT_SENDER_EMAIL,
-      subject: body.subject || "מסמך ממערכת בקרת איכות",
-      text: body.text || "מצורף מסמך PDF מהמערכת.",
-      html: body.html,
-      attachments: body.attachments ?? [],
+      subject: body.subject || "מסמך PDF ממערכת בקרת איכות",
+      text: body.text || "מצורף קובץ PDF מהמערכת.",
+      attachments,
     });
 
     const gmailResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -188,13 +186,12 @@ export async function POST(req: NextRequest) {
     });
 
     const result = await gmailResponse.json();
-
     if (!gmailResponse.ok) {
-      return NextResponse.json({ error: "Gmail send failed", details: result }, { status: 500 });
+      return NextResponse.json({ success: false, error: "Gmail send failed", details: result }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, result });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to send email" }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || "Failed to send email" }, { status: 500 });
   }
 }
