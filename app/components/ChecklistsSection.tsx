@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ChecklistItem, ChecklistRecord, ChecklistAttachment } from '../types';
 import { checklistTemplates } from '../checklistTemplates';
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
@@ -24,6 +25,135 @@ const attachmentLabel = (attachment: ChecklistAttachment) => {
 };
 
 export function ChecklistsSection(props: ChecklistsSectionProps) {
+  const [emailSending, setEmailSending] = useState(false);
+
+  const escapeHtml = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+  const buildChecklistPdfHtml = () => {
+    const checklist = props.checklistForm;
+    const rows = (checklist.items || [])
+      .map((item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(item.description)}</td>
+          <td>${escapeHtml(item.responsible)}</td>
+          <td>${escapeHtml(item.inspector)}</td>
+          <td>${escapeHtml(item.executionDate)}</td>
+          <td>${escapeHtml(item.status)}</td>
+          <td>${escapeHtml(item.notes)}</td>
+        </tr>
+      `)
+      .join("");
+
+    const attachments = (checklist.items || [])
+      .flatMap((item) => item.attachments || [])
+      .map((attachment) => `<li>${escapeHtml(attachment.name)}</li>`)
+      .join("");
+
+    return `
+      <div dir="rtl" style="font-family: Arial, sans-serif; color:#0f172a; padding: 24px;">
+        <h1 style="text-align:center; margin:0 0 18px; font-size:24px;">רשימת תיוג</h1>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:18px; font-size:12px;">
+          <tbody>
+            <tr><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">שם רשימה</td><td style="border:1px solid #94a3b8; padding:8px;">${escapeHtml(checklist.title)}</td><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">קטגוריה</td><td style="border:1px solid #94a3b8; padding:8px;">${escapeHtml(checklist.category)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">מיקום</td><td style="border:1px solid #94a3b8; padding:8px;">${escapeHtml(checklist.location)}</td><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">תאריך</td><td style="border:1px solid #94a3b8; padding:8px;">${escapeHtml(checklist.date)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">קבלן מבצע</td><td style="border:1px solid #94a3b8; padding:8px;" colspan="3">${escapeHtml(checklist.contractor)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8; padding:8px; font-weight:bold;">הערות</td><td style="border:1px solid #94a3b8; padding:8px;" colspan="3">${escapeHtml(checklist.notes)}</td></tr>
+          </tbody>
+        </table>
+        <table style="width:100%; border-collapse:collapse; font-size:11px;">
+          <thead><tr style="background:#e2e8f0;"><th style="border:1px solid #64748b; padding:6px;">#</th><th style="border:1px solid #64748b; padding:6px;">תיאור</th><th style="border:1px solid #64748b; padding:6px;">אחראי</th><th style="border:1px solid #64748b; padding:6px;">שם בודק</th><th style="border:1px solid #64748b; padding:6px;">תאריך ביצוע</th><th style="border:1px solid #64748b; padding:6px;">סטטוס</th><th style="border:1px solid #64748b; padding:6px;">הערות</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" style="border:1px solid #64748b; padding:10px; text-align:center;">אין סעיפים</td></tr>`}</tbody>
+        </table>
+        <h2 style="font-size:16px; margin:18px 0 8px;">מסמכים מצורפים</h2>
+        <ul style="font-size:12px; line-height:1.8;">${attachments || "<li>אין מסמכים מצורפים</li>"}</ul>
+      </div>
+    `;
+  };
+
+  const sendChecklistPdfEmail = async () => {
+    const to = window.prompt("לאיזה מייל לשלוח את רשימת התיוג כ-PDF?");
+    if (!to) return;
+
+    setEmailSending(true);
+    try {
+      const html = buildChecklistPdfHtml();
+      // @ts-ignore - html2pdf.js has no built-in TypeScript types in this project
+      const html2pdfModule = await import("html2pdf.js");
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      container.style.position = "fixed";
+      container.style.left = "-10000px";
+      container.style.top = "0";
+      container.style.width = "794px";
+      document.body.appendChild(container);
+
+      const pdfBlob: Blob = await html2pdf()
+        .from(container)
+        .set({
+          margin: 8,
+          filename: "checklist.pdf",
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+        })
+        .outputPdf("blob");
+
+      container.remove();
+      const pdfDataUrl = await blobToDataUrl(pdfBlob);
+
+      const uploadedAttachments = (props.checklistForm.items || [])
+        .flatMap((item) => item.attachments || [])
+        .filter((attachment) => Boolean(attachment.dataUrl))
+        .map((attachment) => ({
+          filename: attachment.name || "attachment",
+          mimeType: attachment.type || "application/octet-stream",
+          contentBase64: attachment.dataUrl,
+        }));
+
+      const attachments = [
+        { filename: `${props.checklistForm.title || "checklist"}.pdf`, mimeType: "application/pdf", contentBase64: pdfDataUrl },
+        ...uploadedAttachments,
+      ];
+
+      const response = await fetch("/api/send-checklist-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subject: `${props.checklistForm.title || "רשימת תיוג"} - PDF`,
+          text: "מצורפת רשימת תיוג בפורמט PDF ובצירוף המסמכים שהועלו למערכת.",
+          attachments,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result?.error || "שליחת המייל נכשלה");
+      alert("המייל נשלח בהצלחה עם קובץ PDF ומסמכים מצורפים ✅");
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "שגיאה בשליחת המייל");
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const updateItemAttachments = (itemId: string, attachments: ChecklistAttachment[]) => {
     props.setChecklistForm((prev) => ({
       ...prev,
@@ -218,6 +348,7 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
 
           <div style={styles.buttonRow}>
             <button type="button" style={styles.secondaryBtn} onClick={props.addChecklistItem}>הוסף שורה</button>
+            <button type="button" style={styles.primaryBtn} disabled={emailSending} onClick={sendChecklistPdfEmail}>{emailSending ? 'שולח PDF...' : 'שלח PDF במייל'}</button>
             <button type="button" style={styles.primaryBtn} onClick={props.saveChecklist}>{props.editingChecklistId ? 'עדכן רשימה' : 'שמור רשימה'}</button>
             <button type="button" style={styles.secondaryBtn} onClick={props.resetChecklistForm}>בטל / נקה</button>
           </div>
