@@ -8715,16 +8715,14 @@ export default function Page() {
     try {
       const activeProjectUsers = currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email));
       const usersText = activeProjectUsers
-        .map(
-          (user, index) =>
-            `${index + 1}. ${user.name}${user.role ? " - " + user.role : ""}${
-              user.company ? " - " + user.company : ""
-            } <${user.email}>`
-        )
+        .map((user, index) => `${index + 1}. ${user.name}${user.role ? " - " + user.role : ""}${user.company ? " - " + user.company : ""} <${user.email}>`)
         .join("\n");
-
       const promptText = activeProjectUsers.length
-        ? `בחר נמענים מרשימת משתמשי הפרויקט לפי מספרים מופרדים בפסיק, או הקלד כתובות מייל ידנית:\n\n${usersText}\n\nדוגמה: 1,3 או user@email.com, other@email.com`
+        ? `בחר נמענים מרשימת משתמשי הפרויקט לפי מספרים מופרדים בפסיק, או הקלד כתובות מייל ידנית:
+
+${usersText}
+
+דוגמה: 1,3 או user@email.com, other@email.com`
         : "לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:";
       const recipientInput = window.prompt(promptText, activeProjectUsers.length ? "1" : FIXED_EMAIL_RECIPIENT);
       const rawRecipients = normalizeEmailList(recipientInput);
@@ -8738,7 +8736,8 @@ export default function Page() {
       const uniqueRecipients = Array.from(new Set(selectedEmails.map((email) => email.trim()).filter(Boolean)));
       const invalidRecipients = uniqueRecipients.filter((email) => !isValidEmailAddress(email));
       if (invalidRecipients.length) {
-        alert("כתובות המייל הבאות אינן תקינות:\n" + invalidRecipients.join("\n"));
+        alert(`כתובות המייל הבאות אינן תקינות:
+${invalidRecipients.join("\n")}`);
         return;
       }
       const normalizedRecipient = uniqueRecipients.join(", ");
