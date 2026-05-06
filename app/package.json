@@ -6,13 +6,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",
+    "html2pdf.js": "^0.10.2",
     "jszip": "latest",
     "next": "latest",
     "nodemailer": "^8.0.7",
     "pdfjs-dist": "latest",
     "react": "latest",
-    "react-dom": "latest",
-    "html2pdf.js": "^0.10.2"
+    "react-dom": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
