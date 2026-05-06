@@ -6278,6 +6278,10 @@ export default function Page() {
     });
   };
 
+  useEffect(() => {
+    writeProjectEmailUsers(projectEmailUsers);
+  }, [projectEmailUsers]);
+
   const currentProjectEmailUsers = useMemo(
     () => projectEmailUsers.filter((user) => normalizeStoredProjectId(user.projectId) === normalizeStoredProjectId(currentProject?.id)),
     [projectEmailUsers, currentProject],
@@ -8413,76 +8417,81 @@ export default function Page() {
   };
 
   const collectCurrentFormEmailAttachments = (): OutgoingEmailAttachment[] => {
-    const attachments: Array<OutgoingEmailAttachment | null> = [];
+    const collected: Array<OutgoingEmailAttachment | null> = [];
+    const seenObjects = new WeakSet<object>();
 
-    if (section === "checklists") {
-      const items = Array.isArray((checklistForm as any)?.items)
-        ? (checklistForm as any).items
-        : [];
+    const pushAttachment = (name: unknown, dataUrl: unknown, mimeType?: unknown) => {
+      const attachment = dataUrlToEmailAttachment(name, dataUrl, mimeType);
+      if (attachment) collected.push(attachment);
+    };
 
-      items.forEach((item: any) => {
-        normalizeChecklistAttachments(item?.attachments).forEach((file) => {
-          attachments.push(
-            dataUrlToEmailAttachment(file.name, file.dataUrl, file.type),
-          );
-        });
+    const inferName = (value: any, fallback: string) =>
+      value?.name ||
+      value?.filename ||
+      value?.fileName ||
+      value?.attachmentName ||
+      value?.title ||
+      value?.description ||
+      fallback;
+
+    const inferType = (value: any) =>
+      value?.type ||
+      value?.mimeType ||
+      value?.attachmentType ||
+      value?.contentType ||
+      undefined;
+
+    const walkForAttachments = (value: unknown, fallbackName = "מסמך מצורף") => {
+      if (!value || typeof value !== "object") return;
+      const obj: any = value;
+      if (seenObjects.has(obj)) return;
+      seenObjects.add(obj);
+
+      const name = inferName(obj, fallbackName);
+      const mimeType = inferType(obj);
+
+      // מבנה קובץ רגיל במערכת: { name, type, dataUrl }
+      pushAttachment(name, obj.dataUrl, mimeType);
+
+      // מבנה מסמכי חובה / אישורי ספקים / חומרים / קבלני משנה.
+      pushAttachment(name, obj.attachmentDataUrl, obj.attachmentType || mimeType);
+
+      // תמיכה בשמות שדה נוספים אם קיימים בטפסים אחרים.
+      pushAttachment(name, obj.fileDataUrl, obj.fileType || mimeType);
+      pushAttachment(name, obj.contentBase64 ? `data:${mimeType || "application/octet-stream"};base64,${obj.contentBase64}` : "", mimeType);
+      pushAttachment(name, obj.url, mimeType);
+
+      Object.entries(obj).forEach(([key, child]) => {
+        if (key === "signature") return;
+        const childFallback =
+          key === "requiredDocuments"
+            ? "מסמך חובה"
+            : key === "attachments" || key === "documents" || key === "images"
+              ? "מסמך מצורף"
+              : name;
+        if (Array.isArray(child)) {
+          child.forEach((entry) => walkForAttachments(entry, childFallback));
+        } else if (child && typeof child === "object") {
+          walkForAttachments(child, childFallback);
+        }
       });
-    }
+    };
 
-    if (section === "rfi") {
-      [
-        ...normalizeAttachments((rfiForm as any)?.documents),
-        ...normalizeAttachments((rfiForm as any)?.attachments),
-      ].forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
+    const currentFormForSection = (() => {
+      if (section === "checklists") return checklistForm;
+      if (section === "rfi") return rfiForm;
+      if (section === "preliminary") return currentPreliminaryForm;
+      if (section === "trialSections") return trialSectionForm;
+      if (section === "nonconformances") return nonconformanceForm;
+      if (section === "controlProcesses") return controlProcessForm;
+      return null;
+    })();
 
-    if (section === "preliminary") {
-      const form: any = currentPreliminaryForm as any;
-      const nested =
-        preliminaryTab === "suppliers"
-          ? form?.supplier
-          : preliminaryTab === "subcontractors"
-            ? form?.subcontractor
-            : form?.material;
-      [
-        ...normalizeAttachments(form?.documents),
-        ...normalizeAttachments(form?.attachments),
-        ...normalizeAttachments(form?.images),
-        ...normalizeAttachments(nested?.documents),
-        ...normalizeAttachments(nested?.attachments),
-        ...normalizeAttachments(nested?.images),
-      ].forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
-
-    if (section === "trialSections") {
-      normalizeAttachments((trialSectionForm as any)?.images).forEach((file) => {
-        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
-      });
-    }
-
-    if (section === "controlProcesses") {
-      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach(
-        (doc) => {
-          attachments.push(
-            dataUrlToEmailAttachment(
-              doc.attachmentName || doc.description || "מסמך מצורף",
-              doc.attachmentDataUrl,
-              doc.attachmentType,
-            ),
-          );
-        },
-      );
-    }
-
-    return uniqueEmailAttachments(attachments);
+    walkForAttachments(currentFormForSection);
+    return uniqueEmailAttachments(collected);
   };
 
-
-  const loadExternalScript = async (src: string, test: () => boolean, label: string) => {
+const loadExternalScript = async (src: string, test: () => boolean, label: string) => {
     if (test()) return;
     await new Promise<void>((resolve, reject) => {
       const existing = Array.from(document.scripts).find((script) => script.src === src);
