@@ -7800,102 +7800,15 @@ export default function Page() {
     return `<div class="attachment-page"><h2>${name}</h2><div class="attachment-link-box">${attachmentLink(name, src)}</div></div>`;
   };
 
-  const collectAttachmentsDeep = (source: unknown) => {
-    const found: Array<{
-      name: string;
-      type: string;
-      dataUrl: string;
-      kind: ChecklistAttachmentKind;
-      context: string;
-    }> = [];
-    const seenObjects = new WeakSet<object>();
-
-    const walk = (value: unknown, context = "", depth = 0) => {
-      if (!value || depth > 8) return;
-      if (typeof value !== "object") return;
-      if (seenObjects.has(value as object)) return;
-      seenObjects.add(value as object);
-
-      if (Array.isArray(value)) {
-        value.forEach((entry) => walk(entry, context, depth + 1));
-        return;
-      }
-
-      const obj = value as Record<string, any>;
-      const nextContext = String(
-        obj.description || obj.title || obj.label || obj.name || context || "",
-      );
-
-      const dataUrl = String(
-        obj.dataUrl || obj.attachmentDataUrl || obj.fileDataUrl || "",
-      ).trim();
-
-      if (dataUrl.startsWith("data:") || /^https?:\/\//i.test(dataUrl)) {
-        const kind: ChecklistAttachmentKind =
-          obj.kind === "lab" || obj.kind === "measurement" ? obj.kind : "other";
-        found.push({
-          name: String(
-            obj.name || obj.filename || obj.attachmentName || obj.title || "קובץ מצורף",
-          ),
-          type: String(obj.type || obj.mimeType || obj.attachmentType || ""),
-          dataUrl,
-          uploadedAt: String(obj.uploadedAt || ""),
-          kind,
-          context: nextContext || "מסמך מצורף",
-        } as any);
-      }
-
-      Object.keys(obj).forEach((key) => {
-        if (["signature", "logo", "icon"].includes(key)) return;
-        walk(obj[key], nextContext, depth + 1);
-      });
-    };
-
-    walk(source);
-
-    const seen = new Set<string>();
-    return found.filter((file) => {
-      const key = `${file.name}|${file.dataUrl}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-
   const checklistAttachmentsExportTable = (items: unknown) => {
-    const normalizedRows = normalizeChecklistItems(items).flatMap((item: any) =>
+    const rows = normalizeChecklistItems(items).flatMap((item: any) =>
       normalizeChecklistAttachments(item.attachments).map((attachment) => ({
         item,
         attachment,
       })),
     );
-
-    const deepRows = collectAttachmentsDeep(checklistForm).map((attachment) => ({
-      item: { description: attachment.context || "מסמך מצורף" },
-      attachment,
-    }));
-
-    const seen = new Set<string>();
-    const rows = [...normalizedRows, ...deepRows].filter(({ attachment }) => {
-      const key = `${attachment.name}|${attachment.dataUrl}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    const body = rows.length
-      ? rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")
-      : `<tr><td colspan="3">לא נמצאו מסמכים מצורפים בטופס הנוכחי</td></tr>`;
-
-    const table = `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${body}</tbody></table>`;
-
-    const embedded = rows
-      .map(({ item, attachment }) =>
-        embeddedAttachmentForExport(attachment, `${checklistAttachmentLabel(attachment.kind)} - ${String(item.description ?? "")}`),
-      )
-      .join("");
-
-    return `${table}${embedded}`;
+    if (!rows.length) return "";
+    return `<h2>מסמכים שצורפו לרשימת התיוג</h2><table class="checklist-attachments-export"><thead><tr><th>תהליך בקרה</th><th>סוג מסמך</th><th>שם קובץ</th></tr></thead><tbody>${rows.map(({ item, attachment }) => `<tr><td>${valueOrBlank(item.description, 28)}</td><td>${safeText(checklistAttachmentLabel(attachment.kind))}</td><td>${attachmentLink(attachment.name, attachment.dataUrl)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const exportStyles = `
@@ -7977,9 +7890,7 @@ export default function Page() {
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
-    const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
-    return `${table}${embedded}`;
+    return `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const signatureCell = (value: unknown) => {
@@ -8241,15 +8152,23 @@ export default function Page() {
       "application/vnd.ms-excel;charset=utf-8",
       `﻿${exportHtml(getExportChecklistNo())}`,
     );
-  const exportPdf = () => {
-    const exportChecklistNo = getExportChecklistNo();
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return alert("הדפדפן חסם פתיחת חלון להפקת PDF");
-    printWindow.document.open();
-    printWindow.document.write(exportHtml(exportChecklistNo));
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => printWindow.print(), 700);
+  const exportPdf = async () => {
+    try {
+      const exportChecklistNo = getExportChecklistNo();
+      const title = recordTitleForExport();
+      const pdfDataUrl = await createCompletePdfDataUrl(title, exportHtml(exportChecklistNo));
+      const response = await fetch(pdfDataUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url, "_blank");
+      if (!printWindow) {
+        URL.revokeObjectURL(url);
+        return alert("הדפדפן חסם פתיחת חלון להפקת PDF");
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "יצירת PDF נכשלה");
+    }
   };
 
   type OutgoingEmailAttachment = {
@@ -8308,10 +8227,16 @@ export default function Page() {
     const attachments: Array<OutgoingEmailAttachment | null> = [];
 
     if (section === "checklists") {
-      collectAttachmentsDeep(checklistForm).forEach((file) => {
-        attachments.push(
-          dataUrlToEmailAttachment(file.name, file.dataUrl, file.type),
-        );
+      const items = Array.isArray((checklistForm as any)?.items)
+        ? (checklistForm as any).items
+        : [];
+
+      items.forEach((item: any) => {
+        normalizeChecklistAttachments(item?.attachments).forEach((file) => {
+          attachments.push(
+            dataUrlToEmailAttachment(file.name, file.dataUrl, file.type),
+          );
+        });
       });
     }
 
@@ -8371,6 +8296,240 @@ export default function Page() {
     return loaded;
   };
 
+
+  type EmbeddedPdfFile = {
+    name: string;
+    type: string;
+    dataUrl: string;
+  };
+
+  const collectCurrentFormEmbeddedFiles = (): EmbeddedPdfFile[] => {
+    const files: EmbeddedPdfFile[] = [];
+    const pushStored = (file: any) => {
+      const dataUrl = String(file?.dataUrl ?? file?.attachmentDataUrl ?? "").trim();
+      if (!dataUrl) return;
+      files.push({
+        name: String(file?.name ?? file?.attachmentName ?? "קובץ מצורף"),
+        type: String(file?.type ?? file?.attachmentType ?? ""),
+        dataUrl,
+      });
+    };
+
+    if (section === "checklists") {
+      const items = Array.isArray((checklistForm as any)?.items)
+        ? (checklistForm as any).items
+        : [];
+      items.forEach((item: any) =>
+        normalizeChecklistAttachments(item?.attachments).forEach(pushStored),
+      );
+    }
+
+    if (section === "nonconformances") {
+      normalizeAttachments((nonconformanceForm as any)?.images).forEach(pushStored);
+    }
+
+    if (section === "trialSections") {
+      normalizeAttachments((trialSectionForm as any)?.images).forEach(pushStored);
+    }
+
+    if (section === "controlProcesses") {
+      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach((doc) => {
+        pushStored({
+          name: doc.attachmentName || doc.description || "מסמך מצורף",
+          type: doc.attachmentType,
+          dataUrl: doc.attachmentDataUrl,
+        });
+      });
+    }
+
+    if (section === "rfi") {
+      normalizeAttachments((rfiForm as any)?.documents ?? (rfiForm as any)?.attachments).forEach(pushStored);
+    }
+
+    const seen = new Set<string>();
+    return files.filter((file) => {
+      const key = `${file.name}|${file.dataUrl}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const waitForImagesToLoad = async (element: HTMLElement) => {
+    const images = Array.from(element.querySelectorAll("img"));
+    await Promise.all(
+      images.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            if (img.complete) return resolve();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          }),
+      ),
+    );
+  };
+
+  const createPdfElementFromHtml = (html: string) => {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const styleText = Array.from(parsed.querySelectorAll("style"))
+      .map((style) => style.textContent || "")
+      .join("\n");
+    const container = document.createElement("div");
+    container.dir = "rtl";
+    container.style.position = "fixed";
+    container.style.left = "0";
+    container.style.top = "0";
+    container.style.width = "1123px";
+    container.style.minHeight = "794px";
+    container.style.background = "#fff";
+    container.style.zIndex = "-1";
+    container.style.opacity = "0";
+    container.style.pointerEvents = "none";
+    container.innerHTML = `<style>${styleText}</style>${parsed.body.innerHTML}`;
+    document.body.appendChild(container);
+    return container;
+  };
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+  const dataUrlToUint8Array = async (dataUrl: string) => {
+    const response = await fetch(dataUrl);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+
+  const loadPdfLib = async () => {
+    const existing = (window as any).PDFLib;
+    if (existing?.PDFDocument) return existing;
+
+    await new Promise<void>((resolve, reject) => {
+      const currentScript = document.querySelector('script[data-pdf-lib="true"]') as HTMLScriptElement | null;
+      if (currentScript) {
+        currentScript.addEventListener("load", () => resolve(), { once: true });
+        currentScript.addEventListener("error", () => reject(new Error("טעינת pdf-lib נכשלה")), { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+      script.async = true;
+      script.dataset.pdfLib = "true";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("טעינת pdf-lib נכשלה"));
+      document.head.appendChild(script);
+    });
+
+    const loaded = (window as any).PDFLib;
+    if (!loaded?.PDFDocument) throw new Error("pdf-lib לא נטען בדפדפן");
+    return loaded;
+  };
+
+  const addImagePageToPdf = async (mergedPdf: any, pdfLib: any, file: EmbeddedPdfFile) => {
+    const bytes = await dataUrlToUint8Array(file.dataUrl);
+    const lowerType = String(file.type || "").toLowerCase();
+    const isPng = lowerType.includes("png") || file.dataUrl.startsWith("data:image/png");
+    const image = isPng ? await mergedPdf.embedPng(bytes) : await mergedPdf.embedJpg(bytes);
+    const page = mergedPdf.addPage([841.89, 595.28]);
+    const pageWidth = page.getWidth();
+    const pageHeight = page.getHeight();
+    const margin = 28;
+    const titleSize = 13;
+    const dims = image.scale(1);
+    const maxWidth = pageWidth - margin * 2;
+    const maxHeight = pageHeight - margin * 2 - 28;
+    const scale = Math.min(maxWidth / dims.width, maxHeight / dims.height, 1);
+    const width = dims.width * scale;
+    const height = dims.height * scale;
+    page.drawText(String(file.name || "מסמך מצורף"), {
+      x: margin,
+      y: pageHeight - margin - titleSize,
+      size: titleSize,
+    });
+    page.drawImage(image, {
+      x: (pageWidth - width) / 2,
+      y: margin,
+      width,
+      height,
+    });
+  };
+
+  const addUnsupportedAttachmentPage = (mergedPdf: any, file: EmbeddedPdfFile) => {
+    const page = mergedPdf.addPage([841.89, 595.28]);
+    const pageHeight = page.getHeight();
+    page.drawText("מסמך מצורף שלא ניתן להטמעה אוטומטית בתוך PDF", {
+      x: 40,
+      y: pageHeight - 80,
+      size: 16,
+    });
+    page.drawText(String(file.name || "קובץ מצורף"), {
+      x: 40,
+      y: pageHeight - 115,
+      size: 13,
+    });
+  };
+
+  const createCompletePdfDataUrl = async (title: string, html: string) => {
+    const html2pdf = await loadHtml2Pdf();
+    const pdfLib = await loadPdfLib();
+    const sourceElement = createPdfElementFromHtml(html);
+
+    let formPdfDataUrl = "";
+    try {
+      await waitForImagesToLoad(sourceElement);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const pdfBlob: Blob = await html2pdf()
+        .from(sourceElement)
+        .set({
+          margin: 8,
+          filename: `${title}.pdf`,
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+          jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+          pagebreak: { mode: ["css", "legacy"] },
+        })
+        .outputPdf("blob");
+
+      formPdfDataUrl = await blobToDataUrl(pdfBlob);
+    } finally {
+      sourceElement.remove();
+    }
+
+    const { PDFDocument } = pdfLib;
+    const mergedPdf = await PDFDocument.create();
+    const formPdf = await PDFDocument.load(await dataUrlToUint8Array(formPdfDataUrl));
+    const formPages = await mergedPdf.copyPages(formPdf, formPdf.getPageIndices());
+    formPages.forEach((page: any) => mergedPdf.addPage(page));
+
+    for (const file of collectCurrentFormEmbeddedFiles()) {
+      const type = String(file.type || "").toLowerCase();
+      const src = String(file.dataUrl || "");
+      try {
+        if (type.includes("pdf") || src.startsWith("data:application/pdf")) {
+          const attachmentPdf = await PDFDocument.load(await dataUrlToUint8Array(src));
+          const pages = await mergedPdf.copyPages(attachmentPdf, attachmentPdf.getPageIndices());
+          pages.forEach((page: any) => mergedPdf.addPage(page));
+        } else if (type.startsWith("image/") || src.startsWith("data:image/")) {
+          await addImagePageToPdf(mergedPdf, pdfLib, file);
+        } else {
+          addUnsupportedAttachmentPage(mergedPdf, file);
+        }
+      } catch (error) {
+        console.error("Failed to merge attachment", file.name, error);
+        addUnsupportedAttachmentPage(mergedPdf, file);
+      }
+    }
+
+    const bytes = await mergedPdf.save();
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+    return blobToDataUrl(blob);
+  };
+
   const sendCurrentFormEmail = async () => {
     try {
       const recipientEmail = window.prompt(
@@ -8390,82 +8549,15 @@ export default function Page() {
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
-
-      const html2pdf = await loadHtml2Pdf();
-
-      const pdfFrame = document.createElement("iframe");
-      pdfFrame.title = "pdf-email-render-frame";
-      pdfFrame.style.position = "fixed";
-      pdfFrame.style.left = "0";
-      pdfFrame.style.top = "0";
-      pdfFrame.style.width = "1123px";
-      pdfFrame.style.height = "794px";
-      pdfFrame.style.opacity = "0.01";
-      pdfFrame.style.pointerEvents = "none";
-      pdfFrame.style.border = "0";
-      pdfFrame.style.background = "#fff";
-      pdfFrame.style.zIndex = "-1";
-      document.body.appendChild(pdfFrame);
-
-      let pdfDataUrl = "";
-      try {
-        const frameDocument = pdfFrame.contentDocument || pdfFrame.contentWindow?.document;
-        if (!frameDocument) throw new Error("יצירת מסמך PDF נכשלה");
-        frameDocument.open();
-        frameDocument.write(html);
-        frameDocument.close();
-
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        const images = Array.from(frameDocument.images || []);
-        await Promise.all(
-          images.map(
-            (img) =>
-              new Promise<void>((resolve) => {
-                if (img.complete) return resolve();
-                img.onload = () => resolve();
-                img.onerror = () => resolve();
-                setTimeout(resolve, 1500);
-              }),
-          ),
-        );
-
-        const pdfSource = frameDocument.querySelector(".export-page") || frameDocument.body;
-
-        const pdfBlob: Blob = await html2pdf()
-          .from(pdfSource)
-          .set({
-            margin: 8,
-            filename: `${title}.pdf`,
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-            jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-            pagebreak: { mode: ["css", "legacy"] },
-          })
-          .outputPdf("blob");
-
-        if (!pdfBlob || pdfBlob.size < 1000) {
-          throw new Error("קובץ ה-PDF נוצר ריק. יש לנסות שוב לאחר שמירת הטופס.");
-        }
-
-        pdfDataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = reject;
-          reader.readAsDataURL(pdfBlob);
-        });
-      } finally {
-        pdfFrame.remove();
-      }
+      const pdfDataUrl = await createCompletePdfDataUrl(title, html);
 
       const formPdfAttachment = dataUrlToEmailAttachment(
-        `${title}.pdf`,
+        `${title} - כולל נספחים.pdf`,
         pdfDataUrl,
         "application/pdf",
       );
 
-      const attachments = uniqueEmailAttachments([
-        formPdfAttachment,
-        ...collectCurrentFormEmailAttachments(),
-      ]);
+      const attachments = uniqueEmailAttachments([formPdfAttachment]);
 
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
