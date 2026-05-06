@@ -9164,8 +9164,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "מיקום / שימוש", value: (record) => record.location || record.area },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadControlProcess}
-                onDelete={deleteControlProcess}
+                onOpen={(record) => loadControlProcess(record.id)}
+                onDelete={(record) => deleteControlProcess(record.id)}
                 onNew={resetControlProcessForm}
               />
             <ControlProcessesSection
@@ -9197,8 +9197,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadRfi}
-                onDelete={deleteRfi}
+                onOpen={(record) => loadRfi(record.id)}
+                onDelete={(record) => deleteRfi(record.id)}
                 onNew={resetRfiForm}
               />
             <RfiSection
@@ -9277,8 +9277,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadChecklist}
-                onDelete={deleteChecklist}
+                onOpen={(record) => loadChecklist(record.id)}
+                onDelete={(record) => deleteChecklist(record.id)}
                 onNew={resetChecklistForm}
               />
               <ChecklistsSection
@@ -9316,8 +9316,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "חומרה", value: (record) => record.severity },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadNonconformance}
-                onDelete={deleteNonconformance}
+                onOpen={(record) => loadNonconformance(record.id)}
+                onDelete={(record) => deleteNonconformance(record.id)}
                 onNew={resetNonconformanceEditor}
               />
             <EnhancedNonconformancesSection
@@ -9343,8 +9343,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadTrialSection}
-                onDelete={deleteTrialSection}
+                onOpen={(record) => loadTrialSection(record.id)}
+                onDelete={(record) => deleteTrialSection(record.id)}
                 onNew={resetTrialSectionEditor}
               />
             <TrialSectionsSection
@@ -9370,8 +9370,8 @@ ${invalidRecipients.join("\n")}`);
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
-                onOpen={loadPreliminary}
-                onDelete={deletePreliminary}
+                onOpen={(record) => loadPreliminary(record.id)}
+                onDelete={(record) => deletePreliminary(record.id)}
                 onNew={resetPreliminaryEditor}
               />
             <PreliminarySection
