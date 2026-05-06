@@ -1,197 +1,97 @@
 import { NextRequest, NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type EmailAttachment = {
-  filename: string;
-  contentBase64?: string;
-  mimeType?: string;
-  url?: string;
-};
-
-type RequestBody = {
-  to?: string;
-  subject?: string;
-  text?: string;
-  attachments?: EmailAttachment[];
-  senderEmail?: string;
-};
-
-const DEFAULT_SENDER_EMAIL = "q.controling@gmail.com";
-
-function base64UrlEncode(input: string) {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
 function splitBase64(input: string) {
   return String(input || "")
     .replace(/\s/g, "")
-    .replace(/(.{76})/g, "$1\r\n");
+    .replace(/(.{76})/g, "$1\n");
 }
 
 function encodeMimeWord(value: string) {
-  return `=?UTF-8?B?${Buffer.from(value || "attachment", "utf8").toString("base64")}?=`;
-}
-
-function filenameStar(value: string) {
-  return `UTF-8''${encodeURIComponent(value || "attachment")}`;
-}
-
-function cleanBase64(value?: string) {
-  return String(value || "")
-    .replace(/^data:[^;]+;base64,/i, "")
-    .replace(/\s/g, "");
-}
-
-async function getAccessToken() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error("Missing GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET or GOOGLE_REFRESH_TOKEN");
-  }
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.access_token) {
-    throw new Error(data?.error_description || data?.error || "Failed to refresh Gmail access token");
-  }
-  return data.access_token as string;
-}
-
-async function normalizeAttachment(attachment: EmailAttachment) {
-  const filename = String(attachment.filename || "attachment").trim() || "attachment";
-  const mimeType = String(attachment.mimeType || "application/octet-stream").trim() || "application/octet-stream";
-
-  if (attachment.contentBase64) {
-    const contentBase64 = cleanBase64(attachment.contentBase64);
-    return contentBase64 ? { filename, mimeType, contentBase64 } : null;
-  }
-
-  if (attachment.url && /^https?:\/\//i.test(attachment.url)) {
-    const res = await fetch(attachment.url);
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    return {
-      filename,
-      mimeType: res.headers.get("content-type") || mimeType,
-      contentBase64: Buffer.from(arrayBuffer).toString("base64"),
-    };
-  }
-
-  return null;
-}
-
-async function buildRawEmail({
-  from,
-  to,
-  subject,
-  text,
-  attachments = [],
-}: {
-  from: string;
-  to: string;
-  subject: string;
-  text: string;
-  attachments?: EmailAttachment[];
-}) {
-  const boundary = `boundary_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const normalizedAttachments = (
-    await Promise.all(attachments.map(normalizeAttachment))
-  ).filter(Boolean) as Array<{ filename: string; mimeType: string; contentBase64: string }>;
-
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${encodeMimeWord(subject)}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
-  ];
-
-  const parts: string[] = [];
-
-  parts.push(
-    `--${boundary}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    "Content-Transfer-Encoding: base64",
-    "",
-    splitBase64(Buffer.from(text || "מצורף קובץ PDF.", "utf8").toString("base64"))
-  );
-
-  for (const attachment of normalizedAttachments) {
-    parts.push(
-      `--${boundary}`,
-      `Content-Type: ${attachment.mimeType}; name="${encodeMimeWord(attachment.filename)}"`,
-      "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename="${encodeMimeWord(attachment.filename)}"; filename*=${filenameStar(attachment.filename)}`,
-      "",
-      splitBase64(attachment.contentBase64)
-    );
-  }
-
-  parts.push(`--${boundary}--`);
-  return [...headers, "", ...parts].join("\r\n");
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as RequestBody;
+    const body = await req.json();
 
-    const attachments = body.attachments ?? [];
-    const hasPdf = attachments.some(
-      (attachment) =>
-        attachment.mimeType === "application/pdf" ||
-        String(attachment.filename || "").toLowerCase().endsWith(".pdf")
-    );
+    const {
+      to,
+      subject,
+      html,
+      attachments = [],
+    } = body;
 
-    if (!hasPdf) {
-      return NextResponse.json(
-        { success: false, error: "No PDF attachment received from frontend" },
-        { status: 400 }
-      );
-    }
-
-    const accessToken = await getAccessToken();
-    const rawEmail = await buildRawEmail({
-      from: body.senderEmail || process.env.EMAIL_USER || DEFAULT_SENDER_EMAIL,
-      to: body.to || DEFAULT_SENDER_EMAIL,
-      subject: body.subject || "מסמך PDF ממערכת בקרת איכות",
-      text: body.text || "מצורף קובץ PDF מהמערכת.",
-      attachments,
-    });
-
-    const gmailResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        type: "OAuth2",
+        user: process.env.EMAIL_USER,
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
       },
-      body: JSON.stringify({ raw: base64UrlEncode(rawEmail) }),
     });
 
-    const result = await gmailResponse.json();
-    if (!gmailResponse.ok) {
-      return NextResponse.json({ success: false, error: "Gmail send failed", details: result }, { status: 500 });
+    const boundary = "boundary_" + Date.now();
+
+    let rawMessage = `
+From: ${process.env.EMAIL_USER}
+To: ${to}
+Subject: ${encodeMimeWord(subject)}
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="${boundary}"
+
+--${boundary}
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+${html}
+`;
+
+    for (const attachment of attachments) {
+      rawMessage += `
+--${boundary}
+Content-Type: ${attachment.mimeType}; name="${encodeMimeWord(
+        attachment.filename
+      )}"
+Content-Disposition: attachment; filename="${encodeMimeWord(
+        attachment.filename
+      )}"
+Content-Transfer-Encoding: base64
+
+${splitBase64(attachment.contentBase64)}
+`;
     }
 
-    return NextResponse.json({ success: true, result });
+    rawMessage += `
+--${boundary}--
+`;
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
+      subject,
+      raw: rawMessage,
+    });
+
+    return NextResponse.json({
+      success: true,
+    });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || "Failed to send email" }, { status: 500 });
+    console.error(error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message,
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }

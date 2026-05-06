@@ -8178,24 +8178,6 @@ export default function Page() {
     url?: string;
   };
 
-  const utf8ToBase64 = (value: string) => {
-    const bytes = new TextEncoder().encode(value);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary);
-  };
-
-  const buildExportHtmlAttachment = (title: string, html: string): OutgoingEmailAttachment => {
-    const safeTitle = String(title || "טופס").replace(/[\\/:*?"<>|]/g, "-").trim() || "טופס";
-    return {
-      filename: `${safeTitle}.html`,
-      mimeType: "text/html; charset=UTF-8",
-      contentBase64: utf8ToBase64(html),
-    };
-  };
-
   const dataUrlToEmailAttachment = (
     name: unknown,
     dataUrl: unknown,
@@ -8306,16 +8288,52 @@ export default function Page() {
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
-      const formAttachment = buildExportHtmlAttachment(title, html);
+
+      const html2pdfModule = await import("html2pdf.js");
+      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+
+      const pdfContainer = document.createElement("div");
+      pdfContainer.innerHTML = html;
+      pdfContainer.style.position = "fixed";
+      pdfContainer.style.left = "-10000px";
+      pdfContainer.style.top = "0";
+      pdfContainer.style.width = "1123px";
+      pdfContainer.style.background = "#fff";
+      document.body.appendChild(pdfContainer);
+
+      let pdfDataUrl = "";
+      try {
+        const pdfBlob: Blob = await html2pdf()
+          .from(pdfContainer)
+          .set({
+            margin: 8,
+            filename: `${title}.pdf`,
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+            pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+          })
+          .outputPdf("blob");
+
+        pdfDataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = reject;
+          reader.readAsDataURL(pdfBlob);
+        });
+      } finally {
+        pdfContainer.remove();
+      }
+
+      const formPdfAttachment = dataUrlToEmailAttachment(
+        `${title}.pdf`,
+        pdfDataUrl,
+        "application/pdf",
+      );
+
       const attachments = uniqueEmailAttachments([
-        formAttachment,
+        formPdfAttachment,
         ...collectCurrentFormEmailAttachments(),
       ]);
-      const emailBodyHtml = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7">
-        <h2>${title} - ${projectName}</h2>
-        <p>מצורף הטופס כקובץ HTML, ובנוסף כל המסמכים/התמונות שצורפו בטופס.</p>
-        <p>מספר קבצים מצורפים: ${attachments.length}</p>
-      </div>`;
 
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
@@ -8323,8 +8341,8 @@ export default function Page() {
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: emailBodyHtml,
-          text: `מצורף ${title} מפרויקט ${projectName}. מספר קבצים מצורפים: ${attachments.length}`,
+          html: `<div dir="rtl">מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div>`,
+          text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
         }),
