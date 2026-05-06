@@ -8738,9 +8738,7 @@ export default function Page() {
       const uniqueRecipients = Array.from(new Set(selectedEmails.map((email) => email.trim()).filter(Boolean)));
       const invalidRecipients = uniqueRecipients.filter((email) => !isValidEmailAddress(email));
       if (invalidRecipients.length) {
-        alert(`כתובות המייל הבאות אינן תקינות:
-${invalidRecipients.join("
-")}`);
+        alert("כתובות המייל הבאות אינן תקינות:\n" + invalidRecipients.join("\n"));
         return;
       }
       const normalizedRecipient = uniqueRecipients.join(", ");
