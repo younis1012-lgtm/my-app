@@ -3345,6 +3345,156 @@ function SimpleFolderSection({
   );
 }
 
+
+type FolderColumn = {
+  label: string;
+  value: (record: any, index: number) => React.ReactNode;
+};
+
+function getRecordTitle(record: any) {
+  return (
+    record?.title ||
+    record?.name ||
+    record?.checklistTitle ||
+    record?.category ||
+    record?.type ||
+    record?.supplierName ||
+    record?.materialName ||
+    record?.contractorName ||
+    record?.description ||
+    "רשומה"
+  );
+}
+
+function getRecordDate(record: any) {
+  return record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "";
+}
+
+function getRecordStatus(record: any) {
+  return record?.status || record?.approval?.status || record?.result || "";
+}
+
+function FolderRecordsTable({
+  title,
+  description,
+  records,
+  columns,
+  onOpen,
+  onDelete,
+  onNew,
+}: {
+  title: string;
+  description?: string;
+  records: any[];
+  columns: FolderColumn[];
+  onOpen?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onNew?: () => void;
+}) {
+  const safeRecords = Array.isArray(records) ? records : [];
+  return (
+    <section
+      style={{
+        border: "1px solid #dbe3ef",
+        borderRadius: 18,
+        overflow: "hidden",
+        marginBottom: 18,
+        background: "#fff",
+        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          padding: "14px 16px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>{title}</h2>
+          {description ? (
+            <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>{description}</div>
+          ) : null}
+        </div>
+        {onNew ? (
+          <button type="button" style={styles.primaryBtn} onClick={onNew}>
+            חדש
+          </button>
+        ) : null}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            minWidth: 760,
+            fontSize: 14,
+          }}
+        >
+          <thead>
+            <tr style={{ background: "#eef2f7" }}>
+              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
+              {columns.map((column) => (
+                <th
+                  key={column.label}
+                  style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}
+                >
+                  {column.label}
+                </th>
+              ))}
+              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeRecords.length ? (
+              safeRecords.map((record, index) => {
+                const id = String(record?.id ?? index);
+                return (
+                  <tr key={id}>
+                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
+                      {index + 1}
+                    </td>
+                    {columns.map((column) => (
+                      <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
+                        {column.value(record, index) || "-"}
+                      </td>
+                    ))}
+                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                        {onOpen ? (
+                          <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
+                            פתח / ערוך
+                          </button>
+                        ) : null}
+                        {onDelete ? (
+                          <button type="button" style={styles.dangerBtn} onClick={() => onDelete(id)}>
+                            מחק
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={columns.length + 2} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                  אין רשומות להצגה בתיקייה זו.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 type FieldDef = {
   key: string;
   label: string;
@@ -9002,6 +9152,22 @@ ${invalidRecipients.join("\n")}`);
             </div>
           )}
           {section === "controlProcesses" && (
+            <>
+              <FolderRecordsTable
+                title="בקרה מקדימה / תעודות ייחוס"
+                description="כל הרשומות השמורות של תיקייה זו מוצגות כאן בשורות מסודרות."
+                records={projectControlProcesses as any[]}
+                columns={[
+                  { label: "מספר", value: (record) => record.processNo || record.number || record.id },
+                  { label: "כותרת", value: (record) => getRecordTitle(record) },
+                  { label: "תחום", value: (record) => record.workType || record.category || record.type },
+                  { label: "מיקום / שימוש", value: (record) => record.location || record.area },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadControlProcess}
+                onDelete={deleteControlProcess}
+                onNew={resetControlProcessForm}
+              />
             <ControlProcessesSection
               guardedBody={guardedBody}
               form={controlProcessForm}
@@ -9017,8 +9183,24 @@ ${invalidRecipients.join("\n")}`);
               onDelete={deleteControlProcess}
               onLock={lockControlProcess}
             />
+            </>
           )}
           {section === "rfi" && (
+            <>
+              <FolderRecordsTable
+                title="RFI / אישורי מתכנן"
+                description="רשימת כל פניות RFI ואישורי המתכנן בפרויקט."
+                records={projectRfis as any[]}
+                columns={[
+                  { label: "כותרת", value: (record) => getRecordTitle(record) },
+                  { label: "מספר", value: (record) => record.rfiNo || record.number || record.id },
+                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadRfi}
+                onDelete={deleteRfi}
+                onNew={resetRfiForm}
+              />
             <RfiSection
               guardedBody={guardedBody}
               rfiForm={rfiForm}
@@ -9032,6 +9214,7 @@ ${invalidRecipients.join("\n")}`);
               loadRfi={loadRfi}
               projectMeta={currentProjectLegend}
             />
+            </>
           )}
           {section === "supervisionReports" && (
             <SimpleFolderSection
@@ -9082,6 +9265,22 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "checklists" && (
             <>
+              <FolderRecordsTable
+                title="רשימות תיוג"
+                description="כל רשימות התיוג של הפרויקט מוצגות כאן בטבלה במקום לחפש בדף הבית."
+                records={projectChecklists as any[]}
+                columns={[
+                  { label: "מספר", value: (record) => record.checklistNo || record.number || record.id },
+                  { label: "כותרת", value: (record) => getRecordTitle(record) },
+                  { label: "קטגוריה", value: (record) => record.category || record.templateKey },
+                  { label: "מיקום", value: (record) => record.location },
+                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadChecklist}
+                onDelete={deleteChecklist}
+                onNew={resetChecklistForm}
+              />
               <ChecklistsSection
                 guardedBody={guardedBody}
                 editingChecklistId={editingChecklistId}
@@ -9105,6 +9304,22 @@ ${invalidRecipients.join("\n")}`);
             </>
           )}
           {section === "nonconformances" && (
+            <>
+              <FolderRecordsTable
+                title="אי התאמות"
+                description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות."
+                records={projectNonconformances as any[]}
+                columns={[
+                  { label: "כותרת", value: (record) => getRecordTitle(record) },
+                  { label: "מיקום", value: (record) => record.location },
+                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "חומרה", value: (record) => record.severity },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadNonconformance}
+                onDelete={deleteNonconformance}
+                onNew={resetNonconformanceEditor}
+              />
             <EnhancedNonconformancesSection
               guardedBody={guardedBody}
               editingNonconformanceId={editingNonconformanceId}
@@ -9114,8 +9329,24 @@ ${invalidRecipients.join("\n")}`);
               resetNonconformanceEditor={resetNonconformanceEditor}
               closeNonconformance={closeNonconformance}
             />
+            </>
           )}
           {section === "trialSections" && (
+            <>
+              <FolderRecordsTable
+                title="קטעי ניסוי"
+                description="כל קטעי הניסוי של הפרויקט מוצגים כאן בטבלה."
+                records={projectTrialSections as any[]}
+                columns={[
+                  { label: "כותרת", value: (record) => getRecordTitle(record) },
+                  { label: "מיקום", value: (record) => record.location || record.roadStructure || record.area },
+                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadTrialSection}
+                onDelete={deleteTrialSection}
+                onNew={resetTrialSectionEditor}
+              />
             <TrialSectionsSection
               guardedBody={guardedBody}
               editingTrialSectionId={editingTrialSectionId}
@@ -9124,8 +9355,25 @@ ${invalidRecipients.join("\n")}`);
               saveTrialSection={saveTrialSection}
               resetTrialSectionEditor={resetTrialSectionEditor}
             />
+            </>
           )}
           {section === "preliminary" && (
+            <>
+              <FolderRecordsTable
+                title="בקרה מקדימה"
+                description="ספקים, חומרים וקבלני משנה מוצגים כאן לפי רשומות הפרויקט."
+                records={projectPreliminary as any[]}
+                columns={[
+                  { label: "סוג", value: (record) => labelForPreliminary(record.type || record.preliminaryType || record.category) },
+                  { label: "כותרת / שם", value: (record) => getRecordTitle(record) },
+                  { label: "חברה", value: (record) => record.company || record.supplierName || record.contractorName },
+                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                ]}
+                onOpen={loadPreliminary}
+                onDelete={deletePreliminary}
+                onNew={resetPreliminaryEditor}
+              />
             <PreliminarySection
               guardedBody={guardedBody}
               preliminaryTab={preliminaryTab}
@@ -9149,6 +9397,7 @@ ${invalidRecipients.join("\n")}`);
                 qualityControl: currentProjectLegend.qualityControl,
               }}
             />
+            </>
           )}
           {section === "concentrations" && (
             <ConcentrationsSection
