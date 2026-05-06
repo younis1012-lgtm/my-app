@@ -7,14 +7,14 @@
   "dependencies": {
     "@sparticuz/chromium": "^148.0.0",
     "@supabase/supabase-js": "latest",
+    "html2pdf.js": "^0.10.3",
     "jszip": "latest",
     "next": "latest",
     "nodemailer": "^8.0.7",
     "pdfjs-dist": "latest",
     "puppeteer-core": "^24.42.0",
     "react": "latest",
-    "react-dom": "latest",
-    "html2pdf.js": "^0.10.3"
+    "react-dom": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
