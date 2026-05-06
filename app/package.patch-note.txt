@@ -1,0 +1,3 @@
+אין צורך ב-nodemailer או html2pdf.js כ-build dependencies.
+הקובץ app/page.tsx משתמש ב-html2pdf דרך CDN בדפדפן בלבד.
+ה-API שולח מייל דרך Gmail REST API עם fetch מובנה של Node/Next.

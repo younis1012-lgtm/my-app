@@ -8269,6 +8269,33 @@ export default function Page() {
     return uniqueEmailAttachments(attachments);
   };
 
+
+  const loadHtml2Pdf = async () => {
+    const existing = (window as any).html2pdf;
+    if (existing) return existing;
+
+    await new Promise<void>((resolve, reject) => {
+      const currentScript = document.querySelector('script[data-html2pdf="true"]') as HTMLScriptElement | null;
+      if (currentScript) {
+        currentScript.addEventListener("load", () => resolve(), { once: true });
+        currentScript.addEventListener("error", () => reject(new Error("טעינת html2pdf נכשלה")), { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+      script.async = true;
+      script.dataset.html2pdf = "true";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("טעינת html2pdf נכשלה"));
+      document.head.appendChild(script);
+    });
+
+    const loaded = (window as any).html2pdf;
+    if (!loaded) throw new Error("html2pdf לא נטען בדפדפן");
+    return loaded;
+  };
+
   const sendCurrentFormEmail = async () => {
     try {
       const recipientEmail = window.prompt(
@@ -8289,8 +8316,7 @@ export default function Page() {
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
 
-      const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+      const html2pdf = await loadHtml2Pdf();
 
       const pdfContainer = document.createElement("div");
       pdfContainer.innerHTML = html;
