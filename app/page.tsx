@@ -52,9 +52,62 @@ type AppSection =
   | Section
   | "concentrations"
   | "projectDetails"
+  | "projectUsers"
   | "rfi"
   | "supervisionReports"
   | "controlProcesses";
+
+
+type ProjectEmailUser = {
+  id: string;
+  projectId: string;
+  name: string;
+  role: string;
+  company: string;
+  email: string;
+  phone?: string;
+  active: boolean;
+  createdAt: string;
+};
+
+const PROJECT_EMAIL_USERS_STORAGE_KEY = `${STORAGE_KEY}-project-email-users`;
+
+const normalizeEmailList = (value: unknown) =>
+  String(value ?? "")
+    .split(/[;,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const isValidEmailAddress = (value: unknown) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
+
+const readProjectEmailUsers = (): ProjectEmailUser[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PROJECT_EMAIL_USERS_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item: any) => ({
+        id: String(item?.id || crypto.randomUUID()),
+        projectId: normalizeStoredProjectId(item?.projectId),
+        name: String(item?.name || ""),
+        role: String(item?.role || ""),
+        company: String(item?.company || ""),
+        email: String(item?.email || "").trim(),
+        phone: String(item?.phone || ""),
+        active: item?.active !== false,
+        createdAt: String(item?.createdAt || new Date().toISOString()),
+      }))
+      .filter((item: ProjectEmailUser) => item.projectId && item.email);
+  } catch {
+    return [];
+  }
+};
+
+const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
+};
 
 type ProjectProfile = {
   projectName: string;
@@ -5293,6 +5346,88 @@ function ControlProcessesSection({
   );
 }
 
+
+type ProjectUsersSectionProps = {
+  guardedBody: React.ReactNode;
+  projectName: string;
+  users: ProjectEmailUser[];
+  onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
+  onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
+  onDeleteUser: (id: string) => void;
+};
+
+function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser }: ProjectUsersSectionProps) {
+  const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", active: true });
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: 10,
+    padding: "9px 10px",
+    font: "inherit",
+    boxSizing: "border-box",
+    background: "#fff",
+  };
+
+  const add = () => {
+    const email = draft.email.trim();
+    if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
+    if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
+    onAddUser({ ...draft, email, active: true });
+    setDraft({ name: "", role: "", company: "", email: "", phone: "", active: true });
+  };
+
+  return (
+    <section style={styles.section}>
+      {guardedBody ?? (
+        <>
+          <div style={styles.sectionHeader}>
+            <div>
+              <h2 style={{ margin: 0 }}>משתמשים / נמענים לפרויקט</h2>
+              <p style={{ margin: "6px 0 0", color: "#64748b", lineHeight: 1.6 }}>
+                רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginBottom: 16 }}>
+            <input placeholder="שם" value={draft.name} onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))} style={inputStyle} />
+            <input placeholder="תפקיד" value={draft.role} onChange={(e) => setDraft((p) => ({ ...p, role: e.target.value }))} style={inputStyle} />
+            <input placeholder="חברה" value={draft.company} onChange={(e) => setDraft((p) => ({ ...p, company: e.target.value }))} style={inputStyle} />
+            <input placeholder="מייל" value={draft.email} onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))} style={inputStyle} />
+            <input placeholder="טלפון" value={draft.phone} onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))} style={inputStyle} />
+            <button type="button" onClick={add} style={styles.primaryBtn}>הוסף משתמש</button>
+          </div>
+          <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 850 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  {["פעיל", "שם", "תפקיד", "חברה", "מייל", "טלפון", "פעולות"].map((label) => (
+                    <th key={label} style={{ borderBottom: "1px solid #e2e8f0", padding: 10, textAlign: "right" }}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.length ? users.map((user) => (
+                  <tr key={user.id}>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="checkbox" checked={user.active} onChange={(e) => onUpdateUser(user.id, { active: e.target.checked })} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.name} onChange={(e) => onUpdateUser(user.id, { name: e.target.value })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.role} onChange={(e) => onUpdateUser(user.id, { role: e.target.value })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.company} onChange={(e) => onUpdateUser(user.id, { company: e.target.value })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.email} onChange={(e) => onUpdateUser(user.id, { email: e.target.value.trim() })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.phone || ""} onChange={(e) => onUpdateUser(user.id, { phone: e.target.value })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><button type="button" style={styles.dangerBtn} onClick={() => onDeleteUser(user.id)}>מחק</button></td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={7} style={{ padding: 18, textAlign: "center", color: "#64748b" }}>טרם הוגדרו משתמשים לפרויקט זה.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Page() {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6132,6 +6267,41 @@ export default function Page() {
       null,
     [accessibleProjects, currentProjectId],
   );
+
+  const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
+
+  const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
+    setProjectEmailUsers((prev) => {
+      const next = updater(prev);
+      writeProjectEmailUsers(next);
+      return next;
+    });
+  };
+
+  const currentProjectEmailUsers = useMemo(
+    () => projectEmailUsers.filter((user) => normalizeStoredProjectId(user.projectId) === normalizeStoredProjectId(currentProject?.id)),
+    [projectEmailUsers, currentProject],
+  );
+
+  const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
+    if (!currentProject) return alert("יש לבחור פרויקט");
+    saveProjectEmailUsers((prev) => [
+      ...prev,
+      { ...user, id: crypto.randomUUID(), projectId: normalizeStoredProjectId(currentProject.id), email: user.email.trim(), createdAt: nowLocal() },
+    ]);
+  };
+
+  const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
+    saveProjectEmailUsers((prev) =>
+      prev.map((user) => (user.id === id ? { ...user, ...patch, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
+    );
+  };
+
+  const deleteProjectEmailUser = (id: string) => {
+    if (!window.confirm("למחוק משתמש מרשימת הנמענים של הפרויקט?")) return;
+    saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
+  };
+
 
   useEffect(() => {
     const normalized = normalizeStoredProjectId(currentProjectId);
@@ -7637,12 +7807,14 @@ export default function Page() {
     !currentProject &&
     section !== "home" &&
     section !== "projects" &&
-    section !== "projectDetails" ? (
+    section !== "projectDetails" &&
+    section !== "projectUsers" ? (
       <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
     ) : projectLegendMissing &&
       section !== "home" &&
       section !== "projects" &&
-      section !== "projectDetails" ? (
+      section !== "projectDetails" &&
+      section !== "projectUsers" ? (
       <div style={styles.emptyBox}>
         יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.
       </div>
@@ -7654,6 +7826,13 @@ export default function Page() {
       icon: "🏗️",
       description: "מקרא, גורמים ופרטי התקשרות",
       count: currentProject ? 1 : 0,
+    },
+    {
+      key: "projectUsers",
+      title: "משתמשים",
+      icon: "👥",
+      description: "נמעני מיילים של הפרויקט",
+      count: currentProjectEmailUsers.filter((user) => user.active).length,
     },
     ...(isAdminAccess(projectAccess)
       ? [
@@ -8125,10 +8304,9 @@ export default function Page() {
               : section === "controlProcesses"
                 ? controlProcessExportHtml()
                 : "";
-    const attachmentSummary = section === "checklists" ? "" : currentFormAttachmentSummaryTable();
     const header = exportCompanyHeader();
     const footer = exportCompanyFooter();
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${attachmentSummary}${footer}</div></body></html>`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${footer}</div></body></html>`;
   };
 
   const downloadTextFile = (
@@ -8234,89 +8412,6 @@ export default function Page() {
     });
   };
 
-  const attachmentFromAnyObject = (value: any): OutgoingEmailAttachment | null => {
-    if (!value || typeof value !== "object") return null;
-
-    const src =
-      value.dataUrl ??
-      value.dataURL ??
-      value.attachmentDataUrl ??
-      value.attachment_data_url ??
-      value.fileDataUrl ??
-      value.file_data_url ??
-      value.contentDataUrl ??
-      value.content_data_url ??
-      value.url ??
-      value.href ??
-      "";
-
-    const name =
-      value.name ??
-      value.filename ??
-      value.fileName ??
-      value.file_name ??
-      value.attachmentName ??
-      value.attachment_name ??
-      value.title ??
-      value.description ??
-      "מסמך מצורף";
-
-    const type =
-      value.mimeType ??
-      value.mime_type ??
-      value.type ??
-      value.attachmentType ??
-      value.attachment_type ??
-      value.contentType ??
-      value.content_type ??
-      "application/octet-stream";
-
-    return dataUrlToEmailAttachment(name, src, type);
-  };
-
-  const collectAttachmentsDeep = (root: unknown): OutgoingEmailAttachment[] => {
-    const result: Array<OutgoingEmailAttachment | null> = [];
-    const visited = new WeakSet<object>();
-
-    const visit = (value: any) => {
-      if (!value || typeof value !== "object") return;
-      if (visited.has(value)) return;
-      visited.add(value);
-
-      const direct = attachmentFromAnyObject(value);
-      if (direct) result.push(direct);
-
-      if (Array.isArray(value)) {
-        value.forEach(visit);
-        return;
-      }
-
-      Object.keys(value).forEach((key) => {
-        if (["approval", "signature", "signatures", "auditTrail", "audit_log"].includes(key)) return;
-        visit(value[key]);
-      });
-    };
-
-    visit(root);
-    return uniqueEmailAttachments(result);
-  };
-
-  const currentExportSourceObject = () => {
-    if (section === "checklists") return checklistForm;
-    if (section === "nonconformances") return nonconformanceForm as any;
-    if (section === "trialSections") return trialSectionForm as any;
-    if (section === "preliminary") return currentPreliminaryForm as any;
-    if (section === "controlProcesses") return controlProcessForm as any;
-    if (section === "rfi") return rfiForm as any;
-    return null;
-  };
-
-  const currentFormAttachmentSummaryTable = () => {
-    const attachments = collectAttachmentsDeep(currentExportSourceObject());
-    if (!attachments.length) return "";
-    return `<h2>מסמכים שצורפו לטופס</h2><table class="checklist-attachments-export"><thead><tr><th>שם קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${safeText(file.filename)}</td><td>${safeText(file.mimeType || "קובץ")}</td></tr>`).join("")}</tbody></table><div class="attachment-note">המסמכים המצורפים מוטמעים כנספחים בעמודים הבאים של קובץ ה-PDF המאוחד.</div>`;
-  };
-
   const collectCurrentFormEmailAttachments = (): OutgoingEmailAttachment[] => {
     const attachments: Array<OutgoingEmailAttachment | null> = [];
 
@@ -8334,15 +8429,58 @@ export default function Page() {
       });
     }
 
-    // איסוף כללי לכל סוגי הטפסים: ספקים, קבלנים, חומרים, אי-התאמות, קטעי ניסוי ותהליכי בקרה.
-    // המטרה היא שלא להסתמך על שם שדה אחד בלבד כמו images/documents/requiredDocuments.
-    // כל אובייקט שמכיל dataUrl / attachmentDataUrl / url ייכנס ל-PDF המאוחד.
-    collectAttachmentsDeep(currentExportSourceObject()).forEach((file) => {
-      attachments.push(file);
-    });
+    if (section === "rfi") {
+      [
+        ...normalizeAttachments((rfiForm as any)?.documents),
+        ...normalizeAttachments((rfiForm as any)?.attachments),
+      ].forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
+    }
+
+    if (section === "preliminary") {
+      const form: any = currentPreliminaryForm as any;
+      const nested =
+        preliminaryTab === "suppliers"
+          ? form?.supplier
+          : preliminaryTab === "subcontractors"
+            ? form?.subcontractor
+            : form?.material;
+      [
+        ...normalizeAttachments(form?.documents),
+        ...normalizeAttachments(form?.attachments),
+        ...normalizeAttachments(form?.images),
+        ...normalizeAttachments(nested?.documents),
+        ...normalizeAttachments(nested?.attachments),
+        ...normalizeAttachments(nested?.images),
+      ].forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
+    }
+
+    if (section === "trialSections") {
+      normalizeAttachments((trialSectionForm as any)?.images).forEach((file) => {
+        attachments.push(dataUrlToEmailAttachment(file.name, file.dataUrl, file.type));
+      });
+    }
+
+    if (section === "controlProcesses") {
+      normalizeRequiredDocuments((controlProcessForm as any)?.requiredDocuments).forEach(
+        (doc) => {
+          attachments.push(
+            dataUrlToEmailAttachment(
+              doc.attachmentName || doc.description || "מסמך מצורף",
+              doc.attachmentDataUrl,
+              doc.attachmentType,
+            ),
+          );
+        },
+      );
+    }
 
     return uniqueEmailAttachments(attachments);
   };
+
 
   const loadExternalScript = async (src: string, test: () => boolean, label: string) => {
     if (test()) return;
@@ -8430,20 +8568,8 @@ export default function Page() {
   const buildFormOnlyPdfBytes = async (html: string, title: string) => {
     const { html2canvas, jsPDF } = await loadPdfTools();
 
-    const parsed = new DOMParser().parseFromString(html, "text/html");
     const host = document.createElement("div");
-
-    // חשוב: לא מכניסים <!doctype><html><head><body> לתוך div.
-    // זה גרם בדפדפנים מסוימים ל-PDF ראשון ריק.
-    parsed.head.querySelectorAll("style").forEach((style) => {
-      const styleElement = document.createElement("style");
-      styleElement.textContent = style.textContent || "";
-      host.appendChild(styleElement);
-    });
-    const contentWrapper = document.createElement("div");
-    contentWrapper.innerHTML = parsed.body.innerHTML || html;
-    host.appendChild(contentWrapper);
-
+    host.innerHTML = html;
     host.style.position = "fixed";
     host.style.left = "0";
     host.style.top = "0";
@@ -8453,7 +8579,6 @@ export default function Page() {
     host.style.zIndex = "2147483647";
     host.style.pointerEvents = "none";
     host.style.boxShadow = "none";
-    host.style.overflow = "visible";
     document.body.appendChild(host);
 
     try {
@@ -8461,14 +8586,7 @@ export default function Page() {
       host.querySelectorAll("object,iframe").forEach((node) => node.remove());
       await waitForImagesToLoad(host);
 
-      const page = (host.querySelector(".export-page") as HTMLElement) || contentWrapper;
-      page.style.width = "1123px";
-      page.style.maxWidth = "1123px";
-      page.style.minHeight = "200px";
-      page.style.background = "#ffffff";
-
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
+      const page = (host.querySelector(".export-page") as HTMLElement) || host;
       const canvas = await html2canvas(page, {
         scale: 2,
         useCORS: true,
@@ -8476,31 +8594,11 @@ export default function Page() {
         backgroundColor: "#ffffff",
         scrollX: 0,
         scrollY: 0,
-        width: page.scrollWidth || 1123,
-        height: page.scrollHeight || 794,
-        windowWidth: Math.max(page.scrollWidth || 1123, 1123),
-        windowHeight: Math.max(page.scrollHeight || 794, 794),
+        windowWidth: 1123,
+        windowHeight: Math.max(page.scrollHeight, 794),
       });
 
       if (!canvas.width || !canvas.height) throw new Error("יצירת צילום הטופס נכשלה");
-
-      // בדיקה שמונעת שליחת PDF עם עמוד ראשון ריק.
-      const sampleCtx = canvas.getContext("2d");
-      const sample = sampleCtx?.getImageData(0, 0, canvas.width, canvas.height).data;
-      if (sample) {
-        let nonWhitePixels = 0;
-        for (let i = 0; i < sample.length; i += 64) {
-          const r = sample[i];
-          const g = sample[i + 1];
-          const b = sample[i + 2];
-          const a = sample[i + 3];
-          if (a > 10 && (r < 245 || g < 245 || b < 245)) nonWhitePixels += 1;
-          if (nonWhitePixels > 30) break;
-        }
-        if (nonWhitePixels <= 30) {
-          throw new Error("יצירת PDF נכשלה: הטופס יצא ריק. נא לנסות שוב או לשלוח את קובץ page.tsx לבדיקה.");
-        }
-      }
 
       const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const pageWidth = 297;
@@ -8615,19 +8713,36 @@ export default function Page() {
 
   const sendCurrentFormEmail = async () => {
     try {
-      const recipientEmail = window.prompt(
-        "לאיזה מייל לשלוח?",
-        FIXED_EMAIL_RECIPIENT,
-      );
+      const activeProjectUsers = currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email));
+      const usersText = activeProjectUsers
+        .map((user, index) => `${index + 1}. ${user.name}${user.role ? " - " + user.role : ""}${user.company ? " - " + user.company : ""} <${user.email}>`)
+        .join("
+");
+      const promptText = activeProjectUsers.length
+        ? `בחר נמענים מרשימת משתמשי הפרויקט לפי מספרים מופרדים בפסיק, או הקלד כתובות מייל ידנית:
 
-      const normalizedRecipient = String(recipientEmail || "").trim();
-      if (!normalizedRecipient) return;
+${usersText}
 
-      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailPattern.test(normalizedRecipient)) {
-        alert("כתובת המייל אינה תקינה");
+דוגמה: 1,3 או user@email.com, other@email.com`
+        : "לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:";
+      const recipientInput = window.prompt(promptText, activeProjectUsers.length ? "1" : FIXED_EMAIL_RECIPIENT);
+      const rawRecipients = normalizeEmailList(recipientInput);
+      if (!rawRecipients.length) return;
+
+      const selectedEmails = rawRecipients.flatMap((value) => {
+        const index = Number(value);
+        if (Number.isInteger(index) && index >= 1 && index <= activeProjectUsers.length) return [activeProjectUsers[index - 1].email];
+        return [value];
+      });
+      const uniqueRecipients = Array.from(new Set(selectedEmails.map((email) => email.trim()).filter(Boolean)));
+      const invalidRecipients = uniqueRecipients.filter((email) => !isValidEmailAddress(email));
+      if (invalidRecipients.length) {
+        alert(`כתובות המייל הבאות אינן תקינות:
+${invalidRecipients.join("
+")}`);
         return;
       }
+      const normalizedRecipient = uniqueRecipients.join(", ");
 
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
@@ -8643,7 +8758,7 @@ export default function Page() {
 
       const attachments = uniqueEmailAttachments([formPdfAttachment]);
 
-      const response = await fetch("/api/send-email", {
+      const response = await fetch("/api/send-checklist-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -8682,6 +8797,7 @@ export default function Page() {
     ? [
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
+        ["projectUsers", "משתמשים"],
         ["projects", "פרויקטים"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
@@ -8695,6 +8811,7 @@ export default function Page() {
     : [
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
+        ["projectUsers", "משתמשים"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
@@ -8944,6 +9061,16 @@ export default function Page() {
               renameProject={renameProject}
               updateProjectMeta={updateProjectMeta}
               deleteProject={deleteProject}
+            />
+          )}
+          {section === "projectUsers" && (
+            <ProjectUsersSection
+              guardedBody={guardedBody}
+              projectName={projectName}
+              users={currentProjectEmailUsers}
+              onAddUser={addProjectEmailUser}
+              onUpdateUser={updateProjectEmailUser}
+              onDeleteUser={deleteProjectEmailUser}
             />
           )}
           {section === "checklists" && (
