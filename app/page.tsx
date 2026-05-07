@@ -3373,6 +3373,158 @@ function getRecordStatus(record: any) {
   return record?.status || record?.approval?.status || record?.result || "";
 }
 
+
+function pickRecordValue(record: any, paths: string[]) {
+  for (const path of paths) {
+    const value = path.split('.').reduce((acc: any, key) => acc?.[key], record);
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+
+function approvalStatusLabel(record: any) {
+  const raw = String(
+    pickRecordValue(record, [
+      'status',
+      'approval.status',
+      'approval.decision',
+      'result',
+    ]) || '',
+  );
+  if (/מאושר|approved|אושר/i.test(raw)) return 'מאושר';
+  return 'בטיפול';
+}
+
+function getChecklistRoadStructure(record: any) {
+  return pickRecordValue(record, [
+    'roadStructure',
+    'building',
+    'element',
+    'structure',
+    'location',
+  ]);
+}
+
+function getPreliminarySubtype(record: any): PreliminaryTab {
+  const raw = String(record?.subtype || record?.type || record?.preliminaryType || record?.category || '').toLowerCase();
+  if (raw.includes('subcontract') || raw.includes('contractor') || raw.includes('קבל')) return 'subcontractors';
+  if (raw.includes('material') || raw.includes('חומר')) return 'materials';
+  return 'suppliers';
+}
+
+function getPreliminaryApprovalDate(record: any) {
+  return pickRecordValue(record, [
+    'approvalDate',
+    'approvedAt',
+    'approval.approvedAt',
+    'approval.date',
+    'date',
+    'savedAt',
+  ]);
+}
+
+function getPreliminaryExpiryDate(record: any) {
+  return pickRecordValue(record, [
+    'expiryDate',
+    'expirationDate',
+    'validUntil',
+    'validTo',
+    'approvalExpiryDate',
+    'certificateExpiryDate',
+    'supplier.expiryDate',
+    'supplier.expirationDate',
+    'supplier.validUntil',
+    'subcontractor.expiryDate',
+    'subcontractor.expirationDate',
+    'subcontractor.validUntil',
+    'material.expiryDate',
+    'material.expirationDate',
+    'material.validUntil',
+  ]);
+}
+
+function getPreliminarySupplierName(record: any) {
+  return pickRecordValue(record, [
+    'supplier.supplierName',
+    'supplierName',
+    'supplier.name',
+    'company',
+  ]);
+}
+
+function getPreliminarySuppliedMaterial(record: any) {
+  return pickRecordValue(record, [
+    'supplier.suppliedMaterial',
+    'suppliedMaterial',
+    'material.materialName',
+    'materialName',
+    'material.type',
+    'material.source',
+  ]);
+}
+
+function getPreliminarySubcontractorName(record: any) {
+  return pickRecordValue(record, [
+    'subcontractor.subcontractorName',
+    'subcontractorName',
+    'contractorName',
+    'company',
+  ]);
+}
+
+function getPreliminarySubcontractorField(record: any) {
+  return pickRecordValue(record, [
+    'subcontractor.field',
+    'field',
+    'workField',
+    'workType',
+    'scope',
+  ]);
+}
+
+function getPreliminaryMaterialSupplier(record: any) {
+  return pickRecordValue(record, [
+    'material.supplierName',
+    'material.supplier',
+    'supplierName',
+    'supplier.supplierName',
+    'material.source',
+    'source',
+    'company',
+  ]);
+}
+
+function getPreliminaryMaterialType(record: any) {
+  return pickRecordValue(record, [
+    'material.materialName',
+    'materialName',
+    'material.type',
+    'suppliedMaterial',
+    'supplier.suppliedMaterial',
+  ]);
+}
+
+function isExpiredDate(value: any) {
+  if (!value) return false;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime() < today.getTime();
+}
+
+function ExpiryValue({ value }: { value: any }) {
+  const text = String(value || '');
+  const expired = isExpiredDate(text);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center', fontWeight: 900 }}>
+      {text || '-'}
+      {expired ? <span title="פג תוקף" style={{ color: '#dc2626', fontSize: 18, lineHeight: 1 }}>✕</span> : null}
+    </span>
+  );
+}
+
 function FolderRecordsTable({
   title,
   description,
@@ -9327,12 +9479,12 @@ ${invalidRecipients.join("\n")}`);
                 description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
                 records={selectedChecklistRecords as any[]}
                 columns={[
-                  { label: "מספר", value: (record) => record.checklistNo || record.number || record.id },
+                  { label: "מספר", value: (_record, index) => index + 1 },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
-                  { label: "קטגוריה", value: (record) => record.category || record.templateKey },
-                  { label: "מיקום", value: (record) => record.location },
+                  { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
+                  { label: "כביש / מבנה", value: (record) => getChecklistRoadStructure(record) },
                   { label: "תאריך", value: (record) => getRecordDate(record) },
-                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
+                  { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
                 ]}
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
@@ -9420,13 +9572,34 @@ ${invalidRecipients.join("\n")}`);
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
                 description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
-                columns={[
-                  { label: "סוג", value: (record) => labelForPreliminary(record.type || record.preliminaryType || record.category) },
-                  { label: "כותרת / שם", value: (record) => getRecordTitle(record) },
-                  { label: "חברה", value: (record) => record.company || record.supplierName || record.contractorName },
-                  { label: "תאריך", value: (record) => getRecordDate(record) },
-                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
-                ]}
+                columns={
+                  preliminaryTab === "subcontractors"
+                    ? [
+                        { label: "סוג", value: () => "קבלנים" },
+                        { label: "שם קבלן מאושר", value: (record) => getPreliminarySubcontractorName(record) },
+                        { label: "תחום עבודה", value: (record) => getPreliminarySubcontractorField(record) },
+                        { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
+                        { label: "תאריך תפוגה", value: (record) => <ExpiryValue value={getPreliminaryExpiryDate(record)} /> },
+                        { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
+                      ]
+                    : preliminaryTab === "materials"
+                      ? [
+                          { label: "סוג", value: () => "חומרים" },
+                          { label: "שם ספק", value: (record) => getPreliminaryMaterialSupplier(record) },
+                          { label: "סוג חומר מסופק", value: (record) => getPreliminaryMaterialType(record) },
+                          { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
+                          { label: "תאריך תפוגה", value: (record) => <ExpiryValue value={getPreliminaryExpiryDate(record)} /> },
+                          { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
+                        ]
+                      : [
+                          { label: "סוג", value: () => "ספק" },
+                          { label: "שם ספק", value: (record) => getPreliminarySupplierName(record) },
+                          { label: "חומר מסופק", value: (record) => getPreliminarySuppliedMaterial(record) },
+                          { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
+                          { label: "תאריך תפוגה", value: (record) => <ExpiryValue value={getPreliminaryExpiryDate(record)} /> },
+                          { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
+                        ]
+                }
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
