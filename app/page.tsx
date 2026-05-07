@@ -3431,15 +3431,9 @@ function getRecordStatus(record: any) {
 
 function getFinalApprovalStatus(record: any) {
   const approval = normalizeApproval(record?.approval);
-  const required = Array.isArray(approval?.signatures)
-    ? approval.signatures.filter((item: any) => Boolean(item?.required))
-    : [];
-  const allRequiredSigned =
-    required.length > 0 &&
-    required.every((item: any) => Boolean(item?.signerName && item?.signature && item?.signedAt));
-  const recordStatus = String(record?.status || "").trim();
-  const approvalStatus = String(approval?.status || "").trim();
-  return recordStatus === "מאושר" || approvalStatus === "מאושר" || allRequiredSigned ? "מאושר" : "בטיפול";
+  const required = approval.signatures.filter((item) => item.required);
+  const allRequiredSigned = required.length > 0 && required.every((item) => item.signerName && item.signature && item.signedAt);
+  return record?.status === "מאושר" || approval.status === "מאושר" || allRequiredSigned ? "מאושר" : "בטיפול";
 }
 
 function getChecklistLocation(record: any) {
@@ -8049,7 +8043,7 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const record: PreliminaryRecord = {
+    const record = {
       id,
       projectId: normalizedProjectId,
       ...form,
@@ -8057,7 +8051,7 @@ export default function Page() {
       requiredDocuments: normalizeRequiredDocuments((form as any).requiredDocuments),
       approval: normalizeApproval(form.approval),
       savedAt: nowLocal(),
-    };
+    } as PreliminaryRecord & { requiredDocuments?: ReturnType<typeof normalizeRequiredDocuments> };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = {
