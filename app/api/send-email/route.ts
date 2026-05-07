@@ -28,10 +28,7 @@ type EmailPayload = {
 function toList(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap((item) => toList(item));
   if (typeof value !== "string") return [];
-  return value
-    .split(/[;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function uniqueList(value: unknown): string[] {
@@ -80,16 +77,6 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function getTransporter() {
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: requireEnv("EMAIL_USER"),
-      pass: requireEnv("EMAIL_APP_PASSWORD"),
-    },
-  });
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as EmailPayload;
@@ -111,20 +98,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const attachments = normalizeAttachments(body.attachments);
-    const subject = body.subject?.trim() || "Y.K QUALITY document";
-    const text = body.text?.trim() || "Attached PDF document from Y.K QUALITY.";
-    const html = body.html?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>';
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: requireEnv("EMAIL_USER"),
+        pass: requireEnv("EMAIL_APP_PASSWORD"),
+      },
+    });
 
-    const result = await getTransporter().sendMail({
+    const attachments = normalizeAttachments(body.attachments);
+
+    const result = await transporter.sendMail({
       from: requireEnv("EMAIL_USER"),
       to: joinEmails(toItems),
       cc: ccItems.length ? joinEmails(ccItems) : undefined,
       bcc: bccItems.length ? joinEmails(bccItems) : undefined,
       replyTo: body.replyTo || undefined,
-      subject,
-      text,
-      html,
+      subject: body.subject?.trim() || "Y.K QUALITY document",
+      text: body.text?.trim() || "Attached PDF document from Y.K QUALITY.",
+      html: body.html?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>',
       attachments,
     });
 
