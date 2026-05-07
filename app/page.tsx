@@ -8098,7 +8098,7 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const record: PreliminaryRecord = {
+    const record: any = {
       id,
       projectId: normalizedProjectId,
       ...form,
