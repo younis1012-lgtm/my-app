@@ -9,6 +9,7 @@
     "@supabase/supabase-js": "latest",
     "jszip": "latest",
     "next": "latest",
+    "nodemailer": "^8.0.7",
     "pdfjs-dist": "latest",
     "puppeteer-core": "^24.42.0",
     "react": "latest",
