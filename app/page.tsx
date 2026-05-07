@@ -70,7 +70,6 @@ type ProjectEmailUser = {
 };
 
 const PROJECT_EMAIL_USERS_STORAGE_KEY = `${STORAGE_KEY}-project-email-users`;
-const PROJECT_EMAIL_USERS_CLOUD_PREFIX = "__project_email_users__:";
 
 const normalizeEmailList = (value: unknown) =>
   String(value ?? "")
@@ -109,93 +108,57 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
 };
 
-const normalizeProjectEmailUser = (item: any): ProjectEmailUser | null => {
-  const projectId = normalizeStoredProjectId(item?.projectId ?? item?.project_id);
-  const email = String(item?.email ?? "").trim();
-  if (!projectId || !email) return null;
-  return {
-    id: String(item?.id || crypto.randomUUID()),
-    projectId,
-    name: String(item?.name || ""),
-    role: String(item?.role || ""),
-    company: String(item?.company || ""),
-    email,
-    phone: String(item?.phone || ""),
-    active: item?.active !== false,
-    createdAt: String(item?.createdAt || item?.created_at || new Date().toISOString()),
-  };
-};
+const PROJECT_EMAIL_USERS_TABLE = "project_email_users";
 
-const projectEmailUsersCloudKey = (projectId: string) =>
-  `${PROJECT_EMAIL_USERS_CLOUD_PREFIX}${normalizeStoredProjectId(projectId)}`;
+const projectEmailUserFromRow = (row: any): ProjectEmailUser => ({
+  id: String(row?.id || crypto.randomUUID()),
+  projectId: normalizeStoredProjectId(row?.project_id ?? row?.projectId),
+  name: String(row?.name ?? ""),
+  role: String(row?.role ?? ""),
+  company: String(row?.company ?? ""),
+  email: String(row?.email ?? "").trim(),
+  phone: String(row?.phone ?? ""),
+  active: row?.active !== false,
+  createdAt: String(row?.created_at ?? row?.createdAt ?? new Date().toISOString()),
+});
 
-const readProjectEmailUsersFromLegendRows = (rows: any[] | null | undefined): ProjectEmailUser[] => {
-  const result: ProjectEmailUser[] = [];
-  (rows ?? []).forEach((row: any) => {
-    const projectId = String(row?.project_id ?? row?.projectId ?? "");
-    if (!projectId.startsWith(PROJECT_EMAIL_USERS_CLOUD_PREFIX)) return;
-    const realProjectId = normalizeStoredProjectId(projectId.slice(PROJECT_EMAIL_USERS_CLOUD_PREFIX.length));
-    const raw = row?.extra_factors ?? row?.extraFactors ?? [];
-    const holder = Array.isArray(raw)
-      ? raw.find((item: any) => String(item?.label ?? "") === "projectEmailUsers")
-      : null;
-    const value = holder?.value ?? row?.project_name ?? "[]";
-    try {
-      const parsed = JSON.parse(String(value || "[]"));
-      if (Array.isArray(parsed)) {
-        parsed.forEach((entry) => {
-          const user = normalizeProjectEmailUser({ ...entry, projectId: realProjectId });
-          if (user) result.push(user);
-        });
-      }
-    } catch {}
-  });
-  return result;
-};
+const projectEmailUserToRow = (user: ProjectEmailUser) => ({
+  id: user.id,
+  project_id: normalizeStoredProjectId(user.projectId),
+  name: user.name,
+  role: user.role,
+  company: user.company,
+  email: user.email.trim(),
+  phone: user.phone || "",
+  active: user.active !== false,
+  created_at: user.createdAt || nowIso(),
+});
 
 const loadProjectEmailUsersFromSupabase = async (): Promise<ProjectEmailUser[] | null> => {
   if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase
-    .from(PROJECT_LEGEND_TABLE)
-    .select("project_id, project_name, extra_factors");
+  const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
   if (error) {
     if (!shouldIgnoreCloudError(error)) console.warn("Failed to load project email users", error);
     return null;
   }
-  return readProjectEmailUsersFromLegendRows(data as any[]);
+  return (data ?? []).map(projectEmailUserFromRow).filter((user) => user.projectId && user.email);
 };
 
 const saveProjectEmailUsersToSupabase = async (users: ProjectEmailUser[]) => {
-  if (!isSupabaseConfigured || !supabase) return;
-  const grouped = users.reduce<Record<string, ProjectEmailUser[]>>((acc, user) => {
-    const projectId = normalizeStoredProjectId(user.projectId);
-    if (!projectId) return acc;
-    acc[projectId] = [...(acc[projectId] ?? []), user];
-    return acc;
-  }, {});
-  await Promise.all(
-    Object.entries(grouped).map(async ([projectId, projectUsers]) => {
-      const payload = {
-        project_id: projectEmailUsersCloudKey(projectId),
-        project_name: "project email users",
-        project_management: "",
-        contractor: "",
-        quality_assurance: "",
-        quality_control: "",
-        work_manager: "",
-        surveyor: "",
-        supervisor: "",
-        extra_factors: [
-          { id: "projectEmailUsers", label: "projectEmailUsers", value: JSON.stringify(projectUsers) },
-        ],
-        updated_at: nowIso(),
-      };
-      const { error } = await supabase!
-        .from(PROJECT_LEGEND_TABLE)
-        .upsert(payload, { onConflict: "project_id" });
-      if (error && !shouldIgnoreCloudError(error)) throw error;
-    }),
-  );
+  if (!isSupabaseConfigured || !supabase) return false;
+  const normalized = users.filter((user) => user.projectId && user.email).map(projectEmailUserToRow);
+  const deleteResult = await supabase.from(PROJECT_EMAIL_USERS_TABLE).delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  if (deleteResult.error) {
+    if (shouldIgnoreCloudError(deleteResult.error)) return false;
+    throw new Error(errorText(deleteResult.error) || "שגיאה בשמירת משתמשי הפרויקט בענן");
+  }
+  if (!normalized.length) return true;
+  const insertResult = await supabase.from(PROJECT_EMAIL_USERS_TABLE).insert(normalized);
+  if (insertResult.error) {
+    if (shouldIgnoreCloudError(insertResult.error)) return false;
+    throw new Error(errorText(insertResult.error) || "שגיאה בשמירת משתמשי הפרויקט בענן");
+  }
+  return true;
 };
 
 type ProjectProfile = {
@@ -362,6 +325,7 @@ type RequiredDocument = {
   attached: boolean;
   attachmentName?: string;
   attachedAt?: string;
+  expiryDate?: string;
   attachmentDataUrl?: string;
   attachmentType?: string;
 };
@@ -507,6 +471,7 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] =>
         attached: Boolean(item?.attached),
         attachmentName: String(item?.attachmentName ?? ""),
         attachedAt: String(item?.attachedAt ?? ""),
+        expiryDate: String(item?.expiryDate ?? item?.expiry_date ?? item?.validUntil ?? item?.valid_until ?? ""),
         attachmentDataUrl: String(
           item?.attachmentDataUrl ?? item?.dataUrl ?? item?.url ?? "",
         ),
@@ -1481,7 +1446,6 @@ const createDefaultPreliminary = (
           contactPhone: "",
           approvalNo: "",
           notes: "",
-          requiredDocuments: [],
         }
       : undefined,
   subcontractor:
@@ -1492,7 +1456,6 @@ const createDefaultPreliminary = (
           contactPhone: "",
           approvalNo: "",
           notes: "",
-          requiredDocuments: [],
         }
       : undefined,
   material:
@@ -1503,11 +1466,11 @@ const createDefaultPreliminary = (
           usage: "",
           certificateNo: "",
           notes: "",
-          requiredDocuments: [],
         }
       : undefined,
+  requiredDocuments: [],
   approval: createQualityControlApproval(),
-});
+} as any);
 
 const isSupabaseHeaderEncodingError = (error: unknown) =>
   String(error ?? "").includes(SUPABASE_HEADER_ERROR_FRAGMENT);
@@ -3466,91 +3429,44 @@ function getRecordStatus(record: any) {
   return record?.status || record?.approval?.status || record?.result || "";
 }
 
-const isApprovedRecord = (record: any) => {
-  const status = String(record?.status ?? record?.approval?.status ?? "").trim();
-  if (["מאושר", "מאושרת", "approved", "Approved"].includes(status)) return true;
-  const flow = record?.approval;
-  if (flow && typeof flow === "object") {
-    const approvers = [flow.qualityController, flow.contractor, flow.manager, flow.supervisor, flow.client, flow.approver].filter(Boolean);
-    if (approvers.length && approvers.every((entry: any) => String(entry?.status ?? "") === "מאושר")) return true;
-  }
-  return false;
-};
+function getFinalApprovalStatus(record: any) {
+  const approval = normalizeApproval(record?.approval);
+  const required = approval.signatures.filter((item) => item.required);
+  const allRequiredSigned = required.length > 0 && required.every((item) => item.signerName && item.signature && item.signedAt);
+  return record?.status === "מאושר" || approval.status === "מאושר" || allRequiredSigned ? "מאושר" : "בטיפול";
+}
 
-const approvalStatusLabel = (record: any) => (isApprovedRecord(record) ? "מאושר" : "בטיפול");
+function getChecklistLocation(record: any) {
+  return String(record?.roadStructure || record?.building || record?.structure || record?.element || record?.location || "");
+}
 
-const getChecklistDisplayNumber = (record: any, index: number) => {
-  const direct = record?.checklistNo ?? record?.checklist_no ?? record?.number;
-  const parsed = Number(direct);
-  if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  const text = String(record?.title ?? "");
-  const match =
-    text.match(/מס[׳'’`]?\s*(\d+)/) ??
-    text.match(/No[.\s:-]*(\d+)/i) ??
-    text.match(/#\s*(\d+)/) ??
-    text.match(/(?:^|\s)(\d+)(?:\s|$)/);
-  const fromTitle = match ? Number(match[1]) || 0 : 0;
-  return fromTitle || index + 1;
-};
+function getPreliminaryDocuments(record: any) {
+  return normalizeRequiredDocuments(record?.requiredDocuments ?? record?.required_documents);
+}
 
-const getChecklistRoadStructure = (record: any) =>
-  String(record?.roadStructure ?? record?.road_structure ?? record?.building ?? record?.structure ?? record?.element ?? "");
+function getPreliminaryExpiryDate(record: any) {
+  const docs = getPreliminaryDocuments(record);
+  const firstWithExpiry = docs.find((doc: any) => doc.expiryDate);
+  return firstWithExpiry?.expiryDate || "";
+}
 
-const firstRequiredDocument = (record: any) => {
-  const source = record?.supplier ?? record?.subcontractor ?? record?.material ?? record;
-  return normalizeRequiredDocuments(
-    source?.requiredDocuments ?? source?.required_documents ?? record?.requiredDocuments ?? record?.required_documents,
-  )[0] ?? null;
-};
+function getPreliminaryAttachmentCount(record: any) {
+  return getPreliminaryDocuments(record).filter((doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl).length;
+}
 
-const getPreliminaryExpiryDate = (record: any) => {
-  const doc = firstRequiredDocument(record);
-  const source = record?.supplier ?? record?.subcontractor ?? record?.material ?? record;
-  return String(
-    doc?.attachedAt ||
-      source?.expiryDate ||
-      source?.expirationDate ||
-      source?.validUntil ||
-      source?.certificateExpiryDate ||
-      record?.expiryDate ||
-      "",
-  );
-};
-
-const getPreliminaryApprovalDate = (record: any) => {
-  const source = record?.supplier ?? record?.subcontractor ?? record?.material ?? record;
-  return String(source?.approvalDate || source?.approvedAt || source?.date || record?.date || "");
-};
-
-const isExpiredDate = (value: unknown) => {
-  const text = String(value ?? "").trim();
-  if (!text) return false;
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  parsed.setHours(0, 0, 0, 0);
-  return parsed < today;
-};
-
-const expiryDisplay = (value: unknown) => {
-  const text = String(value ?? "").trim();
-  return isExpiredDate(text) ? <span style={{ color: "#dc2626", fontWeight: 950 }}>✕ {text}</span> : text;
-};
-
-const getPreliminaryPrimaryName = (record: any) => {
-  if (record?.subtype === "suppliers") return record?.supplier?.supplierName || record?.supplierName || "";
-  if (record?.subtype === "subcontractors") return record?.subcontractor?.subcontractorName || record?.contractorName || "";
-  if (record?.subtype === "materials") return record?.supplier?.supplierName || record?.material?.supplierName || record?.supplierName || "";
+function getPreliminaryName(record: any) {
+  if (record?.subtype === "suppliers") return record?.supplier?.supplierName || "";
+  if (record?.subtype === "subcontractors") return record?.subcontractor?.subcontractorName || "";
+  if (record?.subtype === "materials") return record?.material?.source || record?.supplier?.supplierName || "";
   return "";
-};
+}
 
-const getPreliminarySecondary = (record: any) => {
+function getPreliminarySubject(record: any) {
   if (record?.subtype === "suppliers") return record?.supplier?.suppliedMaterial || "";
   if (record?.subtype === "subcontractors") return record?.subcontractor?.field || "";
-  if (record?.subtype === "materials") return record?.material?.materialName || record?.material?.suppliedMaterial || "";
+  if (record?.subtype === "materials") return record?.material?.materialName || record?.material?.usage || "";
   return getRecordTitle(record);
-};
+}
 
 function FolderRecordsTable({
   title,
@@ -5381,6 +5297,9 @@ function ControlProcessesSection({
                   תיאור
                 </th>
                 <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
+                  תאריך תפוגה / תוקף
+                </th>
+                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
                   קובץ
                 </th>
                 <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
@@ -5419,6 +5338,15 @@ function ControlProcessesSection({
                             description: e.target.value,
                           })
                         }
+                        style={inputStyle}
+                      />
+                    </td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
+                      <input
+                        disabled={readOnly}
+                        type="date"
+                        value={(doc as any).expiryDate || ""}
+                        onChange={(e) => updateDocument(doc.id, { expiryDate: e.target.value } as any)}
                         style={inputStyle}
                       />
                     </td>
@@ -5682,7 +5610,7 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
-  onSaveUsers: () => void;
+  onSaveUsers: () => void | Promise<void>;
 };
 
 function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
@@ -6289,7 +6217,6 @@ export default function Page() {
         title: row.title ?? "",
         category: row.category ?? "",
         location: row.location ?? "",
-        roadStructure: row.road_structure ?? row.roadStructure ?? row.building ?? "",
         date: row.date ?? "",
         contractor: row.contractor ?? "",
         notes: row.notes ?? "",
@@ -6350,6 +6277,7 @@ export default function Page() {
         supplier: row.supplier ?? undefined,
         subcontractor: row.subcontractor ?? undefined,
         material: row.material ?? undefined,
+        requiredDocuments: normalizeRequiredDocuments(row.required_documents ?? row.requiredDocuments),
         approval: normalizeApproval(row.approval),
         savedAt: row.saved_at
           ? new Date(row.saved_at).toLocaleString("he-IL")
@@ -6380,6 +6308,7 @@ export default function Page() {
           prelimRes,
           rfiRes,
           controlRes,
+          emailUsersRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectTable("checklists", "saved_at"),
@@ -6388,6 +6317,7 @@ export default function Page() {
           selectTable("preliminary_records", "saved_at"),
           selectTable("rfi_records", "created_at"),
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
+          selectTable(PROJECT_EMAIL_USERS_TABLE, "created_at"),
         ]);
         const fatal = [
           projectsRes.error,
@@ -6397,6 +6327,7 @@ export default function Page() {
           prelimRes.error,
           rfiRes.error,
           controlRes.error,
+          emailUsersRes.error,
         ].filter((item) => item && !shouldIgnoreCloudError(item));
         if (fatal.length) throw fatal[0];
         loadFromCloudResults(
@@ -6408,10 +6339,10 @@ export default function Page() {
           rfiRes.data,
           controlRes.data,
         );
-        const cloudProjectUsers = await loadProjectEmailUsersFromSupabase();
-        if (cloudProjectUsers) {
-          setProjectEmailUsers(cloudProjectUsers);
-          writeProjectEmailUsers(cloudProjectUsers);
+        const cloudEmailUsers = (emailUsersRes.data ?? []).map(projectEmailUserFromRow).filter((user: ProjectEmailUser) => user.projectId && user.email);
+        if (cloudEmailUsers.length || !emailUsersRes.error) {
+          setProjectEmailUsers(cloudEmailUsers);
+          writeProjectEmailUsers(cloudEmailUsers);
         }
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
@@ -6476,6 +6407,7 @@ export default function Page() {
       prelimRes,
       rfiRes,
       controlRes,
+      emailUsersRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectTable("checklists", "saved_at"),
@@ -6484,6 +6416,7 @@ export default function Page() {
       selectTable("preliminary_records", "saved_at"),
       selectTable("rfi_records", "created_at"),
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
+      selectTable(PROJECT_EMAIL_USERS_TABLE, "created_at"),
     ]);
     const fatal = [
       projectsRes.error,
@@ -6493,6 +6426,7 @@ export default function Page() {
       prelimRes.error,
       rfiRes.error,
       controlRes.error,
+      emailUsersRes.error,
     ].filter((item) => item && !shouldIgnoreCloudError(item));
     if (fatal.length) throw fatal[0];
     loadFromCloudResults(
@@ -6504,6 +6438,11 @@ export default function Page() {
       rfiRes.data,
       controlRes.data,
     );
+    const cloudEmailUsers = (emailUsersRes.data ?? []).map(projectEmailUserFromRow).filter((user: ProjectEmailUser) => user.projectId && user.email);
+    if (cloudEmailUsers.length || !emailUsersRes.error) {
+      setProjectEmailUsers(cloudEmailUsers);
+      writeProjectEmailUsers(cloudEmailUsers);
+    }
   };
 
   const withSaving = async (action: () => Promise<void>) => {
@@ -6614,7 +6553,6 @@ export default function Page() {
     setProjectEmailUsers((prev) => {
       const next = updater(prev);
       writeProjectEmailUsers(next);
-      if (cloudEnabled) void saveProjectEmailUsersToSupabase(next).catch((error) => console.warn("Failed to save project users to cloud", error));
       return next;
     });
   };
@@ -6648,14 +6586,30 @@ export default function Page() {
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    writeProjectEmailUsers(projectEmailUsers);
-    try {
-      if (cloudEnabled) await saveProjectEmailUsersToSupabase(projectEmailUsers);
-      alert(cloudEnabled ? "משתמשי הפרויקט נשמרו בענן בהצלחה" : "משתמשי הפרויקט נשמרו בהצלחה");
-    } catch (error) {
-      console.error("Failed to save project users", error);
-      alert(`שגיאה בשמירת משתמשים בענן: ${errorText(error)}`);
+    const normalized = projectEmailUsers.map((user) => ({
+      ...user,
+      projectId: normalizeStoredProjectId(user.projectId),
+      email: user.email.trim(),
+    })).filter((user) => user.projectId && user.email);
+    writeProjectEmailUsers(normalized);
+    setProjectEmailUsers(normalized);
+    if (cloudEnabled) {
+      try {
+        const savedToCloud = await saveProjectEmailUsersToSupabase(normalized);
+        if (!savedToCloud) {
+          alert("משתמשי הפרויקט נשמרו בדפדפן. לשמירה בענן יש ליצור טבלה בשם project_email_users ב-Supabase.");
+          return;
+        }
+        await refreshCloudData();
+        alert("משתמשי הפרויקט נשמרו בענן בהצלחה");
+        return;
+      } catch (error) {
+        console.error("Project email users cloud save failed", error);
+        alert(`שגיאה בשמירת משתמשי הפרויקט בענן: ${errorText(error)}`);
+        return;
+      }
     }
+    alert("משתמשי הפרויקט נשמרו בהצלחה");
   };
 
 
@@ -8094,6 +8048,7 @@ export default function Page() {
       projectId: normalizedProjectId,
       ...form,
       title,
+      requiredDocuments: normalizeRequiredDocuments((form as any).requiredDocuments),
       approval: normalizeApproval(form.approval),
       savedAt: nowLocal(),
     };
@@ -8109,6 +8064,7 @@ export default function Page() {
           supplier: record.supplier ?? null,
           subcontractor: record.subcontractor ?? null,
           material: record.material ?? null,
+          required_documents: normalizeRequiredDocuments((record as any).requiredDocuments),
           approval: record.approval,
           saved_at: nowIso(),
         };
@@ -8142,6 +8098,7 @@ export default function Page() {
         status: record.status,
         supplier:
           record.supplier ?? createDefaultPreliminary("suppliers").supplier,
+        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
       });
     if (record.subtype === "subcontractors")
@@ -8153,6 +8110,7 @@ export default function Page() {
         subcontractor:
           record.subcontractor ??
           createDefaultPreliminary("subcontractors").subcontractor,
+        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
       });
     if (record.subtype === "materials")
@@ -8163,6 +8121,7 @@ export default function Page() {
         status: record.status,
         material:
           record.material ?? createDefaultPreliminary("materials").material,
+        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
       });
   };
@@ -8595,7 +8554,7 @@ export default function Page() {
       (doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl,
     );
     if (!docs.length) return "";
-    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>תאריך תפוגה</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc: any) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${valueOrBlank(doc.expiryDate, 16)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td></tr>`).join("")}</tbody></table>`;
   };
 
   const controlProcessExportHtml = () =>
@@ -9015,11 +8974,25 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const { PDFDocument } = await loadPdfTools();
     const src = String(attachment.contentBase64 || attachment.url || "").trim();
     const mimeType = String(attachment.mimeType || "").toLowerCase();
-    const bytesInfo = attachment.contentBase64
+    let bytesInfo = attachment.contentBase64
       ? { mimeType: mimeType || "application/octet-stream", bytes: Uint8Array.from(atob(attachment.contentBase64.replace(/\s/g, "")), (c) => c.charCodeAt(0)) }
       : src.startsWith("data:")
         ? dataUrlToBytes(src)
         : null;
+    if (!bytesInfo && /^https?:\/\//i.test(src)) {
+      try {
+        const response = await fetch(src);
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          bytesInfo = {
+            mimeType: mimeType || response.headers.get("content-type") || "application/octet-stream",
+            bytes: new Uint8Array(buffer),
+          };
+        }
+      } catch (error) {
+        console.warn("Attachment fetch failed", attachment.filename, error);
+      }
+    }
     if (!bytesInfo) return;
 
     const bytes = bytesInfo.bytes;
@@ -9519,12 +9492,12 @@ ${invalidRecipients.join("\n")}`);
                 description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
                 records={selectedChecklistRecords as any[]}
                 columns={[
-                  { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
+                  { label: "מספר", value: (record, index) => record.checklistNo || index + 1 },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
-                  { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
-                  { label: "מיקום", value: (record) => getChecklistRoadStructure(record) },
+                  { label: "קטגוריה", value: (record) => record.category || record.templateKey },
+                  { label: "מיקום", value: (record) => getChecklistLocation(record) },
                   { label: "תאריך", value: (record) => getRecordDate(record) },
-                  { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
+                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
@@ -9612,31 +9585,25 @@ ${invalidRecipients.join("\n")}`);
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
                 description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
-                columns={
-                  preliminaryTab === "suppliers"
-                    ? [
-                        { label: "שם ספק", value: (record) => getPreliminaryPrimaryName(record) },
-                        { label: "חומר מסופק", value: (record) => getPreliminarySecondary(record) },
-                        { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
-                        { label: "תאריך תפוגה", value: (record) => expiryDisplay(getPreliminaryExpiryDate(record)) },
-                        { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
-                      ]
-                    : preliminaryTab === "subcontractors"
-                      ? [
-                          { label: "שם קבלן מאושר", value: (record) => getPreliminaryPrimaryName(record) },
-                          { label: "תחום עבודה", value: (record) => getPreliminarySecondary(record) },
-                          { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
-                          { label: "תאריך תפוגה", value: (record) => expiryDisplay(getPreliminaryExpiryDate(record)) },
-                          { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
-                        ]
-                      : [
-                          { label: "שם ספק", value: (record) => getPreliminaryPrimaryName(record) },
-                          { label: "סוג חומר מסופק", value: (record) => getPreliminarySecondary(record) },
-                          { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) },
-                          { label: "תאריך תפוגה", value: (record) => expiryDisplay(getPreliminaryExpiryDate(record)) },
-                          { label: "סטטוס", value: (record) => approvalStatusLabel(record) },
-                        ]
-                }
+                columns={preliminaryTab === "suppliers" ? [
+                  { label: "ספק", value: (record) => getPreliminaryName(record) },
+                  { label: "חומר מסופק", value: (record) => getPreliminarySubject(record) },
+                  { label: "מסמכים", value: (record) => getPreliminaryAttachmentCount(record) ? `${getPreliminaryAttachmentCount(record)} צורפו` : "" },
+                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
+                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
+                ] : preliminaryTab === "subcontractors" ? [
+                  { label: "שם קבלן מאושר", value: (record) => getPreliminaryName(record) },
+                  { label: "תחום עבודה", value: (record) => getPreliminarySubject(record) },
+                  { label: "מסמכים", value: (record) => getPreliminaryAttachmentCount(record) ? `${getPreliminaryAttachmentCount(record)} צורפו` : "" },
+                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
+                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
+                ] : [
+                  { label: "חומרים", value: () => "חומרים" },
+                  { label: "שם ספק", value: (record) => getPreliminaryName(record) },
+                  { label: "סוג חומר מסופק", value: (record) => getPreliminarySubject(record) },
+                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
+                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
+                ]}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
