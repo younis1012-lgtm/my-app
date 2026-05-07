@@ -8098,14 +8098,14 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const record: PreliminaryRecord = {
+    const record = {
       id,
       projectId: normalizedProjectId,
       ...form,
       title,
       approval: normalizeApproval(form.approval),
       savedAt: nowLocal(),
-    };
+    } as PreliminaryRecord;
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = {
