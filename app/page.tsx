@@ -70,6 +70,7 @@ type ProjectEmailUser = {
 };
 
 const PROJECT_EMAIL_USERS_STORAGE_KEY = `${STORAGE_KEY}-project-email-users`;
+const PROJECT_EMAIL_USERS_TABLE = "project_email_users";
 
 const normalizeEmailList = (value: unknown) =>
   String(value ?? "")
@@ -108,57 +109,38 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
 };
 
-const PROJECT_EMAIL_USERS_TABLE = "project_email_users";
-
-const projectEmailUserFromRow = (row: any): ProjectEmailUser => ({
-  id: String(row?.id || crypto.randomUUID()),
-  projectId: normalizeStoredProjectId(row?.project_id ?? row?.projectId),
-  name: String(row?.name ?? ""),
-  role: String(row?.role ?? ""),
-  company: String(row?.company ?? ""),
-  email: String(row?.email ?? "").trim(),
-  phone: String(row?.phone ?? ""),
-  active: row?.active !== false,
-  createdAt: String(row?.created_at ?? row?.createdAt ?? new Date().toISOString()),
-});
-
-const projectEmailUserToRow = (user: ProjectEmailUser) => ({
-  id: user.id,
-  project_id: normalizeStoredProjectId(user.projectId),
-  name: user.name,
-  role: user.role,
-  company: user.company,
-  email: user.email.trim(),
-  phone: user.phone || "",
-  active: user.active !== false,
-  created_at: user.createdAt || nowIso(),
-});
-
-const loadProjectEmailUsersFromSupabase = async (): Promise<ProjectEmailUser[] | null> => {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
-  if (error) {
-    if (!shouldIgnoreCloudError(error)) console.warn("Failed to load project email users", error);
-    return null;
-  }
-  return (data ?? []).map(projectEmailUserFromRow).filter((user) => user.projectId && user.email);
+const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const normalized = users.map((user) => ({
+    id: user.id,
+    project_id: normalizeStoredProjectId(user.projectId),
+    name: user.name,
+    role: user.role,
+    company: user.company,
+    email: user.email,
+    phone: user.phone || "",
+    active: user.active !== false,
+    created_at: user.createdAt || new Date().toISOString(),
+  }));
+  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
+  if (error) throw error;
 };
 
-const saveProjectEmailUsersToSupabase = async (users: ProjectEmailUser[]) => {
-  if (!isSupabaseConfigured || !supabase) return false;
-  const normalized = users.filter((user) => user.projectId && user.email).map(projectEmailUserToRow);
-  const deleteResult = await supabase.from(PROJECT_EMAIL_USERS_TABLE).delete().neq("id", "00000000-0000-0000-0000-000000000000");
-  if (deleteResult.error) {
-    if (shouldIgnoreCloudError(deleteResult.error)) return false;
-    throw new Error(errorText(deleteResult.error) || "שגיאה בשמירת משתמשי הפרויקט בענן");
-  }
-  if (!normalized.length) return true;
-  const insertResult = await supabase.from(PROJECT_EMAIL_USERS_TABLE).insert(normalized);
-  if (insertResult.error) {
-    if (shouldIgnoreCloudError(insertResult.error)) return false;
-    throw new Error(errorText(insertResult.error) || "שגיאה בשמירת משתמשי הפרויקט בענן");
-  }
-  return true;
+const loadProjectEmailUsersFromCloud = async () => {
+  if (!isSupabaseConfigured || !supabase) return null;
+  const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
+  if (error) throw error;
+  return (Array.isArray(data) ? data : []).map((item: any) => ({
+    id: String(item?.id || crypto.randomUUID()),
+    projectId: normalizeStoredProjectId(item?.project_id || item?.projectId),
+    name: String(item?.name || ""),
+    role: String(item?.role || ""),
+    company: String(item?.company || ""),
+    email: String(item?.email || "").trim(),
+    phone: String(item?.phone || ""),
+    active: item?.active !== false,
+    createdAt: String(item?.created_at || item?.createdAt || new Date().toISOString()),
+  })).filter((item: ProjectEmailUser) => item.projectId && item.email);
 };
 
 type ProjectProfile = {
@@ -325,7 +307,6 @@ type RequiredDocument = {
   attached: boolean;
   attachmentName?: string;
   attachedAt?: string;
-  expiryDate?: string;
   attachmentDataUrl?: string;
   attachmentType?: string;
 };
@@ -471,7 +452,6 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] =>
         attached: Boolean(item?.attached),
         attachmentName: String(item?.attachmentName ?? ""),
         attachedAt: String(item?.attachedAt ?? ""),
-        expiryDate: String(item?.expiryDate ?? item?.expiry_date ?? item?.validUntil ?? item?.valid_until ?? ""),
         attachmentDataUrl: String(
           item?.attachmentDataUrl ?? item?.dataUrl ?? item?.url ?? "",
         ),
@@ -1468,9 +1448,8 @@ const createDefaultPreliminary = (
           notes: "",
         }
       : undefined,
-  requiredDocuments: [],
   approval: createQualityControlApproval(),
-} as any);
+});
 
 const isSupabaseHeaderEncodingError = (error: unknown) =>
   String(error ?? "").includes(SUPABASE_HEADER_ERROR_FRAGMENT);
@@ -3429,51 +3408,152 @@ function getRecordStatus(record: any) {
   return record?.status || record?.approval?.status || record?.result || "";
 }
 
-function getFinalApprovalStatus(record: any) {
-  const approval = normalizeApproval(record?.approval);
-  const required = Array.isArray(approval?.signatures)
-    ? approval.signatures.filter((item: any) => Boolean(item?.required))
-    : [];
-  const allRequiredSigned =
-    required.length > 0 &&
-    required.every((item: any) => Boolean(item?.signerName || item?.signedName) && Boolean(item?.signature) && Boolean(item?.signedAt));
-  const recordStatus = String(record?.status || "").trim();
-  const approvalStatus = String(approval?.status || "").trim();
-  return recordStatus === "approved" || approvalStatus === "approved" || allRequiredSigned
-    ? "מאושר"
-    : "בטיפול";
+function normalizeApprovalDisplayStatus(status?: unknown) {
+  const value = String(status ?? "").trim().toLowerCase();
+  if (value === "מאושר" || value === "approved" || value === "נעול") return "מאושר";
+  return "בטיפול";
 }
 
-function getChecklistLocation(record: any) {
-  return String(record?.roadStructure || record?.building || record?.structure || record?.element || record?.location || "");
+function getApprovalDisplayStatus(record: any) {
+  return normalizeApprovalDisplayStatus(record?.approval?.status || record?.status || record?.result);
 }
 
-function getPreliminaryDocuments(record: any) {
-  return normalizeRequiredDocuments(record?.requiredDocuments ?? record?.required_documents);
+function getChecklistDisplayNumber(record: any, index: number) {
+  return record?.checklistNo ?? record?.serialNumber ?? record?.number ?? (index + 1);
+}
+
+function getChecklistDisplayLocation(record: any) {
+  return (
+    record?.roadStructure ||
+    record?.road ||
+    record?.structure ||
+    record?.building ||
+    record?.element ||
+    record?.location ||
+    ""
+  );
+}
+
+function normalizeDateValue(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const iso = raw.match(/20\d{2}-\d{2}-\d{2}/)?.[0];
+  if (iso) return iso;
+  const dmy = raw.match(/(\d{1,2})[./-](\d{1,2})[./-](20\d{2})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  return raw;
+}
+
+function collectCertificateRows(record: any): any[] {
+  const nested = record?.supplier || record?.subcontractor || record?.material || {};
+  const candidates = [
+    record?.requiredDocuments,
+    record?.certificates,
+    record?.documents,
+    nested?.certificates,
+    nested?.requiredDocuments,
+    nested?.documents,
+  ];
+  return candidates.flatMap((value) => (Array.isArray(value) ? value : []));
 }
 
 function getPreliminaryExpiryDate(record: any) {
-  const docs = getPreliminaryDocuments(record);
-  const firstWithExpiry = docs.find((doc: any) => doc.expiryDate);
-  return firstWithExpiry?.expiryDate || "";
+  const direct = normalizeDateValue(record?.expiryDate || record?.validUntil);
+  if (direct) return direct;
+  const rows = collectCertificateRows(record);
+  const withExpiry = rows.find((row: any) => normalizeDateValue(row?.expiryDate || row?.expiry_date || row?.validUntil));
+  return normalizeDateValue(withExpiry?.expiryDate || withExpiry?.expiry_date || withExpiry?.validUntil) || "";
 }
 
-function getPreliminaryAttachmentCount(record: any) {
-  return getPreliminaryDocuments(record).filter((doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl).length;
+function getPreliminaryApprovalDate(record: any) {
+  const direct = normalizeDateValue(record?.approvalDate || record?.approvedDate || record?.date);
+  if (direct) return direct;
+  const rows = collectCertificateRows(record);
+  const withDate = rows.find((row: any) => normalizeDateValue(row?.approvalDate || row?.approvedDate || row?.issueDate || row?.date));
+  return normalizeDateValue(withDate?.approvalDate || withDate?.approvedDate || withDate?.issueDate || withDate?.date) || "";
 }
 
-function getPreliminaryName(record: any) {
-  if (record?.subtype === "suppliers") return record?.supplier?.supplierName || "";
-  if (record?.subtype === "subcontractors") return record?.subcontractor?.subcontractorName || "";
-  if (record?.subtype === "materials") return record?.material?.source || record?.supplier?.supplierName || "";
-  return "";
+function isExpiredDate(value: unknown) {
+  const date = normalizeDateValue(value);
+  if (!date) return false;
+  const expiry = new Date(date);
+  if (Number.isNaN(expiry.getTime())) return false;
+  const today = new Date();
+  expiry.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  return expiry < today;
 }
 
-function getPreliminarySubject(record: any) {
-  if (record?.subtype === "suppliers") return record?.supplier?.suppliedMaterial || "";
-  if (record?.subtype === "subcontractors") return record?.subcontractor?.field || "";
-  if (record?.subtype === "materials") return record?.material?.materialName || record?.material?.usage || "";
-  return getRecordTitle(record);
+function ExpiryDateCell({ value }: { value?: unknown }) {
+  const date = normalizeDateValue(value);
+  const expired = isExpiredDate(date);
+  return (
+    <span style={{ color: expired ? "#dc2626" : undefined, fontWeight: expired ? 900 : 700 }}>
+      {date || "-"}{expired ? " ✖" : ""}
+    </span>
+  );
+}
+
+function getPreliminaryNested(record: any) {
+  return record?.supplier || record?.subcontractor || record?.material || {};
+}
+
+function getSupplierName(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.supplierName || n?.approvedSupplier || record?.supplierName || record?.approvedSupplier || "";
+}
+
+function getSuppliedMaterial(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.suppliedMaterial || n?.materialName || record?.suppliedMaterial || record?.materialName || "";
+}
+
+function getContractorName(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.subcontractorName || n?.contractorName || n?.approvedContractor || record?.subcontractorName || record?.contractorName || record?.approvedContractor || "";
+}
+
+function getContractorWorkField(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.field || n?.workField || n?.contractorField || record?.field || record?.workField || record?.contractorField || "";
+}
+
+function getMaterialSupplierName(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.supplierName || n?.supplier || n?.source || record?.supplierName || record?.supplier || record?.source || "";
+}
+
+function getMaterialType(record: any) {
+  const n = getPreliminaryNested(record);
+  return n?.materialType || n?.materialCategory || n?.materialName || n?.usage || record?.materialType || record?.materialCategory || record?.materialName || record?.usage || "";
+}
+
+function preliminaryFolderColumns(tab: PreliminaryTab): FolderColumn[] {
+  if (tab === "suppliers") {
+    return [
+      { label: "ספק", value: (record) => getSupplierName(record) || "-" },
+      { label: "חומר מסופק", value: (record) => getSuppliedMaterial(record) || "-" },
+      { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) || "-" },
+      { label: "תאריך תפוגה", value: (record) => <ExpiryDateCell value={getPreliminaryExpiryDate(record)} /> },
+      { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
+    ];
+  }
+  if (tab === "subcontractors") {
+    return [
+      { label: "שם קבלן", value: (record) => getContractorName(record) || "-" },
+      { label: "תחום עבודה", value: (record) => getContractorWorkField(record) || "-" },
+      { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) || "-" },
+      { label: "תאריך תפוגה", value: (record) => <ExpiryDateCell value={getPreliminaryExpiryDate(record)} /> },
+      { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
+    ];
+  }
+  return [
+    { label: "סוג", value: () => "חומרים" },
+    { label: "שם ספק", value: (record) => getMaterialSupplierName(record) || "-" },
+    { label: "סוג חומר מסופק", value: (record) => getMaterialType(record) || "-" },
+    { label: "תאריך תפוגה", value: (record) => <ExpiryDateCell value={getPreliminaryExpiryDate(record)} /> },
+    { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
+  ];
 }
 
 function FolderRecordsTable({
@@ -3559,7 +3639,7 @@ function FolderRecordsTable({
                 return (
                   <tr key={id}>
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {index + 1}
+                      {record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1}
                     </td>
                     {columns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
@@ -5305,9 +5385,6 @@ function ControlProcessesSection({
                   תיאור
                 </th>
                 <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                  תאריך תפוגה / תוקף
-                </th>
-                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
                   קובץ
                 </th>
                 <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
@@ -5346,15 +5423,6 @@ function ControlProcessesSection({
                             description: e.target.value,
                           })
                         }
-                        style={inputStyle}
-                      />
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <input
-                        disabled={readOnly}
-                        type="date"
-                        value={(doc as any).expiryDate || ""}
-                        onChange={(e) => updateDocument(doc.id, { expiryDate: e.target.value } as any)}
                         style={inputStyle}
                       />
                     </td>
@@ -5618,7 +5686,7 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
-  onSaveUsers: () => void | Promise<void>;
+  onSaveUsers: () => void;
 };
 
 function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
@@ -6285,7 +6353,6 @@ export default function Page() {
         supplier: row.supplier ?? undefined,
         subcontractor: row.subcontractor ?? undefined,
         material: row.material ?? undefined,
-        requiredDocuments: normalizeRequiredDocuments(row.required_documents ?? row.requiredDocuments),
         approval: normalizeApproval(row.approval),
         savedAt: row.saved_at
           ? new Date(row.saved_at).toLocaleString("he-IL")
@@ -6316,7 +6383,6 @@ export default function Page() {
           prelimRes,
           rfiRes,
           controlRes,
-          emailUsersRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectTable("checklists", "saved_at"),
@@ -6325,7 +6391,6 @@ export default function Page() {
           selectTable("preliminary_records", "saved_at"),
           selectTable("rfi_records", "created_at"),
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-          selectTable(PROJECT_EMAIL_USERS_TABLE, "created_at"),
         ]);
         const fatal = [
           projectsRes.error,
@@ -6335,7 +6400,6 @@ export default function Page() {
           prelimRes.error,
           rfiRes.error,
           controlRes.error,
-          emailUsersRes.error,
         ].filter((item) => item && !shouldIgnoreCloudError(item));
         if (fatal.length) throw fatal[0];
         loadFromCloudResults(
@@ -6347,11 +6411,6 @@ export default function Page() {
           rfiRes.data,
           controlRes.data,
         );
-        const cloudEmailUsers = (emailUsersRes.data ?? []).map(projectEmailUserFromRow).filter((user: ProjectEmailUser) => user.projectId && user.email);
-        if (cloudEmailUsers.length || !emailUsersRes.error) {
-          setProjectEmailUsers(cloudEmailUsers);
-          writeProjectEmailUsers(cloudEmailUsers);
-        }
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
@@ -6415,7 +6474,6 @@ export default function Page() {
       prelimRes,
       rfiRes,
       controlRes,
-      emailUsersRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectTable("checklists", "saved_at"),
@@ -6424,7 +6482,6 @@ export default function Page() {
       selectTable("preliminary_records", "saved_at"),
       selectTable("rfi_records", "created_at"),
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-      selectTable(PROJECT_EMAIL_USERS_TABLE, "created_at"),
     ]);
     const fatal = [
       projectsRes.error,
@@ -6434,7 +6491,6 @@ export default function Page() {
       prelimRes.error,
       rfiRes.error,
       controlRes.error,
-      emailUsersRes.error,
     ].filter((item) => item && !shouldIgnoreCloudError(item));
     if (fatal.length) throw fatal[0];
     loadFromCloudResults(
@@ -6446,11 +6502,6 @@ export default function Page() {
       rfiRes.data,
       controlRes.data,
     );
-    const cloudEmailUsers = (emailUsersRes.data ?? []).map(projectEmailUserFromRow).filter((user: ProjectEmailUser) => user.projectId && user.email);
-    if (cloudEmailUsers.length || !emailUsersRes.error) {
-      setProjectEmailUsers(cloudEmailUsers);
-      writeProjectEmailUsers(cloudEmailUsers);
-    }
   };
 
   const withSaving = async (action: () => Promise<void>) => {
@@ -6557,6 +6608,18 @@ export default function Page() {
 
   const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
 
+  useEffect(() => {
+    let active = true;
+    loadProjectEmailUsersFromCloud()
+      .then((cloudUsers) => {
+        if (!active || !cloudUsers?.length) return;
+        setProjectEmailUsers(cloudUsers);
+        writeProjectEmailUsers(cloudUsers);
+      })
+      .catch((error) => console.warn("טעינת משתמשי הפרויקט מהענן נכשלה", error));
+    return () => { active = false; };
+  }, []);
+
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     setProjectEmailUsers((prev) => {
       const next = updater(prev);
@@ -6594,30 +6657,14 @@ export default function Page() {
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    const normalized = projectEmailUsers.map((user) => ({
-      ...user,
-      projectId: normalizeStoredProjectId(user.projectId),
-      email: user.email.trim(),
-    })).filter((user) => user.projectId && user.email);
-    writeProjectEmailUsers(normalized);
-    setProjectEmailUsers(normalized);
-    if (cloudEnabled) {
-      try {
-        const savedToCloud = await saveProjectEmailUsersToSupabase(normalized);
-        if (!savedToCloud) {
-          alert("משתמשי הפרויקט נשמרו בדפדפן. לשמירה בענן יש ליצור טבלה בשם project_email_users ב-Supabase.");
-          return;
-        }
-        await refreshCloudData();
-        alert("משתמשי הפרויקט נשמרו בענן בהצלחה");
-        return;
-      } catch (error) {
-        console.error("Project email users cloud save failed", error);
-        alert(`שגיאה בשמירת משתמשי הפרויקט בענן: ${errorText(error)}`);
-        return;
-      }
+    try {
+      writeProjectEmailUsers(projectEmailUsers);
+      await saveProjectEmailUsersToCloud(projectEmailUsers);
+      alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
+    } catch (error) {
+      console.error(error);
+      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
     }
-    alert("משתמשי הפרויקט נשמרו בהצלחה");
   };
 
 
@@ -8051,15 +8098,14 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const record = {
+    const record: PreliminaryRecord = {
       id,
       projectId: normalizedProjectId,
       ...form,
       title,
-      requiredDocuments: normalizeRequiredDocuments((form as any).requiredDocuments),
       approval: normalizeApproval(form.approval),
       savedAt: nowLocal(),
-    } as PreliminaryRecord & { requiredDocuments?: ReturnType<typeof normalizeRequiredDocuments> };
+    };
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = {
@@ -8072,7 +8118,6 @@ export default function Page() {
           supplier: record.supplier ?? null,
           subcontractor: record.subcontractor ?? null,
           material: record.material ?? null,
-          required_documents: normalizeRequiredDocuments((record as any).requiredDocuments),
           approval: record.approval,
           saved_at: nowIso(),
         };
@@ -8106,9 +8151,8 @@ export default function Page() {
         status: record.status,
         supplier:
           record.supplier ?? createDefaultPreliminary("suppliers").supplier,
-        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      } as any);
+      });
     if (record.subtype === "subcontractors")
       setSubcontractorPreliminaryForm({
         subtype: "subcontractors",
@@ -8118,9 +8162,8 @@ export default function Page() {
         subcontractor:
           record.subcontractor ??
           createDefaultPreliminary("subcontractors").subcontractor,
-        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      } as any);
+      });
     if (record.subtype === "materials")
       setMaterialPreliminaryForm({
         subtype: "materials",
@@ -8129,9 +8172,8 @@ export default function Page() {
         status: record.status,
         material:
           record.material ?? createDefaultPreliminary("materials").material,
-        requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      } as any);
+      });
   };
   const deletePreliminary = async (id: string) =>
     withSaving(async () =>
@@ -8559,11 +8601,22 @@ export default function Page() {
 
   const requiredDocumentsExportTable = (items: unknown) => {
     const docs = normalizeRequiredDocuments(items).filter(
-      (doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl,
+      (doc) => doc.attached || doc.attachmentName || doc.attachmentDataUrl || doc.expiryDate || doc.certificateNo,
     );
     if (!docs.length) return "";
-    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>תאריך תפוגה</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc: any) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${valueOrBlank(doc.expiryDate, 16)}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>קבצים / מסמכים שצורפו</h2><table><thead><tr><th>סוג</th><th>תיאור</th><th>מס׳ תעודה</th><th>תאריך תפוגה</th><th>קובץ</th></tr></thead><tbody>${docs.map((doc) => `<tr><td>${safeText(doc.type)}</td><td>${valueOrBlank(doc.description, 24)}</td><td>${safeText((doc as any).certificateNo || "")}</td><td>${safeText((doc as any).expiryDate || "")}</td><td>${attachmentLink(doc.attachmentName || "קובץ מצורף", doc.attachmentDataUrl)}</td></tr>`).join("")}</tbody></table>`;
   };
+
+  const preliminaryCertificateExportTable = (record: any) => {
+    const rows = collectCertificateRows(record);
+    if (!rows.length) return "";
+    return `<h2>מסמכים / תעודות / רישיונות</h2><table><thead><tr><th>פרטים</th><th>קיים</th><th>מס׳ תעודה</th><th>תאריך תפוגה</th><th>קבצים</th></tr></thead><tbody>${rows.map((row: any) => {
+      const files = Array.isArray(row?.attachments) ? row.attachments : [];
+      const fileLinks = files.length ? files.map((file: any) => attachmentLink(file?.name || "קובץ", file?.dataUrl)).join("<br/>") : attachmentLink(row?.attachmentName || "", row?.attachmentDataUrl);
+      return `<tr><td>${safeText(row?.details || row?.description || row?.type || "")}</td><td>${row?.exists === false ? "לא" : "כן"}</td><td>${safeText(row?.certificateNo || row?.documentNo || "")}</td><td>${safeText(row?.expiryDate || row?.validUntil || "")}</td><td>${fileLinks || ""}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  };
+
 
   const controlProcessExportHtml = () =>
     `${baseRows([
@@ -8593,7 +8646,7 @@ export default function Page() {
           ["טלפון", (s as any).contactPhone],
           ["מספר אישור", (s as any).approvalNo],
           ["הערות", (s as any).notes, 90],
-        ]) + signaturesTable(supplierPreliminaryForm.approval)
+        ]) + preliminaryCertificateExportTable(supplierPreliminaryForm) + signaturesTable(supplierPreliminaryForm.approval)
       );
     }
     if (preliminaryTab === "subcontractors") {
@@ -8609,7 +8662,7 @@ export default function Page() {
           ["טלפון", (s as any).contactPhone],
           ["מספר אישור", (s as any).approvalNo],
           ["הערות", (s as any).notes, 90],
-        ]) + signaturesTable(subcontractorPreliminaryForm.approval)
+        ]) + preliminaryCertificateExportTable(subcontractorPreliminaryForm) + signaturesTable(subcontractorPreliminaryForm.approval)
       );
     }
     const m = materialPreliminaryForm.material ?? ({} as any);
@@ -8624,7 +8677,7 @@ export default function Page() {
         ["שימוש", (m as any).usage],
         ["מספר תעודה", (m as any).certificateNo],
         ["הערות", (m as any).notes, 90],
-      ]) + signaturesTable(materialPreliminaryForm.approval)
+      ]) + preliminaryCertificateExportTable(materialPreliminaryForm) + signaturesTable(materialPreliminaryForm.approval)
     );
   };
 
@@ -8982,25 +9035,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const { PDFDocument } = await loadPdfTools();
     const src = String(attachment.contentBase64 || attachment.url || "").trim();
     const mimeType = String(attachment.mimeType || "").toLowerCase();
-    let bytesInfo = attachment.contentBase64
+    const bytesInfo = attachment.contentBase64
       ? { mimeType: mimeType || "application/octet-stream", bytes: Uint8Array.from(atob(attachment.contentBase64.replace(/\s/g, "")), (c) => c.charCodeAt(0)) }
       : src.startsWith("data:")
         ? dataUrlToBytes(src)
         : null;
-    if (!bytesInfo && /^https?:\/\//i.test(src)) {
-      try {
-        const response = await fetch(src);
-        if (response.ok) {
-          const buffer = await response.arrayBuffer();
-          bytesInfo = {
-            mimeType: mimeType || response.headers.get("content-type") || "application/octet-stream",
-            bytes: new Uint8Array(buffer),
-          };
-        }
-      } catch (error) {
-        console.warn("Attachment fetch failed", attachment.filename, error);
-      }
-    }
     if (!bytesInfo) return;
 
     const bytes = bytesInfo.bytes;
@@ -9500,12 +9539,12 @@ ${invalidRecipients.join("\n")}`);
                 description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
                 records={selectedChecklistRecords as any[]}
                 columns={[
-                  { label: "מספר", value: (record, index) => record.checklistNo || index + 1 },
+                  { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
-                  { label: "קטגוריה", value: (record) => record.category || record.templateKey },
-                  { label: "מיקום", value: (record) => getChecklistLocation(record) },
+                  { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
+                  { label: "מיקום", value: (record) => getChecklistDisplayLocation(record) },
                   { label: "תאריך", value: (record) => getRecordDate(record) },
-                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
+                  { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
@@ -9593,25 +9632,7 @@ ${invalidRecipients.join("\n")}`);
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
                 description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
-                columns={preliminaryTab === "suppliers" ? [
-                  { label: "ספק", value: (record) => getPreliminaryName(record) },
-                  { label: "חומר מסופק", value: (record) => getPreliminarySubject(record) },
-                  { label: "מסמכים", value: (record) => getPreliminaryAttachmentCount(record) ? `${getPreliminaryAttachmentCount(record)} צורפו` : "" },
-                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
-                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
-                ] : preliminaryTab === "subcontractors" ? [
-                  { label: "שם קבלן מאושר", value: (record) => getPreliminaryName(record) },
-                  { label: "תחום עבודה", value: (record) => getPreliminarySubject(record) },
-                  { label: "מסמכים", value: (record) => getPreliminaryAttachmentCount(record) ? `${getPreliminaryAttachmentCount(record)} צורפו` : "" },
-                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
-                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
-                ] : [
-                  { label: "חומרים", value: () => "חומרים" },
-                  { label: "שם ספק", value: (record) => getPreliminaryName(record) },
-                  { label: "סוג חומר מסופק", value: (record) => getPreliminarySubject(record) },
-                  { label: "תאריך תפוגה", value: (record) => getPreliminaryExpiryDate(record) },
-                  { label: "סטטוס", value: (record) => getFinalApprovalStatus(record) },
-                ]}
+                columns={preliminaryFolderColumns(preliminaryTab)}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
