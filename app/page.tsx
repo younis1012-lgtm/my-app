@@ -21,7 +21,6 @@ import {
   normalizeChecklistTemplateKey,
 } from "./checklistTemplates";
 import { styles } from "./components/common";
-import { SavedRecordsSidebar } from "./components/SavedRecordsSidebar";
 import { HomeSection } from "./components/HomeSection";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
@@ -5504,9 +5503,10 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
+  onSaveUsers: () => void;
 };
 
-function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser }: ProjectUsersSectionProps) {
+function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
   const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", active: true });
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -5537,6 +5537,9 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                 רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
               </p>
             </div>
+            <button type="button" onClick={onSaveUsers} style={styles.primaryBtn}>
+              שמור משתמשים
+            </button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginBottom: 16 }}>
             <input placeholder="שם" value={draft.name} onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))} style={inputStyle} />
@@ -5600,6 +5603,8 @@ export default function Page() {
     window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
   }, []);
   const [section, setSection] = useState<AppSection>("home");
+  const [selectedChecklistTemplateKey, setSelectedChecklistTemplateKey] =
+    useState<ChecklistTemplateKey>(() => normalizeChecklistTemplateKey(undefined));
   const [preliminaryTab, setPreliminaryTab] =
     useState<PreliminaryTab>("suppliers");
   const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
@@ -6456,6 +6461,11 @@ export default function Page() {
     saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
   };
 
+  const saveCurrentProjectEmailUsers = () => {
+    writeProjectEmailUsers(projectEmailUsers);
+    alert("משתמשי הפרויקט נשמרו בהצלחה");
+  };
+
 
   useEffect(() => {
     const normalized = normalizeStoredProjectId(currentProjectId);
@@ -6734,6 +6744,17 @@ export default function Page() {
         ),
     [savedChecklists, currentProjectId, normalizedSearchTerm],
   );
+  const selectedChecklistRecords = useMemo(
+    () =>
+      projectChecklists.filter(
+        (record) =>
+          normalizeChecklistTemplateKey(record.templateKey) ===
+          normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
+      ),
+    [projectChecklists, selectedChecklistTemplateKey],
+  );
+  const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
+
   const projectNonconformances = useMemo(
     () =>
       savedNonconformances
@@ -6939,6 +6960,7 @@ export default function Page() {
   const resetChecklistForm = (
     templateKey: ChecklistTemplateKey = checklistForm.templateKey,
   ) => {
+    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setEditingChecklistId(null);
     const next = createDefaultChecklist(templateKey);
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -7191,7 +7213,8 @@ export default function Page() {
     });
   };
 
-  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) =>
+  const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => {
+    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setChecklistForm((prev) => {
       const next = createDefaultChecklist(templateKey);
       const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -7208,6 +7231,7 @@ export default function Page() {
         approval: prev.approval,
       };
     });
+  };
   const updateChecklistItem = (
     id: string,
     field: keyof ChecklistItem,
@@ -7496,6 +7520,7 @@ export default function Page() {
   };
   const loadChecklist = (record: ChecklistRecord) => {
     setSection("checklists");
+    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(record.templateKey));
     setEditingChecklistId(record.id);
     setChecklistForm({
       ...(record as any),
@@ -9261,14 +9286,46 @@ ${invalidRecipients.join("\n")}`);
               onAddUser={addProjectEmailUser}
               onUpdateUser={updateProjectEmailUser}
               onDeleteUser={deleteProjectEmailUser}
+              onSaveUsers={saveCurrentProjectEmailUsers}
             />
           )}
           {section === "checklists" && (
             <>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 14,
+                  justifyContent: "flex-start",
+                }}
+              >
+                {Object.entries(checklistTemplates).map(([key, template]) => {
+                  const normalizedKey = normalizeChecklistTemplateKey(key);
+                  const isActive =
+                    normalizeChecklistTemplateKey(selectedChecklistTemplateKey) === normalizedKey;
+                  const count = projectChecklists.filter(
+                    (record) => normalizeChecklistTemplateKey(record.templateKey) === normalizedKey,
+                  ).length;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      style={isActive ? styles.primaryBtn : styles.secondaryBtn}
+                      onClick={() => {
+                        setSelectedChecklistTemplateKey(normalizedKey);
+                        resetChecklistForm(normalizedKey);
+                      }}
+                    >
+                      {template.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
               <FolderRecordsTable
-                title="רשימות תיוג"
-                description="כל רשימות התיוג של הפרויקט מוצגות כאן בטבלה במקום לחפש בדף הבית."
-                records={projectChecklists as any[]}
+                title={`רשימות תיוג - ${selectedChecklistLabel}`}
+                description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
+                records={selectedChecklistRecords as any[]}
                 columns={[
                   { label: "מספר", value: (record) => record.checklistNo || record.number || record.id },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
@@ -9279,7 +9336,7 @@ ${invalidRecipients.join("\n")}`);
                 ]}
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
-                onNew={resetChecklistForm}
+                onNew={() => resetChecklistForm(selectedChecklistTemplateKey)}
               />
               <ChecklistsSection
                 guardedBody={guardedBody}
@@ -9360,9 +9417,9 @@ ${invalidRecipients.join("\n")}`);
           {section === "preliminary" && (
             <>
               <FolderRecordsTable
-                title="בקרה מקדימה"
-                description="ספקים, חומרים וקבלני משנה מוצגים כאן לפי רשומות הפרויקט."
-                records={projectPreliminary as any[]}
+                title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
+                description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
+                records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
                 columns={[
                   { label: "סוג", value: (record) => labelForPreliminary(record.type || record.preliminaryType || record.category) },
                   { label: "כותרת / שם", value: (record) => getRecordTitle(record) },
@@ -9422,28 +9479,6 @@ ${invalidRecipients.join("\n")}`);
           )}
         </main>
 
-        <SavedRecordsSidebar
-          projectName={projectName}
-          searchTerm={recordsSearchTerm}
-          onSearchTermChange={setRecordsSearchTerm}
-          checklistTemplateLabel={checklistTemplateLabel}
-          projectChecklists={projectChecklists}
-          projectNonconformances={projectNonconformances}
-          projectTrialSections={projectTrialSections}
-          projectPreliminary={projectPreliminary}
-          projectRFIs={projectRfis as any}
-          projectSupervisionReports={[] as any}
-          onOpenChecklist={loadChecklist}
-          onDeleteChecklist={deleteChecklist}
-          onOpenNonconformance={loadNonconformance}
-          onDeleteNonconformance={deleteNonconformance}
-          onOpenTrialSection={loadTrialSection}
-          onDeleteTrialSection={deleteTrialSection}
-          onOpenPreliminary={loadPreliminary}
-          onDeletePreliminary={deletePreliminary}
-          onOpenRFI={loadRfi}
-          onDeleteRFI={deleteRfi}
-        />
       </div>
     </div>
   );
