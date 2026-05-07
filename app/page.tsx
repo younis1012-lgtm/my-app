@@ -3431,19 +3431,15 @@ function getRecordStatus(record: any) {
 
 function getFinalApprovalStatus(record: any) {
   const approval = normalizeApproval(record?.approval);
-  const required = Array.isArray(approval.signatures)
-    ? approval.signatures.filter((item) => item.required)
+  const required = Array.isArray(approval?.signatures)
+    ? approval.signatures.filter((item: any) => Boolean(item?.required))
     : [];
   const allRequiredSigned =
     required.length > 0 &&
-    required.every((item) => item.signerName && item.signature && item.signedAt);
+    required.every((item: any) => Boolean(item?.signerName || item?.signedName) && Boolean(item?.signature) && Boolean(item?.signedAt));
   const recordStatus = String(record?.status || "").trim();
   const approvalStatus = String(approval?.status || "").trim();
-  return recordStatus === "approved" ||
-    recordStatus === "מאושר" ||
-    approvalStatus === "approved" ||
-    approvalStatus === "מאושר" ||
-    allRequiredSigned
+  return recordStatus === "approved" || approvalStatus === "approved" || allRequiredSigned
     ? "מאושר"
     : "בטיפול";
 }
@@ -8112,7 +8108,7 @@ export default function Page() {
           record.supplier ?? createDefaultPreliminary("suppliers").supplier,
         requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      });
+      } as any);
     if (record.subtype === "subcontractors")
       setSubcontractorPreliminaryForm({
         subtype: "subcontractors",
@@ -8124,7 +8120,7 @@ export default function Page() {
           createDefaultPreliminary("subcontractors").subcontractor,
         requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      });
+      } as any);
     if (record.subtype === "materials")
       setMaterialPreliminaryForm({
         subtype: "materials",
@@ -8135,7 +8131,7 @@ export default function Page() {
           record.material ?? createDefaultPreliminary("materials").material,
         requiredDocuments: normalizeRequiredDocuments((record as any).requiredDocuments),
         approval: normalizeApproval(record.approval),
-      });
+      } as any);
   };
   const deletePreliminary = async (id: string) =>
     withSaving(async () =>
