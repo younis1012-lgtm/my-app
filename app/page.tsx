@@ -105,6 +105,30 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
   }
 };
 
+const normalizeProjectEmailUsersList = (users: ProjectEmailUser[]) => {
+  const seen = new Set<string>();
+  return (Array.isArray(users) ? users : [])
+    .map((user) => ({
+      ...user,
+      id: String(user?.id || crypto.randomUUID()),
+      projectId: normalizeStoredProjectId(user?.projectId),
+      name: String(user?.name || "").trim(),
+      role: String(user?.role || "").trim(),
+      company: String(user?.company || "").trim(),
+      email: String(user?.email || "").trim(),
+      phone: String(user?.phone || "").trim(),
+      active: user?.active !== false,
+      createdAt: String(user?.createdAt || new Date().toISOString()),
+    }))
+    .filter((user) => user.projectId && user.email)
+    .filter((user) => {
+      const key = user.id || `${user.projectId}:${user.email}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
 const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
@@ -112,18 +136,32 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
 
 const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
   if (!isSupabaseConfigured || !supabase) return;
-  const normalized = users.map((user) => ({
-    id: user.id,
-    project_id: normalizeStoredProjectId(user.projectId),
-    name: user.name,
-    role: user.role,
-    company: user.company,
-    email: user.email,
-    phone: user.phone || "",
-    active: user.active !== false,
-    created_at: user.createdAt || new Date().toISOString(),
-  }));
-  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
+  const normalized = users
+    .map((user) => ({
+      id: user.id,
+      project_id: normalizeStoredProjectId(user.projectId),
+      name: user.name,
+      role: user.role,
+      company: user.company,
+      email: String(user.email || "").trim(),
+      phone: user.phone || "",
+      active: user.active !== false,
+      created_at: user.createdAt || new Date().toISOString(),
+    }))
+    .filter((user) => user.project_id && user.email);
+
+  // מחליפים את רשימת המשתמשים בענן לפי הרשימה העדכנית בדפדפן.
+  // כך משתמש שנמחק לא חוזר אחרי כניסה מחדש, ומשתמש שנוסף נשמר בוודאות.
+  const deleteResult = await supabase
+    .from(PROJECT_EMAIL_USERS_TABLE)
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+  if (deleteResult.error) throw deleteResult.error;
+
+  if (!normalized.length) return;
+  const { error } = await supabase
+    .from(PROJECT_EMAIL_USERS_TABLE)
+    .upsert(normalized, { onConflict: "id" });
   if (error) throw error;
 };
 
@@ -6754,12 +6792,14 @@ export default function Page() {
   );
 
   const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
+  const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
 
   useEffect(() => {
     let active = true;
     loadProjectEmailUsersFromCloud()
       .then((cloudUsers) => {
         if (!active || !cloudUsers?.length) return;
+        projectEmailUsersRef.current = cloudUsers;
         setProjectEmailUsers(cloudUsers);
         writeProjectEmailUsers(cloudUsers);
       })
@@ -6769,13 +6809,15 @@ export default function Page() {
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     setProjectEmailUsers((prev) => {
-      const next = updater(prev);
+      const next = normalizeProjectEmailUsersList(updater(prev));
+      projectEmailUsersRef.current = next;
       writeProjectEmailUsers(next);
       return next;
     });
   };
 
   useEffect(() => {
+    projectEmailUsersRef.current = projectEmailUsers;
     writeProjectEmailUsers(projectEmailUsers);
   }, [projectEmailUsers]);
 
@@ -6805,12 +6847,25 @@ export default function Page() {
 
   const saveCurrentProjectEmailUsers = async () => {
     try {
-      writeProjectEmailUsers(projectEmailUsers);
-      await saveProjectEmailUsersToCloud(projectEmailUsers);
+      // משתמשים ב-ref כדי לתפוס גם משתמש שנוסף ממש לפני לחיצה על "שמור משתמשים".
+      const latestUsers = normalizeProjectEmailUsersList(projectEmailUsersRef.current);
+      projectEmailUsersRef.current = latestUsers;
+      setProjectEmailUsers(latestUsers);
+      writeProjectEmailUsers(latestUsers);
+      await saveProjectEmailUsersToCloud(latestUsers);
+
+      // אימות טעינה מהענן אחרי השמירה, כדי שכניסה מחדש תציג את אותה רשימה.
+      const cloudUsers = await loadProjectEmailUsersFromCloud().catch(() => null);
+      if (cloudUsers) {
+        const normalizedCloudUsers = normalizeProjectEmailUsersList(cloudUsers);
+        projectEmailUsersRef.current = normalizedCloudUsers;
+        setProjectEmailUsers(normalizedCloudUsers);
+        writeProjectEmailUsers(normalizedCloudUsers);
+      }
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
-      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
+      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שטבלת project_email_users קיימת ושיש לה הרשאות RLS ל-select/insert/update/delete.");
     }
   };
 
@@ -8675,20 +8730,6 @@ export default function Page() {
     .attachment-note{font-size:12px;text-align:center;margin:0 0 8px;color:#334155}
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
-    .ncr-one-page{font-size:8.8px;line-height:1.32;page-break-inside:avoid;break-inside:avoid;overflow:visible}
-    .ncr-one-page h2{font-size:9.5px;margin:2px 0 2px;padding-bottom:1px;line-height:1.25}
-    .ncr-one-page table{margin:0 0 3px;table-layout:fixed;page-break-inside:avoid;break-inside:avoid;border-collapse:collapse}
-    .ncr-one-page th,.ncr-one-page td{font-size:8.8px;line-height:1.32;padding:3px 4px;height:auto;vertical-align:middle;box-sizing:border-box;overflow-wrap:anywhere;word-break:normal;white-space:normal}
-    .ncr-title-row td{font-size:12.5px;font-weight:900;text-align:center;padding:4px 3px;line-height:1.25}
-    .ncr-pair-label{width:11%;font-weight:800;background:#f8fafc;white-space:normal}
-    .ncr-pair-value{width:22%;font-weight:600;min-height:16px;white-space:normal}
-    .ncr-text .ncr-text-label{width:18%;font-weight:800;background:#f8fafc;white-space:normal}
-    .ncr-text .ncr-text-value{text-align:right;white-space:pre-wrap;height:26px;max-height:34px;overflow:hidden;line-height:1.32;padding-top:4px;padding-bottom:4px}
-    .ncr-text .ncr-text-value-large{height:42px;max-height:50px;line-height:1.32;padding-top:4px;padding-bottom:4px}
-    .ncr-attachments .attachment-summary{font-size:8.8px;margin:0 0 2px;line-height:1.25}
-    .ncr-attachments th,.ncr-attachments td{font-size:8.3px;line-height:1.25;padding:2px 3px;vertical-align:middle}
-    .ncr-signatures th,.ncr-signatures td{font-size:8.3px;line-height:1.25;padding:2px 3px;height:16px;vertical-align:middle}
-    .ncr-signatures .signature td{height:16px}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
@@ -8870,40 +8911,12 @@ export default function Page() {
       imageCount ? `${imageCount} תמונות צורפו` : "",
       documentCount ? `${documentCount} קבצים / תעודות צורפו` : "",
     ].filter(Boolean).join(" | ");
-    return `<div class="ncr-attachments"><h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
 
   const nonconformanceExportHtml = () => {
     const f: any = nonconformanceForm;
-    const compactValue = (value: unknown) => {
-      const text = String(value ?? "").trim();
-      return text ? safeText(text).replace(/\n/g, "<br/>") : "&nbsp;";
-    };
-    const pairRows = (pairs: Array<[string, unknown]>) => {
-      const rows: string[] = [];
-      for (let i = 0; i < pairs.length; i += 3) {
-        const chunk = pairs.slice(i, i + 3);
-        while (chunk.length < 3) chunk.push(["", ""]);
-        rows.push(
-          `<tr>${chunk
-            .map(
-              ([label, value]) =>
-                `<th class="ncr-pair-label">${safeText(label)}</th><td class="ncr-pair-value">${compactValue(value)}</td>`,
-            )
-            .join("")}</tr>`,
-        );
-      }
-      return `<table class="ncr-pairs"><tbody>${rows.join("")}</tbody></table>`;
-    };
-    const textRows = (rows: Array<[string, unknown, boolean?]>) =>
-      `<table class="ncr-text"><tbody>${rows
-        .map(
-          ([label, value, large]) =>
-            `<tr><th class="ncr-text-label">${safeText(label)}</th><td class="ncr-text-value ${large ? "ncr-text-value-large" : ""}">${compactValue(value)}</td></tr>`,
-        )
-        .join("")}</tbody></table>`;
-
-    const topPairs: Array<[string, unknown]> = [
+    return `${baseRows([
       ["אי התאמה מס׳", f.title],
       ["נפתח QA / QC", f.openedBy],
       ["תפקיד", f.openedRole],
@@ -8917,33 +8930,24 @@ export default function Page() {
       ["עד חתך", f.toSection],
       ["הסט", f.offset],
       ["דרגה", f.grade],
-      ["חומרה", f.severity],
-      ["סטטוס", f.status],
+      ["תאריך סגירה משוער", f.expectedCloseDate],
+      ["תאריך סגירה משוער מעודכן", f.updatedExpectedCloseDate],
+      ["מס׳ ימי עיכוב לסגירה", f.delayDays],
       ["שבר", f.breakage],
       ["השפעה על איכות", f.qualityImpact],
-      ["מס׳ ימי עיכוב", f.delayDays],
-      ["תאריך סגירה משוער", f.expectedCloseDate],
-      ["תאריך סגירה מעודכן", f.updatedExpectedCloseDate],
+      ["חומרה", f.severity],
+      ["סטטוס", f.status],
+      ["תיאור אי ההתאמה", f.description, 110],
+      ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty, 90],
+      ["טיפול נדרש", f.actionRequired, 100],
       ["גורם המטפל", f.handler],
+      ["פירוט ביצוע פעולה מתקנת", f.correctiveActionDetails, 110],
+      ["הערות", f.notes, 80],
       ["נסגרה ע״י", f.closedBy],
       ["תפקיד סגירה", f.closingRole],
       ["שם סוגר", f.closedName],
       ["תאריך סגירה", f.closingDate],
-    ];
-
-    return `<div class="ncr-one-page">
-      <table><tbody><tr class="ncr-title-row"><td colspan="6">טופס אי התאמה - ${compactValue(f.title)}</td></tr></tbody></table>
-      ${pairRows(topPairs)}
-      ${textRows([
-        ["תיאור אי ההתאמה", f.description, true],
-        ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty],
-        ["טיפול נדרש", f.actionRequired, true],
-        ["פירוט ביצוע פעולה מתקנת", f.correctiveActionDetails, true],
-        ["הערות", f.notes],
-      ])}
-      ${nonconformanceAttachmentsSummary(f.images)}
-      <div class="ncr-signatures">${signaturesTable(f.approval)}</div>
-    </div>`;
+    ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
   };
 
   const trialSectionExportHtml = () => {
