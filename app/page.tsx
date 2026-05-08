@@ -5824,40 +5824,12 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
     background: "#fff",
   };
 
-  const emptyDraft = { name: "", role: "", company: "", email: "", phone: "", active: true };
-
-  const hasDraftValues = () =>
-    Boolean(
-      draft.name.trim() ||
-        draft.role.trim() ||
-        draft.company.trim() ||
-        draft.email.trim() ||
-        draft.phone.trim(),
-    );
-
   const add = () => {
     const email = draft.email.trim();
-    if (!draft.name.trim()) {
-      alert("יש להזין שם משתמש / נמען");
-      return false;
-    }
-    if (!isValidEmailAddress(email)) {
-      alert("כתובת המייל אינה תקינה");
-      return false;
-    }
+    if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
+    if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
     onAddUser({ ...draft, email, active: true });
-    setDraft(emptyDraft);
-    return true;
-  };
-
-  const saveAll = () => {
-    // אם המשתמש מילא פרטים בשורת ההוספה ולא לחץ על "הוסף משתמש",
-    // נשמור אותו קודם לרשימה ורק אחר כך נבצע שמירה לענן.
-    if (hasDraftValues()) {
-      const added = add();
-      if (!added) return;
-    }
-    onSaveUsers();
+    setDraft({ name: "", role: "", company: "", email: "", phone: "", active: true });
   };
 
   return (
@@ -5871,7 +5843,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                 רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
               </p>
             </div>
-            <button type="button" onClick={saveAll} style={styles.primaryBtn}>
+            <button type="button" onClick={onSaveUsers} style={styles.primaryBtn}>
               שמור משתמשים
             </button>
           </div>
@@ -6900,6 +6872,58 @@ export default function Page() {
         : getProjectProfile(currentProject?.name),
     [currentProjectLegend, currentProject?.name],
   );
+
+  // ערכי ברירת מחדל מתוך פרטי הפרויקט.
+  // בכל פתיחת טופס חדש המערכת ממלאת אוטומטית רק שדות ריקים, ולא דורסת נתונים שהמשתמש כבר הקליד.
+  const currentProjectDefaults = useMemo(() => {
+    const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
+    const legend = currentProjectLegend;
+    return {
+      projectName: legend.projectName || profile?.projectName || currentProject?.name || "",
+      contractor: legend.contractor || profile?.contractor || "",
+      projectManagement: legend.projectManagement || profile?.projectManager || currentProject?.manager || "",
+      qualityAssurance: legend.qualityAssurance || profile?.qaCompany || "",
+      qualityControl: legend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME,
+      workManager: legend.workManager || profile?.workManager || "",
+      surveyor: legend.surveyor || profile?.surveyor || "",
+      supervisor: legend.supervisor || "",
+    };
+  }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
+
+  const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Partial<T>): T => {
+    const next: T = { ...form };
+    Object.entries(values).forEach(([key, value]) => {
+      if (value == null) return;
+      if (String((next as any)[key] ?? "").trim() === "") {
+        (next as any)[key] = value;
+      }
+    });
+    return next;
+  };
+
+  const applyProjectDefaultsToChecklist = (form: ReturnType<typeof createDefaultChecklist>) => ({
+    ...form,
+    contractor: form.contractor || currentProjectDefaults.contractor,
+    items: applyProjectTeamToItems(form.items),
+  });
+
+  const applyProjectDefaultsToNonconformance = (form: any) =>
+    fillOnlyEmptyFields(form, {
+      raisedBy: currentProjectDefaults.qualityControl,
+      responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
+      handler: currentProjectDefaults.workManager || currentProjectDefaults.contractor,
+    });
+
+  const applyProjectDefaultsToTrialSection = (form: any) =>
+    fillOnlyEmptyFields(form, {
+      approvedBy: currentProjectDefaults.qualityControl,
+    });
+
+  const applyProjectDefaultsToRfi = (form: any) =>
+    fillOnlyEmptyFields(form, {
+      createdBy: currentProjectDefaults.qualityControl,
+      updatedBy: currentProjectDefaults.qualityControl,
+    });
   const projectName = !loaded
     ? "טוען..."
     : currentProjectLegend.projectName ||
@@ -7320,28 +7344,35 @@ export default function Page() {
     );
 
   useEffect(() => {
-    if (!loaded || section !== "checklists") return;
-    const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    if (!profile) return;
-    setChecklistForm((prev) => ({
-      ...prev,
-      contractor:
-        !prev.contractor || prev.contractor.includes("פלסי הגליל")
-          ? profile.contractor
-          : prev.contractor,
-      items: prev.items.map((item) => ({
-        ...item,
-        inspector:
-          resolveResponsibleName(item.responsible, profile.projectName) ||
-          item.inspector,
-      })),
-    }));
+    if (!loaded || !currentProjectId) return;
+
+    if (section === "checklists" && !editingChecklistId) {
+      setChecklistForm((prev) => applyProjectDefaultsToChecklist(prev));
+    }
+
+    if (section === "nonconformances" && !editingNonconformanceId) {
+      setNonconformanceForm((prev: any) => applyProjectDefaultsToNonconformance(prev));
+    }
+
+    if (section === "trialSections" && !editingTrialSectionId) {
+      setTrialSectionForm((prev: any) => applyProjectDefaultsToTrialSection(prev));
+    }
+
+    if (section === "rfi" && !editingRfiId) {
+      setRfiForm((prev: any) => applyProjectDefaultsToRfi(prev));
+    }
   }, [
     loaded,
     section,
     currentProjectId,
-    currentProjectProfile?.projectName,
-    projectName,
+    currentProjectDefaults.contractor,
+    currentProjectDefaults.qualityControl,
+    currentProjectDefaults.workManager,
+    currentProjectDefaults.projectManagement,
+    editingChecklistId,
+    editingNonconformanceId,
+    editingTrialSectionId,
+    editingRfiId,
   ]);
 
   const resetChecklistForm = (
@@ -7350,12 +7381,7 @@ export default function Page() {
     setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setEditingChecklistId(null);
     const next = createDefaultChecklist(templateKey);
-    const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    setChecklistForm({
-      ...next,
-      contractor: profile?.contractor || "",
-      items: applyProjectTeamToItems(next.items),
-    });
+    setChecklistForm(applyProjectDefaultsToChecklist(next));
   };
   const nextControlProcessNo = () =>
     `REF-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, "")) || 0)) + 1}`;
@@ -7365,24 +7391,24 @@ export default function Page() {
   };
   const resetRfiForm = () => {
     setEditingRfiId(null);
-    setRfiForm(createDefaultRfi(nextRfiTitle()));
+    setRfiForm(applyProjectDefaultsToRfi(createDefaultRfi(nextRfiTitle())));
   };
   const resetNonconformanceEditor = () => {
     setEditingNonconformanceId(null);
-    setNonconformanceForm({
+    setNonconformanceForm(applyProjectDefaultsToNonconformance({
       ...createDefaultNonconformance(),
       title: nextNonconformanceTitle(),
       openedBy: "QA / QC",
       openedRole: "בקרת איכות",
       status: "פתוח",
-    } as any);
+    } as any));
   };
   const resetTrialSectionEditor = () => {
     setEditingTrialSectionId(null);
-    setTrialSectionForm({
+    setTrialSectionForm(applyProjectDefaultsToTrialSection({
       ...createDefaultTrialSection(),
       title: nextTrialSectionTitle(),
-    });
+    }));
   };
   const resetPreliminaryEditor = () => {
     setEditingPreliminaryId(null);
@@ -7604,14 +7630,13 @@ export default function Page() {
     setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setChecklistForm((prev) => {
       const next = createDefaultChecklist(templateKey);
-      const profile = currentProjectProfile ?? getProjectProfile(projectName);
       return {
         ...next,
         location: prev.location,
         date: prev.date,
         contractor:
           !prev.contractor || prev.contractor.includes("פלסי הגליל")
-            ? profile?.contractor || ""
+            ? currentProjectDefaults.contractor || ""
             : prev.contractor,
         notes: prev.notes,
         items: applyProjectTeamToItems(next.items),
