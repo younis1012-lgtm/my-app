@@ -5809,12 +5809,11 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
-  onSaveUsers: (pendingUser?: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void | Promise<void>;
+  onSaveUsers: () => void;
 };
 
 function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
-  const emptyDraft = { name: "", role: "", company: "", email: "", phone: "", active: true };
-  const [draft, setDraft] = useState(emptyDraft);
+  const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", active: true });
   const inputStyle: React.CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -5825,38 +5824,40 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
     background: "#fff",
   };
 
-  const draftHasValue = () =>
-    Boolean(draft.name.trim() || draft.role.trim() || draft.company.trim() || draft.email.trim() || draft.phone.trim());
+  const emptyDraft = { name: "", role: "", company: "", email: "", phone: "", active: true };
 
-  const buildDraftUser = () => {
+  const hasDraftValues = () =>
+    Boolean(
+      draft.name.trim() ||
+        draft.role.trim() ||
+        draft.company.trim() ||
+        draft.email.trim() ||
+        draft.phone.trim(),
+    );
+
+  const add = () => {
     const email = draft.email.trim();
     if (!draft.name.trim()) {
       alert("יש להזין שם משתמש / נמען");
-      return null;
+      return false;
     }
     if (!isValidEmailAddress(email)) {
       alert("כתובת המייל אינה תקינה");
-      return null;
+      return false;
     }
-    return { ...draft, name: draft.name.trim(), role: draft.role.trim(), company: draft.company.trim(), email, phone: draft.phone.trim(), active: true };
-  };
-
-  const add = () => {
-    const nextUser = buildDraftUser();
-    if (!nextUser) return;
-    onAddUser(nextUser);
+    onAddUser({ ...draft, email, active: true });
     setDraft(emptyDraft);
+    return true;
   };
 
-  const save = async () => {
-    let pendingUser: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt"> | undefined;
-    if (draftHasValue()) {
-      const nextUser = buildDraftUser();
-      if (!nextUser) return;
-      pendingUser = nextUser;
-      setDraft(emptyDraft);
+  const saveAll = () => {
+    // אם המשתמש מילא פרטים בשורת ההוספה ולא לחץ על "הוסף משתמש",
+    // נשמור אותו קודם לרשימה ורק אחר כך נבצע שמירה לענן.
+    if (hasDraftValues()) {
+      const added = add();
+      if (!added) return;
     }
-    await onSaveUsers(pendingUser);
+    onSaveUsers();
   };
 
   return (
@@ -5870,7 +5871,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                 רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
               </p>
             </div>
-            <button type="button" onClick={save} style={styles.primaryBtn}>
+            <button type="button" onClick={saveAll} style={styles.primaryBtn}>
               שמור משתמשים
             </button>
           </div>
@@ -6834,35 +6835,8 @@ export default function Page() {
     saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
   };
 
-  const saveCurrentProjectEmailUsers = async (pendingUser?: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
-    if (!currentProject) {
-      alert("יש לבחור פרויקט");
-      return;
-    }
-
-    const normalizedProjectId = normalizeStoredProjectId(currentProject.id);
-    let usersToSave = projectEmailUsersRef.current;
-
-    if (pendingUser) {
-      const pendingEmail = String(pendingUser.email || "").trim();
-      const newUser: ProjectEmailUser = {
-        ...pendingUser,
-        id: crypto.randomUUID(),
-        projectId: normalizedProjectId,
-        name: String(pendingUser.name || "").trim(),
-        role: String(pendingUser.role || "").trim(),
-        company: String(pendingUser.company || "").trim(),
-        email: pendingEmail,
-        phone: String(pendingUser.phone || "").trim(),
-        active: pendingUser.active !== false,
-        createdAt: nowLocal(),
-      };
-
-      usersToSave = [...usersToSave.filter((user) => !(normalizeStoredProjectId(user.projectId) === normalizedProjectId && user.email.trim().toLowerCase() === pendingEmail.toLowerCase())), newUser];
-      projectEmailUsersRef.current = usersToSave;
-      setProjectEmailUsers(usersToSave);
-    }
-
+  const saveCurrentProjectEmailUsers = async () => {
+    const usersToSave = projectEmailUsersRef.current;
     try {
       writeProjectEmailUsers(usersToSave);
       await saveProjectEmailUsersToCloud(usersToSave);
@@ -6872,11 +6846,10 @@ export default function Page() {
         setProjectEmailUsers(cloudUsers);
         writeProjectEmailUsers(cloudUsers);
       }
-      const savedCount = usersToSave.filter((user) => normalizeStoredProjectId(user.projectId) === normalizedProjectId && user.active !== false).length;
-      alert(`משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן (${savedCount} משתמשים)`);
-    } catch (error: any) {
+      alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
+    } catch (error) {
       console.error(error);
-      alert(`שמירה בענן נכשלה: ${error?.message || error || "שגיאה לא ידועה"}`);
+      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
     }
   };
 
