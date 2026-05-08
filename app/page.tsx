@@ -1154,17 +1154,10 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
     ? value
         .filter((item) => item && typeof item === "object")
         .map((item: any) => ({
-          name: String(item.name ?? item.fileName ?? "קובץ"),
-          type: String(item.type ?? item.mimeType ?? item.contentType ?? ""),
-          dataUrl: String(
-            item.dataUrl ??
-              item.url ??
-              item.publicUrl ??
-              item.public_url ??
-              item.href ??
-              "",
-          ),
-          uploadedAt: String(item.uploadedAt ?? item.uploaded_at ?? ""),
+          name: String(item.name ?? "קובץ"),
+          type: String(item.type ?? ""),
+          dataUrl: String(item.dataUrl ?? ""),
+          uploadedAt: String(item.uploadedAt ?? ""),
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -1387,14 +1380,35 @@ const createDefaultNonconformance = (): Omit<
 > =>
   ({
     title: "",
-    location: "",
-    date: "",
+    openedBy: "QA / QC",
+    openedRole: "בקרת איכות",
     raisedBy: "",
+    date: "",
+    location: "",
+    building: "",
+    element: "",
+    subElement: "",
+    fromSection: "",
+    toSection: "",
+    offset: "",
+    grade: "",
+    expectedCloseDate: "",
+    updatedExpectedCloseDate: "",
+    delayDays: "",
+    breakage: "",
+    qualityImpact: "",
+    description: "",
+    responsibleParty: "",
+    actionRequired: "",
+    handler: "",
+    correctiveActionDetails: "",
+    notes: "",
+    closedBy: "",
+    closingRole: "",
+    closedName: "",
+    closingDate: "",
     severity: "בינונית",
     status: "פתוח",
-    description: "",
-    actionRequired: "",
-    notes: "",
     images: [] as StoredAttachment[],
     approval: createNonconformanceApproval(),
   }) as any;
@@ -4296,8 +4310,6 @@ function EnhancedNonconformancesSection({
   saveNonconformance,
   resetNonconformanceEditor,
   closeNonconformance,
-  uploadNonconformanceAttachment,
-  removeNonconformanceAttachment,
 }: {
   guardedBody: React.ReactNode;
   editingNonconformanceId: string | null;
@@ -4306,8 +4318,6 @@ function EnhancedNonconformancesSection({
   saveNonconformance: () => void;
   resetNonconformanceEditor: () => void;
   closeNonconformance: () => void;
-  uploadNonconformanceAttachment: (file?: File) => void;
-  removeNonconformanceAttachment: (index: number) => void;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
   return (
@@ -4369,103 +4379,6 @@ function EnhancedNonconformancesSection({
           form={nonconformanceForm}
           setForm={setNonconformanceForm}
         />
-        <div
-          style={{
-            borderTop: "1px solid #e2e8f0",
-            marginTop: 18,
-            paddingTop: 16,
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>
-            תמונות / קבצים מצורפים לאי התאמה
-          </h3>
-          <div style={{ color: "#64748b", marginBottom: 10 }}>
-            ניתן לצרף תמונות, PDF וכל קובץ תומך. הקבצים נשמרים יחד עם רשומת ה־NCR.
-          </div>
-          <input
-            type="file"
-            multiple
-            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-            onChange={(event) => {
-              Array.from(event.target.files ?? []).forEach((file) =>
-                uploadNonconformanceAttachment(file),
-              );
-              event.currentTarget.value = "";
-            }}
-          />
-          {normalizeAttachments((nonconformanceForm as any).images).length ? (
-            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-              {normalizeAttachments((nonconformanceForm as any).images).map(
-                (file, index) => {
-                  const isImage =
-                    String(file.type ?? "").startsWith("image/") ||
-                    String(file.dataUrl ?? "").startsWith("data:image/");
-                  return (
-                    <div
-                      key={`${file.name}-${file.uploadedAt}-${index}`}
-                      style={{
-                        border: "1px solid #e2e8f0",
-                        borderRadius: 12,
-                        padding: 10,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        alignItems: "center",
-                        background: "#f8fafc",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        {isImage ? (
-                          <img
-                            src={file.dataUrl}
-                            alt={file.name}
-                            style={{
-                              width: 72,
-                              height: 54,
-                              objectFit: "cover",
-                              borderRadius: 8,
-                              border: "1px solid #cbd5e1",
-                            }}
-                          />
-                        ) : null}
-                        <div>
-                          <div style={{ fontWeight: 800 }}>{file.name || "קובץ"}</div>
-                          <div style={{ color: "#64748b", fontSize: 12 }}>
-                            {file.type || "קובץ"} · {file.uploadedAt || "ללא תאריך"}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={styles.buttonRow}>
-                        {file.dataUrl ? (
-                          <a
-                            href={file.dataUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={styles.secondaryBtn as any}
-                          >
-                            פתח
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          style={styles.dangerBtn}
-                          onClick={() => removeNonconformanceAttachment(index)}
-                        >
-                          מחק
-                        </button>
-                      </div>
-                    </div>
-                  );
-                },
-              )}
-            </div>
-          ) : (
-            <div style={{ color: "#94a3b8", marginTop: 8 }}>
-              לא צורפו קבצים עדיין.
-            </div>
-          )}
-        </div>
       </div>
     </section>
   );
@@ -6416,18 +6329,38 @@ export default function Page() {
       (nonconRows ?? []).map((row) => {
         const details = (row.details ?? {}) as Record<string, any>;
         return {
-          ...details,
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
           title: row.title ?? details.title ?? "",
-          location: row.location ?? details.location ?? "",
-          date: row.date ?? details.date ?? "",
+          openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
+          openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
           raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
+          date: row.date ?? details.date ?? "",
+          location: row.location ?? details.location ?? "",
+          building: details.building ?? "",
+          element: details.element ?? "",
+          subElement: details.subElement ?? details.sub_element ?? "",
+          fromSection: details.fromSection ?? details.from_section ?? "",
+          toSection: details.toSection ?? details.to_section ?? "",
+          offset: details.offset ?? "",
+          grade: details.grade ?? "",
+          expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
+          updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
+          delayDays: details.delayDays ?? details.delay_days ?? "",
+          breakage: details.breakage ?? "",
+          qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
           severity: row.severity ?? details.severity ?? "בינונית",
           status: row.status ?? details.status ?? "פתוח",
           description: row.description ?? details.description ?? "",
+          responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
           actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
+          handler: details.handler ?? "",
+          correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
           notes: row.notes ?? details.notes ?? "",
+          closedBy: details.closedBy ?? details.closed_by ?? "",
+          closingRole: details.closingRole ?? details.closing_role ?? "",
+          closedName: details.closedName ?? details.closed_name ?? "",
+          closingDate: details.closingDate ?? details.closing_date ?? "",
           images: normalizeAttachments(row.images ?? details.images),
           approval: normalizeApproval(row.approval ?? details.approval),
           savedAt: row.saved_at
@@ -7482,7 +7415,7 @@ export default function Page() {
           .delete()
           .eq("project_id", normalizeStoredProjectId(projectId));
         await supabase!
-          .from(NONCONFORMANCE_TABLE)
+          .from("NCR")
           .delete()
           .eq("project_id", normalizeStoredProjectId(projectId));
         await supabase!
@@ -8031,18 +7964,42 @@ export default function Page() {
           approval: record.approval,
           saved_at: nowIso(),
           details: {
-            ...(nonconformanceForm as any),
+            ...(record as any),
+            id: undefined,
+            projectId: undefined,
+            savedAt: undefined,
+            approval: record.approval,
+            images: normalizeAttachments((record as any).images),
             title: record.title,
-            location: record.location,
-            date: record.date,
+            openedBy: (record as any).openedBy,
+            openedRole: (record as any).openedRole,
             raisedBy: record.raisedBy,
+            date: record.date,
+            location: record.location,
+            building: (record as any).building,
+            element: (record as any).element,
+            subElement: (record as any).subElement,
+            fromSection: (record as any).fromSection,
+            toSection: (record as any).toSection,
+            offset: (record as any).offset,
+            grade: (record as any).grade,
+            expectedCloseDate: (record as any).expectedCloseDate,
+            updatedExpectedCloseDate: (record as any).updatedExpectedCloseDate,
+            delayDays: (record as any).delayDays,
+            breakage: (record as any).breakage,
+            qualityImpact: (record as any).qualityImpact,
             severity: record.severity,
             status: record.status,
             description: record.description,
+            responsibleParty: (record as any).responsibleParty,
             actionRequired: record.actionRequired,
+            handler: (record as any).handler,
+            correctiveActionDetails: (record as any).correctiveActionDetails,
             notes: record.notes,
-            images: normalizeAttachments((record as any).images),
-            approval: record.approval,
+            closedBy: (record as any).closedBy,
+            closingRole: (record as any).closingRole,
+            closedName: (record as any).closedName,
+            closingDate: (record as any).closingDate,
           },
         };
         await saveWithApprovalFallback(
@@ -8067,90 +8024,40 @@ export default function Page() {
     setSection("nonconformances");
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
-      ...(record as any),
       title: record.title,
-      location: record.location,
-      date: record.date,
+      openedBy: (record as any).openedBy ?? "QA / QC",
+      openedRole: (record as any).openedRole ?? "בקרת איכות",
       raisedBy: record.raisedBy,
+      date: record.date,
+      location: record.location,
+      building: (record as any).building ?? "",
+      element: (record as any).element ?? "",
+      subElement: (record as any).subElement ?? "",
+      fromSection: (record as any).fromSection ?? "",
+      toSection: (record as any).toSection ?? "",
+      offset: (record as any).offset ?? "",
+      grade: (record as any).grade ?? "",
+      expectedCloseDate: (record as any).expectedCloseDate ?? "",
+      updatedExpectedCloseDate: (record as any).updatedExpectedCloseDate ?? "",
+      delayDays: (record as any).delayDays ?? "",
+      breakage: (record as any).breakage ?? "",
+      qualityImpact: (record as any).qualityImpact ?? "",
+      description: record.description,
+      responsibleParty: (record as any).responsibleParty ?? "",
+      actionRequired: record.actionRequired,
+      handler: (record as any).handler ?? "",
+      correctiveActionDetails: (record as any).correctiveActionDetails ?? "",
+      notes: record.notes,
+      closedBy: (record as any).closedBy ?? "",
+      closingRole: (record as any).closingRole ?? "",
+      closedName: (record as any).closedName ?? "",
+      closingDate: (record as any).closingDate ?? "",
       severity: record.severity,
       status: record.status,
-      description: record.description,
-      actionRequired: record.actionRequired,
-      notes: record.notes,
       images: normalizeAttachments((record as any).images),
       approval: normalizeApproval(record.approval),
     } as any);
   };
-  const uploadNonconformanceAttachment = (file?: File) => {
-    if (!file) return;
-    const maxSizeMb = 15;
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      alert(`הקובץ גדול מדי. ניתן לצרף קובץ עד ${maxSizeMb}MB.`);
-      return;
-    }
-
-    const appendAttachment = (attachment: StoredAttachment) => {
-      setNonconformanceForm((prev: any) => ({
-        ...prev,
-        images: [
-          ...normalizeAttachments(prev?.images),
-          attachment,
-        ],
-      }));
-    };
-
-    const fallbackToLocalFile = () => {
-      const reader = new FileReader();
-      reader.onload = () =>
-        appendAttachment({
-          name: file.name,
-          type: file.type,
-          dataUrl: String(reader.result ?? ""),
-          uploadedAt: nowLocal(),
-        });
-      reader.onerror = () => alert("לא ניתן לקרוא את הקובץ המצורף.");
-      reader.readAsDataURL(file);
-    };
-
-    if (cloudEnabled && supabase) {
-      void (async () => {
-        try {
-          const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
-          const filePath = `ncr/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-          const uploadResult = await supabase.storage
-            .from("attachments")
-            .upload(filePath, file, {
-              upsert: false,
-              contentType: file.type || undefined,
-            });
-          if (uploadResult.error) throw uploadResult.error;
-          const { data } = supabase.storage
-            .from("attachments")
-            .getPublicUrl(filePath);
-          appendAttachment({
-            name: file.name,
-            type: file.type,
-            dataUrl: data.publicUrl,
-            uploadedAt: nowLocal(),
-          });
-        } catch (error) {
-          console.warn("NCR attachment upload failed, saving inline fallback", error);
-          fallbackToLocalFile();
-        }
-      })();
-      return;
-    }
-
-    fallbackToLocalFile();
-  };
-
-  const removeNonconformanceAttachment = (index: number) => {
-    setNonconformanceForm((prev: any) => ({
-      ...prev,
-      images: normalizeAttachments(prev?.images).filter((_, itemIndex) => itemIndex !== index),
-    }));
-  };
-
   const deleteNonconformance = async (id: string) =>
     withSaving(async () =>
       cloudEnabled
@@ -8595,6 +8502,7 @@ export default function Page() {
     .attachment-image-full{display:block;margin:0 auto;max-width:100%;max-height:175mm;object-fit:contain}
     .attachment-pdf-object{width:100%;height:175mm;border:1px solid #111827;background:#fff}
     .attachment-note{font-size:12px;text-align:center;margin:0 0 8px;color:#334155}
+    .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
@@ -8755,18 +8663,66 @@ export default function Page() {
     ${checklistAttachmentsExportTable(displayedItems)}`;
   };
 
-  const nonconformanceExportHtml = () =>
-    `${baseRows([
-      ["כותרת", nonconformanceForm.title],
-      ["מיקום", nonconformanceForm.location],
-      ["תאריך", nonconformanceForm.date],
-      ["נפתח על ידי", nonconformanceForm.raisedBy],
-      ["חומרה", nonconformanceForm.severity],
-      ["סטטוס", nonconformanceForm.status],
-      ["תיאור אי ההתאמה", nonconformanceForm.description, 100],
-      ["פעולה נדרשת / מתקנת", nonconformanceForm.actionRequired, 100],
-      ["הערות", nonconformanceForm.notes, 80],
-    ])}${attachmentsList((nonconformanceForm as any).images)}${signaturesTable(nonconformanceForm.approval)}`;
+  const nonconformanceAttachmentsSummary = (items: unknown) => {
+    const attachments = normalizeAttachments(items);
+    if (!attachments.length) return "";
+    const imageCount = attachments.filter((file) => {
+      const type = String(file.type ?? "").toLowerCase();
+      const src = String(file.dataUrl ?? "").toLowerCase();
+      return type.startsWith("image/") || src.startsWith("data:image/");
+    }).length;
+    const documentCount = attachments.length - imageCount;
+    const rows = attachments
+      .map((file, index) => {
+        const type = String(file.type ?? "").toLowerCase();
+        const src = String(file.dataUrl ?? "").toLowerCase();
+        const isImage = type.startsWith("image/") || src.startsWith("data:image/");
+        const label = isImage ? `תמונה ${index + 1}` : `קובץ / תעודה ${index + 1}`;
+        return `<tr><td>${safeText(label)}</td><td>${safeText(file.name || label)}</td><td>${safeText(file.type || (isImage ? "תמונה" : "קובץ"))}</td></tr>`;
+      })
+      .join("");
+    const summary = [
+      imageCount ? `${imageCount} תמונות צורפו` : "",
+      documentCount ? `${documentCount} קבצים / תעודות צורפו` : "",
+    ].filter(Boolean).join(" | ");
+    return `<h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table>`;
+  };
+
+  const nonconformanceExportHtml = () => {
+    const f: any = nonconformanceForm;
+    return `${baseRows([
+      ["אי התאמה מס׳", f.title],
+      ["נפתח QA / QC", f.openedBy],
+      ["תפקיד", f.openedRole],
+      ["שם פותח", f.raisedBy],
+      ["תאריך פתיחה", f.date],
+      ["קטע", f.location],
+      ["מבנה", f.building],
+      ["אלמנט", f.element],
+      ["תת אלמנט", f.subElement],
+      ["מחתך", f.fromSection],
+      ["עד חתך", f.toSection],
+      ["הסט", f.offset],
+      ["דרגה", f.grade],
+      ["תאריך סגירה משוער", f.expectedCloseDate],
+      ["תאריך סגירה משוער מעודכן", f.updatedExpectedCloseDate],
+      ["מס׳ ימי עיכוב לסגירה", f.delayDays],
+      ["שבר", f.breakage],
+      ["השפעה על איכות", f.qualityImpact],
+      ["חומרה", f.severity],
+      ["סטטוס", f.status],
+      ["תיאור אי ההתאמה", f.description, 110],
+      ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty, 90],
+      ["טיפול נדרש", f.actionRequired, 100],
+      ["גורם המטפל", f.handler],
+      ["פירוט ביצוע פעולה מתקנת", f.correctiveActionDetails, 110],
+      ["הערות", f.notes, 80],
+      ["נסגרה ע״י", f.closedBy],
+      ["תפקיד סגירה", f.closingRole],
+      ["שם סוגר", f.closedName],
+      ["תאריך סגירה", f.closingDate],
+    ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
+  };
 
   const trialSectionExportHtml = () => {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -9788,8 +9744,6 @@ ${invalidRecipients.join("\n")}`);
               saveNonconformance={saveNonconformance}
               resetNonconformanceEditor={resetNonconformanceEditor}
               closeNonconformance={closeNonconformance}
-              uploadNonconformanceAttachment={uploadNonconformanceAttachment}
-              removeNonconformanceAttachment={removeNonconformanceAttachment}
             />
             </>
           )}
