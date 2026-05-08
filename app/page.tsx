@@ -1471,6 +1471,14 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "toolsUsed",
   "executionDate",
   "executionDescription",
+  "location",
+  "date",
+  "spec",
+  "result",
+  "approvedBy",
+  "status",
+  "notes",
+  "title",
 ] as const;
 const trialSectionDetails = (record: Record<string, any>) =>
   TRIAL_SECTION_DETAIL_KEYS.reduce((acc, key) => {
@@ -6853,6 +6861,45 @@ export default function Page() {
     [projectEmailUsers, currentProject],
   );
 
+  const trialParticipantOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const addOption = (value: unknown, role?: string) => {
+      const text = String(value ?? "").trim();
+      if (!text) return null;
+      const label = role ? `${text} - ${role}` : text;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return label;
+    };
+    return [
+      ...currentProjectEmailUsers.map((user) => addOption([user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email)),
+      addOption(currentProjectDefaults.projectManagement, "חברת ניהול"),
+      addOption(currentProjectDefaults.contractor, "קבלן / מבצע"),
+      addOption(currentProjectDefaults.qualityControl, "בקרת איכות"),
+      addOption(currentProjectDefaults.qualityAssurance, "הבטחת איכות"),
+      addOption(currentProjectDefaults.workManager, "מנהל עבודה"),
+      addOption(currentProjectDefaults.surveyor, "מודד"),
+      addOption(currentProjectDefaults.supervisor, "פיקוח"),
+    ].filter(Boolean) as string[];
+  }, [currentProjectEmailUsers, currentProjectDefaults]);
+
+  useEffect(() => {
+    if (section !== "trialSections" || typeof document === "undefined") return;
+    const attachParticipantDatalist = () => {
+      const labels = Array.from(document.querySelectorAll("label"));
+      const participantLabel = labels.find((label) =>
+        (label.textContent || "").includes("משתתפים בקטע ניסוי"),
+      );
+      const container = participantLabel?.parentElement;
+      const field = container?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null;
+      if (field) field.setAttribute("list", "trial-participant-options");
+    };
+    attachParticipantDatalist();
+    const timer = window.setTimeout(attachParticipantDatalist, 50);
+    return () => window.clearTimeout(timer);
+  }, [section, trialParticipantOptions]);
+
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
@@ -8476,33 +8523,50 @@ export default function Page() {
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    if (!trialSectionForm.title.trim()) return alert("יש להזין שם לקטע ניסוי");
+    if (!String(trialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
     const validation = validateApproval(trialSectionForm.approval);
     if (validation) return alert(validation);
-    const id = editingTrialSectionId ?? crypto.randomUUID();
+
+    const id = editingTrialSectionId ?? (trialSectionForm as any).id ?? crypto.randomUUID();
     const title =
       editingTrialSectionId || titleHasNumber(trialSectionForm.title)
         ? trialSectionForm.title
         : nextTrialSectionTitle();
     rememberSequentialNo("trialSections", title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const fullForm: any = applyProjectDefaultsToTrialSection({ ...trialSectionForm, title });
     const record: TrialSectionRecord = {
       id,
       projectId: normalizedProjectId,
-      ...trialSectionForm,
+      ...fullForm,
       title,
-      approval: normalizeApproval(trialSectionForm.approval),
+      approval: normalizeApproval(fullForm.approval),
+      images: normalizeAttachments((fullForm as any).images),
       savedAt: nowLocal(),
+    } as TrialSectionRecord;
+
+    const updateLocalTrialSections = () => {
+      setSavedTrialSections((prev) => {
+        const exists = prev.some((item) => item.id === id);
+        return exists
+          ? prev.map((item) => (item.id === id ? record : item))
+          : [record, ...prev];
+      });
     };
+
     await withSaving(async () => {
+      updateLocalTrialSections();
       if (cloudEnabled) {
+        const allDetails = Object.fromEntries(
+          Object.entries(record as any).filter(([, value]) => value !== undefined && typeof value !== "function"),
+        );
         const payload = {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
           title: record.title,
           location: record.location,
-          date: record.date,
-          spec: record.spec,
+          date: (record as any).executionDate || record.date,
+          spec: record.spec || (record as any).executionDescription || "",
           result: record.result,
           approved_by: record.approvedBy,
           status: record.status,
@@ -8510,35 +8574,20 @@ export default function Page() {
           images: normalizeAttachments((record as any).images),
           approval: record.approval,
           details: {
+            ...allDetails,
             ...trialSectionDetails(record as any),
-            title: record.title,
-            location: record.location,
-            date: record.date,
-            spec: record.spec,
-            result: record.result,
-            approvedBy: record.approvedBy,
-            status: record.status,
-            notes: record.notes,
             images: normalizeAttachments((record as any).images),
             approval: record.approval,
           },
           saved_at: nowIso(),
         };
-        await saveWithApprovalFallback(
-          "trial_sections",
-          payload,
-          editingTrialSectionId ? "update" : "insert",
-          editingTrialSectionId ?? undefined,
-        );
+        const { error } = await supabase!
+          .from("trial_sections")
+          .upsert(payload, { onConflict: "id" });
+        if (error) throw error;
         await refreshCloudData();
-      } else
-        setSavedTrialSections((prev) =>
-          editingTrialSectionId
-            ? prev.map((item) =>
-                item.id === editingTrialSectionId ? record : item,
-              )
-            : [record, ...prev],
-        );
+        updateLocalTrialSections();
+      }
     });
     resetTrialSectionEditor();
   };
@@ -10198,14 +10247,18 @@ ${invalidRecipients.join("\n")}`);
                 style={{ ...styles.input, width: "100%" }}
               >
                 <option value="">בחר משתתף / גורם</option>
-                {currentProjectEmailUsers.map((user) => {
-                  const label = [user.name, user.role, user.company].filter(Boolean).join(" - ");
-                  return <option key={user.id} value={label || user.email}>{label || user.email}</option>;
-                })}
+                {trialParticipantOptions.map((label) => (
+                  <option key={label} value={label}>{label}</option>
+                ))}
               </select>
-              {!currentProjectEmailUsers.length ? (
-                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
+              {!trialParticipantOptions.length ? (
+                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין גורמים בפרטי הפרויקט.</div>
               ) : null}
+              <datalist id="trial-participant-options">
+                {trialParticipantOptions.map((label) => (
+                  <option key={label} value={label} />
+                ))}
+              </datalist>
             </div>
             <TrialSectionsSection
               guardedBody={guardedBody}
