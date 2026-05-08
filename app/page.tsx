@@ -105,30 +105,6 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
   }
 };
 
-const normalizeProjectEmailUsersList = (users: ProjectEmailUser[]) => {
-  const seen = new Set<string>();
-  return (Array.isArray(users) ? users : [])
-    .map((user) => ({
-      ...user,
-      id: String(user?.id || crypto.randomUUID()),
-      projectId: normalizeStoredProjectId(user?.projectId),
-      name: String(user?.name || "").trim(),
-      role: String(user?.role || "").trim(),
-      company: String(user?.company || "").trim(),
-      email: String(user?.email || "").trim(),
-      phone: String(user?.phone || "").trim(),
-      active: user?.active !== false,
-      createdAt: String(user?.createdAt || new Date().toISOString()),
-    }))
-    .filter((user) => user.projectId && user.email)
-    .filter((user) => {
-      const key = user.id || `${user.projectId}:${user.email}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-};
-
 const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
@@ -136,32 +112,18 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
 
 const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
   if (!isSupabaseConfigured || !supabase) return;
-  const normalized = users
-    .map((user) => ({
-      id: user.id,
-      project_id: normalizeStoredProjectId(user.projectId),
-      name: user.name,
-      role: user.role,
-      company: user.company,
-      email: String(user.email || "").trim(),
-      phone: user.phone || "",
-      active: user.active !== false,
-      created_at: user.createdAt || new Date().toISOString(),
-    }))
-    .filter((user) => user.project_id && user.email);
-
-  // מחליפים את רשימת המשתמשים בענן לפי הרשימה העדכנית בדפדפן.
-  // כך משתמש שנמחק לא חוזר אחרי כניסה מחדש, ומשתמש שנוסף נשמר בוודאות.
-  const deleteResult = await supabase
-    .from(PROJECT_EMAIL_USERS_TABLE)
-    .delete()
-    .neq("id", "00000000-0000-0000-0000-000000000000");
-  if (deleteResult.error) throw deleteResult.error;
-
-  if (!normalized.length) return;
-  const { error } = await supabase
-    .from(PROJECT_EMAIL_USERS_TABLE)
-    .upsert(normalized, { onConflict: "id" });
+  const normalized = users.map((user) => ({
+    id: user.id,
+    project_id: normalizeStoredProjectId(user.projectId),
+    name: user.name,
+    role: user.role,
+    company: user.company,
+    email: user.email,
+    phone: user.phone || "",
+    active: user.active !== false,
+    created_at: user.createdAt || new Date().toISOString(),
+  }));
+  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
   if (error) throw error;
 };
 
@@ -6808,12 +6770,12 @@ export default function Page() {
   }, []);
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
-    setProjectEmailUsers((prev) => {
-      const next = normalizeProjectEmailUsersList(updater(prev));
-      projectEmailUsersRef.current = next;
-      writeProjectEmailUsers(next);
-      return next;
-    });
+    const base = projectEmailUsersRef.current;
+    const next = updater(base);
+    projectEmailUsersRef.current = next;
+    writeProjectEmailUsers(next);
+    setProjectEmailUsers(next);
+    return next;
   };
 
   useEffect(() => {
@@ -6846,26 +6808,20 @@ export default function Page() {
   };
 
   const saveCurrentProjectEmailUsers = async () => {
+    const usersToSave = projectEmailUsersRef.current;
     try {
-      // משתמשים ב-ref כדי לתפוס גם משתמש שנוסף ממש לפני לחיצה על "שמור משתמשים".
-      const latestUsers = normalizeProjectEmailUsersList(projectEmailUsersRef.current);
-      projectEmailUsersRef.current = latestUsers;
-      setProjectEmailUsers(latestUsers);
-      writeProjectEmailUsers(latestUsers);
-      await saveProjectEmailUsersToCloud(latestUsers);
-
-      // אימות טעינה מהענן אחרי השמירה, כדי שכניסה מחדש תציג את אותה רשימה.
-      const cloudUsers = await loadProjectEmailUsersFromCloud().catch(() => null);
+      writeProjectEmailUsers(usersToSave);
+      await saveProjectEmailUsersToCloud(usersToSave);
+      const cloudUsers = await loadProjectEmailUsersFromCloud();
       if (cloudUsers) {
-        const normalizedCloudUsers = normalizeProjectEmailUsersList(cloudUsers);
-        projectEmailUsersRef.current = normalizedCloudUsers;
-        setProjectEmailUsers(normalizedCloudUsers);
-        writeProjectEmailUsers(normalizedCloudUsers);
+        projectEmailUsersRef.current = cloudUsers;
+        setProjectEmailUsers(cloudUsers);
+        writeProjectEmailUsers(cloudUsers);
       }
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
-      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שטבלת project_email_users קיימת ושיש לה הרשאות RLS ל-select/insert/update/delete.");
+      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
     }
   };
 
@@ -9375,26 +9331,46 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const margin = 6;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      const sliceHeightPx = Math.floor((canvas.width * usableHeight) / usableWidth);
-      let y = 0;
-      let pageIndex = 0;
+      if (section === "nonconformances") {
+        // טופס אי התאמה חייב להופיע כעמוד טופס אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
+        const imgData = canvas.toDataURL("image/jpeg", 0.95);
+        const imgWidthMm = usableWidth;
+        const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
+        const scale = Math.min(usableWidth / imgWidthMm, usableHeight / imgHeightMm);
+        const drawWidth = imgWidthMm * scale;
+        const drawHeight = imgHeightMm * scale;
+        pdf.addImage(
+          imgData,
+          "JPEG",
+          margin + (usableWidth - drawWidth) / 2,
+          margin + (usableHeight - drawHeight) / 2,
+          drawWidth,
+          drawHeight,
+          undefined,
+          "FAST",
+        );
+      } else {
+        const sliceHeightPx = Math.floor((canvas.width * usableHeight) / usableWidth);
+        let y = 0;
+        let pageIndex = 0;
 
-      while (y < canvas.height) {
-        const currentSliceHeight = Math.min(sliceHeightPx, canvas.height - y);
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = currentSliceHeight;
-        const ctx = sliceCanvas.getContext("2d");
-        if (!ctx) throw new Error("יצירת PDF נכשלה");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-        ctx.drawImage(canvas, 0, y, canvas.width, currentSliceHeight, 0, 0, canvas.width, currentSliceHeight);
-        const imgData = sliceCanvas.toDataURL("image/jpeg", 0.95);
-        const imgHeightMm = (currentSliceHeight * usableWidth) / canvas.width;
-        if (pageIndex > 0) pdf.addPage("a4", "landscape");
-        pdf.addImage(imgData, "JPEG", margin, margin, usableWidth, Math.min(imgHeightMm, usableHeight), undefined, "FAST");
-        y += currentSliceHeight;
-        pageIndex += 1;
+        while (y < canvas.height) {
+          const currentSliceHeight = Math.min(sliceHeightPx, canvas.height - y);
+          const sliceCanvas = document.createElement("canvas");
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = currentSliceHeight;
+          const ctx = sliceCanvas.getContext("2d");
+          if (!ctx) throw new Error("יצירת PDF נכשלה");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          ctx.drawImage(canvas, 0, y, canvas.width, currentSliceHeight, 0, 0, canvas.width, currentSliceHeight);
+          const imgData = sliceCanvas.toDataURL("image/jpeg", 0.95);
+          const imgHeightMm = (currentSliceHeight * usableWidth) / canvas.width;
+          if (pageIndex > 0) pdf.addPage("a4", "landscape");
+          pdf.addImage(imgData, "JPEG", margin, margin, usableWidth, Math.min(imgHeightMm, usableHeight), undefined, "FAST");
+          y += currentSliceHeight;
+          pageIndex += 1;
+        }
       }
 
       pdf.setProperties({ title });
