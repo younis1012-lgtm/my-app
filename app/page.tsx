@@ -4310,6 +4310,8 @@ function EnhancedNonconformancesSection({
   saveNonconformance,
   resetNonconformanceEditor,
   closeNonconformance,
+  uploadNonconformanceAttachment,
+  removeNonconformanceAttachment,
 }: {
   guardedBody: React.ReactNode;
   editingNonconformanceId: string | null;
@@ -4318,6 +4320,8 @@ function EnhancedNonconformancesSection({
   saveNonconformance: () => void;
   resetNonconformanceEditor: () => void;
   closeNonconformance: () => void;
+  uploadNonconformanceAttachment: (file?: File) => void;
+  removeNonconformanceAttachment: (index: number) => void;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
   return (
@@ -4379,6 +4383,103 @@ function EnhancedNonconformancesSection({
           form={nonconformanceForm}
           setForm={setNonconformanceForm}
         />
+        <div
+          style={{
+            borderTop: "1px solid #e2e8f0",
+            marginTop: 18,
+            paddingTop: 16,
+          }}
+        >
+          <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>
+            תמונות / קבצים מצורפים לאי התאמה
+          </h3>
+          <div style={{ color: "#64748b", marginBottom: 10 }}>
+            ניתן לצרף תמונות, PDF וכל קובץ תומך. הקבצים נשמרים יחד עם רשומת ה־NCR.
+          </div>
+          <input
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+            onChange={(event) => {
+              Array.from(event.target.files ?? []).forEach((file) =>
+                uploadNonconformanceAttachment(file),
+              );
+              event.currentTarget.value = "";
+            }}
+          />
+          {normalizeAttachments((nonconformanceForm as any).images).length ? (
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              {normalizeAttachments((nonconformanceForm as any).images).map(
+                (file, index) => {
+                  const isImage =
+                    String(file.type ?? "").startsWith("image/") ||
+                    String(file.dataUrl ?? "").startsWith("data:image/");
+                  return (
+                    <div
+                      key={`${file.name}-${file.uploadedAt}-${index}`}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 12,
+                        padding: 10,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        alignItems: "center",
+                        background: "#f8fafc",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        {isImage ? (
+                          <img
+                            src={file.dataUrl}
+                            alt={file.name}
+                            style={{
+                              width: 72,
+                              height: 54,
+                              objectFit: "cover",
+                              borderRadius: 8,
+                              border: "1px solid #cbd5e1",
+                            }}
+                          />
+                        ) : null}
+                        <div>
+                          <div style={{ fontWeight: 800 }}>{file.name || "קובץ"}</div>
+                          <div style={{ color: "#64748b", fontSize: 12 }}>
+                            {file.type || "קובץ"} · {file.uploadedAt || "ללא תאריך"}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={styles.buttonRow}>
+                        {file.dataUrl ? (
+                          <a
+                            href={file.dataUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={styles.secondaryBtn as any}
+                          >
+                            פתח
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          style={styles.dangerBtn}
+                          onClick={() => removeNonconformanceAttachment(index)}
+                        >
+                          מחק
+                        </button>
+                      </div>
+                    </div>
+                  );
+                },
+              )}
+            </div>
+          ) : (
+            <div style={{ color: "#94a3b8", marginTop: 8 }}>
+              לא צורפו קבצים עדיין.
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -8058,6 +8159,76 @@ export default function Page() {
       approval: normalizeApproval(record.approval),
     } as any);
   };
+  const uploadNonconformanceAttachment = (file?: File) => {
+    if (!file) return;
+    const maxSizeMb = 15;
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      alert(`הקובץ גדול מדי. ניתן לצרף קובץ עד ${maxSizeMb}MB.`);
+      return;
+    }
+
+    const appendAttachment = (attachment: StoredAttachment) => {
+      setNonconformanceForm((prev: any) => ({
+        ...prev,
+        images: [
+          ...normalizeAttachments(prev?.images),
+          attachment,
+        ],
+      }));
+    };
+
+    const fallbackToLocalFile = () => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        appendAttachment({
+          name: file.name,
+          type: file.type,
+          dataUrl: String(reader.result ?? ""),
+          uploadedAt: nowLocal(),
+        });
+      reader.onerror = () => alert("לא ניתן לקרוא את הקובץ המצורף.");
+      reader.readAsDataURL(file);
+    };
+
+    if (cloudEnabled && supabase) {
+      void (async () => {
+        try {
+          const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+          const filePath = `ncr/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+          const uploadResult = await supabase.storage
+            .from("attachments")
+            .upload(filePath, file, {
+              upsert: false,
+              contentType: file.type || undefined,
+            });
+          if (uploadResult.error) throw uploadResult.error;
+          const { data } = supabase.storage
+            .from("attachments")
+            .getPublicUrl(filePath);
+          appendAttachment({
+            name: file.name,
+            type: file.type,
+            dataUrl: data.publicUrl,
+            uploadedAt: nowLocal(),
+          });
+        } catch (error) {
+          console.warn("NCR attachment upload failed, saving inline fallback", error);
+          fallbackToLocalFile();
+        }
+      })();
+      return;
+    }
+
+    fallbackToLocalFile();
+  };
+
+  const removeNonconformanceAttachment = (index: number) => {
+    setNonconformanceForm((prev: any) => ({
+      ...prev,
+      images: normalizeAttachments(prev?.images).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const deleteNonconformance = async (id: string) =>
     withSaving(async () =>
       cloudEnabled
@@ -9744,6 +9915,8 @@ ${invalidRecipients.join("\n")}`);
               saveNonconformance={saveNonconformance}
               resetNonconformanceEditor={resetNonconformanceEditor}
               closeNonconformance={closeNonconformance}
+              uploadNonconformanceAttachment={uploadNonconformanceAttachment}
+              removeNonconformanceAttachment={removeNonconformanceAttachment}
             />
             </>
           )}
