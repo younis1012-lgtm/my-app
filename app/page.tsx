@@ -8675,20 +8675,20 @@ export default function Page() {
     .attachment-note{font-size:12px;text-align:center;margin:0 0 8px;color:#334155}
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
-    .ncr-one-page{font-size:9px;line-height:1.12;page-break-inside:avoid;break-inside:avoid}
-    .ncr-one-page h2{font-size:10px;margin:2px 0 2px;padding-bottom:1px}
-    .ncr-one-page table{margin:0 0 3px;table-layout:fixed;page-break-inside:avoid;break-inside:avoid}
-    .ncr-one-page th,.ncr-one-page td{font-size:9px;line-height:1.12;padding:2px 3px;height:auto}
-    .ncr-title-row td{font-size:13px;font-weight:900;text-align:center;padding:4px 3px}
-    .ncr-pair-label{width:11%;font-weight:800;background:#f8fafc}
-    .ncr-pair-value{width:22%;font-weight:600;min-height:14px}
-    .ncr-text .ncr-text-label{width:18%;font-weight:800;background:#f8fafc}
-    .ncr-text .ncr-text-value{text-align:right;white-space:pre-wrap;height:22px;max-height:30px;overflow:hidden}
-    .ncr-text .ncr-text-value-large{height:34px;max-height:42px}
-    .ncr-attachments .attachment-summary{font-size:9px;margin:0 0 2px}
-    .ncr-attachments th,.ncr-attachments td{font-size:8.5px;padding:1px 3px}
-    .ncr-signatures th,.ncr-signatures td{font-size:8.5px;padding:1px 3px;height:14px}
-    .ncr-signatures .signature td{height:14px}
+    .ncr-one-page{font-size:8.8px;line-height:1.32;page-break-inside:avoid;break-inside:avoid;overflow:visible}
+    .ncr-one-page h2{font-size:9.5px;margin:2px 0 2px;padding-bottom:1px;line-height:1.25}
+    .ncr-one-page table{margin:0 0 3px;table-layout:fixed;page-break-inside:avoid;break-inside:avoid;border-collapse:collapse}
+    .ncr-one-page th,.ncr-one-page td{font-size:8.8px;line-height:1.32;padding:3px 4px;height:auto;vertical-align:middle;box-sizing:border-box;overflow-wrap:anywhere;word-break:normal;white-space:normal}
+    .ncr-title-row td{font-size:12.5px;font-weight:900;text-align:center;padding:4px 3px;line-height:1.25}
+    .ncr-pair-label{width:11%;font-weight:800;background:#f8fafc;white-space:normal}
+    .ncr-pair-value{width:22%;font-weight:600;min-height:16px;white-space:normal}
+    .ncr-text .ncr-text-label{width:18%;font-weight:800;background:#f8fafc;white-space:normal}
+    .ncr-text .ncr-text-value{text-align:right;white-space:pre-wrap;height:26px;max-height:34px;overflow:hidden;line-height:1.32;padding-top:4px;padding-bottom:4px}
+    .ncr-text .ncr-text-value-large{height:42px;max-height:50px;line-height:1.32;padding-top:4px;padding-bottom:4px}
+    .ncr-attachments .attachment-summary{font-size:8.8px;margin:0 0 2px;line-height:1.25}
+    .ncr-attachments th,.ncr-attachments td{font-size:8.3px;line-height:1.25;padding:2px 3px;vertical-align:middle}
+    .ncr-signatures th,.ncr-signatures td{font-size:8.3px;line-height:1.25;padding:2px 3px;height:16px;vertical-align:middle}
+    .ncr-signatures .signature td{height:16px}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
