@@ -6872,9 +6872,6 @@ export default function Page() {
         : getProjectProfile(currentProject?.name),
     [currentProjectLegend, currentProject?.name],
   );
-
-  // ערכי ברירת מחדל מתוך פרטי הפרויקט.
-  // בכל פתיחת טופס חדש המערכת ממלאת אוטומטית רק שדות ריקים, ולא דורסת נתונים שהמשתמש כבר הקליד.
   const currentProjectDefaults = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
     const legend = currentProjectLegend;
@@ -6890,40 +6887,77 @@ export default function Page() {
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
 
-  const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Partial<T>): T => {
+  const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
+    let changed = false;
     const next: T = { ...form };
     Object.entries(values).forEach(([key, value]) => {
-      if (value == null) return;
+      if (value == null || String(value).trim() === "") return;
       if (String((next as any)[key] ?? "").trim() === "") {
         (next as any)[key] = value;
+        changed = true;
       }
     });
-    return next;
+    return changed ? next : form;
   };
 
-  const applyProjectDefaultsToChecklist = (form: ReturnType<typeof createDefaultChecklist>) => ({
-    ...form,
+  const projectDefaultFieldValues = () => ({
+    projectName: currentProjectDefaults.projectName,
+    projectNameDisplay: currentProjectDefaults.projectName,
+    project: currentProjectDefaults.projectName,
+    projectTitle: currentProjectDefaults.projectName,
+    managementCompany: currentProjectDefaults.projectManagement,
+    projectManagement: currentProjectDefaults.projectManagement,
+    projectManager: currentProjectDefaults.projectManagement,
+    contractor: currentProjectDefaults.contractor,
+    mainContractor: currentProjectDefaults.contractor,
+    executionContractor: currentProjectDefaults.contractor,
+    qualityAssurance: currentProjectDefaults.qualityAssurance,
+    qaCompany: currentProjectDefaults.qualityAssurance,
+    qualityControl: currentProjectDefaults.qualityControl,
+    qcCompany: currentProjectDefaults.qualityControl,
+    workManager: currentProjectDefaults.workManager,
+    surveyor: currentProjectDefaults.surveyor,
+    supervisor: currentProjectDefaults.supervisor,
+  });
+
+  const applyProjectDefaultsToChecklist = (form: any) => ({
+    ...fillOnlyEmptyFields(form, projectDefaultFieldValues()),
     contractor: form.contractor || currentProjectDefaults.contractor,
     items: applyProjectTeamToItems(form.items),
   });
 
   const applyProjectDefaultsToNonconformance = (form: any) =>
     fillOnlyEmptyFields(form, {
+      ...projectDefaultFieldValues(),
       raisedBy: currentProjectDefaults.qualityControl,
       responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
       handler: currentProjectDefaults.workManager || currentProjectDefaults.contractor,
+      openedBy: form.openedBy || "QA / QC",
+      openedRole: form.openedRole || "בקרת איכות",
     });
 
   const applyProjectDefaultsToTrialSection = (form: any) =>
     fillOnlyEmptyFields(form, {
+      ...projectDefaultFieldValues(),
       approvedBy: currentProjectDefaults.qualityControl,
+      createdBy: currentProjectDefaults.qualityControl,
+      checkedBy: currentProjectDefaults.qualityControl,
     });
 
   const applyProjectDefaultsToRfi = (form: any) =>
     fillOnlyEmptyFields(form, {
+      ...projectDefaultFieldValues(),
       createdBy: currentProjectDefaults.qualityControl,
       updatedBy: currentProjectDefaults.qualityControl,
     });
+
+  const applyProjectDefaultsToPreliminary = (form: any) =>
+    fillOnlyEmptyFields(form, {
+      ...projectDefaultFieldValues(),
+      approvedBy: currentProjectDefaults.qualityControl,
+      checkedBy: currentProjectDefaults.qualityControl,
+    });
+
   const projectName = !loaded
     ? "טוען..."
     : currentProjectLegend.projectName ||
@@ -7344,35 +7378,74 @@ export default function Page() {
     );
 
   useEffect(() => {
-    if (!loaded || !currentProjectId) return;
-
-    if (section === "checklists" && !editingChecklistId) {
-      setChecklistForm((prev) => applyProjectDefaultsToChecklist(prev));
-    }
-
-    if (section === "nonconformances" && !editingNonconformanceId) {
-      setNonconformanceForm((prev: any) => applyProjectDefaultsToNonconformance(prev));
-    }
-
-    if (section === "trialSections" && !editingTrialSectionId) {
-      setTrialSectionForm((prev: any) => applyProjectDefaultsToTrialSection(prev));
-    }
-
-    if (section === "rfi" && !editingRfiId) {
-      setRfiForm((prev: any) => applyProjectDefaultsToRfi(prev));
-    }
+    if (!loaded || section !== "checklists") return;
+    const profile = currentProjectProfile ?? getProjectProfile(projectName);
+    if (!profile) return;
+    setChecklistForm((prev) => ({
+      ...prev,
+      contractor:
+        !prev.contractor || prev.contractor.includes("פלסי הגליל")
+          ? profile.contractor
+          : prev.contractor,
+      items: prev.items.map((item) => ({
+        ...item,
+        inspector:
+          resolveResponsibleName(item.responsible, profile.projectName) ||
+          item.inspector,
+      })),
+    }));
   }, [
     loaded,
     section,
     currentProjectId,
+    currentProjectProfile?.projectName,
+    projectName,
+  ]);
+
+  useEffect(() => {
+    if (!loaded || !currentProjectId) return;
+
+    if (section === "checklists" && !editingChecklistId) {
+      setChecklistForm((prev: any) => applyProjectDefaultsToChecklist(prev));
+    }
+    if (section === "nonconformances" && !editingNonconformanceId) {
+      setNonconformanceForm((prev: any) => applyProjectDefaultsToNonconformance(prev));
+    }
+    if (section === "trialSections" && !editingTrialSectionId) {
+      setTrialSectionForm((prev: any) => applyProjectDefaultsToTrialSection(prev));
+    }
+    if (section === "rfi" && !editingRfiId) {
+      setRfiForm((prev: any) => applyProjectDefaultsToRfi(prev));
+    }
+    if (section === "preliminary" && !editingPreliminaryId) {
+      if (preliminaryTab === "suppliers") {
+        setSupplierPreliminaryForm((prev: any) => applyProjectDefaultsToPreliminary(prev));
+      }
+      if (preliminaryTab === "subcontractors") {
+        setSubcontractorPreliminaryForm((prev: any) => applyProjectDefaultsToPreliminary(prev));
+      }
+      if (preliminaryTab === "materials") {
+        setMaterialPreliminaryForm((prev: any) => applyProjectDefaultsToPreliminary(prev));
+      }
+    }
+  }, [
+    loaded,
+    section,
+    preliminaryTab,
+    currentProjectId,
+    currentProjectDefaults.projectName,
     currentProjectDefaults.contractor,
+    currentProjectDefaults.projectManagement,
+    currentProjectDefaults.qualityAssurance,
     currentProjectDefaults.qualityControl,
     currentProjectDefaults.workManager,
-    currentProjectDefaults.projectManagement,
+    currentProjectDefaults.surveyor,
+    currentProjectDefaults.supervisor,
     editingChecklistId,
     editingNonconformanceId,
     editingTrialSectionId,
     editingRfiId,
+    editingPreliminaryId,
   ]);
 
   const resetChecklistForm = (
@@ -7413,20 +7486,20 @@ export default function Page() {
   const resetPreliminaryEditor = () => {
     setEditingPreliminaryId(null);
     if (preliminaryTab === "suppliers")
-      setSupplierPreliminaryForm({
+      setSupplierPreliminaryForm(applyProjectDefaultsToPreliminary({
         ...createDefaultPreliminary("suppliers"),
         title: nextPreliminaryTitle("suppliers"),
-      });
+      }));
     if (preliminaryTab === "subcontractors")
-      setSubcontractorPreliminaryForm({
+      setSubcontractorPreliminaryForm(applyProjectDefaultsToPreliminary({
         ...createDefaultPreliminary("subcontractors"),
         title: nextPreliminaryTitle("subcontractors"),
-      });
+      }));
     if (preliminaryTab === "materials")
-      setMaterialPreliminaryForm({
+      setMaterialPreliminaryForm(applyProjectDefaultsToPreliminary({
         ...createDefaultPreliminary("materials"),
         title: nextPreliminaryTitle("materials"),
-      });
+      }));
   };
 
   const addProject = async () => {
@@ -7630,13 +7703,14 @@ export default function Page() {
     setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setChecklistForm((prev) => {
       const next = createDefaultChecklist(templateKey);
+      const profile = currentProjectProfile ?? getProjectProfile(projectName);
       return {
         ...next,
         location: prev.location,
         date: prev.date,
         contractor:
           !prev.contractor || prev.contractor.includes("פלסי הגליל")
-            ? currentProjectDefaults.contractor || ""
+            ? profile?.contractor || ""
             : prev.contractor,
         notes: prev.notes,
         items: applyProjectTeamToItems(next.items),
