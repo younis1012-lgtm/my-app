@@ -1483,34 +1483,6 @@ const mergeTrialSectionDetails = (record: Record<string, any>, details: Record<s
   ...details,
 });
 
-const TRIAL_SECTION_DETAILS_MARKER_START = "[[YK_TRIAL_SECTION_DETAILS_START]]";
-const TRIAL_SECTION_DETAILS_MARKER_END = "[[YK_TRIAL_SECTION_DETAILS_END]]";
-
-const encodeTrialSectionDetailsInNotes = (notes: unknown, details: Record<string, any>) => {
-  const cleanNotes = stripTrialSectionDetailsFromNotes(notes);
-  return `${cleanNotes}${cleanNotes ? "\n" : ""}${TRIAL_SECTION_DETAILS_MARKER_START}${JSON.stringify(details)}${TRIAL_SECTION_DETAILS_MARKER_END}`;
-};
-
-const extractTrialSectionDetailsFromNotes = (notes: unknown): Record<string, any> => {
-  const text = String(notes ?? "");
-  const start = text.indexOf(TRIAL_SECTION_DETAILS_MARKER_START);
-  const end = text.indexOf(TRIAL_SECTION_DETAILS_MARKER_END);
-  if (start < 0 || end <= start) return {};
-  try {
-    return JSON.parse(text.slice(start + TRIAL_SECTION_DETAILS_MARKER_START.length, end));
-  } catch {
-    return {};
-  }
-};
-
-const stripTrialSectionDetailsFromNotes = (notes: unknown) => {
-  const text = String(notes ?? "");
-  const start = text.indexOf(TRIAL_SECTION_DETAILS_MARKER_START);
-  const end = text.indexOf(TRIAL_SECTION_DETAILS_MARKER_END);
-  if (start < 0 || end <= start) return text;
-  return `${text.slice(0, start)}${text.slice(end + TRIAL_SECTION_DETAILS_MARKER_END.length)}`.trim();
-};
-
 const createDefaultPreliminary = (
   subtype: PreliminaryTab,
 ): Omit<PreliminaryRecord, "id" | "projectId" | "savedAt"> => ({
@@ -1648,17 +1620,10 @@ async function saveWithApprovalFallback(
   }
   if (result.error && isMissingColumnError(result.error, "details")) {
     const { details, ...withoutDetails } = payload;
-    const fallbackPayload =
-      table === "trial_sections" && details
-        ? {
-            ...withoutDetails,
-            notes: encodeTrialSectionDetailsInNotes(withoutDetails.notes, details),
-          }
-        : withoutDetails;
     result =
       mode === "insert"
-        ? await supabase!.from(table).insert(fallbackPayload)
-        : await supabase!.from(table).update(fallbackPayload).eq("id", id);
+        ? await supabase!.from(table).insert(withoutDetails)
+        : await supabase!.from(table).update(withoutDetails).eq("id", id);
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
@@ -6569,7 +6534,7 @@ export default function Page() {
     );
     setSavedTrialSections(
       (trialRows ?? []).map((row) => {
-        const details = { ...extractTrialSectionDetailsFromNotes(row.notes), ...(row.details ?? {}) };
+        const details = row.details ?? {};
         return mergeTrialSectionDetails({
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
@@ -6580,7 +6545,7 @@ export default function Page() {
           result: row.result ?? details.result ?? "",
           approvedBy: row.approved_by ?? details.approvedBy ?? "",
           status: row.status ?? details.status ?? "טיוטה",
-          notes: stripTrialSectionDetailsFromNotes(row.notes ?? details.notes ?? ""),
+          notes: row.notes ?? details.notes ?? "",
           images: normalizeAttachments(row.images ?? details.images),
           approval: normalizeApproval(row.approval ?? details.approval),
           savedAt: row.saved_at
@@ -6887,50 +6852,6 @@ export default function Page() {
     () => projectEmailUsers.filter((user) => normalizeStoredProjectId(user.projectId) === normalizeStoredProjectId(currentProject?.id)),
     [projectEmailUsers, currentProject],
   );
-
-  const currentProjectParticipantOptions = useMemo(() => {
-    const values = [
-      ...currentProjectEmailUsers.map((user) => [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email),
-      currentProjectDefaults.contractor,
-      currentProjectDefaults.projectManagement,
-      currentProjectDefaults.qualityAssurance,
-      currentProjectDefaults.qualityControl,
-      currentProjectDefaults.workManager,
-      currentProjectDefaults.surveyor,
-      currentProjectDefaults.supervisor,
-    ];
-    return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
-  }, [
-    currentProjectEmailUsers,
-    currentProjectDefaults.contractor,
-    currentProjectDefaults.projectManagement,
-    currentProjectDefaults.qualityAssurance,
-    currentProjectDefaults.qualityControl,
-    currentProjectDefaults.workManager,
-    currentProjectDefaults.surveyor,
-    currentProjectDefaults.supervisor,
-  ]);
-
-  useEffect(() => {
-    if (section !== "trialSections" || typeof document === "undefined") return;
-    const datalistId = "trial-section-participants-options";
-    let datalist = document.getElementById(datalistId) as HTMLDataListElement | null;
-    if (!datalist) {
-      datalist = document.createElement("datalist");
-      datalist.id = datalistId;
-      document.body.appendChild(datalist);
-    }
-    datalist.innerHTML = currentProjectParticipantOptions.map((value) => `<option value="${String(value).replace(/"/g, "&quot;")}"></option>`).join("");
-    const labels = Array.from(document.querySelectorAll("label"));
-    const participantLabel = labels.find((label) => label.textContent?.includes("משתתפים בקטע ניסוי"));
-    const container = participantLabel?.parentElement;
-    const input = container?.querySelector("input") as HTMLInputElement | null;
-    if (input) {
-      input.setAttribute("list", datalistId);
-      input.setAttribute("autocomplete", "off");
-      input.placeholder = input.placeholder || "בחר או הקלד משתתף מתוך גורמי הפרויקט";
-    }
-  }, [section, currentProjectParticipantOptions.join("|")]);
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
     if (!currentProject) return alert("יש לבחור פרויקט");
@@ -8570,21 +8491,8 @@ export default function Page() {
       projectId: normalizedProjectId,
       ...trialSectionForm,
       title,
-      notes: stripTrialSectionDetailsFromNotes((trialSectionForm as any).notes),
       approval: normalizeApproval(trialSectionForm.approval),
       savedAt: nowLocal(),
-    };
-    const trialDetails = {
-      ...trialSectionDetails(record as any),
-      ...Object.fromEntries(
-        Object.entries(record as any).filter(([, value]) => {
-          if (value === undefined || value === null) return false;
-          if (typeof value === "string" && value.trim() === "") return false;
-          return true;
-        }),
-      ),
-      images: normalizeAttachments((record as any).images),
-      approval: record.approval,
     };
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -8593,15 +8501,27 @@ export default function Page() {
           project_id: normalizeStoredProjectId(record.projectId),
           title: record.title,
           location: record.location,
-          date: record.date || (record as any).executionDate || "",
+          date: record.date,
           spec: record.spec,
           result: record.result,
           approved_by: record.approvedBy,
           status: record.status,
-          notes: stripTrialSectionDetailsFromNotes(record.notes),
+          notes: record.notes,
           images: normalizeAttachments((record as any).images),
           approval: record.approval,
-          details: trialDetails,
+          details: {
+            ...trialSectionDetails(record as any),
+            title: record.title,
+            location: record.location,
+            date: record.date,
+            spec: record.spec,
+            result: record.result,
+            approvedBy: record.approvedBy,
+            status: record.status,
+            notes: record.notes,
+            images: normalizeAttachments((record as any).images),
+            approval: record.approval,
+          },
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -10278,11 +10198,12 @@ ${invalidRecipients.join("\n")}`);
                 style={{ ...styles.input, width: "100%" }}
               >
                 <option value="">בחר משתתף / גורם</option>
-                {currentProjectParticipantOptions.map((label) => (
-                  <option key={label} value={label}>{label}</option>
-                ))}
+                {currentProjectEmailUsers.map((user) => {
+                  const label = [user.name, user.role, user.company].filter(Boolean).join(" - ");
+                  return <option key={user.id} value={label || user.email}>{label || user.email}</option>;
+                })}
               </select>
-              {!currentProjectParticipantOptions.length ? (
+              {!currentProjectEmailUsers.length ? (
                 <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
               ) : null}
             </div>
