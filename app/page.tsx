@@ -110,20 +110,43 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
 };
 
-const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
-  if (!isSupabaseConfigured || !supabase) return;
-  const normalized = users.map((user) => ({
-    id: user.id,
-    project_id: normalizeStoredProjectId(user.projectId),
-    name: user.name,
-    role: user.role,
-    company: user.company,
-    email: user.email,
-    phone: user.phone || "",
-    active: user.active !== false,
-    created_at: user.createdAt || new Date().toISOString(),
-  }));
-  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
+const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId?: string) => {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error("Supabase is not configured. Cannot save project email users to cloud.");
+  }
+
+  const targetProjectId = normalizeStoredProjectId(projectId);
+  const scopedUsers = targetProjectId
+    ? users.filter((user) => normalizeStoredProjectId(user.projectId) === targetProjectId)
+    : users;
+
+  const normalized = scopedUsers
+    .map((user) => ({
+      id: user.id || crypto.randomUUID(),
+      project_id: normalizeStoredProjectId(user.projectId || targetProjectId),
+      name: String(user.name || ""),
+      role: String(user.role || ""),
+      company: String(user.company || ""),
+      email: String(user.email || "").trim(),
+      phone: String(user.phone || ""),
+      active: user.active !== false,
+      created_at: user.createdAt || new Date().toISOString(),
+    }))
+    .filter((user) => user.project_id && user.email);
+
+  if (targetProjectId) {
+    const { error: deleteError } = await supabase
+      .from(PROJECT_EMAIL_USERS_TABLE)
+      .delete()
+      .eq("project_id", targetProjectId);
+    if (deleteError) throw deleteError;
+  }
+
+  if (!normalized.length) return;
+
+  const { error } = await supabase
+    .from(PROJECT_EMAIL_USERS_TABLE)
+    .insert(normalized);
   if (error) throw error;
 };
 
@@ -6808,20 +6831,46 @@ export default function Page() {
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    const usersToSave = projectEmailUsersRef.current;
+    if (!currentProject) {
+      alert("יש לבחור פרויקט לפני שמירת משתמשים");
+      return;
+    }
+
+    const currentNormalizedProjectId = normalizeStoredProjectId(currentProject.id);
+    const usersToSave = projectEmailUsersRef.current.map((user) => ({
+      ...user,
+      projectId: normalizeStoredProjectId(user.projectId),
+      email: String(user.email || "").trim(),
+    }));
+
+    const currentUsers = usersToSave.filter(
+      (user) => normalizeStoredProjectId(user.projectId) === currentNormalizedProjectId && user.email,
+    );
+
     try {
       writeProjectEmailUsers(usersToSave);
-      await saveProjectEmailUsersToCloud(usersToSave);
+      await saveProjectEmailUsersToCloud(usersToSave, currentNormalizedProjectId);
+
       const cloudUsers = await loadProjectEmailUsersFromCloud();
       if (cloudUsers) {
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
+        const mergedUsers = [
+          ...usersToSave.filter(
+            (user) => normalizeStoredProjectId(user.projectId) !== currentNormalizedProjectId,
+          ),
+          ...cloudUsers.filter(
+            (user) => normalizeStoredProjectId(user.projectId) === currentNormalizedProjectId,
+          ),
+        ];
+        projectEmailUsersRef.current = mergedUsers;
+        setProjectEmailUsers(mergedUsers);
+        writeProjectEmailUsers(mergedUsers);
       }
-      alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
-    } catch (error) {
-      console.error(error);
-      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
+
+      alert(`משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן (${currentUsers.length} משתמשים)`);
+    } catch (error: any) {
+      console.error("שמירת משתמשי הפרויקט לענן נכשלה", error);
+      const message = error?.message ? `\n${error.message}` : "";
+      alert(`המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה.${message}`);
     }
   };
 
