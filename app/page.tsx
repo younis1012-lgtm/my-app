@@ -1418,6 +1418,27 @@ const createDefaultTrialSection = (): Omit<
 > =>
   ({
     title: "",
+    projectName: "",
+    projectManagement: "",
+    managementCompany: "",
+    contractor: "",
+    mainContractor: "",
+    qualityControl: "",
+    qualityCompany: "",
+    sectionNo: "",
+    sectionNumber: "",
+    proofOfCapability: "",
+    elementName: "",
+    element: "",
+    subElement: "",
+    fromTo: "",
+    fromSection: "",
+    toSection: "",
+    participants: "",
+    equipment: "",
+    toolsUsed: "",
+    executionDate: "",
+    executionDescription: "",
     location: "",
     date: "",
     spec: "",
@@ -1428,6 +1449,40 @@ const createDefaultTrialSection = (): Omit<
     images: [] as StoredAttachment[],
     approval: createQualityControlApproval(),
   }) as any;
+const TRIAL_SECTION_DETAIL_KEYS = [
+  "projectName",
+  "projectManagement",
+  "managementCompany",
+  "contractor",
+  "mainContractor",
+  "qualityControl",
+  "qualityCompany",
+  "sectionNo",
+  "sectionNumber",
+  "proofOfCapability",
+  "elementName",
+  "element",
+  "subElement",
+  "fromTo",
+  "fromSection",
+  "toSection",
+  "participants",
+  "equipment",
+  "toolsUsed",
+  "executionDate",
+  "executionDescription",
+] as const;
+const trialSectionDetails = (record: Record<string, any>) =>
+  TRIAL_SECTION_DETAIL_KEYS.reduce((acc, key) => {
+    const value = record?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") acc[key] = value;
+    return acc;
+  }, {} as Record<string, any>);
+const mergeTrialSectionDetails = (record: Record<string, any>, details: Record<string, any> = {}) => ({
+  ...record,
+  ...details,
+});
+
 const createDefaultPreliminary = (
   subtype: PreliminaryTab,
 ): Omit<PreliminaryRecord, "id" | "projectId" | "savedAt"> => ({
@@ -1562,6 +1617,13 @@ async function saveWithApprovalFallback(
       mode === "insert"
         ? await supabase!.from(table).insert(withoutImages)
         : await supabase!.from(table).update(withoutImages).eq("id", id);
+  }
+  if (result.error && isMissingColumnError(result.error, "details")) {
+    const { details, ...withoutDetails } = payload;
+    result =
+      mode === "insert"
+        ? await supabase!.from(table).insert(withoutDetails)
+        : await supabase!.from(table).update(withoutDetails).eq("id", id);
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
@@ -6471,23 +6533,26 @@ export default function Page() {
       }),
     );
     setSavedTrialSections(
-      (trialRows ?? []).map((row) => ({
-        id: row.id,
-        projectId: normalizeStoredProjectId(row.project_id),
-        title: row.title ?? "",
-        location: row.location ?? "",
-        date: row.date ?? "",
-        spec: row.spec ?? "",
-        result: row.result ?? "",
-        approvedBy: row.approved_by ?? "",
-        status: row.status ?? "טיוטה",
-        notes: row.notes ?? "",
-        images: normalizeAttachments(row.images),
-        approval: normalizeApproval(row.approval),
-        savedAt: row.saved_at
-          ? new Date(row.saved_at).toLocaleString("he-IL")
-          : "",
-      })),
+      (trialRows ?? []).map((row) => {
+        const details = row.details ?? {};
+        return mergeTrialSectionDetails({
+          id: row.id,
+          projectId: normalizeStoredProjectId(row.project_id),
+          title: row.title ?? details.title ?? "",
+          location: row.location ?? details.location ?? "",
+          date: row.date ?? details.date ?? "",
+          spec: row.spec ?? details.spec ?? "",
+          result: row.result ?? details.result ?? "",
+          approvedBy: row.approved_by ?? details.approvedBy ?? "",
+          status: row.status ?? details.status ?? "טיוטה",
+          notes: row.notes ?? details.notes ?? "",
+          images: normalizeAttachments(row.images ?? details.images),
+          approval: normalizeApproval(row.approval ?? details.approval),
+          savedAt: row.saved_at
+            ? new Date(row.saved_at).toLocaleString("he-IL")
+            : "",
+        }, details) as TrialSectionRecord;
+      }),
     );
     setSavedPreliminary(
       (preliminaryRows ?? []).map((row) => ({
@@ -6902,6 +6967,7 @@ export default function Page() {
 
   const projectDefaultFieldValues = () => ({
     projectName: currentProjectDefaults.projectName,
+    titleProjectName: currentProjectDefaults.projectName,
     projectNameDisplay: currentProjectDefaults.projectName,
     project: currentProjectDefaults.projectName,
     projectTitle: currentProjectDefaults.projectName,
@@ -6914,6 +6980,7 @@ export default function Page() {
     qualityAssurance: currentProjectDefaults.qualityAssurance,
     qaCompany: currentProjectDefaults.qualityAssurance,
     qualityControl: currentProjectDefaults.qualityControl,
+    qualityCompany: currentProjectDefaults.qualityControl,
     qcCompany: currentProjectDefaults.qualityControl,
     workManager: currentProjectDefaults.workManager,
     surveyor: currentProjectDefaults.surveyor,
@@ -6939,6 +7006,13 @@ export default function Page() {
   const applyProjectDefaultsToTrialSection = (form: any) =>
     fillOnlyEmptyFields(form, {
       ...projectDefaultFieldValues(),
+      projectName: currentProjectDefaults.projectName,
+      projectManagement: currentProjectDefaults.projectManagement,
+      managementCompany: currentProjectDefaults.projectManagement,
+      contractor: currentProjectDefaults.contractor,
+      mainContractor: currentProjectDefaults.contractor,
+      qualityControl: currentProjectDefaults.qualityControl,
+      qualityCompany: currentProjectDefaults.qualityControl,
       approvedBy: currentProjectDefaults.qualityControl,
       createdBy: currentProjectDefaults.qualityControl,
       checkedBy: currentProjectDefaults.qualityControl,
@@ -8435,6 +8509,19 @@ export default function Page() {
           notes: record.notes,
           images: normalizeAttachments((record as any).images),
           approval: record.approval,
+          details: {
+            ...trialSectionDetails(record as any),
+            title: record.title,
+            location: record.location,
+            date: record.date,
+            spec: record.spec,
+            result: record.result,
+            approvedBy: record.approvedBy,
+            status: record.status,
+            notes: record.notes,
+            images: normalizeAttachments((record as any).images),
+            approval: record.approval,
+          },
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -8458,7 +8545,8 @@ export default function Page() {
   const loadTrialSection = (record: TrialSectionRecord) => {
     setSection("trialSections");
     setEditingTrialSectionId(record.id);
-    setTrialSectionForm({
+    setTrialSectionForm(applyProjectDefaultsToTrialSection({
+      ...(record as any),
       title: record.title,
       location: record.location,
       date: record.date,
@@ -8469,7 +8557,7 @@ export default function Page() {
       notes: record.notes,
       images: normalizeAttachments((record as any).images),
       approval: normalizeApproval(record.approval),
-    } as any);
+    } as any));
   };
   const deleteTrialSection = async (id: string) =>
     withSaving(async () =>
@@ -9043,10 +9131,18 @@ export default function Page() {
       ["שם הפרויקט", trialProjectName],
       ["חברת ניהול", trialProjectManager],
       ["קבלן ראשי", trialContractor],
-      ["חברת בקרת איכות", CONTROL_QUALITY_COMPANY_NAME],
+      ["חברת בקרת איכות", trialSectionForm.qualityCompany || trialSectionForm.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
       ["כותרת", trialSectionForm.title],
+      ["קטע מס׳", trialSectionForm.sectionNo || trialSectionForm.sectionNumber || trialSectionForm.location],
       ["מיקום / קטע עבודה", trialSectionForm.location],
-      ["תאריך", trialSectionForm.date],
+      ["שם האלמנט", trialSectionForm.elementName || trialSectionForm.element],
+      ["תת אלמנט", trialSectionForm.subElement],
+      ["מחתך / עד חתך", trialSectionForm.fromTo || [trialSectionForm.fromSection, trialSectionForm.toSection].filter(Boolean).join(" - ")],
+      ["משתתפים בקטע ניסוי", trialSectionForm.participants],
+      ["כלים בהם משתמשים", trialSectionForm.equipment || trialSectionForm.toolsUsed],
+      ["תאריך ביצוע", trialSectionForm.executionDate || trialSectionForm.date],
+      ["הוכחת היכולת לפעולה מסווג", trialSectionForm.proofOfCapability],
+      ["תיאור קטע ניסוי / שלבי ביצוע", trialSectionForm.executionDescription || trialSectionForm.spec, 120],
       ["מפרט / תקן", trialSectionForm.spec, 80],
       ["תוצאה", trialSectionForm.result, 120],
       ["אושר על ידי", trialSectionForm.approvedBy],
@@ -10094,6 +10190,23 @@ ${invalidRecipients.join("\n")}`);
                 onDelete={deleteTrialSection}
                 onNew={resetTrialSectionEditor}
               />
+            <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
+              <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - בחירה מתוך גורמים שהוגדרו בפרטי הפרויקט</label>
+              <select
+                value={(trialSectionForm as any).participants || ""}
+                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
+                style={{ ...styles.input, width: "100%" }}
+              >
+                <option value="">בחר משתתף / גורם</option>
+                {currentProjectEmailUsers.map((user) => {
+                  const label = [user.name, user.role, user.company].filter(Boolean).join(" - ");
+                  return <option key={user.id} value={label || user.email}>{label || user.email}</option>;
+                })}
+              </select>
+              {!currentProjectEmailUsers.length ? (
+                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
+              ) : null}
+            </div>
             <TrialSectionsSection
               guardedBody={guardedBody}
               editingTrialSectionId={editingTrialSectionId}
