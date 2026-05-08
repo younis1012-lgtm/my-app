@@ -1,0 +1,9 @@
+@echo off
+echo Fixing next.config.ts...
+copy /Y next.config.ts "%cd%\next.config.ts"
+echo.
+echo Cleaning .next cache...
+if exist .next rmdir /s /q .next
+echo.
+echo Running build...
+npm run build
