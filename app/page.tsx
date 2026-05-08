@@ -6937,6 +6937,22 @@ export default function Page() {
         : getProjectProfile(currentProject?.name),
     [currentProjectLegend, currentProject?.name],
   );
+
+  const trialParticipantOptions = useMemo(() => {
+    const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
+    const fromUsers = currentProjectEmailUsers.map((user) =>
+      [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email,
+    );
+    const fromProjectDetails = [
+      profile?.projectManager ? `מנהל פרויקט - ${profile.projectManager}` : "",
+      profile?.contractor ? `קבלן ראשי - ${profile.contractor}` : "",
+      profile?.qaCompany ? `חברת בקרת איכות - ${profile.qaCompany}` : "",
+      profile?.qualityControl ? `בקרת איכות - ${profile.qualityControl}` : "",
+      profile?.workManager ? `מנהל עבודה - ${profile.workManager}` : "",
+      profile?.surveyor ? `מודד - ${profile.surveyor}` : "",
+    ];
+    return Array.from(new Set([...fromUsers, ...fromProjectDetails].map((item) => String(item || "").trim()).filter(Boolean)));
+  }, [currentProjectEmailUsers, currentProjectProfile, currentProject?.name]);
   const currentProjectDefaults = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
     const legend = currentProjectLegend;
@@ -6951,39 +6967,6 @@ export default function Page() {
       supervisor: legend.supervisor || "",
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
-
-  const trialSectionParticipantOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const add = (value: unknown, suffix?: string) => {
-      const text = String(value ?? "").trim();
-      if (!text) return null;
-      const label = suffix ? `${text} - ${suffix}` : text;
-      if (seen.has(label)) return null;
-      seen.add(label);
-      return label;
-    };
-    return [
-      ...currentProjectEmailUsers.map((user) => add([user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email)),
-      add(currentProjectDefaults.projectManagement, "חברת ניהול"),
-      add(currentProjectDefaults.contractor, "קבלן ראשי"),
-      add(currentProjectDefaults.qualityAssurance, "חברת אבטחת איכות"),
-      add(currentProjectDefaults.qualityControl, "חברת בקרת איכות"),
-      add(currentProjectDefaults.workManager, "מנהל עבודה"),
-      add(currentProjectDefaults.surveyor, "מודד"),
-      add(currentProjectDefaults.supervisor, "מפקח"),
-    ].filter(Boolean) as string[];
-  }, [currentProjectEmailUsers, currentProjectDefaults]);
-
-  const addTrialSectionParticipant = (value: string) => {
-    const participant = value.trim();
-    if (!participant) return;
-    setTrialSectionForm((prev: any) => {
-      const existing = String(prev.participants ?? "").trim();
-      const parts = existing ? existing.split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean) : [];
-      if (!parts.includes(participant)) parts.push(participant);
-      return { ...prev, participants: parts.join(", ") };
-    });
-  };
 
   const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
     let changed = false;
@@ -8564,19 +8547,15 @@ export default function Page() {
           editingTrialSectionId ? "update" : "insert",
           editingTrialSectionId ?? undefined,
         );
-      }
-      setSavedTrialSections((prev) =>
-        prev.some((item) => item.id === id)
-          ? prev.map((item) => (item.id === id ? record : item))
-          : [record, ...prev],
-      );
-      if (cloudEnabled) {
-        try {
-          await refreshCloudData();
-        } catch (error) {
-          console.warn("רענון קטעי הניסוי מהענן נכשל לאחר שמירה", error);
-        }
-      }
+        await refreshCloudData();
+      } else
+        setSavedTrialSections((prev) =>
+          editingTrialSectionId
+            ? prev.map((item) =>
+                item.id === editingTrialSectionId ? record : item,
+              )
+            : [record, ...prev],
+        );
     });
     resetTrialSectionEditor();
   };
@@ -8910,22 +8889,22 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:8px;color:#0f172a;font-size:11px;background:#fff}
-    .export-page{width:100%;box-sizing:border-box;margin:0 auto}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:5px;color:#0f172a;font-size:9.5px;background:#fff}
+    .export-page{width:100%;box-sizing:border-box;margin:0 auto;page-break-after:avoid;break-after:avoid}
     h1{display:none}
-    h2{font-size:13px;margin:8px 0 4px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
+    h2{font-size:11px;margin:4px 0 2px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
-    th,td{border:1px solid #111827;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
+    th,td{border:1px solid #111827;padding:2px 4px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.12}
     th{background:#f8fafc;font-weight:800}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
-    .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:28px}
+    .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
     .company-header{width:100%;margin:0 0 12px;page-break-inside:avoid;box-sizing:border-box;border:0!important}
     .company-header-line,.company-footer-line{height:4px;background:#8a7d5b;width:100%;margin:0;border:0!important}
-    .company-header-logo-box{height:72px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:5px 0;overflow:hidden}
-    .company-full-logo{height:62px!important;max-height:62px!important;width:auto!important;max-width:130px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
-    .company-footer{width:100%;margin:12px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
-    .company-footer-single{height:26px;line-height:22px;font-size:11px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:3px 5px;white-space:nowrap}
+    .company-header-logo-box{height:54px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:5px 0;overflow:hidden}
+    .company-full-logo{height:48px!important;max-height:48px!important;width:auto!important;max-width:130px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-footer{width:100%;margin:6px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
+    .company-footer-single{height:20px;line-height:17px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:3px 5px;white-space:nowrap}
     .company-footer-service{display:inline-block;margin-left:22px;text-align:left;border:0!important;background:transparent!important}
     .company-footer-contact{display:inline-block;text-align:right;direction:rtl;border:0!important;background:transparent!important}
     .checklist-export-title{font-size:19px;font-weight:900;text-align:center;text-decoration:underline;margin:8px 0 10px}
@@ -8973,17 +8952,23 @@ export default function Page() {
       : label;
   };
 
-  const attachmentPreview = (_file: StoredAttachment) => "";
+  const attachmentPreview = (file: StoredAttachment) => {
+    const src = String(file.dataUrl ?? "").trim();
+    if (
+      !src ||
+      !(
+        String(file.type ?? "").startsWith("image/") ||
+        src.startsWith("data:image/")
+      )
+    )
+      return "";
+    return `<div style="margin-top:2px"><img src="${safeText(src)}" style="max-width:120px;max-height:90px;object-fit:contain" /></div>`;
+  };
 
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ / תיאור</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => {
-      const type = String(file.type || "קובץ");
-      const isImage = type.startsWith("image/") || String(file.dataUrl || "").startsWith("data:image/");
-      const displayName = isImage ? (file.name ? `תמונה - ${file.name}` : "תמונה צורפה") : (file.name || "קובץ מצורף");
-      return `<tr><td>${attachmentLink(displayName, file.dataUrl)}</td><td>${safeText(isImage ? "תמונה" : type)}</td></tr>`;
-    }).join("")}</tbody></table>`;
+    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
     const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
     return `${table}${embedded}`;
   };
@@ -9174,11 +9159,7 @@ export default function Page() {
       ["כלים בהם משתמשים", trialSectionForm.equipment || trialSectionForm.toolsUsed],
       ["תאריך ביצוע", trialSectionForm.executionDate || trialSectionForm.date],
       ["הוכחת היכולת לפעולה מסווג", trialSectionForm.proofOfCapability],
-      ["חומרים לשימוש", (trialSectionForm as any).materials || (trialSectionForm as any).materialsUsed],
-      ["תיאור קטע ניסוי", (trialSectionForm as any).description || (trialSectionForm as any).trialDescription],
-      ["שלבי ביצוע", trialSectionForm.executionDescription || (trialSectionForm as any).executionStages || (trialSectionForm as any).workStages || trialSectionForm.spec, 160],
-      ["מסקנות קטע ניסוי", (trialSectionForm as any).conclusions || (trialSectionForm as any).trialConclusions, 120],
-      ["פעולה מתקנת / נדרשת", (trialSectionForm as any).correctiveAction || (trialSectionForm as any).requiredAction, 120],
+      ["תיאור קטע ניסוי / שלבי ביצוע", trialSectionForm.executionDescription || trialSectionForm.spec, 120],
       ["מפרט / תקן", trialSectionForm.spec, 80],
       ["תוצאה", trialSectionForm.result, 120],
       ["אושר על ידי", trialSectionForm.approvedBy],
@@ -9590,8 +9571,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const margin = 6;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      if (section === "nonconformances") {
-        // טופס אי התאמה חייב להופיע כעמוד טופס אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
+      if (section !== "checklists") {
+        // כל טופס רגיל נפרס לעמוד PDF אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
         const imgData = canvas.toDataURL("image/jpeg", 0.95);
         const imgWidthMm = usableWidth;
         const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
@@ -10229,23 +10210,17 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
               <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - בחירה מתוך גורמים שהוגדרו בפרטי הפרויקט</label>
               <select
-                value=""
-                onChange={(event) => { addTrialSectionParticipant(event.target.value); event.currentTarget.value = ""; }}
-                style={{ ...styles.input, width: "100%", marginBottom: 8 }}
+                value={(trialSectionForm as any).participants || ""}
+                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
+                style={{ ...styles.input, width: "100%" }}
               >
-                <option value="">בחר משתתף / גורם להוספה</option>
-                {trialSectionParticipantOptions.map((label) => (
+                <option value="">בחר משתתף / גורם</option>
+                {trialParticipantOptions.map((label) => (
                   <option key={label} value={label}>{label}</option>
                 ))}
               </select>
-              <input
-                value={(trialSectionForm as any).participants || ""}
-                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
-                placeholder="משתתפים שנבחרו / ניתן גם להקליד ידנית"
-                style={{ ...styles.input, width: "100%" }}
-              />
-              {!trialSectionParticipantOptions.length ? (
-                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין גורמים בפרטי הפרויקט.</div>
+              {!trialParticipantOptions.length ? (
+                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
               ) : null}
             </div>
             <TrialSectionsSection
