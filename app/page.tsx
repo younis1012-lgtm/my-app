@@ -1154,10 +1154,17 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
     ? value
         .filter((item) => item && typeof item === "object")
         .map((item: any) => ({
-          name: String(item.name ?? "קובץ"),
-          type: String(item.type ?? ""),
-          dataUrl: String(item.dataUrl ?? ""),
-          uploadedAt: String(item.uploadedAt ?? ""),
+          name: String(item.name ?? item.fileName ?? "קובץ"),
+          type: String(item.type ?? item.mimeType ?? item.contentType ?? ""),
+          dataUrl: String(
+            item.dataUrl ??
+              item.url ??
+              item.publicUrl ??
+              item.public_url ??
+              item.href ??
+              "",
+          ),
+          uploadedAt: String(item.uploadedAt ?? item.uploaded_at ?? ""),
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -1380,35 +1387,14 @@ const createDefaultNonconformance = (): Omit<
 > =>
   ({
     title: "",
-    openedBy: "QA / QC",
-    openedRole: "בקרת איכות",
-    raisedBy: "",
-    date: "",
     location: "",
-    building: "",
-    element: "",
-    subElement: "",
-    fromSection: "",
-    toSection: "",
-    offset: "",
-    grade: "",
-    expectedCloseDate: "",
-    updatedExpectedCloseDate: "",
-    delayDays: "",
-    breakage: "",
-    qualityImpact: "",
-    description: "",
-    responsibleParty: "",
-    actionRequired: "",
-    handler: "",
-    correctiveActionDetails: "",
-    notes: "",
-    closedBy: "",
-    closingRole: "",
-    closedName: "",
-    closingDate: "",
+    date: "",
+    raisedBy: "",
     severity: "בינונית",
     status: "פתוח",
+    description: "",
+    actionRequired: "",
+    notes: "",
     images: [] as StoredAttachment[],
     approval: createNonconformanceApproval(),
   }) as any;
@@ -6430,38 +6416,18 @@ export default function Page() {
       (nonconRows ?? []).map((row) => {
         const details = (row.details ?? {}) as Record<string, any>;
         return {
+          ...details,
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
           title: row.title ?? details.title ?? "",
-          openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
-          openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
-          raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
-          date: row.date ?? details.date ?? "",
           location: row.location ?? details.location ?? "",
-          building: details.building ?? "",
-          element: details.element ?? "",
-          subElement: details.subElement ?? details.sub_element ?? "",
-          fromSection: details.fromSection ?? details.from_section ?? "",
-          toSection: details.toSection ?? details.to_section ?? "",
-          offset: details.offset ?? "",
-          grade: details.grade ?? "",
-          expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
-          updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
-          delayDays: details.delayDays ?? details.delay_days ?? "",
-          breakage: details.breakage ?? "",
-          qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
+          date: row.date ?? details.date ?? "",
+          raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
           severity: row.severity ?? details.severity ?? "בינונית",
           status: row.status ?? details.status ?? "פתוח",
           description: row.description ?? details.description ?? "",
-          responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
           actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
-          handler: details.handler ?? "",
-          correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
           notes: row.notes ?? details.notes ?? "",
-          closedBy: details.closedBy ?? details.closed_by ?? "",
-          closingRole: details.closingRole ?? details.closing_role ?? "",
-          closedName: details.closedName ?? details.closed_name ?? "",
-          closingDate: details.closingDate ?? details.closing_date ?? "",
           images: normalizeAttachments(row.images ?? details.images),
           approval: normalizeApproval(row.approval ?? details.approval),
           savedAt: row.saved_at
@@ -7516,7 +7482,7 @@ export default function Page() {
           .delete()
           .eq("project_id", normalizeStoredProjectId(projectId));
         await supabase!
-          .from("NCR")
+          .from(NONCONFORMANCE_TABLE)
           .delete()
           .eq("project_id", normalizeStoredProjectId(projectId));
         await supabase!
@@ -8065,42 +8031,18 @@ export default function Page() {
           approval: record.approval,
           saved_at: nowIso(),
           details: {
-            ...(record as any),
-            id: undefined,
-            projectId: undefined,
-            savedAt: undefined,
-            approval: record.approval,
-            images: normalizeAttachments((record as any).images),
+            ...(nonconformanceForm as any),
             title: record.title,
-            openedBy: (record as any).openedBy,
-            openedRole: (record as any).openedRole,
-            raisedBy: record.raisedBy,
-            date: record.date,
             location: record.location,
-            building: (record as any).building,
-            element: (record as any).element,
-            subElement: (record as any).subElement,
-            fromSection: (record as any).fromSection,
-            toSection: (record as any).toSection,
-            offset: (record as any).offset,
-            grade: (record as any).grade,
-            expectedCloseDate: (record as any).expectedCloseDate,
-            updatedExpectedCloseDate: (record as any).updatedExpectedCloseDate,
-            delayDays: (record as any).delayDays,
-            breakage: (record as any).breakage,
-            qualityImpact: (record as any).qualityImpact,
+            date: record.date,
+            raisedBy: record.raisedBy,
             severity: record.severity,
             status: record.status,
             description: record.description,
-            responsibleParty: (record as any).responsibleParty,
             actionRequired: record.actionRequired,
-            handler: (record as any).handler,
-            correctiveActionDetails: (record as any).correctiveActionDetails,
             notes: record.notes,
-            closedBy: (record as any).closedBy,
-            closingRole: (record as any).closingRole,
-            closedName: (record as any).closedName,
-            closingDate: (record as any).closingDate,
+            images: normalizeAttachments((record as any).images),
+            approval: record.approval,
           },
         };
         await saveWithApprovalFallback(
@@ -8125,36 +8067,16 @@ export default function Page() {
     setSection("nonconformances");
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
+      ...(record as any),
       title: record.title,
-      openedBy: (record as any).openedBy ?? "QA / QC",
-      openedRole: (record as any).openedRole ?? "בקרת איכות",
-      raisedBy: record.raisedBy,
-      date: record.date,
       location: record.location,
-      building: (record as any).building ?? "",
-      element: (record as any).element ?? "",
-      subElement: (record as any).subElement ?? "",
-      fromSection: (record as any).fromSection ?? "",
-      toSection: (record as any).toSection ?? "",
-      offset: (record as any).offset ?? "",
-      grade: (record as any).grade ?? "",
-      expectedCloseDate: (record as any).expectedCloseDate ?? "",
-      updatedExpectedCloseDate: (record as any).updatedExpectedCloseDate ?? "",
-      delayDays: (record as any).delayDays ?? "",
-      breakage: (record as any).breakage ?? "",
-      qualityImpact: (record as any).qualityImpact ?? "",
-      description: record.description,
-      responsibleParty: (record as any).responsibleParty ?? "",
-      actionRequired: record.actionRequired,
-      handler: (record as any).handler ?? "",
-      correctiveActionDetails: (record as any).correctiveActionDetails ?? "",
-      notes: record.notes,
-      closedBy: (record as any).closedBy ?? "",
-      closingRole: (record as any).closingRole ?? "",
-      closedName: (record as any).closedName ?? "",
-      closingDate: (record as any).closingDate ?? "",
+      date: record.date,
+      raisedBy: record.raisedBy,
       severity: record.severity,
       status: record.status,
+      description: record.description,
+      actionRequired: record.actionRequired,
+      notes: record.notes,
       images: normalizeAttachments((record as any).images),
       approval: normalizeApproval(record.approval),
     } as any);
@@ -8673,7 +8595,6 @@ export default function Page() {
     .attachment-image-full{display:block;margin:0 auto;max-width:100%;max-height:175mm;object-fit:contain}
     .attachment-pdf-object{width:100%;height:175mm;border:1px solid #111827;background:#fff}
     .attachment-note{font-size:12px;text-align:center;margin:0 0 8px;color:#334155}
-    .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
     .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
@@ -8722,11 +8643,27 @@ export default function Page() {
     return `<div style="margin-top:2px"><img src="${safeText(src)}" style="max-width:120px;max-height:90px;object-fit:contain" /></div>`;
   };
 
+  const attachmentSummaryOnly = (items: unknown, title = "תמונות / קבצים מצורפים") => {
+    const attachments = normalizeAttachments(items);
+    if (!attachments.length) return "";
+    const rows = attachments.map((file, index) => {
+      const type = String(file.type ?? "").toLowerCase();
+      const src = String(file.dataUrl ?? "").toLowerCase();
+      const isImage = type.startsWith("image/") || src.startsWith("data:image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(String(file.name ?? ""));
+      const displayName = isImage ? `תמונה צורפה ${index + 1}` : (file.name || `קובץ / תעודה ${index + 1}`);
+      return `<tr><td>${safeText(displayName)}</td><td>${safeText(file.name || "")}</td><td>${safeText(file.type || "קובץ")}</td></tr>`;
+    }).join("");
+    return `<h2>${safeText(title)}</h2><table><thead><tr><th>סימון בדוח</th><th>שם קובץ / מס׳ תעודה</th><th>סוג</th></tr></thead><tbody>${rows}</tbody></table>`;
+  };
+
+  const attachmentAppendices = (items: unknown) =>
+    normalizeAttachments(items).map((file) => embeddedAttachmentForExport(file)).join("");
+
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
     const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
-    const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
+    const embedded = attachmentAppendices(attachments);
     return `${table}${embedded}`;
   };
 
@@ -8834,65 +8771,43 @@ export default function Page() {
     ${checklistAttachmentsExportTable(displayedItems)}`;
   };
 
-  const nonconformanceAttachmentsSummary = (items: unknown) => {
-    const attachments = normalizeAttachments(items);
-    if (!attachments.length) return "";
-    const imageCount = attachments.filter((file) => {
-      const type = String(file.type ?? "").toLowerCase();
-      const src = String(file.dataUrl ?? "").toLowerCase();
-      return type.startsWith("image/") || src.startsWith("data:image/");
-    }).length;
-    const documentCount = attachments.length - imageCount;
-    const rows = attachments
-      .map((file, index) => {
-        const type = String(file.type ?? "").toLowerCase();
-        const src = String(file.dataUrl ?? "").toLowerCase();
-        const isImage = type.startsWith("image/") || src.startsWith("data:image/");
-        const label = isImage ? `תמונה ${index + 1}` : `קובץ / תעודה ${index + 1}`;
-        return `<tr><td>${safeText(label)}</td><td>${safeText(file.name || label)}</td><td>${safeText(file.type || (isImage ? "תמונה" : "קובץ"))}</td></tr>`;
-      })
-      .join("");
-    const summary = [
-      imageCount ? `${imageCount} תמונות צורפו` : "",
-      documentCount ? `${documentCount} קבצים / תעודות צורפו` : "",
-    ].filter(Boolean).join(" | ");
-    return `<h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table>`;
-  };
-
   const nonconformanceExportHtml = () => {
-    const f: any = nonconformanceForm;
+    const form = nonconformanceForm as any;
+    const attachments = normalizeAttachments(form.images);
+    const attachmentSummary = attachmentSummaryOnly(attachments, "סיכום תמונות / קבצים מצורפים");
+    const appendices = attachmentAppendices(attachments);
     return `${baseRows([
-      ["אי התאמה מס׳", f.title],
-      ["נפתח QA / QC", f.openedBy],
-      ["תפקיד", f.openedRole],
-      ["שם פותח", f.raisedBy],
-      ["תאריך פתיחה", f.date],
-      ["קטע", f.location],
-      ["מבנה", f.building],
-      ["אלמנט", f.element],
-      ["תת אלמנט", f.subElement],
-      ["מחתך", f.fromSection],
-      ["עד חתך", f.toSection],
-      ["הסט", f.offset],
-      ["דרגה", f.grade],
-      ["תאריך סגירה משוער", f.expectedCloseDate],
-      ["תאריך סגירה משוער מעודכן", f.updatedExpectedCloseDate],
-      ["מס׳ ימי עיכוב לסגירה", f.delayDays],
-      ["שבר", f.breakage],
-      ["השפעה על איכות", f.qualityImpact],
-      ["חומרה", f.severity],
-      ["סטטוס", f.status],
-      ["תיאור אי ההתאמה", f.description, 110],
-      ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty, 90],
-      ["טיפול נדרש", f.actionRequired, 100],
-      ["גורם המטפל", f.handler],
-      ["פירוט ביצוע פעולה מתקנת", f.correctiveActionDetails, 110],
-      ["הערות", f.notes, 80],
-      ["נסגרה ע״י", f.closedBy],
-      ["תפקיד סגירה", f.closingRole],
-      ["שם סוגר", f.closedName],
-      ["תאריך סגירה", f.closingDate],
-    ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
+      ["אי התאמה מס׳", form.title],
+      ["נפתח QA / QC", form.openedBy],
+      ["תפקיד", form.openedRole],
+      ["שם פותח", form.raisedBy],
+      ["תאריך פתיחה", form.date],
+      ["קטע", form.location],
+      ["מבנה", form.building],
+      ["אלמנט", form.element],
+      ["תת אלמנט", form.subElement],
+      ["מחתך", form.fromSection],
+      ["עד חתך", form.toSection],
+      ["הסט", form.offset],
+      ["דרגה", form.grade],
+      ["תאריך סגירה משוער", form.expectedCloseDate],
+      ["תאריך סגירה משוער מעודכן", form.updatedExpectedCloseDate],
+      ["מס׳ ימי עיכוב לסגירה", form.delayDays],
+      ["שבר", form.breakage],
+      ["השפעה על איכות", form.qualityImpact],
+      ["חומרה", form.severity],
+      ["סטטוס", form.status],
+      ["תיאור אי ההתאמה", form.description, 100],
+      ["גורם אחראי לליקוי תכנון, ביצוע, ספק", form.responsibleParty, 80],
+      ["טיפול נדרש", form.actionRequired, 100],
+      ["גורם המטפל", form.handler],
+      ["פירוט ביצוע פעולה מתקנת", form.correctiveActionDetails, 100],
+      ["הערות", form.notes, 80],
+      ["נסגרה ע״י", form.closedBy],
+      ["תפקיד סגירה", form.closingRole],
+      ["שם סוגר", form.closedName],
+      ["תאריך סגירה", form.closingDate],
+    ])}${attachmentSummary}${signaturesTable(form.approval)}${appendices}`;
   };
 
   const trialSectionExportHtml = () => {
