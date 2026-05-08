@@ -1471,14 +1471,6 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "toolsUsed",
   "executionDate",
   "executionDescription",
-  "location",
-  "date",
-  "spec",
-  "result",
-  "approvedBy",
-  "status",
-  "notes",
-  "title",
 ] as const;
 const trialSectionDetails = (record: Record<string, any>) =>
   TRIAL_SECTION_DETAIL_KEYS.reduce((acc, key) => {
@@ -6861,45 +6853,6 @@ export default function Page() {
     [projectEmailUsers, currentProject],
   );
 
-  const trialParticipantOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const addOption = (value: unknown, role?: string) => {
-      const text = String(value ?? "").trim();
-      if (!text) return null;
-      const label = role ? `${text} - ${role}` : text;
-      const key = label.toLowerCase();
-      if (seen.has(key)) return null;
-      seen.add(key);
-      return label;
-    };
-    return [
-      ...currentProjectEmailUsers.map((user) => addOption([user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email)),
-      addOption(currentProjectDefaults.projectManagement, "חברת ניהול"),
-      addOption(currentProjectDefaults.contractor, "קבלן / מבצע"),
-      addOption(currentProjectDefaults.qualityControl, "בקרת איכות"),
-      addOption(currentProjectDefaults.qualityAssurance, "הבטחת איכות"),
-      addOption(currentProjectDefaults.workManager, "מנהל עבודה"),
-      addOption(currentProjectDefaults.surveyor, "מודד"),
-      addOption(currentProjectDefaults.supervisor, "פיקוח"),
-    ].filter(Boolean) as string[];
-  }, [currentProjectEmailUsers, currentProjectDefaults]);
-
-  useEffect(() => {
-    if (section !== "trialSections" || typeof document === "undefined") return;
-    const attachParticipantDatalist = () => {
-      const labels = Array.from(document.querySelectorAll("label"));
-      const participantLabel = labels.find((label) =>
-        (label.textContent || "").includes("משתתפים בקטע ניסוי"),
-      );
-      const container = participantLabel?.parentElement;
-      const field = container?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null;
-      if (field) field.setAttribute("list", "trial-participant-options");
-    };
-    attachParticipantDatalist();
-    const timer = window.setTimeout(attachParticipantDatalist, 50);
-    return () => window.clearTimeout(timer);
-  }, [section, trialParticipantOptions]);
-
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
@@ -6998,6 +6951,39 @@ export default function Page() {
       supervisor: legend.supervisor || "",
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
+
+  const trialSectionParticipantOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const add = (value: unknown, suffix?: string) => {
+      const text = String(value ?? "").trim();
+      if (!text) return null;
+      const label = suffix ? `${text} - ${suffix}` : text;
+      if (seen.has(label)) return null;
+      seen.add(label);
+      return label;
+    };
+    return [
+      ...currentProjectEmailUsers.map((user) => add([user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email)),
+      add(currentProjectDefaults.projectManagement, "חברת ניהול"),
+      add(currentProjectDefaults.contractor, "קבלן ראשי"),
+      add(currentProjectDefaults.qualityAssurance, "חברת אבטחת איכות"),
+      add(currentProjectDefaults.qualityControl, "חברת בקרת איכות"),
+      add(currentProjectDefaults.workManager, "מנהל עבודה"),
+      add(currentProjectDefaults.surveyor, "מודד"),
+      add(currentProjectDefaults.supervisor, "מפקח"),
+    ].filter(Boolean) as string[];
+  }, [currentProjectEmailUsers, currentProjectDefaults]);
+
+  const addTrialSectionParticipant = (value: string) => {
+    const participant = value.trim();
+    if (!participant) return;
+    setTrialSectionForm((prev: any) => {
+      const existing = String(prev.participants ?? "").trim();
+      const parts = existing ? existing.split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean) : [];
+      if (!parts.includes(participant)) parts.push(participant);
+      return { ...prev, participants: parts.join(", ") };
+    });
+  };
 
   const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
     let changed = false;
@@ -8523,50 +8509,33 @@ export default function Page() {
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    if (!String(trialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
+    if (!trialSectionForm.title.trim()) return alert("יש להזין שם לקטע ניסוי");
     const validation = validateApproval(trialSectionForm.approval);
     if (validation) return alert(validation);
-
-    const id = editingTrialSectionId ?? (trialSectionForm as any).id ?? crypto.randomUUID();
+    const id = editingTrialSectionId ?? crypto.randomUUID();
     const title =
       editingTrialSectionId || titleHasNumber(trialSectionForm.title)
         ? trialSectionForm.title
         : nextTrialSectionTitle();
     rememberSequentialNo("trialSections", title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const fullForm: any = applyProjectDefaultsToTrialSection({ ...trialSectionForm, title });
     const record: TrialSectionRecord = {
       id,
       projectId: normalizedProjectId,
-      ...fullForm,
+      ...trialSectionForm,
       title,
-      approval: normalizeApproval(fullForm.approval),
-      images: normalizeAttachments((fullForm as any).images),
+      approval: normalizeApproval(trialSectionForm.approval),
       savedAt: nowLocal(),
-    } as TrialSectionRecord;
-
-    const updateLocalTrialSections = () => {
-      setSavedTrialSections((prev) => {
-        const exists = prev.some((item) => item.id === id);
-        return exists
-          ? prev.map((item) => (item.id === id ? record : item))
-          : [record, ...prev];
-      });
     };
-
     await withSaving(async () => {
-      updateLocalTrialSections();
       if (cloudEnabled) {
-        const allDetails = Object.fromEntries(
-          Object.entries(record as any).filter(([, value]) => value !== undefined && typeof value !== "function"),
-        );
         const payload = {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
           title: record.title,
           location: record.location,
-          date: (record as any).executionDate || record.date,
-          spec: record.spec || (record as any).executionDescription || "",
+          date: record.date,
+          spec: record.spec,
           result: record.result,
           approved_by: record.approvedBy,
           status: record.status,
@@ -8574,19 +8543,39 @@ export default function Page() {
           images: normalizeAttachments((record as any).images),
           approval: record.approval,
           details: {
-            ...allDetails,
+            ...(record as any),
             ...trialSectionDetails(record as any),
+            title: record.title,
+            location: record.location,
+            date: record.date,
+            spec: record.spec,
+            result: record.result,
+            approvedBy: record.approvedBy,
+            status: record.status,
+            notes: record.notes,
             images: normalizeAttachments((record as any).images),
             approval: record.approval,
           },
           saved_at: nowIso(),
         };
-        const { error } = await supabase!
-          .from("trial_sections")
-          .upsert(payload, { onConflict: "id" });
-        if (error) throw error;
-        await refreshCloudData();
-        updateLocalTrialSections();
+        await saveWithApprovalFallback(
+          "trial_sections",
+          payload,
+          editingTrialSectionId ? "update" : "insert",
+          editingTrialSectionId ?? undefined,
+        );
+      }
+      setSavedTrialSections((prev) =>
+        prev.some((item) => item.id === id)
+          ? prev.map((item) => (item.id === id ? record : item))
+          : [record, ...prev],
+      );
+      if (cloudEnabled) {
+        try {
+          await refreshCloudData();
+        } catch (error) {
+          console.warn("רענון קטעי הניסוי מהענן נכשל לאחר שמירה", error);
+        }
       }
     });
     resetTrialSectionEditor();
@@ -8984,23 +8973,17 @@ export default function Page() {
       : label;
   };
 
-  const attachmentPreview = (file: StoredAttachment) => {
-    const src = String(file.dataUrl ?? "").trim();
-    if (
-      !src ||
-      !(
-        String(file.type ?? "").startsWith("image/") ||
-        src.startsWith("data:image/")
-      )
-    )
-      return "";
-    return `<div style="margin-top:2px"><img src="${safeText(src)}" style="max-width:120px;max-height:90px;object-fit:contain" /></div>`;
-  };
+  const attachmentPreview = (_file: StoredAttachment) => "";
 
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
+    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ / תיאור</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => {
+      const type = String(file.type || "קובץ");
+      const isImage = type.startsWith("image/") || String(file.dataUrl || "").startsWith("data:image/");
+      const displayName = isImage ? (file.name ? `תמונה - ${file.name}` : "תמונה צורפה") : (file.name || "קובץ מצורף");
+      return `<tr><td>${attachmentLink(displayName, file.dataUrl)}</td><td>${safeText(isImage ? "תמונה" : type)}</td></tr>`;
+    }).join("")}</tbody></table>`;
     const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
     return `${table}${embedded}`;
   };
@@ -9191,7 +9174,11 @@ export default function Page() {
       ["כלים בהם משתמשים", trialSectionForm.equipment || trialSectionForm.toolsUsed],
       ["תאריך ביצוע", trialSectionForm.executionDate || trialSectionForm.date],
       ["הוכחת היכולת לפעולה מסווג", trialSectionForm.proofOfCapability],
-      ["תיאור קטע ניסוי / שלבי ביצוע", trialSectionForm.executionDescription || trialSectionForm.spec, 120],
+      ["חומרים לשימוש", (trialSectionForm as any).materials || (trialSectionForm as any).materialsUsed],
+      ["תיאור קטע ניסוי", (trialSectionForm as any).description || (trialSectionForm as any).trialDescription],
+      ["שלבי ביצוע", trialSectionForm.executionDescription || (trialSectionForm as any).executionStages || (trialSectionForm as any).workStages || trialSectionForm.spec, 160],
+      ["מסקנות קטע ניסוי", (trialSectionForm as any).conclusions || (trialSectionForm as any).trialConclusions, 120],
+      ["פעולה מתקנת / נדרשת", (trialSectionForm as any).correctiveAction || (trialSectionForm as any).requiredAction, 120],
       ["מפרט / תקן", trialSectionForm.spec, 80],
       ["תוצאה", trialSectionForm.result, 120],
       ["אושר על ידי", trialSectionForm.approvedBy],
@@ -10242,23 +10229,24 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
               <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - בחירה מתוך גורמים שהוגדרו בפרטי הפרויקט</label>
               <select
-                value={(trialSectionForm as any).participants || ""}
-                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
-                style={{ ...styles.input, width: "100%" }}
+                value=""
+                onChange={(event) => { addTrialSectionParticipant(event.target.value); event.currentTarget.value = ""; }}
+                style={{ ...styles.input, width: "100%", marginBottom: 8 }}
               >
-                <option value="">בחר משתתף / גורם</option>
-                {trialParticipantOptions.map((label) => (
+                <option value="">בחר משתתף / גורם להוספה</option>
+                {trialSectionParticipantOptions.map((label) => (
                   <option key={label} value={label}>{label}</option>
                 ))}
               </select>
-              {!trialParticipantOptions.length ? (
+              <input
+                value={(trialSectionForm as any).participants || ""}
+                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
+                placeholder="משתתפים שנבחרו / ניתן גם להקליד ידנית"
+                style={{ ...styles.input, width: "100%" }}
+              />
+              {!trialSectionParticipantOptions.length ? (
                 <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין גורמים בפרטי הפרויקט.</div>
               ) : null}
-              <datalist id="trial-participant-options">
-                {trialParticipantOptions.map((label) => (
-                  <option key={label} value={label} />
-                ))}
-              </datalist>
             </div>
             <TrialSectionsSection
               guardedBody={guardedBody}
