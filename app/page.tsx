@@ -6940,19 +6940,38 @@ export default function Page() {
 
   const trialParticipantOptions = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
-    const fromUsers = currentProjectEmailUsers.map((user) =>
-      [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email,
-    );
+    const legend = normalizeProjectLegend(currentProjectLegend, currentProject?.name || "");
+    const fromUsers = currentProjectEmailUsers
+      .map((user) =>
+        [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email,
+      )
+      .filter(Boolean);
+
+    // גורמי פרויקט קבועים + גורמים נוספים שהוגדרו בפרטי הפרויקט.
+    // כך גם "מפקח", "מפקח אתר" או כל גורם חדש שמוסיפים לפרטי הפרויקט יופיע לבחירה בקטע ניסוי.
     const fromProjectDetails = [
-      profile?.projectManager ? `מנהל פרויקט - ${profile.projectManager}` : "",
-      profile?.contractor ? `קבלן ראשי - ${profile.contractor}` : "",
-      profile?.qaCompany ? `חברת בקרת איכות - ${profile.qaCompany}` : "",
-      profile?.qualityControl ? `בקרת איכות - ${profile.qualityControl}` : "",
-      profile?.workManager ? `מנהל עבודה - ${profile.workManager}` : "",
-      profile?.surveyor ? `מודד - ${profile.surveyor}` : "",
+      legend.projectManagement || profile?.projectManager ? `מנהל פרויקט - ${legend.projectManagement || profile?.projectManager}` : "",
+      legend.contractor || profile?.contractor ? `קבלן ראשי - ${legend.contractor || profile?.contractor}` : "",
+      legend.qualityAssurance || profile?.qaCompany ? `הבטחת איכות - ${legend.qualityAssurance || profile?.qaCompany}` : "",
+      legend.qualityControl || profile?.qualityControl ? `בקרת איכות - ${legend.qualityControl || profile?.qualityControl}` : "",
+      legend.workManager || profile?.workManager ? `מנהל עבודה - ${legend.workManager || profile?.workManager}` : "",
+      legend.surveyor || profile?.surveyor ? `מודד - ${legend.surveyor || profile?.surveyor}` : "",
+      legend.supervisor ? `מפקח - ${legend.supervisor}` : "",
+      ...legend.extraFactors.map((factor) => {
+        const label = String(factor.label || "גורם נוסף").trim();
+        const value = String(factor.value || "").trim();
+        return value ? `${label} - ${value}` : label;
+      }),
     ];
-    return Array.from(new Set([...fromUsers, ...fromProjectDetails].map((item) => String(item || "").trim()).filter(Boolean)));
-  }, [currentProjectEmailUsers, currentProjectProfile, currentProject?.name]);
+
+    return Array.from(
+      new Set(
+        [...fromUsers, ...fromProjectDetails]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }, [currentProjectEmailUsers, currentProjectLegend, currentProjectProfile, currentProject?.name]);
   const currentProjectDefaults = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
     const legend = currentProjectLegend;
