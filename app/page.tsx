@@ -475,6 +475,40 @@ const normalizeReferenceResults = (value: unknown): ReferenceResultRow[] => {
     .filter((row) => row.metric.trim());
 };
 
+
+const parseReferenceNumber = (value: unknown): number | null => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/,/g, ".")
+    .replace(/[^0-9.\-]/g, "");
+  if (!normalized || normalized === "-" || normalized === ".") return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const calculateReferenceQualityStatus = (
+  resultValue: unknown,
+  minValue: unknown,
+  maxValue: unknown,
+): string => {
+  const result = parseReferenceNumber(resultValue);
+  const min = parseReferenceNumber(minValue);
+  const max = parseReferenceNumber(maxValue);
+  if (result === null || (min === null && max === null)) return "";
+  if (min !== null && result < min) return "לא תקין";
+  if (max !== null && result > max) return "לא תקין";
+  return "תקין";
+};
+
+const applyReferenceQualityStatus = (row: ReferenceResultRow): ReferenceResultRow => {
+  const autoStatus = calculateReferenceQualityStatus(
+    row.resultValue,
+    row.minValue,
+    row.maxValue,
+  );
+  return autoStatus ? { ...row, qualityStatus: autoStatus } : row;
+};
+
 const ensureReferenceResultsForMaterial = (
   workType: unknown,
   current: unknown,
@@ -485,12 +519,12 @@ const ensureReferenceResultsForMaterial = (
   return createMatzeaAReferenceResults().map((fixed) => {
     const existing = byMetric.get(normalizeHebrewProjectName(fixed.metric));
     return existing
-      ? {
+      ? applyReferenceQualityStatus({
           ...fixed,
           id: existing.id || fixed.id,
           resultValue: existing.resultValue ?? "",
           qualityStatus: existing.qualityStatus ?? "",
-        }
+        })
       : fixed;
   });
 };
@@ -5508,7 +5542,9 @@ function ControlProcessesSection({
       referenceResults: ensureReferenceResultsForMaterial(
         prev.workType,
         prev.referenceResults,
-      ).map((row) => (row.id === id ? { ...row, ...patch } : row)),
+      ).map((row) =>
+        row.id === id ? applyReferenceQualityStatus({ ...row, ...patch }) : row,
+      ),
     }));
   };
 
@@ -5904,8 +5940,13 @@ function ControlProcessesSection({
             תוצאות הזמנה מפורטות - מצע א׳
           </h3>
           <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
-            מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין רק ערך
-            תוצאה וסטטוס איכות. בהמשך ניתן להוסיף תבניות לחומרים נוספים.
+            מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין ערך
+            תוצאה בלבד, וסטטוס האיכות מחושב אוטומטית לפי ערך מינימלי ומקסימלי.
+          </div>
+          <div style={{ ...styles.buttonRow, marginBottom: 12 }}>
+            <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
+              שמור תוצאות
+            </button>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -5934,11 +5975,14 @@ function ControlProcessesSection({
                     </td>
                     <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
                       <input
-                        disabled={readOnly}
+                        disabled
                         value={row.qualityStatus}
-                        onChange={(e) => updateReferenceResult(row.id, { qualityStatus: e.target.value })}
-                        placeholder="OK / תקין / -"
-                        style={inputStyle}
+                        placeholder="מחושב אוטומטית"
+                        style={{
+                          ...inputStyle,
+                          background: row.qualityStatus === "לא תקין" ? "#fee2e2" : row.qualityStatus === "תקין" ? "#dcfce7" : "#f8fafc",
+                          color: row.qualityStatus === "לא תקין" ? "#991b1b" : "#166534",
+                        }}
                       />
                     </td>
                     <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
@@ -8415,7 +8459,7 @@ export default function Page() {
       referenceResults: ensureReferenceResultsForMaterial(
         controlProcessForm.workType,
         controlProcessForm.referenceResults,
-      ),
+      ).map(applyReferenceQualityStatus),
       auditTrail: [
         ...(existing?.auditTrail ?? []),
         {
