@@ -1596,6 +1596,103 @@ const readVisibleFormValueByLabels = (labels: string[]) => {
   return "";
 };
 
+
+const readTrialFieldFromDom = (labels: string[]) => {
+  if (typeof document === "undefined") return "";
+  const wanted = labels.map(normalizeLooseText).filter(Boolean);
+  if (!wanted.length) return "";
+  const controls = Array.from(
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select',
+    ),
+  ).filter((control) => normalizeLooseText(control.value));
+
+  const textMatches = (text: unknown) => {
+    const normalized = normalizeLooseText(text);
+    return normalized && wanted.some((label) => normalized.includes(label));
+  };
+
+  // 1) Most reliable: the control is inside the same label/card/field container as the Hebrew field label.
+  for (const control of controls) {
+    const searchNodes: (Element | null | undefined)[] = [
+      control.closest("label"),
+      control.parentElement,
+      control.parentElement?.parentElement,
+      control.parentElement?.parentElement?.parentElement,
+    ];
+    for (const node of searchNodes) {
+      if (node && textMatches(node.textContent)) return normalizeLooseText(control.value);
+    }
+  }
+
+  // 2) Grid layout fallback: label element and input are sibling elements in the same form cell.
+  const labelNodes = Array.from(document.querySelectorAll<HTMLElement>("label, span, div, p, strong"))
+    .filter((node) => textMatches(node.innerText || node.textContent));
+  for (const labelNode of labelNodes) {
+    const containers = [
+      labelNode,
+      labelNode.parentElement,
+      labelNode.parentElement?.parentElement,
+      labelNode.parentElement?.parentElement?.parentElement,
+    ].filter(Boolean) as HTMLElement[];
+    for (const container of containers) {
+      const inside = Array.from(
+        container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+          'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select',
+        ),
+      ).find((control) => normalizeLooseText(control.value));
+      if (inside) return normalizeLooseText(inside.value);
+    }
+  }
+
+  // 3) Geometry fallback for RTL forms where the label is above/right and the input is below/left.
+  for (const labelNode of labelNodes) {
+    const labelRect = labelNode.getBoundingClientRect();
+    let best: { value: string; score: number } | null = null;
+    for (const control of controls) {
+      const rect = control.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 10) continue;
+      const verticalGap = Math.abs(rect.top - labelRect.bottom);
+      const verticalNear = rect.top >= labelRect.top - 12 && verticalGap < 260;
+      const horizontalNear = Math.abs((rect.left + rect.right) / 2 - (labelRect.left + labelRect.right) / 2) < 520;
+      if (!verticalNear || !horizontalNear) continue;
+      const score = verticalGap + Math.abs((rect.left + rect.right) / 2 - (labelRect.left + labelRect.right) / 2) / 12;
+      const value = normalizeLooseText(control.value);
+      if (value && (!best || score < best.score)) best = { value, score };
+    }
+    if (best) return best.value;
+  }
+
+  return "";
+};
+
+const readTrialFromToFromDom = () =>
+  firstFilled(
+    readTrialFieldFromDom(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך עד חתך", "חתך/צד", "חתך / צד"]),
+    [
+      readTrialFieldFromDom(["מחתך"]),
+      readTrialFieldFromDom(["עד חתך", "לחתך"]),
+      readTrialFieldFromDom(["צד"]),
+    ].filter(Boolean).join(" - "),
+  );
+
+const readTrialProofFromDom = () =>
+  readTrialFieldFromDom([
+    "הוכחת היכולת לפעולה מסווג",
+    "הוכחת היכולת לפעולה מסוג",
+    "הוכחת יכולת לפעולה מסווג",
+    "הוכחת יכולת לפעולה מסוג",
+    "הוכחת יכולת",
+    "פעולה מסווג",
+    "פעולה מסוג",
+  ]);
+
+const readTrialToolsFromDom = () =>
+  readTrialFieldFromDom(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]);
+
+const readTrialMaterialsFromDom = () =>
+  readTrialFieldFromDom(["חומרים לשימוש", "חומרי שימוש", "חומרים"]);
+
 const enrichTrialSectionRecord = (record: Record<string, any>) => {
   const fromTo = firstFilled(
     pickTrialValue(record, "fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך"),
@@ -1604,19 +1701,19 @@ const enrichTrialSectionRecord = (record: Record<string, any>) => {
       pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך"),
       pickTrialValue(record, "side", "roadSide", "צד"),
     ].filter(Boolean).join(" - "),
-    readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]),
+    readTrialFromToFromDom(),
   );
   const materials = firstFilled(
     pickTrialValue(record, "materials", "materialsForUse", "materialsToUse", "materialForUse", "חומרים לשימוש"),
-    readVisibleFormValueByLabels(["חומרים לשימוש"]),
+    readTrialMaterialsFromDom(),
   );
   const tools = firstFilled(
     pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים"),
-    readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]),
+    readTrialToolsFromDom(),
   );
   const proof = firstFilled(
     pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת"),
-    readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]),
+    readTrialProofFromDom(),
   );
   return {
     ...record,
@@ -8669,7 +8766,20 @@ export default function Page() {
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    const completedTrialSectionForm: any = enrichTrialSectionRecord(trialSectionForm as any);
+    const completedTrialSectionForm: any = enrichTrialSectionRecord({
+      ...(trialSectionForm as any),
+      fromTo: firstFilled((trialSectionForm as any).fromTo, readTrialFromToFromDom()),
+      fromToSide: firstFilled((trialSectionForm as any).fromToSide, (trialSectionForm as any).fromTo, readTrialFromToFromDom()),
+      sectionRange: firstFilled((trialSectionForm as any).sectionRange, (trialSectionForm as any).fromTo, readTrialFromToFromDom()),
+      materials: firstFilled((trialSectionForm as any).materials, (trialSectionForm as any).materialsForUse, readTrialMaterialsFromDom()),
+      materialsForUse: firstFilled((trialSectionForm as any).materialsForUse, (trialSectionForm as any).materials, readTrialMaterialsFromDom()),
+      materialsToUse: firstFilled((trialSectionForm as any).materialsToUse, (trialSectionForm as any).materials, readTrialMaterialsFromDom()),
+      tools: firstFilled((trialSectionForm as any).tools, (trialSectionForm as any).toolsUsed, (trialSectionForm as any).equipment, readTrialToolsFromDom()),
+      toolsUsed: firstFilled((trialSectionForm as any).toolsUsed, (trialSectionForm as any).tools, (trialSectionForm as any).equipment, readTrialToolsFromDom()),
+      equipment: firstFilled((trialSectionForm as any).equipment, (trialSectionForm as any).tools, (trialSectionForm as any).toolsUsed, readTrialToolsFromDom()),
+      proofOfCapability: firstFilled((trialSectionForm as any).proofOfCapability, (trialSectionForm as any).capabilityProof, readTrialProofFromDom()),
+      capabilityProof: firstFilled((trialSectionForm as any).capabilityProof, (trialSectionForm as any).proofOfCapability, readTrialProofFromDom()),
+    });
     if (!String(completedTrialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
     const validation = validateApproval(completedTrialSectionForm.approval);
     if (validation) return alert(validation);
@@ -9371,11 +9481,24 @@ export default function Page() {
     const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
     const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
       String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
-    const materialsText = firstFilled(get("materials", "materialsForUse", "materialsToUse", "materialForUse"), readVisibleFormValueByLabels(["חומרים לשימוש"]));
-    const fromTo = firstFilled(get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"), [get("fromSection", "fromChainage", "fromStation"), get("toSection", "toChainage", "toStation"), get("side", "roadSide")].filter(Boolean).join(" - "), readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]));
+    const materialsText = firstFilled(
+      readTrialMaterialsFromDom(),
+      get("materials", "materialsForUse", "materialsToUse", "materialForUse"),
+    );
+    const fromTo = firstFilled(
+      readTrialFromToFromDom(),
+      get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"),
+      [get("fromSection", "fromChainage", "fromStation"), get("toSection", "toChainage", "toStation"), get("side", "roadSide")].filter(Boolean).join(" - "),
+    );
     const participantsText = get("participants");
-    const toolsText = firstFilled(get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"), readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]));
-    const proofText = firstFilled(get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"), readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]));
+    const toolsText = firstFilled(
+      readTrialToolsFromDom(),
+      get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"),
+    );
+    const proofText = firstFilled(
+      readTrialProofFromDom(),
+      get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"),
+    );
     const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
     const resultText = get("result", "conclusions", "trialConclusions");
     const images = normalizeAttachments(f.images ?? details.images);
