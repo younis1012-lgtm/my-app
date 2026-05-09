@@ -1469,6 +1469,11 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "participants",
   "equipment",
   "toolsUsed",
+  "tools",
+  "usedTools",
+  "equipmentUsed",
+  "toolsDescription",
+  "workTools",
   "executionDate",
   "executionDescription",
 ] as const;
@@ -9179,6 +9184,21 @@ export default function Page() {
     ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
   };
 
+  const getTrialSectionToolsText = (form: any) =>
+    [
+      form?.equipment,
+      form?.toolsUsed,
+      form?.tools,
+      form?.usedTools,
+      form?.equipmentUsed,
+      form?.toolsDescription,
+      form?.workTools,
+    ]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join("; ");
+
   const trialSectionExportHtml = () => {
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     const trialProjectName = profile?.projectName || projectName;
@@ -9197,11 +9217,10 @@ export default function Page() {
       ["תת אלמנט", trialSectionForm.subElement],
       ["מחתך / עד חתך", trialSectionForm.fromTo || [trialSectionForm.fromSection, trialSectionForm.toSection].filter(Boolean).join(" - ")],
       ["משתתפים בקטע ניסוי", trialSectionForm.participants],
-      ["כלים בהם משתמשים", trialSectionForm.equipment || trialSectionForm.toolsUsed],
+      ["כלים בהם משתמשים", getTrialSectionToolsText(trialSectionForm)],
       ["תאריך ביצוע", trialSectionForm.executionDate || trialSectionForm.date],
       ["הוכחת היכולת לפעולה מסווג", trialSectionForm.proofOfCapability],
       ["תיאור קטע ניסוי / שלבי ביצוע", trialSectionForm.executionDescription || trialSectionForm.spec, 120],
-      ["מפרט / תקן", trialSectionForm.spec, 80],
       ["תוצאה", trialSectionForm.result, 120],
       ["אושר על ידי", trialSectionForm.approvedBy],
       ["סטטוס", trialSectionForm.status],
