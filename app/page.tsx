@@ -312,6 +312,16 @@ type RequiredDocument = {
   attachmentType?: string;
 };
 
+type ReferenceResultRow = {
+  id: string;
+  metric: string;
+  resultValue: string;
+  qualityStatus: string;
+  minValue: string;
+  maxValue: string;
+};
+
+
 type AuditEntry = {
   action: string;
   by: string;
@@ -334,6 +344,7 @@ type ControlProcessRecord = {
   rfiIds: string[];
   nonconformanceIds: string[];
   requiredDocuments: RequiredDocument[];
+  referenceResults: ReferenceResultRow[];
   auditTrail: AuditEntry[];
   approval: ApprovalFlow;
   lockedAt: string;
@@ -399,6 +410,118 @@ const REFERENCE_MATERIAL_OPTIONS = [
 const isAsphaltReference = (value: unknown) =>
   String(value ?? "").includes("אספלט") || String(value ?? "").includes("מרשל");
 
+const REFERENCE_RESULTS_AUDIT_ACTION = "__reference_results__";
+
+const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
+  metric: string;
+  minValue: string;
+  maxValue: string;
+}> = [
+  { metric: "דירוג AASHTO מיין", minValue: "", maxValue: "" },
+  { metric: "רטיבות מחושבת", minValue: "", maxValue: "" },
+  { metric: "תיאור החומר", minValue: "", maxValue: "" },
+  { metric: "מקטע 3/4"", minValue: "", maxValue: "" },
+  { metric: "100% מחושב", minValue: "", maxValue: "" },
+  { metric: "3"", minValue: "100", maxValue: "100" },
+  { metric: "1.5"", minValue: "80", maxValue: "100" },
+  { metric: "1"", minValue: "", maxValue: "" },
+  { metric: "3/4"", minValue: "60", maxValue: "85" },
+  { metric: "#4", minValue: "30", maxValue: "55" },
+  { metric: "#10", minValue: "20", maxValue: "40" },
+  { metric: "#40", minValue: "", maxValue: "" },
+  { metric: "#200", minValue: "5", maxValue: "15" },
+  { metric: "גבול נזילות (LL)", minValue: "0", maxValue: "25" },
+  { metric: "גבול פלסטיות (PL)", minValue: "", maxValue: "" },
+  { metric: "אינדקס פלסטיות (PI)", minValue: "0", maxValue: "6" },
+  { metric: "שווה ערך חול", minValue: "27", maxValue: "100" },
+  { metric: "צפיפות מכשירית", minValue: "2.3", maxValue: "10" },
+  { metric: "ספיגות (G)", minValue: "", maxValue: "" },
+  { metric: "לוס אנג'לס", minValue: "0", maxValue: "35" },
+  { metric: "מיין AASHTO", minValue: "", maxValue: "" },
+  { metric: "צפיפות מעבדתית מקסימלית", minValue: "", maxValue: "" },
+  { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
+  { metric: "מספר תעודת מעבדה", minValue: "", maxValue: "" },
+  { metric: "תאריך", minValue: "", maxValue: "" },
+  { metric: "מקום הדגם לבדיקה", minValue: "", maxValue: "" },
+  { metric: "מבנה", minValue: "", maxValue: "" },
+];
+
+const isMatzeaAReference = (value: unknown) => {
+  const text = normalizeHebrewProjectName(value);
+  return text.includes("מצע א") || text.includes("מצע א׳");
+};
+
+const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
+  MATZEA_A_REFERENCE_RESULT_DEFS.map((row) => ({
+    id: `matzea-a-${row.metric}`.replace(/\s+/g, "-"),
+    metric: row.metric,
+    resultValue: "",
+    qualityStatus: "",
+    minValue: row.minValue,
+    maxValue: row.maxValue,
+  }));
+
+const normalizeReferenceResults = (value: unknown): ReferenceResultRow[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row: any, index) => ({
+      id: String(row?.id ?? row?.metric ?? `reference-result-${index}`),
+      metric: String(row?.metric ?? row?.resultMetric ?? row?.measure ?? ""),
+      resultValue: String(row?.resultValue ?? row?.value ?? row?.result ?? ""),
+      qualityStatus: String(row?.qualityStatus ?? row?.status ?? ""),
+      minValue: String(row?.minValue ?? row?.minimum ?? row?.min ?? ""),
+      maxValue: String(row?.maxValue ?? row?.maximum ?? row?.max ?? ""),
+    }))
+    .filter((row) => row.metric.trim());
+};
+
+const ensureReferenceResultsForMaterial = (
+  workType: unknown,
+  current: unknown,
+): ReferenceResultRow[] => {
+  const normalized = normalizeReferenceResults(current);
+  if (!isMatzeaAReference(workType)) return normalized;
+  const byMetric = new Map(normalized.map((row) => [normalizeHebrewProjectName(row.metric), row]));
+  return createMatzeaAReferenceResults().map((fixed) => {
+    const existing = byMetric.get(normalizeHebrewProjectName(fixed.metric));
+    return existing
+      ? {
+          ...fixed,
+          id: existing.id || fixed.id,
+          resultValue: existing.resultValue ?? "",
+          qualityStatus: existing.qualityStatus ?? "",
+        }
+      : fixed;
+  });
+};
+
+const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
+  const audit = Array.isArray(value?.auditTrail ?? value?.audit_log)
+    ? (value.auditTrail ?? value.audit_log)
+    : [];
+  const entry = [...audit]
+    .reverse()
+    .find((item: any) => item?.action === REFERENCE_RESULTS_AUDIT_ACTION);
+  if (!entry?.note) return [];
+  try {
+    return normalizeReferenceResults(JSON.parse(String(entry.note)));
+  } catch {
+    return [];
+  }
+};
+
+const auditWithoutReferenceResults = (value: unknown): AuditEntry[] =>
+  Array.isArray(value)
+    ? value
+        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION)
+        .map((entry: any) => ({
+          action: String(entry?.action ?? ""),
+          by: String(entry?.by ?? ""),
+          at: String(entry?.at ?? ""),
+          note: String(entry?.note ?? ""),
+        }))
+    : [];
+
 const createDefaultRequiredDocuments = (): RequiredDocument[] => [
   {
     id: crypto.randomUUID(),
@@ -438,6 +561,7 @@ const createDefaultControlProcess = (
   rfiIds: [],
   nonconformanceIds: [],
   requiredDocuments: [],
+  referenceResults: [],
   auditTrail: [],
   approval: createDefaultApproval(),
   lockedAt: "",
@@ -488,14 +612,11 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     requiredDocuments: normalizeRequiredDocuments(
       value.requiredDocuments ?? value.required_documents,
     ),
-    auditTrail: Array.isArray(value.auditTrail ?? value.audit_log)
-      ? (value.auditTrail ?? value.audit_log).map((entry: any) => ({
-          action: String(entry?.action ?? ""),
-          by: String(entry?.by ?? ""),
-          at: String(entry?.at ?? ""),
-          note: String(entry?.note ?? ""),
-        }))
-      : [],
+    referenceResults: ensureReferenceResultsForMaterial(
+      value.workType ?? value.work_type,
+      value.referenceResults ?? value.reference_results ?? extractReferenceResultsFromAudit(value),
+    ),
+    auditTrail: auditWithoutReferenceResults(value.auditTrail ?? value.audit_log),
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
@@ -517,7 +638,15 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
   rfi_ids: record.rfiIds,
   nonconformance_ids: record.nonconformanceIds,
   required_documents: record.requiredDocuments,
-  audit_log: record.auditTrail,
+  audit_log: [
+    ...auditWithoutReferenceResults(record.auditTrail),
+    {
+      action: REFERENCE_RESULTS_AUDIT_ACTION,
+      by: "system",
+      at: nowIso(),
+      note: JSON.stringify(normalizeReferenceResults(record.referenceResults)),
+    },
+  ],
   approval: record.approval,
   locked_at: record.lockedAt || null,
   saved_at: nowIso(),
@@ -1547,88 +1676,6 @@ const pickTrialValue = (source: Record<string, any>, ...keys: string[]) => {
   return "";
 };
 
-
-const normalizeFieldLabel = (value: unknown) =>
-  normalizeLooseText(value).replace(/[＊*]/g, "").replace(/[:：]+$/g, "").trim();
-
-const readExactVisibleFormValueByLabels = (labels: string[]) => {
-  if (typeof document === "undefined") return "";
-  const wanted = labels.map(normalizeFieldLabel).filter(Boolean);
-  if (!wanted.length) return "";
-  const controlsSelector = 'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select';
-
-  // Prefer a real <label> that owns/contains the control. This prevents values from nearby
-  // fields (section number / participants) from being copied into unrelated PDF rows.
-  const labelElements = Array.from(document.querySelectorAll<HTMLLabelElement>("label"));
-  for (const label of labelElements) {
-    const labelText = normalizeFieldLabel(label.textContent || "");
-    if (!wanted.some((target) => labelText === target || labelText.startsWith(target + " "))) continue;
-
-    const nested = label.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector);
-    if (nested && normalizeLooseText(nested.value)) return normalizeLooseText(nested.value);
-
-    const htmlFor = label.getAttribute("for");
-    if (htmlFor) {
-      const byFor = document.getElementById(htmlFor) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
-      if (byFor && "value" in byFor && normalizeLooseText(byFor.value)) return normalizeLooseText(byFor.value);
-    }
-
-    const labelRect = label.getBoundingClientRect();
-    const controls = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector))
-      .filter((control) => normalizeLooseText(control.value));
-    let best: { control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; score: number } | null = null;
-    for (const control of controls) {
-      const rect = control.getBoundingClientRect();
-      if (rect.width < 20 || rect.height < 10) continue;
-      const isBelow = rect.top >= labelRect.bottom - 8;
-      const vertical = Math.abs(rect.top - labelRect.bottom);
-      const centerDistance = Math.abs((rect.left + rect.right) / 2 - (labelRect.left + labelRect.right) / 2);
-      const horizontalOverlap = Math.min(rect.right, labelRect.right) - Math.max(rect.left, labelRect.left);
-      if (!isBelow || vertical > 90 || (horizontalOverlap < -20 && centerDistance > 340)) continue;
-      const score = vertical + centerDistance / 10;
-      if (!best || score < best.score) best = { control, score };
-    }
-    if (best) return normalizeLooseText(best.control.value);
-  }
-
-  // Last safe fallback: match by aria/placeholder/name/id only, not by visual proximity.
-  const controls = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector));
-  for (const control of controls) {
-    const controlLabels = [
-      control.getAttribute("aria-label"),
-      control.getAttribute("placeholder"),
-      control.getAttribute("name"),
-      control.getAttribute("id"),
-    ].map(normalizeFieldLabel).filter(Boolean);
-    if (controlLabels.some((text) => wanted.some((target) => text === target || text.includes(target)))) {
-      const value = normalizeLooseText(control.value);
-      if (value) return value;
-    }
-  }
-  return "";
-};
-
-const combineSectionRange = (...parts: unknown[]) =>
-  parts.map(normalizeLooseText).filter(Boolean).join(" - ");
-
-const readTrialFormVisibleValues = () => {
-  const fromSection = readExactVisibleFormValueByLabels(["מחתך"]);
-  const toSection = readExactVisibleFormValueByLabels(["עד חתך", "לחתך"]);
-  const side = readExactVisibleFormValueByLabels(["צד"]);
-  return {
-    fromSection,
-    toSection,
-    side,
-    fromTo: firstFilled(
-      readExactVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך"]),
-      combineSectionRange(fromSection, toSection, side),
-    ),
-    materials: readExactVisibleFormValueByLabels(["חומרים לשימוש"]),
-    tools: readExactVisibleFormValueByLabels(["כלים בהם משתמשים"]),
-    proofOfCapability: readExactVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת היכולת לפעולה מסוג", "הוכחת יכולת"]),
-  };
-};
-
 const readVisibleFormValueByLabels = (labels: string[]) => {
   if (typeof document === "undefined") return "";
   const wanted = labels.map(normalizeLooseText).filter(Boolean);
@@ -1679,32 +1726,29 @@ const readVisibleFormValueByLabels = (labels: string[]) => {
 };
 
 const enrichTrialSectionRecord = (record: Record<string, any>) => {
-  const visible = readTrialFormVisibleValues();
-  const fromSection = firstFilled(visible.fromSection, pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"));
-  const toSection = firstFilled(visible.toSection, pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך", "לחתך"));
-  const side = firstFilled(visible.side, pickTrialValue(record, "side", "roadSide", "צד"));
   const fromTo = firstFilled(
-    visible.fromTo,
     pickTrialValue(record, "fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך"),
-    combineSectionRange(fromSection, toSection, side),
+    [
+      pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"),
+      pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך"),
+      pickTrialValue(record, "side", "roadSide", "צד"),
+    ].filter(Boolean).join(" - "),
+    readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]),
   );
   const materials = firstFilled(
-    visible.materials,
     pickTrialValue(record, "materials", "materialsForUse", "materialsToUse", "materialForUse", "חומרים לשימוש"),
+    readVisibleFormValueByLabels(["חומרים לשימוש"]),
   );
   const tools = firstFilled(
-    visible.tools,
-    pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים"),
+    pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים"),
+    readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]),
   );
   const proof = firstFilled(
-    visible.proofOfCapability,
-    pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת היכולת לפעולה מסוג", "הוכחת יכולת"),
+    pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת"),
+    readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]),
   );
   return {
     ...record,
-    fromSection,
-    toSection,
-    side,
     fromTo,
     fromToSide: fromTo,
     sectionRange: fromTo,
@@ -5367,6 +5411,30 @@ function ControlProcessesSection({
   const selectedMaterial = String(form.workType ?? "");
   const showAsphaltForm = isAsphaltReference(selectedMaterial);
   const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
+  const referenceResults = ensureReferenceResultsForMaterial(
+    selectedMaterial,
+    form.referenceResults,
+  );
+  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial);
+
+  const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
+    if (readOnly) return;
+    setForm((prev: any) => ({
+      ...prev,
+      referenceResults: ensureReferenceResultsForMaterial(
+        prev.workType,
+        prev.referenceResults,
+      ).map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    }));
+  };
+
+  const updateWorkType = (value: string) => {
+    setForm((prev: any) => ({
+      ...prev,
+      workType: value,
+      referenceResults: ensureReferenceResultsForMaterial(value, prev.referenceResults),
+    }));
+  };
 
   const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
     if (readOnly) return;
@@ -5546,7 +5614,7 @@ function ControlProcessesSection({
             <select
               disabled={readOnly}
               value={form.workType ?? ""}
-              onChange={(e) => setField("workType", e.target.value)}
+              onChange={(e) => updateWorkType(e.target.value)}
               style={inputStyle}
             >
               <option value="">בחר חומר / סוג עבודה לאישור</option>
@@ -5742,6 +5810,63 @@ function ControlProcessesSection({
                 style={inputStyle}
               />
             </label>
+          </div>
+        </div>
+      ) : null}
+
+      {showReferenceResultsTable ? (
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
+            תוצאות הזמנה מפורטות - מצע א׳
+          </h3>
+          <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
+            מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין רק ערך
+            תוצאה וסטטוס איכות. בהמשך ניתן להוסיף תבניות לחומרים נוספים.
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>מדד תוצאה</th>
+                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך תוצאה</th>
+                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>סטטוס איכות</th>
+                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך מינימלי</th>
+                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך מקסימלי</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referenceResults.map((row) => (
+                  <tr key={row.id}>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
+                      {row.metric}
+                    </td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
+                      <input
+                        disabled={readOnly}
+                        value={row.resultValue}
+                        onChange={(e) => updateReferenceResult(row.id, { resultValue: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
+                      <input
+                        disabled={readOnly}
+                        value={row.qualityStatus}
+                        onChange={(e) => updateReferenceResult(row.id, { qualityStatus: e.target.value })}
+                        placeholder="OK / תקין / -"
+                        style={inputStyle}
+                      />
+                    </td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
+                      {row.minValue}
+                    </td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
+                      {row.maxValue}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
@@ -8203,6 +8328,10 @@ export default function Page() {
       requiredDocuments: normalizeRequiredDocuments(
         controlProcessForm.requiredDocuments,
       ),
+      referenceResults: ensureReferenceResultsForMaterial(
+        controlProcessForm.workType,
+        controlProcessForm.referenceResults,
+      ),
       auditTrail: [
         ...(existing?.auditTrail ?? []),
         {
@@ -8259,6 +8388,10 @@ export default function Page() {
       rfiIds: record.rfiIds,
       nonconformanceIds: record.nonconformanceIds,
       requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      referenceResults: ensureReferenceResultsForMaterial(
+        record.workType,
+        record.referenceResults,
+      ),
       auditTrail: record.auditTrail,
       approval: normalizeApproval(record.approval),
       lockedAt: record.lockedAt,
@@ -9456,20 +9589,11 @@ export default function Page() {
     const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
     const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
       String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
-    const visibleTrial = readTrialFormVisibleValues();
-    const materialsText = firstFilled(visibleTrial.materials, get("materials", "materialsForUse", "materialsToUse", "materialForUse"));
-    const fromTo = firstFilled(
-      visibleTrial.fromTo,
-      combineSectionRange(
-        firstFilled(visibleTrial.fromSection, get("fromSection", "fromChainage", "fromStation")),
-        firstFilled(visibleTrial.toSection, get("toSection", "toChainage", "toStation")),
-        firstFilled(visibleTrial.side, get("side", "roadSide")),
-      ),
-      get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"),
-    );
+    const materialsText = firstFilled(get("materials", "materialsForUse", "materialsToUse", "materialForUse"), readVisibleFormValueByLabels(["חומרים לשימוש"]));
+    const fromTo = firstFilled(get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"), [get("fromSection", "fromChainage", "fromStation"), get("toSection", "toChainage", "toStation"), get("side", "roadSide")].filter(Boolean).join(" - "), readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]));
     const participantsText = get("participants");
-    const toolsText = firstFilled(visibleTrial.tools, get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"));
-    const proofText = firstFilled(visibleTrial.proofOfCapability, get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"));
+    const toolsText = firstFilled(get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"), readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]));
+    const proofText = firstFilled(get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"), readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]));
     const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
     const resultText = get("result", "conclusions", "trialConclusions");
     const images = normalizeAttachments(f.images ?? details.images);
@@ -9515,6 +9639,19 @@ export default function Page() {
   };
 
 
+  const referenceResultsExportTable = (workType: unknown, rowsValue: unknown) => {
+    const rows = ensureReferenceResultsForMaterial(workType, rowsValue).filter(
+      (row) => row.metric || row.resultValue || row.qualityStatus || row.minValue || row.maxValue,
+    );
+    if (!rows.length) return "";
+    return `<h2>תוצאות הזמנה מפורטות</h2><table><thead><tr><th>מדד תוצאה</th><th>ערך תוצאה</th><th>סטטוס איכות</th><th>ערך מינימלי</th><th>ערך מקסימלי</th></tr></thead><tbody>${rows
+      .map(
+        (row) =>
+          `<tr><td>${safeText(row.metric)}</td><td>${safeText(row.resultValue)}</td><td>${safeText(row.qualityStatus)}</td><td>${safeText(row.minValue)}</td><td>${safeText(row.maxValue)}</td></tr>`,
+      )
+      .join("")}</tbody></table>`;
+  };
+
   const controlProcessExportHtml = () =>
     `${baseRows([
       ["מס׳ תעודה / ר״ת", controlProcessForm.processNo],
@@ -9527,7 +9664,7 @@ export default function Page() {
       ["סטטוס", controlProcessForm.status],
       ["ספק / מפעל", (controlProcessForm as any).supplier],
       ["מס׳ תעודת מעבדה", (controlProcessForm as any).labCertificateNo],
-    ])}${requiredDocumentsExportTable(controlProcessForm.requiredDocuments)}${signaturesTable(controlProcessForm.approval)}`;
+    ])}${referenceResultsExportTable(controlProcessForm.workType, (controlProcessForm as any).referenceResults)}${requiredDocumentsExportTable(controlProcessForm.requiredDocuments)}${signaturesTable(controlProcessForm.approval)}`;
 
   const preliminaryRows = () => {
     if (preliminaryTab === "suppliers") {
