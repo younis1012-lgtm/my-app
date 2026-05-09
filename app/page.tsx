@@ -1460,6 +1460,11 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "sectionNo",
   "sectionNumber",
   "proofOfCapability",
+  "capabilityProof",
+  "proof",
+  "abilityProof",
+  "classificationProof",
+  "classifiedCapabilityProof",
   "elementName",
   "element",
   "subElement",
@@ -1473,17 +1478,22 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "equipmentUsed",
   "usedTools",
   "toolsUsed",
+  "toolsList",
   "workLocation",
   "workSegment",
   "workSection",
   "roadSection",
   "roadStructure",
   "area",
-  "capabilityProof",
-  "proof",
-  "abilityProof",
   "executionDate",
   "executionDescription",
+  "executionStages",
+  "workStages",
+  "trialSteps",
+  "description",
+  "correctiveAction",
+  "requiredAction",
+  "actionRequired",
 ] as const;
 const trialSectionDetails = (record: Record<string, any>) =>
   TRIAL_SECTION_DETAIL_KEYS.reduce((acc, key) => {
@@ -6548,19 +6558,25 @@ export default function Page() {
     setSavedTrialSections(
       (trialRows ?? []).map((row) => {
         const details = row.details ?? {};
+        const pick = (...values: unknown[]) => {
+          for (const value of values) {
+            if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+          }
+          return "";
+        };
         return mergeTrialSectionDetails({
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
-          title: row.title ?? details.title ?? "",
-          location: row.location ?? details.location ?? "",
-          date: row.date ?? details.date ?? "",
-          spec: row.spec ?? details.spec ?? "",
-          result: row.result ?? details.result ?? "",
-          approvedBy: row.approved_by ?? details.approvedBy ?? "",
-          status: row.status ?? details.status ?? "טיוטה",
-          notes: row.notes ?? details.notes ?? "",
-          images: normalizeAttachments(row.images ?? details.images),
-          approval: normalizeApproval(row.approval ?? details.approval),
+          title: pick(details.title, row.title),
+          location: pick(details.location, details.workLocation, details.workSegment, details.workSection, details.roadSection, details.roadStructure, row.location),
+          date: pick(details.date, details.executionDate, row.date),
+          spec: pick(details.spec, row.spec),
+          result: pick(details.result, details.conclusions, row.result),
+          approvedBy: pick(details.approvedBy, row.approved_by),
+          status: pick(details.status, row.status) || "טיוטה",
+          notes: pick(details.notes, row.notes),
+          images: normalizeAttachments(details.images ?? row.images),
+          approval: normalizeApproval(details.approval ?? row.approval),
           savedAt: row.saved_at
             ? new Date(row.saved_at).toLocaleString("he-IL")
             : "",
@@ -8928,7 +8944,7 @@ export default function Page() {
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
     th,td{border:1px solid #111827;padding:3px 5px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;white-space:normal;line-height:1.35}
     th{background:#f8fafc;font-weight:800}
-    .base-rows th{width:18%;font-weight:800;font-size:8.6px}.base-rows td{width:32%;font-weight:600;font-size:8.6px;line-height:1.25}.base-rows .full-value{text-align:center;line-height:1.28}
+    .base-rows th{width:18%;font-weight:800}.base-rows td{width:32%;font-weight:600}.base-rows .full-value{text-align:center}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
     .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
@@ -8952,11 +8968,11 @@ export default function Page() {
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:8.6px;line-height:1.25;min-height:20px;height:auto;padding:2px 4px;word-break:break-word;overflow-wrap:anywhere;white-space:normal}
+    .trial-report th,.trial-report td{font-size:10px;line-height:1.35;min-height:24px;height:auto;padding:3px 5px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:26px}
-    .trial-report .large-value{height:auto;min-height:34px}.blank-cell{min-height:12px}
+    .trial-report .large-value{height:56px}
     @page{size:A4 landscape;margin:8mm}
     @media print{button{display:none} body{padding:0;font-size:10px} th,td{padding:3px 4px}.header-title{font-size:15px}.company-header-logo-box{height:58px}.company-full-logo{height:52px!important;max-height:52px!important;max-width:115px!important}.company-footer-single{font-size:10px}}
   `;
@@ -9194,76 +9210,48 @@ export default function Page() {
 
   const trialSectionExportHtml = () => {
     const f: any = trialSectionForm as any;
+    const details: any = (f as any).details ?? {};
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    const trialProjectName = f.projectName || f.projectNameDisplay || currentProjectLegend.projectName || profile?.projectName || projectName;
-    const trialProjectManager = f.projectManagement || f.managementCompany || currentProjectLegend.projectManagement || profile?.projectManager || "";
-    const trialContractor = f.contractor || f.mainContractor || currentProjectLegend.contractor || profile?.contractor || "";
-    const images = normalizeAttachments(f.images);
-    const firstValue = (...keys: string[]) => {
+    const get = (...keys: string[]) => {
       for (const key of keys) {
-        const value = f?.[key];
-        if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+        const value = f?.[key] ?? details?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
       }
       return "";
     };
-    const trialNo = firstValue("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
-      String(f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
-    const workLocation = firstValue(
-      "location",
-      "workLocation",
-      "workSegment",
-      "workSection",
-      "roadSection",
-      "roadStructure",
-      "area"
-    );
-    const toolsText = firstValue(
-      "tools",
-      "toolsInUse",
-      "toolsUsed",
-      "equipment",
-      "equipmentUsed",
-      "usedTools",
-      "machinery",
-      "toolsList"
-    );
-    const proofText = firstValue(
-      "proofOfCapability",
-      "capabilityProof",
-      "proof",
-      "abilityProof",
-      "classificationProof",
-      "classifiedCapabilityProof"
-    );
-    const executionText = firstValue(
-      "executionDescription",
-      "executionStages",
-      "workStages",
-      "trialSteps",
-      "description",
-      "spec"
-    );
+    const trialProjectName = get("projectName", "projectNameDisplay") || currentProjectLegend.projectName || profile?.projectName || projectName;
+    const trialProjectManager = get("projectManagement", "managementCompany") || currentProjectLegend.projectManagement || profile?.projectManager || "";
+    const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
+    const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
+      String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
+    const workLocation = get("location", "workLocation", "workSegment", "workSection", "roadSection", "roadStructure", "area");
+    const fromTo = get("fromTo") || [get("fromSection"), get("toSection")].filter(Boolean).join(" - ");
+    const participantsText = get("participants");
+    const toolsText = get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList");
+    const proofText = get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof");
+    const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
+    const resultText = get("result", "conclusions", "trialConclusions");
+    const images = normalizeAttachments(f.images ?? details.images);
     return `${baseRows([
-      ["קטע ניסוי", f.title || "קטע ניסוי"],
-      ["מס׳ קטע ניסוי", trialNo],
+      ["קטע ניסוי", trialNo || get("title") || ""],
       ["שם הפרויקט", trialProjectName],
       ["חברת ניהול", trialProjectManager],
-      ["קבלן ראשי", f.mainContractor || trialContractor],
-      ["חברת בקרת איכות", f.qualityCompany || f.qualityControl || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
+      ["קבלן ראשי", get("mainContractor") || trialContractor],
+      ["חברת בקרת איכות", get("qualityCompany", "qualityControl") || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
       ["מיקום / קטע עבודה", workLocation],
-      ["שם האלמנט", firstValue("elementName", "element")],
-      ["תת אלמנט", f.subElement],
-      ["מחתך / עד חתך", firstValue("fromTo") || [f.fromSection, f.toSection].filter(Boolean).join(" - ")],
-      ["משתתפים בקטע ניסוי", f.participants],
-      ["כלים בהם משתמשים", toolsText],
-      ["תאריך ביצוע", firstValue("executionDate", "date")],
-      ["הוכחת היכולת לפעולה מסווג", proofText],
-      ["תיאור קטע ניסוי / שלבי ביצוע", executionText, 110],
-      ["מסקנות קטע ניסוי / תוצאה", firstValue("result", "conclusions", "trialConclusions"), 80],
-      ["פעולה מתקנת / נדרשת", firstValue("correctiveAction", "requiredAction", "actionRequired"), 60],
-      ["אושר על ידי", f.approvedBy],
-      ["סטטוס", f.status],
-      ["הערות", f.notes, 60],
+      ["שם האלמנט", get("elementName", "element")],
+      ["תת אלמנט", get("subElement")],
+      ["מחתך / עד חתך", fromTo],
+      ["משתתפים בקטע ניסוי", participantsText, 70],
+      ["כלים בהם משתמשים", toolsText, 55],
+      ["תאריך ביצוע", get("executionDate", "date")],
+      ["הוכחת היכולת לפעולה מסווג", proofText, 60],
+      ["תיאור קטע ניסוי / שלבי ביצוע", executionText, 100],
+      ["תוצאה / מסקנות קטע ניסוי", resultText, 70],
+      ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
+      ["אושר על ידי", get("approvedBy")],
+      ["סטטוס", get("status")],
+      ["הערות", get("notes"), 45],
     ])}${attachmentsList(images)}${signaturesTable(f.approval)}`;
   };
 
