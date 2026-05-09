@@ -8822,7 +8822,7 @@ export default function Page() {
       /[&<>]/g,
       (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char] ?? char,
     );
-  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 16);
+  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 14);
   const blankCell = (height = 18) =>
     `<div class="blank-cell" style="min-height:${compactHeight(height)}px">&nbsp;</div>`;
   const valueOrBlank = (value: unknown, height = 18) => {
@@ -8894,8 +8894,9 @@ export default function Page() {
     h1{display:none}
     h2{font-size:11px;margin:4px 0 2px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
-    th,td{border:1px solid #111827;padding:2px 4px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.12}
+    th,td{border:1px solid #111827;padding:3px 5px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;white-space:normal;line-height:1.35}
     th{background:#f8fafc;font-weight:800}
+    .base-rows th{width:18%;font-weight:800}.base-rows td{width:32%;font-weight:600}.base-rows .full-value{text-align:center}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
     .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
@@ -8919,7 +8920,7 @@ export default function Page() {
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
+    .trial-report th,.trial-report td{font-size:10px;line-height:1.35;min-height:24px;height:auto;padding:3px 5px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:26px}
@@ -8941,8 +8942,29 @@ export default function Page() {
     return "טופס";
   };
 
-  const baseRows = (rows: Array<[string, unknown, number?]>) =>
-    `<table><tbody>${rows.map(([label, value, height]) => `<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 34)}</td></tr>`).join("")}</tbody></table>`;
+  const isLongExportRow = (row?: [string, unknown, number?]) => Number(row?.[2] ?? 0) >= 70;
+
+  const baseRows = (rows: Array<[string, unknown, number?]>) => {
+    const htmlRows: string[] = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const first = rows[index];
+      if (!first) continue;
+      const [label, value, height] = first;
+      if (isLongExportRow(first)) {
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td class="full-value" colspan="3">${valueOrBlank(value, height ?? 34)}</td></tr>`);
+        continue;
+      }
+      const second = rows[index + 1];
+      if (second && !isLongExportRow(second)) {
+        const [label2, value2, height2] = second;
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 26)}</td><th>${safeText(label2)}</th><td>${valueOrBlank(value2, height2 ?? 26)}</td></tr>`);
+        index += 1;
+      } else {
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 26)}</td><th class="empty">&nbsp;</th><td class="empty">&nbsp;</td></tr>`);
+      }
+    }
+    return `<table class="base-rows"><tbody>${htmlRows.join("")}</tbody></table>`;
+  };
 
   const attachmentLink = (name: unknown, url: unknown) => {
     const href = String(url ?? "").trim();
@@ -10208,20 +10230,39 @@ ${invalidRecipients.join("\n")}`);
                 onNew={resetTrialSectionEditor}
               />
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
-              <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - בחירה מתוך גורמים שהוגדרו בפרטי הפרויקט</label>
-              <select
-                value={(trialSectionForm as any).participants || ""}
-                onChange={(event) => setTrialSectionForm((prev: any) => ({ ...prev, participants: event.target.value }))}
-                style={{ ...styles.input, width: "100%" }}
-              >
-                <option value="">בחר משתתף / גורם</option>
-                {trialParticipantOptions.map((label) => (
-                  <option key={label} value={label}>{label}</option>
-                ))}
-              </select>
-              {!trialParticipantOptions.length ? (
+              <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - ניתן לבחור יותר ממשתתף אחד מתוך גורמי הפרויקט</label>
+              {trialParticipantOptions.length ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
+                  {trialParticipantOptions.map((label) => {
+                    const selectedParticipants = String((trialSectionForm as any).participants || "")
+                      .split(/\s*;\s*/)
+                      .map((item) => item.trim())
+                      .filter(Boolean);
+                    const checked = selectedParticipants.includes(label);
+                    return (
+                      <label key={label} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #dbe3ef", borderRadius: 12, padding: "8px 10px", background: checked ? "#eef6ff" : "#fff", fontWeight: 800, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            const current = String((trialSectionForm as any).participants || "")
+                              .split(/\s*;\s*/)
+                              .map((item) => item.trim())
+                              .filter(Boolean);
+                            const next = event.currentTarget.checked
+                              ? Array.from(new Set([...current, label]))
+                              : current.filter((item) => item !== label);
+                            setTrialSectionForm((prev: any) => ({ ...prev, participants: next.join(" ; ") }));
+                          }}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
                 <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
-              ) : null}
+              )}
             </div>
             <TrialSectionsSection
               guardedBody={guardedBody}
