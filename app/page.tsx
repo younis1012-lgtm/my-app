@@ -6438,6 +6438,89 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
   );
 }
 
+
+
+const getReferenceRowValue = (row: any, keys: string[]): string => {
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value);
+  }
+  return "";
+};
+
+const buildMatzeaAConcentrationRows = (processes: ControlProcessRecord[]) =>
+  processes
+    .filter((process) => isMatzeaAReference(process.workType))
+    .flatMap((process) =>
+      ensureReferenceResultsForMaterial(process.workType, process.referenceResults)
+        .filter((row) => String(row.resultValue ?? "").trim() || String(row.qualityStatus ?? "").trim())
+        .map((row) => ({
+          processNo: process.processNo,
+          title: process.title,
+          date: process.savedAt,
+          metric: row.metric,
+          resultValue: row.resultValue,
+          qualityStatus: row.qualityStatus || calculateReferenceQualityStatus(row.resultValue, row.minValue, row.maxValue),
+          minValue: row.minValue,
+          maxValue: row.maxValue,
+        })),
+    );
+
+function MatzeaAConcentrationFromReferences({
+  processes,
+}: {
+  processes: ControlProcessRecord[];
+}) {
+  const rows = buildMatzeaAConcentrationRows(processes);
+  if (!rows.length) return null;
+  return (
+    <section style={{ ...styles.card, marginBottom: 24 }} dir="rtl">
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ margin: 0 }}>ריכוז אפיון מצע א׳</h2>
+          <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+            התוצאות נמשכות אוטומטית מתוך בקרה מקדימה / תעודות ייחוס — מצע א׳.
+          </p>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", marginTop: 16 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 920 }}>
+          <thead>
+            <tr style={{ background: "#f1f5f9" }}>
+              {[
+                "מס׳ תעודה / רשומה",
+                "כותרת",
+                "מדד תוצאה",
+                "ערך תוצאה",
+                "סטטוס איכות",
+                "ערך מינימלי",
+                "ערך מקסימלי",
+                "תאריך שמירה",
+              ].map((label) => (
+                <th key={label} style={{ border: "1px solid #dbe3ee", padding: "10px 8px", textAlign: "right" }}>{label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.processNo}-${row.metric}-${index}`}>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.processNo}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.title}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px", fontWeight: 700 }}>{row.metric}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.resultValue}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px", fontWeight: 700 }}>{row.qualityStatus}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.minValue}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.maxValue}</td>
+                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.date}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default function Page() {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -10997,25 +11080,28 @@ ${invalidRecipients.join("\n")}`);
             </>
           )}
           {section === "concentrations" && (
-            <ConcentrationsSection
-              savedChecklists={projectChecklists}
-              savedNonconformances={projectNonconformances}
-              savedTrialSections={projectTrialSections}
-              savedPreliminary={projectPreliminary}
-              currentProjectName={projectName}
-              projectMeta={
-                {
-                  projectName: currentProjectLegend.projectName,
-                  projectManager: currentProjectLegend.projectManagement,
-                  contractor: currentProjectLegend.contractor,
-                  qualityAssurance: currentProjectLegend.qualityAssurance,
-                  qualityControl: currentProjectLegend.qualityControl,
-                  workManager: currentProjectLegend.workManager,
-                  surveyor: currentProjectLegend.surveyor,
-                  supervisor: currentProjectLegend.supervisor,
-                } as any
-              }
-            />
+            <>
+              <MatzeaAConcentrationFromReferences processes={projectControlProcesses} />
+              <ConcentrationsSection
+                savedChecklists={projectChecklists}
+                savedNonconformances={projectNonconformances}
+                savedTrialSections={projectTrialSections}
+                savedPreliminary={projectPreliminary}
+                currentProjectName={projectName}
+                projectMeta={
+                  {
+                    projectName: currentProjectLegend.projectName,
+                    projectManager: currentProjectLegend.projectManagement,
+                    contractor: currentProjectLegend.contractor,
+                    qualityAssurance: currentProjectLegend.qualityAssurance,
+                    qualityControl: currentProjectLegend.qualityControl,
+                    workManager: currentProjectLegend.workManager,
+                    surveyor: currentProjectLegend.surveyor,
+                    supervisor: currentProjectLegend.supervisor,
+                  } as any
+                }
+              />
+            </>
           )}
         </main>
 
