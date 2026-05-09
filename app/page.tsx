@@ -1468,12 +1468,20 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "toSection",
   "participants",
   "equipment",
-  "toolsUsed",
   "tools",
-  "usedTools",
+  "toolsInUse",
   "equipmentUsed",
-  "toolsDescription",
-  "workTools",
+  "usedTools",
+  "toolsUsed",
+  "workLocation",
+  "workSegment",
+  "workSection",
+  "roadSection",
+  "roadStructure",
+  "area",
+  "capabilityProof",
+  "proof",
+  "abilityProof",
   "executionDate",
   "executionDescription",
 ] as const;
@@ -8920,7 +8928,7 @@ export default function Page() {
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
     th,td{border:1px solid #111827;padding:3px 5px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;white-space:normal;line-height:1.35}
     th{background:#f8fafc;font-weight:800}
-    .base-rows th{width:18%;font-weight:800}.base-rows td{width:32%;font-weight:600}.base-rows .full-value{text-align:center}
+    .base-rows th{width:18%;font-weight:800;font-size:8.6px}.base-rows td{width:32%;font-weight:600;font-size:8.6px;line-height:1.25}.base-rows .full-value{text-align:center;line-height:1.28}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
     .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
@@ -8944,11 +8952,11 @@ export default function Page() {
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:10px;line-height:1.35;min-height:24px;height:auto;padding:3px 5px}
+    .trial-report th,.trial-report td{font-size:8.6px;line-height:1.25;min-height:20px;height:auto;padding:2px 4px;word-break:break-word;overflow-wrap:anywhere;white-space:normal}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:26px}
-    .trial-report .large-value{height:56px}
+    .trial-report .large-value{height:auto;min-height:34px}.blank-cell{min-height:12px}
     @page{size:A4 landscape;margin:8mm}
     @media print{button{display:none} body{padding:0;font-size:10px} th,td{padding:3px 4px}.header-title{font-size:15px}.company-header-logo-box{height:58px}.company-full-logo{height:52px!important;max-height:52px!important;max-width:115px!important}.company-footer-single{font-size:10px}}
   `;
@@ -9184,48 +9192,79 @@ export default function Page() {
     ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
   };
 
-  const getTrialSectionToolsText = (form: any) =>
-    [
-      form?.equipment,
-      form?.toolsUsed,
-      form?.tools,
-      form?.usedTools,
-      form?.equipmentUsed,
-      form?.toolsDescription,
-      form?.workTools,
-    ]
-      .map((value) => String(value ?? "").trim())
-      .filter(Boolean)
-      .filter((value, index, values) => values.indexOf(value) === index)
-      .join("; ");
-
   const trialSectionExportHtml = () => {
+    const f: any = trialSectionForm as any;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    const trialProjectName = profile?.projectName || projectName;
-    const trialProjectManager = profile?.projectManager || "";
-    const trialContractor = profile?.contractor || "";
-    const images = normalizeAttachments((trialSectionForm as any).images);
+    const trialProjectName = f.projectName || f.projectNameDisplay || currentProjectLegend.projectName || profile?.projectName || projectName;
+    const trialProjectManager = f.projectManagement || f.managementCompany || currentProjectLegend.projectManagement || profile?.projectManager || "";
+    const trialContractor = f.contractor || f.mainContractor || currentProjectLegend.contractor || profile?.contractor || "";
+    const images = normalizeAttachments(f.images);
+    const firstValue = (...keys: string[]) => {
+      for (const key of keys) {
+        const value = f?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+      }
+      return "";
+    };
+    const trialNo = firstValue("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
+      String(f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
+    const workLocation = firstValue(
+      "location",
+      "workLocation",
+      "workSegment",
+      "workSection",
+      "roadSection",
+      "roadStructure",
+      "area"
+    );
+    const toolsText = firstValue(
+      "tools",
+      "toolsInUse",
+      "toolsUsed",
+      "equipment",
+      "equipmentUsed",
+      "usedTools",
+      "machinery",
+      "toolsList"
+    );
+    const proofText = firstValue(
+      "proofOfCapability",
+      "capabilityProof",
+      "proof",
+      "abilityProof",
+      "classificationProof",
+      "classifiedCapabilityProof"
+    );
+    const executionText = firstValue(
+      "executionDescription",
+      "executionStages",
+      "workStages",
+      "trialSteps",
+      "description",
+      "spec"
+    );
     return `${baseRows([
+      ["קטע ניסוי", f.title || "קטע ניסוי"],
+      ["מס׳ קטע ניסוי", trialNo],
       ["שם הפרויקט", trialProjectName],
       ["חברת ניהול", trialProjectManager],
-      ["קבלן ראשי", trialContractor],
-      ["חברת בקרת איכות", trialSectionForm.qualityCompany || trialSectionForm.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
-      ["כותרת", trialSectionForm.title],
-      ["קטע מס׳", trialSectionForm.sectionNo || trialSectionForm.sectionNumber || trialSectionForm.location],
-      ["מיקום / קטע עבודה", trialSectionForm.location],
-      ["שם האלמנט", trialSectionForm.elementName || trialSectionForm.element],
-      ["תת אלמנט", trialSectionForm.subElement],
-      ["מחתך / עד חתך", trialSectionForm.fromTo || [trialSectionForm.fromSection, trialSectionForm.toSection].filter(Boolean).join(" - ")],
-      ["משתתפים בקטע ניסוי", trialSectionForm.participants],
-      ["כלים בהם משתמשים", getTrialSectionToolsText(trialSectionForm)],
-      ["תאריך ביצוע", trialSectionForm.executionDate || trialSectionForm.date],
-      ["הוכחת היכולת לפעולה מסווג", trialSectionForm.proofOfCapability],
-      ["תיאור קטע ניסוי / שלבי ביצוע", trialSectionForm.executionDescription || trialSectionForm.spec, 120],
-      ["תוצאה", trialSectionForm.result, 120],
-      ["אושר על ידי", trialSectionForm.approvedBy],
-      ["סטטוס", trialSectionForm.status],
-      ["הערות", trialSectionForm.notes, 120],
-    ])}${attachmentsList(images)}${signaturesTable(trialSectionForm.approval)}`;
+      ["קבלן ראשי", f.mainContractor || trialContractor],
+      ["חברת בקרת איכות", f.qualityCompany || f.qualityControl || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
+      ["מיקום / קטע עבודה", workLocation],
+      ["שם האלמנט", firstValue("elementName", "element")],
+      ["תת אלמנט", f.subElement],
+      ["מחתך / עד חתך", firstValue("fromTo") || [f.fromSection, f.toSection].filter(Boolean).join(" - ")],
+      ["משתתפים בקטע ניסוי", f.participants],
+      ["כלים בהם משתמשים", toolsText],
+      ["תאריך ביצוע", firstValue("executionDate", "date")],
+      ["הוכחת היכולת לפעולה מסווג", proofText],
+      ["תיאור קטע ניסוי / שלבי ביצוע", executionText, 110],
+      ["מסקנות קטע ניסוי / תוצאה", firstValue("result", "conclusions", "trialConclusions"), 80],
+      ["פעולה מתקנת / נדרשת", firstValue("correctiveAction", "requiredAction", "actionRequired"), 60],
+      ["אושר על ידי", f.approvedBy],
+      ["סטטוס", f.status],
+      ["הערות", f.notes, 60],
+    ])}${attachmentsList(images)}${signaturesTable(f.approval)}`;
   };
 
   const requiredDocumentsExportTable = (items: unknown) => {
