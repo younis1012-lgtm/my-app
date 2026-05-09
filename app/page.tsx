@@ -1460,6 +1460,11 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "sectionNo",
   "sectionNumber",
   "proofOfCapability",
+  "capabilityProof",
+  "proof",
+  "abilityProof",
+  "classificationProof",
+  "classifiedCapabilityProof",
   "elementName",
   "element",
   "subElement",
@@ -1468,9 +1473,27 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "toSection",
   "participants",
   "equipment",
+  "tools",
+  "toolsInUse",
+  "equipmentUsed",
+  "usedTools",
   "toolsUsed",
+  "toolsList",
+  "workLocation",
+  "workSegment",
+  "workSection",
+  "roadSection",
+  "roadStructure",
+  "area",
   "executionDate",
   "executionDescription",
+  "executionStages",
+  "workStages",
+  "trialSteps",
+  "description",
+  "correctiveAction",
+  "requiredAction",
+  "actionRequired",
 ] as const;
 const trialSectionDetails = (record: Record<string, any>) =>
   TRIAL_SECTION_DETAIL_KEYS.reduce((acc, key) => {
@@ -1483,59 +1506,83 @@ const mergeTrialSectionDetails = (record: Record<string, any>, details: Record<s
   ...details,
 });
 
-const firstNonEmptyValue = (...values: unknown[]) => {
+const firstFilledValue = (...values: unknown[]) => {
   for (const value of values) {
-    if (value === undefined || value === null) continue;
-    const text = String(value).trim();
-    if (text !== "") return text;
+    if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
   }
   return "";
 };
 
-const getTrialField = (record: Record<string, any>, aliases: string[]) => {
-  const details = record?.details && typeof record.details === "object" ? record.details : {};
-  for (const key of aliases) {
-    const direct = record?.[key];
-    if (direct !== undefined && direct !== null && String(direct).trim() !== "") return String(direct).trim();
-    const detail = details?.[key];
-    if (detail !== undefined && detail !== null && String(detail).trim() !== "") return String(detail).trim();
-  }
-  return "";
-};
-
-const normalizeTrialSectionFormFields = (form: Record<string, any>) => {
-  const fromSection = firstNonEmptyValue(
-    form.fromSection, form.fromCut, form.fromStation, form.fromChainage, form.startSection, form.startCut, form.fromSegment, form.from
+const buildTrialSectionFullDetails = (record: Record<string, any> = {}) => {
+  const existing = (record.details ?? {}) as Record<string, any>;
+  const source = { ...existing, ...record } as Record<string, any>;
+  const fromToValue = firstFilledValue(
+    source.fromTo,
+    source.sectionRange,
+    source.stationRange,
+    source.cutRange,
+    [
+      firstFilledValue(source.fromSection, source.from_station, source.fromStation, source.sectionFrom, source.startSection, source.startStation, source.fromCut),
+      firstFilledValue(source.toSection, source.to_station, source.toStation, source.sectionTo, source.endSection, source.endStation, source.toCut),
+      firstFilledValue(source.side, source.roadSide, source.lane),
+    ].filter(Boolean).join(" - "),
   );
-  const toSection = firstNonEmptyValue(
-    form.toSection, form.toCut, form.toStation, form.toChainage, form.endSection, form.endCut, form.toSegment, form.to
+  const toolsValue = firstFilledValue(
+    source.tools,
+    source.toolsInUse,
+    source.toolsUsed,
+    source.equipment,
+    source.equipmentUsed,
+    source.usedTools,
+    source.toolsList,
+    source.machinery,
+    source.machineryUsed,
+    source.usedEquipment,
+    source.workTools,
   );
-  const tools = firstNonEmptyValue(
-    form.toolsUsed, form.equipment, form.tools, form.equipmentUsed, form.usedTools, form.toolsInUse, form.usedEquipment, form.machinery
+  const proofValue = firstFilledValue(
+    source.proofOfCapability,
+    source.capabilityProof,
+    source.proof,
+    source.abilityProof,
+    source.classificationProof,
+    source.classifiedCapabilityProof,
+    source.capabilityType,
+    source.capabilityAction,
+    source.classifiedAction,
+    source.classifiedOperation,
   );
-  const proof = firstNonEmptyValue(
-    form.proofOfCapability, form.capabilityProof, form.proofCapability, form.abilityProof, form.classifiedOperationProof, form.operationCapabilityProof
+  const workLocationValue = firstFilledValue(
+    source.location,
+    source.workLocation,
+    source.workSegment,
+    source.workSection,
+    source.roadSection,
+    source.roadStructure,
+    source.area,
+    source.workArea,
+    source.workPart,
   );
-  const workLocation = firstNonEmptyValue(
-    form.location, form.workLocation, form.workSection, form.workArea, form.sectionLocation, form.segment, form.workSegment
-  );
-  const sectionNumber = firstNonEmptyValue(form.sectionNo, form.sectionNumber, form.trialSectionNo, form.trialNo, form.number);
-  const executionDescription = firstNonEmptyValue(
-    form.executionDescription, form.executionSteps, form.workSteps, form.stepsDescription, form.description
-  );
-  return {
-    ...form,
-    sectionNo: sectionNumber || form.sectionNo || "",
-    sectionNumber: sectionNumber || form.sectionNumber || "",
-    location: workLocation || form.location || "",
-    fromSection: fromSection || form.fromSection || "",
-    toSection: toSection || form.toSection || "",
-    fromTo: form.fromTo || [fromSection, toSection].filter(Boolean).join(" - "),
-    equipment: tools || form.equipment || "",
-    toolsUsed: tools || form.toolsUsed || "",
-    proofOfCapability: proof || form.proofOfCapability || "",
-    executionDescription: executionDescription || form.executionDescription || "",
+  const details: Record<string, any> = {
+    ...existing,
+    ...trialSectionDetails(source),
+    ...source,
+    fromTo: fromToValue,
+    fromSection: firstFilledValue(source.fromSection, source.from_station, source.fromStation, source.sectionFrom, source.startSection, source.startStation, source.fromCut),
+    toSection: firstFilledValue(source.toSection, source.to_station, source.toStation, source.sectionTo, source.endSection, source.endStation, source.toCut),
+    side: firstFilledValue(source.side, source.roadSide, source.lane),
+    tools: toolsValue,
+    toolsInUse: toolsValue,
+    toolsUsed: toolsValue,
+    equipment: toolsValue,
+    proofOfCapability: proofValue,
+    capabilityProof: proofValue,
+    proof: proofValue,
+    location: workLocationValue,
+    workLocation: workLocationValue,
+    workSegment: workLocationValue,
   };
+  return details;
 };
 
 const createDefaultPreliminary = (
@@ -6590,23 +6637,31 @@ export default function Page() {
     setSavedTrialSections(
       (trialRows ?? []).map((row) => {
         const details = row.details ?? {};
-        return mergeTrialSectionDetails({
+        const pick = (...values: unknown[]) => {
+          for (const value of values) {
+            if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+          }
+          return "";
+        };
+        const merged = buildTrialSectionFullDetails({
+          ...details,
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
-          title: row.title ?? details.title ?? "",
-          location: row.location ?? details.location ?? "",
-          date: row.date ?? details.date ?? "",
-          spec: row.spec ?? details.spec ?? "",
-          result: row.result ?? details.result ?? "",
-          approvedBy: row.approved_by ?? details.approvedBy ?? "",
-          status: row.status ?? details.status ?? "טיוטה",
-          notes: row.notes ?? details.notes ?? "",
-          images: normalizeAttachments(row.images ?? details.images),
-          approval: normalizeApproval(row.approval ?? details.approval),
+          title: pick(details.title, row.title),
+          location: pick(details.location, details.workLocation, details.workSegment, details.workSection, details.roadSection, details.roadStructure, row.location),
+          date: pick(details.date, details.executionDate, row.date),
+          spec: pick(details.spec, row.spec),
+          result: pick(details.result, details.conclusions, row.result),
+          approvedBy: pick(details.approvedBy, row.approved_by),
+          status: pick(details.status, row.status) || "טיוטה",
+          notes: pick(details.notes, row.notes),
+          images: normalizeAttachments(details.images ?? row.images),
+          approval: normalizeApproval(details.approval ?? row.approval),
           savedAt: row.saved_at
             ? new Date(row.saved_at).toLocaleString("he-IL")
             : "",
-        }, details) as TrialSectionRecord;
+        });
+        return { ...merged, details: merged } as TrialSectionRecord;
       }),
     );
     setSavedPreliminary(
@@ -6992,6 +7047,41 @@ export default function Page() {
         : getProjectProfile(currentProject?.name),
     [currentProjectLegend, currentProject?.name],
   );
+
+  const trialParticipantOptions = useMemo(() => {
+    const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
+    const legend = normalizeProjectLegend(currentProjectLegend, currentProject?.name || "");
+    const fromUsers = currentProjectEmailUsers
+      .map((user) =>
+        [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email,
+      )
+      .filter(Boolean);
+
+    // גורמי פרויקט קבועים + גורמים נוספים שהוגדרו בפרטי הפרויקט.
+    // כך גם "מפקח", "מפקח אתר" או כל גורם חדש שמוסיפים לפרטי הפרויקט יופיע לבחירה בקטע ניסוי.
+    const fromProjectDetails = [
+      legend.projectManagement || profile?.projectManager ? `מנהל פרויקט - ${legend.projectManagement || profile?.projectManager}` : "",
+      legend.contractor || profile?.contractor ? `קבלן ראשי - ${legend.contractor || profile?.contractor}` : "",
+      legend.qualityAssurance || profile?.qaCompany ? `הבטחת איכות - ${legend.qualityAssurance || profile?.qaCompany}` : "",
+      legend.qualityControl || profile?.qualityControl ? `בקרת איכות - ${legend.qualityControl || profile?.qualityControl}` : "",
+      legend.workManager || profile?.workManager ? `מנהל עבודה - ${legend.workManager || profile?.workManager}` : "",
+      legend.surveyor || profile?.surveyor ? `מודד - ${legend.surveyor || profile?.surveyor}` : "",
+      legend.supervisor ? `מפקח - ${legend.supervisor}` : "",
+      ...legend.extraFactors.map((factor) => {
+        const label = String(factor.label || "גורם נוסף").trim();
+        const value = String(factor.value || "").trim();
+        return value ? `${label} - ${value}` : label;
+      }),
+    ];
+
+    return Array.from(
+      new Set(
+        [...fromUsers, ...fromProjectDetails]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }, [currentProjectEmailUsers, currentProjectLegend, currentProjectProfile, currentProject?.name]);
   const currentProjectDefaults = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
     const legend = currentProjectLegend;
@@ -8541,15 +8631,22 @@ export default function Page() {
         : nextTrialSectionTitle();
     rememberSequentialNo("trialSections", title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const normalizedTrialForm = normalizeTrialSectionFormFields(trialSectionForm as any);
+    const normalizedTrialDetails = buildTrialSectionFullDetails({
+      ...trialSectionForm,
+      title,
+      approval: normalizeApproval(trialSectionForm.approval),
+      savedAt: nowLocal(),
+    } as any);
     const record: TrialSectionRecord = {
       id,
       projectId: normalizedProjectId,
-      ...normalizedTrialForm,
+      ...trialSectionForm,
+      ...normalizedTrialDetails,
       title,
-      approval: normalizeApproval((normalizedTrialForm as any).approval),
+      details: normalizedTrialDetails,
+      approval: normalizeApproval(trialSectionForm.approval),
       savedAt: nowLocal(),
-    } as TrialSectionRecord;
+    } as any;
     await withSaving(async () => {
       if (cloudEnabled) {
         const payload = {
@@ -8565,11 +8662,10 @@ export default function Page() {
           notes: record.notes,
           images: normalizeAttachments((record as any).images),
           approval: record.approval,
-          details: {
+          details: buildTrialSectionFullDetails({
             ...(record as any),
-            ...trialSectionDetails(record as any),
             title: record.title,
-            location: (record as any).location,
+            location: record.location,
             date: record.date,
             spec: record.spec,
             result: record.result,
@@ -8578,7 +8674,7 @@ export default function Page() {
             notes: record.notes,
             images: normalizeAttachments((record as any).images),
             approval: record.approval,
-          },
+          }),
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -8602,18 +8698,21 @@ export default function Page() {
   const loadTrialSection = (record: TrialSectionRecord) => {
     setSection("trialSections");
     setEditingTrialSectionId(record.id);
+    const fullDetails = buildTrialSectionFullDetails(record as any);
     setTrialSectionForm(applyProjectDefaultsToTrialSection({
       ...(record as any),
-      title: record.title,
-      location: record.location,
-      date: record.date,
-      spec: record.spec,
-      result: record.result,
-      approvedBy: record.approvedBy,
-      status: record.status,
-      notes: record.notes,
-      images: normalizeAttachments((record as any).images),
-      approval: normalizeApproval(record.approval),
+      ...fullDetails,
+      title: fullDetails.title || record.title,
+      location: fullDetails.location || record.location,
+      date: fullDetails.date || record.date,
+      spec: fullDetails.spec || record.spec,
+      result: fullDetails.result || record.result,
+      approvedBy: fullDetails.approvedBy || record.approvedBy,
+      status: fullDetails.status || record.status,
+      notes: fullDetails.notes || record.notes,
+      images: normalizeAttachments((fullDetails as any).images ?? (record as any).images),
+      approval: normalizeApproval((fullDetails as any).approval ?? record.approval),
+      details: fullDetails,
     } as any));
   };
   const deleteTrialSection = async (id: string) =>
@@ -8862,7 +8961,7 @@ export default function Page() {
       /[&<>]/g,
       (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char] ?? char,
     );
-  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 16);
+  const compactHeight = (height = 18) => Math.min(Number(height) || 18, 14);
   const blankCell = (height = 18) =>
     `<div class="blank-cell" style="min-height:${compactHeight(height)}px">&nbsp;</div>`;
   const valueOrBlank = (value: unknown, height = 18) => {
@@ -8929,22 +9028,23 @@ export default function Page() {
   };
 
   const exportStyles = `
-    body{font-family:Arial,sans-serif;direction:rtl;padding:8px;color:#0f172a;font-size:11px;background:#fff}
-    .export-page{width:100%;box-sizing:border-box;margin:0 auto}
+    body{font-family:Arial,sans-serif;direction:rtl;padding:5px;color:#0f172a;font-size:9.5px;background:#fff}
+    .export-page{width:100%;box-sizing:border-box;margin:0 auto;page-break-after:avoid;break-after:avoid}
     h1{display:none}
-    h2{font-size:13px;margin:8px 0 4px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
+    h2{font-size:11px;margin:4px 0 2px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
-    th,td{border:1px solid #111827;padding:5px 6px;vertical-align:middle;text-align:center;word-break:break-word;line-height:1.25}
+    th,td{border:1px solid #111827;padding:3px 5px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;white-space:normal;line-height:1.35}
     th{background:#f8fafc;font-weight:800}
+    .base-rows th{width:18%;font-weight:800}.base-rows td{width:32%;font-weight:600}.base-rows .full-value{text-align:center}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
-    .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:28px}
+    .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
     .company-header{width:100%;margin:0 0 12px;page-break-inside:avoid;box-sizing:border-box;border:0!important}
     .company-header-line,.company-footer-line{height:4px;background:#8a7d5b;width:100%;margin:0;border:0!important}
-    .company-header-logo-box{height:72px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:5px 0;overflow:hidden}
-    .company-full-logo{height:62px!important;max-height:62px!important;width:auto!important;max-width:130px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
-    .company-footer{width:100%;margin:12px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
-    .company-footer-single{height:26px;line-height:22px;font-size:11px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:3px 5px;white-space:nowrap}
+    .company-header-logo-box{height:54px;width:100%;display:block;text-align:center;background:#fff!important;border:0!important;box-sizing:border-box;padding:5px 0;overflow:hidden}
+    .company-full-logo{height:48px!important;max-height:48px!important;width:auto!important;max-width:130px!important;display:inline-block!important;border:0!important;outline:0!important;object-fit:contain!important;vertical-align:middle!important}
+    .company-footer{width:100%;margin:6px 0 0;page-break-inside:avoid;box-sizing:border-box;border:0!important}
+    .company-footer-single{height:20px;line-height:17px;font-size:9px;font-weight:700;color:#111827;box-sizing:border-box;text-align:center;border:0!important;background:#fff!important;padding:3px 5px;white-space:nowrap}
     .company-footer-service{display:inline-block;margin-left:22px;text-align:left;border:0!important;background:transparent!important}
     .company-footer-contact{display:inline-block;text-align:right;direction:rtl;border:0!important;background:transparent!important}
     .checklist-export-title{font-size:19px;font-weight:900;text-align:center;text-decoration:underline;margin:8px 0 10px}
@@ -8959,7 +9059,7 @@ export default function Page() {
     .attachment-summary{font-size:12px;font-weight:800;text-align:right;margin:0 0 6px;color:#0f172a}
     .attachment-link-box{text-align:center;margin:8px 0;font-weight:800}
     .trial-report{width:100%;margin:0 0 6px;table-layout:fixed}
-    .trial-report th,.trial-report td{font-size:11px;line-height:1.2;height:24px;padding:4px 6px}
+    .trial-report th,.trial-report td{font-size:10px;line-height:1.35;min-height:24px;height:auto;padding:3px 5px}
     .trial-report .trial-title{font-size:18px;font-weight:900;text-align:center}
     .trial-report .label{font-weight:800;width:32%}
     .trial-report .value{height:26px}
@@ -8973,7 +9073,7 @@ export default function Page() {
     if (section === "nonconformances")
       return nonconformanceForm.title || "אי התאמה";
     if (section === "trialSections")
-      return trialSectionForm.title || "קטע ניסוי";
+      return "קטע ניסוי";
     if (section === "preliminary")
       return currentPreliminaryForm.title || "בקרה מקדימה";
     if (section === "controlProcesses")
@@ -8981,8 +9081,29 @@ export default function Page() {
     return "טופס";
   };
 
-  const baseRows = (rows: Array<[string, unknown, number?]>) =>
-    `<table><tbody>${rows.map(([label, value, height]) => `<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 34)}</td></tr>`).join("")}</tbody></table>`;
+  const isLongExportRow = (row?: [string, unknown, number?]) => Number(row?.[2] ?? 0) >= 70;
+
+  const baseRows = (rows: Array<[string, unknown, number?]>) => {
+    const htmlRows: string[] = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const first = rows[index];
+      if (!first) continue;
+      const [label, value, height] = first;
+      if (isLongExportRow(first)) {
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td class="full-value" colspan="3">${valueOrBlank(value, height ?? 34)}</td></tr>`);
+        continue;
+      }
+      const second = rows[index + 1];
+      if (second && !isLongExportRow(second)) {
+        const [label2, value2, height2] = second;
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 26)}</td><th>${safeText(label2)}</th><td>${valueOrBlank(value2, height2 ?? 26)}</td></tr>`);
+        index += 1;
+      } else {
+        htmlRows.push(`<tr><th>${safeText(label)}</th><td>${valueOrBlank(value, height ?? 26)}</td><th class="empty">&nbsp;</th><td class="empty">&nbsp;</td></tr>`);
+      }
+    }
+    return `<table class="base-rows"><tbody>${htmlRows.join("")}</tbody></table>`;
+  };
 
   const attachmentLink = (name: unknown, url: unknown) => {
     const href = String(url ?? "").trim();
@@ -9008,7 +9129,7 @@ export default function Page() {
   const attachmentsList = (items: unknown) => {
     const attachments = normalizeAttachments(items);
     if (!attachments.length) return "";
-    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}${attachmentPreview(file)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
+    const table = `<h2>תמונות / קבצים מצורפים</h2><table><thead><tr><th>שם קובץ</th><th>סוג</th></tr></thead><tbody>${attachments.map((file) => `<tr><td>${attachmentLink(file.name, file.dataUrl)}</td><td>${safeText(file.type || "קובץ")}</td></tr>`).join("")}</tbody></table>`;
     const embedded = attachments.map((file) => embeddedAttachmentForExport(file)).join("");
     return `${table}${embedded}`;
   };
@@ -9179,39 +9300,62 @@ export default function Page() {
   };
 
   const trialSectionExportHtml = () => {
+    const currentSavedTrial = editingTrialSectionId
+      ? projectTrialSections.find((item) => item.id === editingTrialSectionId)
+      : undefined;
+    const f: any = trialSectionForm as any;
+    const source: any = buildTrialSectionFullDetails({
+      ...(currentSavedTrial as any),
+      ...((currentSavedTrial as any)?.details ?? {}),
+      ...f,
+      ...((f as any).details ?? {}),
+    });
+    const details: any = source;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    const trialProjectName = profile?.projectName || projectName;
-    const trialProjectManager = profile?.projectManager || "";
-    const trialContractor = profile?.contractor || "";
-    const f = normalizeTrialSectionFormFields(trialSectionForm as any) as any;
-    const images = normalizeAttachments(f.images);
-    const sectionNumber = getTrialField(f, ["sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number"]) || f.title;
-    const fromSection = getTrialField(f, ["fromSection", "fromCut", "fromStation", "fromChainage", "startSection", "startCut", "fromSegment", "from"]);
-    const toSection = getTrialField(f, ["toSection", "toCut", "toStation", "toChainage", "endSection", "endCut", "toSegment", "to"]);
-    const tools = getTrialField(f, ["toolsUsed", "equipment", "tools", "equipmentUsed", "usedTools", "toolsInUse", "usedEquipment", "machinery"]);
-    const proof = getTrialField(f, ["proofOfCapability", "capabilityProof", "proofCapability", "abilityProof", "classifiedOperationProof", "operationCapabilityProof"]);
-    const workLocation = getTrialField(f, ["location", "workLocation", "workSection", "workArea", "sectionLocation", "segment", "workSegment"]);
-    const executionDescription = getTrialField(f, ["executionDescription", "executionSteps", "workSteps", "stepsDescription", "description", "spec"]);
+    const get = (...keys: string[]) => {
+      for (const key of keys) {
+        const value = source?.[key] ?? details?.[key] ?? f?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
+      }
+      return "";
+    };
+    const trialProjectName = get("projectName", "projectNameDisplay") || currentProjectLegend.projectName || profile?.projectName || projectName;
+    const trialProjectManager = get("projectManagement", "managementCompany") || currentProjectLegend.projectManagement || profile?.projectManager || "";
+    const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
+    const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
+      String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
+    const workLocation = get("location", "workLocation", "workSegment", "workSection", "roadSection", "roadStructure", "area", "workArea", "workPart");
+    const fromTo = get("fromTo", "sectionRange", "stationRange", "cutRange") || [
+      get("fromSection", "from_station", "fromStation", "sectionFrom", "startSection", "startStation", "fromCut"),
+      get("toSection", "to_station", "toStation", "sectionTo", "endSection", "endStation", "toCut"),
+      get("side", "roadSide", "lane"),
+    ].filter(Boolean).join(" - ");
+    const participantsText = get("participants");
+    const toolsText = get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "machineryUsed", "usedEquipment", "workTools");
+    const proofText = get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "capabilityType", "capabilityAction", "classifiedAction", "classifiedOperation");
+    const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
+    const resultText = get("result", "conclusions", "trialConclusions");
+    const images = normalizeAttachments(source.images ?? f.images ?? details.images);
     return `${baseRows([
+      ["מס׳ קטע ניסוי", trialNo || ""],
       ["שם הפרויקט", trialProjectName],
       ["חברת ניהול", trialProjectManager],
-      ["קבלן ראשי", trialContractor],
-      ["חברת בקרת איכות", f.qualityCompany || f.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
-      ["קטע ניסוי", sectionNumber],
+      ["קבלן ראשי", get("mainContractor") || trialContractor],
+      ["חברת בקרת איכות", get("qualityCompany", "qualityControl") || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
       ["מיקום / קטע עבודה", workLocation],
-      ["שם האלמנט", f.elementName || f.element],
-      ["תת אלמנט", f.subElement],
-      ["מחתך", fromSection],
-      ["עד חתך / צד", toSection],
-      ["משתתפים בקטע ניסוי", f.participants],
-      ["כלים בהם משתמשים", tools],
-      ["תאריך ביצוע", f.executionDate || f.date],
-      ["הוכחת היכולת לפעולה מסוג", proof],
-      ["תיאור קטע ניסוי / שלבי ביצוע", executionDescription, 120],
-      ["תוצאה", f.result, 120],
-      ["אושר על ידי", f.approvedBy],
-      ["סטטוס", f.status],
-      ["הערות", f.notes, 120],
+      ["שם האלמנט", get("elementName", "element")],
+      ["תת אלמנט", get("subElement")],
+      ["מחתך / עד חתך", fromTo],
+      ["משתתפים בקטע ניסוי", participantsText, 70],
+      ["כלים בהם משתמשים", toolsText, 55],
+      ["תאריך ביצוע", get("executionDate", "date")],
+      ["הוכחת היכולת לפעולה מסווג", proofText, 60],
+      ["תיאור קטע ניסוי / שלבי ביצוע", executionText, 100],
+      ["תוצאה / מסקנות קטע ניסוי", resultText, 70],
+      ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
+      ["אושר על ידי", get("approvedBy")],
+      ["סטטוס", get("status")],
+      ["הערות", get("notes"), 45],
     ])}${attachmentsList(images)}${signaturesTable(f.approval)}`;
   };
 
@@ -9618,8 +9762,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const margin = 6;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      if (section === "nonconformances") {
-        // טופס אי התאמה חייב להופיע כעמוד טופס אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
+      if (section !== "checklists") {
+        // כל טופס רגיל נפרס לעמוד PDF אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
         const imgData = canvas.toDataURL("image/jpeg", 0.95);
         const imgWidthMm = usableWidth;
         const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
@@ -10256,35 +10400,38 @@ ${invalidRecipients.join("\n")}`);
               />
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
               <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - ניתן לבחור יותר ממשתתף אחד מתוך גורמי הפרויקט</label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
-                {(() => {
-                  const legend = currentProjectLegend;
-                  const factorLabels = [
-                    legend.qualityControl ? `בקרת איכות - ${legend.qualityControl}` : "",
-                    legend.qualityAssurance ? `הבטחת איכות - ${legend.qualityAssurance}` : "",
-                    legend.contractor ? `קבלן / קבלן ראשי - ${legend.contractor}` : "",
-                    legend.projectManagement ? `מנהל פרויקט / מפקח - ${legend.projectManagement}` : "",
-                    legend.workManager ? `מנהל עבודה - ${legend.workManager}` : "",
-                    legend.surveyor ? `מודד - ${legend.surveyor}` : "",
-                    legend.supervisor ? `מפקח אתר - ${legend.supervisor}` : "",
-                    ...((legend.extraFactors || []).map((factor) => [factor.label, factor.value].filter(Boolean).join(" - "))),
-                    ...currentProjectEmailUsers.map((user) => [user.role, user.name, user.company].filter(Boolean).join(" - ") || user.email),
-                  ].map((item) => String(item || "").trim()).filter(Boolean);
-                  const uniqueFactors = Array.from(new Set(factorLabels));
-                  const selected = String((trialSectionForm as any).participants || "").split(/[;,،]/).map((item) => item.trim()).filter(Boolean);
-                  const toggleParticipant = (label: string) => {
-                    const exists = selected.includes(label);
-                    const next = exists ? selected.filter((item) => item !== label) : [...selected, label];
-                    setTrialSectionForm((prev: any) => ({ ...prev, participants: next.join("; ") }));
-                  };
-                  return uniqueFactors.length ? uniqueFactors.map((label) => (
-                    <label key={label} style={{ border: "1px solid #dbe3ef", borderRadius: 10, padding: 10, background: selected.includes(label) ? "#eaf4ff" : "#fff", display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}>
-                      <input type="checkbox" checked={selected.includes(label)} onChange={() => toggleParticipant(label)} />
-                      <span>{label}</span>
-                    </label>
-                  )) : <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>;
-                })()}
-              </div>
+              {trialParticipantOptions.length ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
+                  {trialParticipantOptions.map((label) => {
+                    const selectedParticipants = String((trialSectionForm as any).participants || "")
+                      .split(/\s*;\s*/)
+                      .map((item) => item.trim())
+                      .filter(Boolean);
+                    const checked = selectedParticipants.includes(label);
+                    return (
+                      <label key={label} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #dbe3ef", borderRadius: 12, padding: "8px 10px", background: checked ? "#eef6ff" : "#fff", fontWeight: 800, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            const current = String((trialSectionForm as any).participants || "")
+                              .split(/\s*;\s*/)
+                              .map((item) => item.trim())
+                              .filter(Boolean);
+                            const next = event.currentTarget.checked
+                              ? Array.from(new Set([...current, label]))
+                              : current.filter((item) => item !== label);
+                            setTrialSectionForm((prev: any) => ({ ...prev, participants: next.join(" ; ") }));
+                          }}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>לא הוגדרו עדיין משתמשים/גורמים בפרויקט.</div>
+              )}
             </div>
             <TrialSectionsSection
               guardedBody={guardedBody}
