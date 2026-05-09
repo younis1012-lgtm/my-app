@@ -6448,23 +6448,86 @@ const getReferenceRowValue = (row: any, keys: string[]): string => {
   return "";
 };
 
+
+const MATZEA_A_EXCEL_RESULT_COLUMNS = [
+  { metric: '3"', label: '3"' },
+  { metric: '1.5"', label: '1.5"' },
+  { metric: '1"', label: '1"' },
+  { metric: '3/4"', label: '3/4"' },
+  { metric: '#4', label: '#4' },
+  { metric: '#10', label: '#10' },
+  { metric: '#40', label: '#40' },
+  { metric: '#200', label: '#200' },
+  { metric: 'גבול נזילות (LL)', label: 'LL' },
+  { metric: 'גבול פלסטיות (PL)', label: 'PL' },
+  { metric: 'אינדקס פלסטיות (PI)', label: 'PI' },
+  { metric: 'שווה ערך חול', label: 'שווה ערך חול' },
+  { metric: 'צפיפות מכשירית', label: 'צפיפות מכשירית' },
+  { metric: 'רטיבות מחושבת', label: 'רטיבות מחושבת' },
+  { metric: 'ספיגות (G)', label: 'ספיגות' },
+  { metric: 'לוס אנג\'לס', label: 'לוס אנג\'לס' },
+];
+
 const buildMatzeaAConcentrationRows = (processes: ControlProcessRecord[]) =>
   processes
     .filter((process) => isMatzeaAReference(process.workType))
-    .flatMap((process) =>
-      ensureReferenceResultsForMaterial(process.workType, process.referenceResults)
-        .filter((row) => String(row.resultValue ?? "").trim() || String(row.qualityStatus ?? "").trim())
-        .map((row) => ({
-          processNo: process.processNo,
-          title: process.title,
-          date: process.savedAt,
-          metric: row.metric,
-          resultValue: row.resultValue,
-          qualityStatus: row.qualityStatus || calculateReferenceQualityStatus(row.resultValue, row.minValue, row.maxValue),
-          minValue: row.minValue,
-          maxValue: row.maxValue,
+    .map((process, index) => {
+      const results = ensureReferenceResultsForMaterial(process.workType, process.referenceResults);
+      const byMetric = new Map(results.map((row) => [String(row.metric), row]));
+      const valueOf = (metric: string) => String(byMetric.get(metric)?.resultValue ?? '').trim();
+      const statusOf = (metric: string) => {
+        const row = byMetric.get(metric);
+        return row ? (row.qualityStatus || calculateReferenceQualityStatus(row.resultValue, row.minValue, row.maxValue)) : '';
+      };
+      const anyValue = results.some((row) => String(row.resultValue ?? '').trim());
+      if (!anyValue) return null;
+      return {
+        id: process.id,
+        serial: index + 1,
+        processNo: process.processNo,
+        title: process.title,
+        date: process.savedAt,
+        workType: process.workType,
+        source: valueOf('תיאור החומר') || process.location || '',
+        sampleLocation: valueOf('מקום הדגם לבדיקה') || process.location || '',
+        structure: valueOf('מבנה') || '',
+        certificateNo: valueOf('מספר תעודת מעבדה') || process.processNo || '',
+        certificateDate: valueOf('תאריך') || process.savedAt || '',
+        aashto: valueOf('דירוג AASHTO מיין') || valueOf('מיין AASHTO'),
+        materialDescription: valueOf('תיאור החומר'),
+        rows: MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => ({
+          ...column,
+          value: valueOf(column.metric),
+          status: statusOf(column.metric),
+          minValue: String(byMetric.get(column.metric)?.minValue ?? ''),
+          maxValue: String(byMetric.get(column.metric)?.maxValue ?? ''),
         })),
-    );
+      };
+    })
+    .filter(Boolean) as Array<{
+      id: string;
+      serial: number;
+      processNo: string;
+      title: string;
+      date: string;
+      workType: string;
+      source: string;
+      sampleLocation: string;
+      structure: string;
+      certificateNo: string;
+      certificateDate: string;
+      aashto: string;
+      materialDescription: string;
+      rows: Array<{ metric: string; label: string; value: string; status: string; minValue: string; maxValue: string }>;
+    }>;
+
+const escapeExcelHtml = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 function MatzeaAConcentrationFromReferences({
   processes,
@@ -6473,45 +6536,125 @@ function MatzeaAConcentrationFromReferences({
 }) {
   const rows = buildMatzeaAConcentrationRows(processes);
   if (!rows.length) return null;
+
+  const downloadExcel = () => {
+    const headerStyle = 'border:1px solid #1f2937;background:#fff59d;font-weight:bold;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
+    const greenStyle = 'border:1px solid #1f2937;background:#c6e0b4;font-weight:bold;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
+    const cellStyle = 'border:1px solid #1f2937;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
+    const htmlRows = rows.map((row) => `
+      <tr>
+        <td style="${cellStyle}">${escapeExcelHtml(row.serial)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.processNo)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.certificateDate)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.source)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.sampleLocation)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.structure)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.aashto)}</td>
+        ${row.rows.map((item) => `<td style="${cellStyle}">${escapeExcelHtml(item.value)}</td>`).join('')}
+        <td style="${cellStyle}">${escapeExcelHtml(row.materialDescription)}</td>
+        <td style="${cellStyle}">${escapeExcelHtml(row.title)}</td>
+      </tr>`).join('');
+    const html = `﻿<!doctype html><html><head><meta charset="utf-8"></head><body dir="rtl"><table>
+      <tr><th colspan="${10 + MATZEA_A_EXCEL_RESULT_COLUMNS.length}" style="border:1px solid #1f2937;background:#d9ead3;font-size:16px;font-weight:bold;text-align:center;">ריכוז אפיון מצע א׳</th></tr>
+      <tr>
+        <th style="${headerStyle}">מס׳ סידורי</th>
+        <th style="${headerStyle}">מס׳ תעודה / רשומה</th>
+        <th style="${headerStyle}">תאריך</th>
+        <th style="${headerStyle}">מקור החומר</th>
+        <th style="${headerStyle}">מקום הדגם לבדיקה</th>
+        <th style="${headerStyle}">מבנה</th>
+        <th style="${headerStyle}">מיין AASHTO</th>
+        ${MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => `<th style="${greenStyle}">${escapeExcelHtml(column.label)}</th>`).join('')}
+        <th style="${headerStyle}">תיאור החומר</th>
+        <th style="${headerStyle}">כותרת</th>
+      </tr>
+      ${htmlRows}
+    </table></body></html>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'subbase-a-concentration.xls';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const tableHeaderStyle: React.CSSProperties = {
+    border: '1px solid #1f2937',
+    padding: '8px 6px',
+    textAlign: 'center',
+    background: '#fef3c7',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  };
+  const greenHeaderStyle: React.CSSProperties = {
+    ...tableHeaderStyle,
+    background: '#bbf7d0',
+  };
+  const cellStyle: React.CSSProperties = {
+    border: '1px solid #334155',
+    padding: '8px 6px',
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
+    background: '#fff',
+  };
+
   return (
     <section style={{ ...styles.card, marginBottom: 24 }} dir="rtl">
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: 0 }}>ריכוז אפיון מצע א׳</h2>
-          <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-            התוצאות נמשכות אוטומטית מתוך בקרה מקדימה / תעודות ייחוס — מצע א׳.
+          <p style={{ margin: '6px 0 0', color: '#64748b', fontWeight: 700 }}>
+            ריכוז מובנה בפורמט Excel מתוך התוצאות שנשמרו בבקרה מקדימה / תעודות ייחוס.
           </p>
         </div>
+        <button type="button" style={styles.primaryBtn} onClick={downloadExcel}>
+          הורד ריכוז Excel
+        </button>
       </div>
-      <div style={{ overflowX: "auto", marginTop: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 920 }}>
+
+      <div style={{ overflowX: 'auto', marginTop: 16 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500, direction: 'rtl' }}>
           <thead>
-            <tr style={{ background: "#f1f5f9" }}>
-              {[
-                "מס׳ תעודה / רשומה",
-                "כותרת",
-                "מדד תוצאה",
-                "ערך תוצאה",
-                "סטטוס איכות",
-                "ערך מינימלי",
-                "ערך מקסימלי",
-                "תאריך שמירה",
-              ].map((label) => (
-                <th key={label} style={{ border: "1px solid #dbe3ee", padding: "10px 8px", textAlign: "right" }}>{label}</th>
+            <tr>
+              <th colSpan={10 + MATZEA_A_EXCEL_RESULT_COLUMNS.length} style={{ border: '1px solid #1f2937', padding: 10, background: '#dcfce7', textAlign: 'center', fontWeight: 950 }}>
+                דוח ריכוז בדיקות אפיון למצע סוג א׳
+              </th>
+            </tr>
+            <tr>
+              <th style={tableHeaderStyle}>מס׳ סידורי</th>
+              <th style={tableHeaderStyle}>מס׳ תעודה / רשומה</th>
+              <th style={tableHeaderStyle}>תאריך</th>
+              <th style={tableHeaderStyle}>מקור החומר</th>
+              <th style={tableHeaderStyle}>מקום הדגם לבדיקה</th>
+              <th style={tableHeaderStyle}>מבנה</th>
+              <th style={tableHeaderStyle}>מיין AASHTO</th>
+              {MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => (
+                <th key={column.metric} style={greenHeaderStyle}>{column.label}</th>
               ))}
+              <th style={tableHeaderStyle}>תיאור החומר</th>
+              <th style={tableHeaderStyle}>כותרת</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.processNo}-${row.metric}-${index}`}>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.processNo}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.title}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px", fontWeight: 700 }}>{row.metric}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.resultValue}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px", fontWeight: 700 }}>{row.qualityStatus}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.minValue}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.maxValue}</td>
-                <td style={{ border: "1px solid #e2e8f0", padding: "8px" }}>{row.date}</td>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td style={cellStyle}>{row.serial}</td>
+                <td style={cellStyle}>{row.processNo}</td>
+                <td style={cellStyle}>{row.certificateDate}</td>
+                <td style={cellStyle}>{row.source}</td>
+                <td style={cellStyle}>{row.sampleLocation}</td>
+                <td style={cellStyle}>{row.structure}</td>
+                <td style={cellStyle}>{row.aashto}</td>
+                {row.rows.map((item) => (
+                  <td key={`${row.id}-${item.metric}`} style={{ ...cellStyle, fontWeight: item.status === 'לא תקין' ? 900 : 700, color: item.status === 'לא תקין' ? '#b91c1c' : '#111827' }}>
+                    {item.value}
+                  </td>
+                ))}
+                <td style={cellStyle}>{row.materialDescription}</td>
+                <td style={cellStyle}>{row.title}</td>
               </tr>
             ))}
           </tbody>
