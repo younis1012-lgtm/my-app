@@ -1547,6 +1547,88 @@ const pickTrialValue = (source: Record<string, any>, ...keys: string[]) => {
   return "";
 };
 
+
+const normalizeFieldLabel = (value: unknown) =>
+  normalizeLooseText(value).replace(/[＊*]/g, "").replace(/[:：]+$/g, "").trim();
+
+const readExactVisibleFormValueByLabels = (labels: string[]) => {
+  if (typeof document === "undefined") return "";
+  const wanted = labels.map(normalizeFieldLabel).filter(Boolean);
+  if (!wanted.length) return "";
+  const controlsSelector = 'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select';
+
+  // Prefer a real <label> that owns/contains the control. This prevents values from nearby
+  // fields (section number / participants) from being copied into unrelated PDF rows.
+  const labelElements = Array.from(document.querySelectorAll<HTMLLabelElement>("label"));
+  for (const label of labelElements) {
+    const labelText = normalizeFieldLabel(label.textContent || "");
+    if (!wanted.some((target) => labelText === target || labelText.startsWith(target + " "))) continue;
+
+    const nested = label.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector);
+    if (nested && normalizeLooseText(nested.value)) return normalizeLooseText(nested.value);
+
+    const htmlFor = label.getAttribute("for");
+    if (htmlFor) {
+      const byFor = document.getElementById(htmlFor) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      if (byFor && "value" in byFor && normalizeLooseText(byFor.value)) return normalizeLooseText(byFor.value);
+    }
+
+    const labelRect = label.getBoundingClientRect();
+    const controls = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector))
+      .filter((control) => normalizeLooseText(control.value));
+    let best: { control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; score: number } | null = null;
+    for (const control of controls) {
+      const rect = control.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 10) continue;
+      const isBelow = rect.top >= labelRect.bottom - 8;
+      const vertical = Math.abs(rect.top - labelRect.bottom);
+      const centerDistance = Math.abs((rect.left + rect.right) / 2 - (labelRect.left + labelRect.right) / 2);
+      const horizontalOverlap = Math.min(rect.right, labelRect.right) - Math.max(rect.left, labelRect.left);
+      if (!isBelow || vertical > 90 || (horizontalOverlap < -20 && centerDistance > 340)) continue;
+      const score = vertical + centerDistance / 10;
+      if (!best || score < best.score) best = { control, score };
+    }
+    if (best) return normalizeLooseText(best.control.value);
+  }
+
+  // Last safe fallback: match by aria/placeholder/name/id only, not by visual proximity.
+  const controls = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(controlsSelector));
+  for (const control of controls) {
+    const controlLabels = [
+      control.getAttribute("aria-label"),
+      control.getAttribute("placeholder"),
+      control.getAttribute("name"),
+      control.getAttribute("id"),
+    ].map(normalizeFieldLabel).filter(Boolean);
+    if (controlLabels.some((text) => wanted.some((target) => text === target || text.includes(target)))) {
+      const value = normalizeLooseText(control.value);
+      if (value) return value;
+    }
+  }
+  return "";
+};
+
+const combineSectionRange = (...parts: unknown[]) =>
+  parts.map(normalizeLooseText).filter(Boolean).join(" - ");
+
+const readTrialFormVisibleValues = () => {
+  const fromSection = readExactVisibleFormValueByLabels(["מחתך"]);
+  const toSection = readExactVisibleFormValueByLabels(["עד חתך", "לחתך"]);
+  const side = readExactVisibleFormValueByLabels(["צד"]);
+  return {
+    fromSection,
+    toSection,
+    side,
+    fromTo: firstFilled(
+      readExactVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך"]),
+      combineSectionRange(fromSection, toSection, side),
+    ),
+    materials: readExactVisibleFormValueByLabels(["חומרים לשימוש"]),
+    tools: readExactVisibleFormValueByLabels(["כלים בהם משתמשים"]),
+    proofOfCapability: readExactVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת היכולת לפעולה מסוג", "הוכחת יכולת"]),
+  };
+};
+
 const readVisibleFormValueByLabels = (labels: string[]) => {
   if (typeof document === "undefined") return "";
   const wanted = labels.map(normalizeLooseText).filter(Boolean);
@@ -1597,29 +1679,32 @@ const readVisibleFormValueByLabels = (labels: string[]) => {
 };
 
 const enrichTrialSectionRecord = (record: Record<string, any>) => {
+  const visible = readTrialFormVisibleValues();
+  const fromSection = firstFilled(visible.fromSection, pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"));
+  const toSection = firstFilled(visible.toSection, pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך", "לחתך"));
+  const side = firstFilled(visible.side, pickTrialValue(record, "side", "roadSide", "צד"));
   const fromTo = firstFilled(
+    visible.fromTo,
     pickTrialValue(record, "fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך"),
-    [
-      pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"),
-      pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך"),
-      pickTrialValue(record, "side", "roadSide", "צד"),
-    ].filter(Boolean).join(" - "),
-    readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]),
+    combineSectionRange(fromSection, toSection, side),
   );
   const materials = firstFilled(
+    visible.materials,
     pickTrialValue(record, "materials", "materialsForUse", "materialsToUse", "materialForUse", "חומרים לשימוש"),
-    readVisibleFormValueByLabels(["חומרים לשימוש"]),
   );
   const tools = firstFilled(
-    pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים"),
-    readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]),
+    visible.tools,
+    pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים"),
   );
   const proof = firstFilled(
-    pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת"),
-    readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]),
+    visible.proofOfCapability,
+    pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת היכולת לפעולה מסוג", "הוכחת יכולת"),
   );
   return {
     ...record,
+    fromSection,
+    toSection,
+    side,
     fromTo,
     fromToSide: fromTo,
     sectionRange: fromTo,
@@ -9371,11 +9456,20 @@ export default function Page() {
     const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
     const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
       String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
-    const materialsText = firstFilled(get("materials", "materialsForUse", "materialsToUse", "materialForUse"), readVisibleFormValueByLabels(["חומרים לשימוש"]));
-    const fromTo = firstFilled(get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"), [get("fromSection", "fromChainage", "fromStation"), get("toSection", "toChainage", "toStation"), get("side", "roadSide")].filter(Boolean).join(" - "), readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]));
+    const visibleTrial = readTrialFormVisibleValues();
+    const materialsText = firstFilled(visibleTrial.materials, get("materials", "materialsForUse", "materialsToUse", "materialForUse"));
+    const fromTo = firstFilled(
+      visibleTrial.fromTo,
+      combineSectionRange(
+        firstFilled(visibleTrial.fromSection, get("fromSection", "fromChainage", "fromStation")),
+        firstFilled(visibleTrial.toSection, get("toSection", "toChainage", "toStation")),
+        firstFilled(visibleTrial.side, get("side", "roadSide")),
+      ),
+      get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"),
+    );
     const participantsText = get("participants");
-    const toolsText = firstFilled(get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"), readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]));
-    const proofText = firstFilled(get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"), readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]));
+    const toolsText = firstFilled(visibleTrial.tools, get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"));
+    const proofText = firstFilled(visibleTrial.proofOfCapability, get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"));
     const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
     const resultText = get("result", "conclusions", "trialConclusions");
     const images = normalizeAttachments(f.images ?? details.images);
