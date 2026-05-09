@@ -1428,17 +1428,14 @@ const createDefaultTrialSection = (): Omit<
     sectionNo: "",
     sectionNumber: "",
     proofOfCapability: "",
-    capabilityProof: "",
     elementName: "",
     element: "",
     subElement: "",
     fromTo: "",
-    fromToSide: "",
     fromSection: "",
     toSection: "",
     participants: "",
     equipment: "",
-    tools: "",
     toolsUsed: "",
     executionDate: "",
     executionDescription: "",
@@ -1487,6 +1484,10 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "side",
   "roadSide",
   "participants",
+  "materials",
+  "materialsForUse",
+  "materialsToUse",
+  "materialForUse",
   "equipment",
   "tools",
   "toolsInUse",
@@ -1535,7 +1536,7 @@ const firstFilled = (...values: unknown[]) => {
   return "";
 };
 
-const trialSectionPick = (source: Record<string, any>, ...keys: string[]) => {
+const pickTrialValue = (source: Record<string, any>, ...keys: string[]) => {
   const details = source?.details && typeof source.details === "object" ? source.details : {};
   for (const key of keys) {
     const direct = normalizeLooseText(source?.[key]);
@@ -1546,17 +1547,38 @@ const trialSectionPick = (source: Record<string, any>, ...keys: string[]) => {
   return "";
 };
 
-const readTrialSectionDomField = (labels: string[]) => {
+const readVisibleFormValueByLabels = (labels: string[]) => {
   if (typeof document === "undefined") return "";
+  const wanted = labels.map(normalizeLooseText).filter(Boolean);
+  if (!wanted.length) return "";
   const controls = Array.from(
     document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
       'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select',
     ),
-  );
-  const wanted = labels.map(normalizeLooseText).filter(Boolean);
+  ).filter((control) => normalizeLooseText(control.value));
+
+  const labelElements = Array.from(document.querySelectorAll<HTMLElement>("label, span, div, p, strong"))
+    .map((element) => ({ element, text: normalizeLooseText(element.innerText || element.textContent) }))
+    .filter(({ text }) => text && wanted.some((label) => text.includes(label)));
+
+  for (const { element } of labelElements) {
+    const labelRect = element.getBoundingClientRect();
+    let best: { control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; score: number } | null = null;
+    for (const control of controls) {
+      const rect = control.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 10) continue;
+      const vertical = Math.abs(rect.top - labelRect.bottom);
+      const belowOrSame = rect.top >= labelRect.top - 8;
+      const horizontalOverlap = Math.min(rect.right, labelRect.right) - Math.max(rect.left, labelRect.left);
+      const sameColumn = horizontalOverlap > -40 || Math.abs(rect.left - labelRect.left) < 260 || Math.abs(rect.right - labelRect.right) < 260;
+      if (!belowOrSame || !sameColumn || vertical > 180) continue;
+      const score = vertical + Math.abs((rect.left + rect.right) / 2 - (labelRect.left + labelRect.right) / 2) / 8;
+      if (!best || score < best.score) best = { control, score };
+    }
+    if (best) return normalizeLooseText(best.control.value);
+  }
+
   for (const control of controls) {
-    const value = normalizeLooseText((control as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value);
-    if (!value) continue;
     const texts = [
       control.getAttribute("aria-label"),
       control.getAttribute("placeholder"),
@@ -1566,45 +1588,44 @@ const readTrialSectionDomField = (labels: string[]) => {
       control.previousElementSibling?.textContent,
       control.parentElement?.querySelector("label")?.textContent,
       control.parentElement?.previousElementSibling?.textContent,
-      control.parentElement?.textContent && control.parentElement.textContent.length < 180
-        ? control.parentElement.textContent
-        : "",
-      control.parentElement?.parentElement?.textContent && control.parentElement.parentElement.textContent.length < 220
-        ? control.parentElement.parentElement.textContent
-        : "",
-    ]
-      .map(normalizeLooseText)
-      .filter(Boolean);
-    if (texts.some((text) => wanted.some((label) => text.includes(label)))) return value;
+      control.parentElement?.parentElement?.previousElementSibling?.textContent,
+      control.parentElement?.parentElement?.querySelector("label")?.textContent,
+    ].map(normalizeLooseText).filter(Boolean);
+    if (texts.some((text) => wanted.some((label) => text.includes(label)))) return normalizeLooseText(control.value);
   }
   return "";
 };
 
-const enrichTrialSectionFromVisibleForm = (form: Record<string, any>) => {
-  const domFromTo = readTrialSectionDomField(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]);
-  const domTools = readTrialSectionDomField(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]);
-  const domProof = readTrialSectionDomField(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]);
+const enrichTrialSectionRecord = (record: Record<string, any>) => {
   const fromTo = firstFilled(
-    trialSectionPick(form, "fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך"),
+    pickTrialValue(record, "fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך"),
     [
-      trialSectionPick(form, "fromSection", "fromChainage", "fromStation", "מחתך"),
-      trialSectionPick(form, "toSection", "toChainage", "toStation", "עד חתך"),
-      trialSectionPick(form, "side", "roadSide", "צד"),
+      pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"),
+      pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך"),
+      pickTrialValue(record, "side", "roadSide", "צד"),
     ].filter(Boolean).join(" - "),
-    domFromTo,
+    readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]),
+  );
+  const materials = firstFilled(
+    pickTrialValue(record, "materials", "materialsForUse", "materialsToUse", "materialForUse", "חומרים לשימוש"),
+    readVisibleFormValueByLabels(["חומרים לשימוש"]),
   );
   const tools = firstFilled(
-    trialSectionPick(form, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים"),
-    domTools,
+    pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים"),
+    readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]),
   );
   const proof = firstFilled(
-    trialSectionPick(form, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת"),
-    domProof,
+    pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת"),
+    readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]),
   );
   return {
-    ...form,
+    ...record,
     fromTo,
     fromToSide: fromTo,
+    sectionRange: fromTo,
+    materials,
+    materialsForUse: materials,
+    materialsToUse: materials,
     tools,
     toolsUsed: tools,
     equipment: tools,
@@ -6671,9 +6692,10 @@ export default function Page() {
           }
           return "";
         };
-        return mergeTrialSectionDetails({
+        return mergeTrialSectionDetails(enrichTrialSectionRecord({
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
+          details,
           title: pick(details.title, row.title),
           location: pick(details.location, details.workLocation, details.workSegment, details.workSection, details.roadSection, details.roadStructure, row.location),
           date: pick(details.date, details.executionDate, row.date),
@@ -6687,7 +6709,7 @@ export default function Page() {
           savedAt: row.saved_at
             ? new Date(row.saved_at).toLocaleString("he-IL")
             : "",
-        }, details) as TrialSectionRecord;
+        }), details) as TrialSectionRecord;
       }),
     );
     setSavedPreliminary(
@@ -8647,7 +8669,7 @@ export default function Page() {
 
   const saveTrialSection = async () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    const completedTrialSectionForm: any = enrichTrialSectionFromVisibleForm(trialSectionForm as any);
+    const completedTrialSectionForm: any = enrichTrialSectionRecord(trialSectionForm as any);
     if (!String(completedTrialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
     const validation = validateApproval(completedTrialSectionForm.approval);
     if (validation) return alert(validation);
@@ -8688,7 +8710,14 @@ export default function Page() {
             location: record.location,
             date: record.date,
             fromTo: (record as any).fromTo,
-            fromToSide: (record as any).fromTo,
+            fromToSide: (record as any).fromToSide || (record as any).fromTo,
+            sectionRange: (record as any).sectionRange || (record as any).fromTo,
+            fromSection: (record as any).fromSection,
+            toSection: (record as any).toSection,
+            side: (record as any).side || (record as any).roadSide,
+            materials: (record as any).materials,
+            materialsForUse: (record as any).materialsForUse || (record as any).materials,
+            materialsToUse: (record as any).materialsToUse || (record as any).materials,
             tools: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
             toolsUsed: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
             equipment: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
@@ -8726,20 +8755,20 @@ export default function Page() {
     setSection("trialSections");
     setEditingTrialSectionId(record.id);
     const details = ((record as any).details && typeof (record as any).details === "object") ? (record as any).details : {};
-    setTrialSectionForm(applyProjectDefaultsToTrialSection(enrichTrialSectionFromVisibleForm({
+    setTrialSectionForm(applyProjectDefaultsToTrialSection(enrichTrialSectionRecord({
       ...(record as any),
       ...details,
-      title: (details as any).title || record.title,
-      location: (details as any).location || record.location,
-      date: (details as any).date || (details as any).executionDate || record.date,
-      spec: (details as any).spec || record.spec,
-      result: (details as any).result || record.result,
-      approvedBy: (details as any).approvedBy || record.approvedBy,
-      status: (details as any).status || record.status,
-      notes: (details as any).notes || record.notes,
-      images: normalizeAttachments((details as any).images ?? (record as any).images),
-      approval: normalizeApproval((details as any).approval ?? record.approval),
       details,
+      title: details.title ?? record.title,
+      location: details.location ?? (record as any).location,
+      date: details.date ?? (record as any).date,
+      spec: details.spec ?? (record as any).spec,
+      result: details.result ?? (record as any).result,
+      approvedBy: details.approvedBy ?? (record as any).approvedBy,
+      status: details.status ?? (record as any).status,
+      notes: details.notes ?? (record as any).notes,
+      images: normalizeAttachments(details.images ?? (record as any).images),
+      approval: normalizeApproval(details.approval ?? record.approval),
     } as any)));
   };
   const deleteTrialSection = async (id: string) =>
@@ -9327,7 +9356,7 @@ export default function Page() {
   };
 
   const trialSectionExportHtml = () => {
-    const f: any = enrichTrialSectionFromVisibleForm(trialSectionForm as any);
+    const f: any = enrichTrialSectionRecord(trialSectionForm as any);
     const details: any = (f as any).details ?? {};
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     const get = (...keys: string[]) => {
@@ -9342,11 +9371,11 @@ export default function Page() {
     const trialContractor = get("contractor", "mainContractor") || currentProjectLegend.contractor || profile?.contractor || "";
     const trialNo = get("sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
       String(get("title") || f.title || "").replace(/^\s*קטע\s+ניסוי\s*(מס['׳]?|מספר)?\s*/i, "").trim();
-    const workLocation = get("location", "workLocation", "workSegment", "workSection", "roadSection", "roadStructure", "area");
-    const fromTo = get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange", "מחתך עד חתך/צד", "מחתך / עד חתך") || [get("fromSection", "fromChainage", "fromStation", "מחתך"), get("toSection", "toChainage", "toStation", "עד חתך"), get("side", "roadSide", "צד")].filter(Boolean).join(" - ");
+    const materialsText = firstFilled(get("materials", "materialsForUse", "materialsToUse", "materialForUse"), readVisibleFormValueByLabels(["חומרים לשימוש"]));
+    const fromTo = firstFilled(get("fromTo", "fromToSide", "sectionRange", "sectionRangeSide", "chainage", "chainageRange", "stationRange"), [get("fromSection", "fromChainage", "fromStation"), get("toSection", "toChainage", "toStation"), get("side", "roadSide")].filter(Boolean).join(" - "), readVisibleFormValueByLabels(["מחתך עד חתך/צד", "מחתך / עד חתך", "מחתך", "עד חתך"]));
     const participantsText = get("participants");
-    const toolsText = get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים", "כלים");
-    const proofText = get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת יכולת");
+    const toolsText = firstFilled(get("tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList"), readVisibleFormValueByLabels(["כלים בהם משתמשים", "כלים", "ציוד", "מכונות"]));
+    const proofText = firstFilled(get("proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof"), readVisibleFormValueByLabels(["הוכחת היכולת לפעולה מסווג", "הוכחת יכולת", "פעולה מסווג"]));
     const executionText = get("executionDescription", "executionStages", "workStages", "trialSteps", "description", "spec");
     const resultText = get("result", "conclusions", "trialConclusions");
     const images = normalizeAttachments(f.images ?? details.images);
@@ -9356,7 +9385,7 @@ export default function Page() {
       ["חברת ניהול", trialProjectManager],
       ["קבלן ראשי", get("mainContractor") || trialContractor],
       ["חברת בקרת איכות", get("qualityCompany", "qualityControl") || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
-      ["מיקום / קטע עבודה", workLocation],
+      ["חומרים לשימוש", materialsText],
       ["שם האלמנט", get("elementName", "element")],
       ["תת אלמנט", get("subElement")],
       ["מחתך / עד חתך", fromTo],
