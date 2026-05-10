@@ -1543,6 +1543,11 @@ const createDefaultNonconformance = (): Omit<
 > =>
   ({
     title: "",
+    projectName: "",
+    projectManagement: "",
+    contractor: "",
+    qualityAssurance: "",
+    qualityControl: "",
     openedBy: "QA / QC",
     openedRole: "בקרת איכות",
     raisedBy: "",
@@ -7750,8 +7755,8 @@ export default function Page() {
     items: applyProjectTeamToItems(form.items),
   });
 
-  const applyProjectDefaultsToNonconformance = (form: any) =>
-    fillOnlyEmptyFields(form, {
+  const applyProjectDefaultsToNonconformance = (form: any) => {
+    const filled = fillOnlyEmptyFields(form, {
       ...projectDefaultFieldValues(),
       raisedBy: currentProjectDefaults.qualityControl,
       responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
@@ -7759,6 +7764,52 @@ export default function Page() {
       openedBy: form.openedBy || "QA / QC",
       openedRole: form.openedRole || "בקרת איכות",
     });
+
+    // פרטי הפרויקט בטופס אי התאמה נמשכים תמיד ממסך "פרטי הפרויקט".
+    // שדות טיפוליים קיימים לא נמחקים, ורק פרטי הפרויקט מתעדכנים אוטומטית.
+    return {
+      ...filled,
+      projectName: currentProjectDefaults.projectName,
+      titleProjectName: currentProjectDefaults.projectName,
+      projectNameDisplay: currentProjectDefaults.projectName,
+      projectManagement: currentProjectDefaults.projectManagement,
+      managementCompany: currentProjectDefaults.projectManagement,
+      projectManager: currentProjectDefaults.projectManagement,
+      contractor: currentProjectDefaults.contractor,
+      mainContractor: currentProjectDefaults.contractor,
+      qualityAssurance: currentProjectDefaults.qualityAssurance,
+      qaCompany: currentProjectDefaults.qualityAssurance,
+      qualityControl: currentProjectDefaults.qualityControl,
+      qualityCompany: currentProjectDefaults.qualityControl,
+      qcCompany: currentProjectDefaults.qualityControl,
+    };
+  };
+
+  const enrichNonconformanceRecordWithProjectDetails = (form: any) =>
+    applyProjectDefaultsToNonconformance({
+      ...form,
+      projectDetails: {
+        projectName: currentProjectDefaults.projectName,
+        projectManagement: currentProjectDefaults.projectManagement,
+        contractor: currentProjectDefaults.contractor,
+        qualityAssurance: currentProjectDefaults.qualityAssurance,
+        qualityControl: currentProjectDefaults.qualityControl,
+        workManager: currentProjectDefaults.workManager,
+        surveyor: currentProjectDefaults.surveyor,
+        supervisor: currentProjectDefaults.supervisor,
+      },
+    });
+
+  const nonconformanceProjectDetailRows = (record: any) => {
+    const details = record?.projectDetails ?? {};
+    return [
+      ["שם פרויקט", record?.projectName || record?.projectNameDisplay || details.projectName || currentProjectDefaults.projectName],
+      ["ניהול פרויקט", record?.projectManagement || record?.managementCompany || details.projectManagement || currentProjectDefaults.projectManagement],
+      ["שם הקבלן", record?.contractor || record?.mainContractor || details.contractor || currentProjectDefaults.contractor],
+      ["הבטחת איכות", record?.qualityAssurance || record?.qaCompany || details.qualityAssurance || currentProjectDefaults.qualityAssurance],
+      ["בקרת איכות", record?.qualityControl || record?.qualityCompany || details.qualityControl || currentProjectDefaults.qualityControl],
+    ];
+  };
 
   const applyProjectDefaultsToTrialSection = (form: any) =>
     fillOnlyEmptyFields(form, {
@@ -9023,10 +9074,11 @@ export default function Page() {
         : nextNonconformanceTitle();
     rememberSequentialNo("NCR", title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const enrichedNonconformanceForm = enrichNonconformanceRecordWithProjectDetails(nonconformanceForm);
     const record: NonconformanceRecord = {
       id,
       projectId: normalizedProjectId,
-      ...nonconformanceForm,
+      ...enrichedNonconformanceForm,
       title,
       approval: normalizeApproval(nonconformanceForm.approval),
       savedAt: nowLocal(),
@@ -9049,6 +9101,12 @@ export default function Page() {
             approval: record.approval,
             images: normalizeAttachments((record as any).images),
             title: record.title,
+            projectName: (record as any).projectName,
+            projectManagement: (record as any).projectManagement,
+            contractor: (record as any).contractor,
+            qualityAssurance: (record as any).qualityAssurance,
+            qualityControl: (record as any).qualityControl,
+            projectDetails: (record as any).projectDetails,
             openedBy: (record as any).openedBy,
             openedRole: (record as any).openedRole,
             raisedBy: record.raisedBy,
@@ -9103,6 +9161,12 @@ export default function Page() {
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
       title: record.title,
+      projectName: (record as any).projectName ?? (record as any).projectDetails?.projectName ?? currentProjectDefaults.projectName,
+      projectManagement: (record as any).projectManagement ?? (record as any).projectDetails?.projectManagement ?? currentProjectDefaults.projectManagement,
+      contractor: (record as any).contractor ?? (record as any).projectDetails?.contractor ?? currentProjectDefaults.contractor,
+      qualityAssurance: (record as any).qualityAssurance ?? (record as any).projectDetails?.qualityAssurance ?? currentProjectDefaults.qualityAssurance,
+      qualityControl: (record as any).qualityControl ?? (record as any).projectDetails?.qualityControl ?? currentProjectDefaults.qualityControl,
+      projectDetails: (record as any).projectDetails ?? {},
       openedBy: (record as any).openedBy ?? "QA / QC",
       openedRole: (record as any).openedRole ?? "בקרת איכות",
       raisedBy: record.raisedBy,
@@ -9892,8 +9956,9 @@ export default function Page() {
   };
 
   const nonconformanceExportHtml = () => {
-    const f: any = nonconformanceForm;
+    const f: any = enrichNonconformanceRecordWithProjectDetails(nonconformanceForm);
     return `${baseRows([
+      ...nonconformanceProjectDetailRows(f),
       ["אי התאמה מס׳", f.title],
       ["נפתח QA / QC", f.openedBy],
       ["תפקיד", f.openedRole],
