@@ -1523,6 +1523,9 @@ const normalizeChecklistItems = (
       )
     : [];
 
+const CHECKLIST_DEFAULT_REVISION = "1";
+const CHECKLIST_DEFAULT_REVISION_DATE = "2025-12-01";
+
 const createDefaultChecklist = (
   templateKey: ChecklistTemplateKey = "general",
 ): Omit<ChecklistRecord, "id" | "projectId" | "savedAt"> => ({
@@ -1534,9 +1537,16 @@ const createDefaultChecklist = (
   date: "",
   contractor: "",
   notes: "",
+  projectNameDisplay: "",
+  roadStructure: "",
+  stationSection: "",
+  toStationSection: "",
+  offset: "",
+  revision: CHECKLIST_DEFAULT_REVISION,
+  revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
   items: buildChecklistItemsFromTemplate(templateKey),
   approval: createDefaultApproval(),
-});
+} as any);
 const createDefaultNonconformance = (): Omit<
   NonconformanceRecord,
   "id" | "projectId" | "savedAt"
@@ -3041,6 +3051,23 @@ function ChecklistsSection({
               <input
                 value={checklistForm.checklistNo ?? ""}
                 onChange={(event) => setField("checklistNo", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מהדורה</span>
+              <input
+                value={(checklistForm as any).revision ?? CHECKLIST_DEFAULT_REVISION}
+                onChange={(event) => setField("revision", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>תאריך מהדורה</span>
+              <input
+                type="date"
+                value={(checklistForm as any).revisionDate ?? CHECKLIST_DEFAULT_REVISION_DATE}
+                onChange={(event) => setField("revisionDate", event.target.value)}
                 style={inputStyle}
               />
             </label>
@@ -7190,23 +7217,33 @@ export default function Page() {
       active?.id ? normalizeStoredProjectId(active.id) : null,
     );
     setSavedChecklists(
-      (checklistRows ?? []).map((row) => ({
-        id: row.id,
-        projectId: normalizeStoredProjectId(row.project_id),
-        checklistNo: row.checklist_no ?? undefined,
-        templateKey: normalizeChecklistTemplateKey(row.template_key),
-        title: row.title ?? "",
-        category: row.category ?? "",
-        location: row.location ?? "",
-        date: row.date ?? "",
-        contractor: row.contractor ?? "",
-        notes: row.notes ?? "",
-        items: normalizeChecklistItems(row.items),
-        approval: normalizeApproval(row.approval),
-        savedAt: row.saved_at
-          ? new Date(row.saved_at).toLocaleString("he-IL")
-          : "",
-      })),
+      (checklistRows ?? []).map((row) => {
+        const details = row?.details && typeof row.details === "object" ? row.details : {};
+        return {
+          id: row.id,
+          projectId: normalizeStoredProjectId(row.project_id),
+          checklistNo: row.checklist_no ?? undefined,
+          templateKey: normalizeChecklistTemplateKey(row.template_key),
+          title: row.title ?? "",
+          category: row.category ?? "",
+          location: row.location ?? "",
+          date: row.date ?? "",
+          contractor: row.contractor ?? details.contractor ?? "",
+          notes: row.notes ?? "",
+          projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
+          roadStructure: details.roadStructure ?? details.road_structure ?? "",
+          stationSection: details.stationSection ?? details.station_section ?? "",
+          toStationSection: details.toStationSection ?? details.to_station_section ?? "",
+          offset: details.offset ?? "",
+          revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
+          revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
+          items: normalizeChecklistItems(row.items),
+          approval: normalizeApproval(row.approval),
+          savedAt: row.saved_at
+            ? new Date(row.saved_at).toLocaleString("he-IL")
+            : "",
+        } as ChecklistRecord;
+      }),
     );
     setSavedNonconformances(
       (nonconRows ?? []).map((row) => {
@@ -7750,8 +7787,14 @@ export default function Page() {
   });
 
   const applyProjectDefaultsToChecklist = (form: any) => ({
-    ...fillOnlyEmptyFields(form, projectDefaultFieldValues()),
+    ...fillOnlyEmptyFields(form, {
+      ...projectDefaultFieldValues(),
+      revision: CHECKLIST_DEFAULT_REVISION,
+      revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
+    }),
     contractor: form.contractor || currentProjectDefaults.contractor,
+    revision: form.revision || CHECKLIST_DEFAULT_REVISION,
+    revisionDate: form.revisionDate || CHECKLIST_DEFAULT_REVISION_DATE,
     items: applyProjectTeamToItems(form.items),
   });
 
@@ -8849,15 +8892,25 @@ export default function Page() {
       ),
     );
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const checklistDetails = {
+      projectNameDisplay: String((checklistForm as any).projectNameDisplay || currentProjectDefaults.projectName || ""),
+      roadStructure: String((checklistForm as any).roadStructure ?? ""),
+      stationSection: String((checklistForm as any).stationSection ?? ""),
+      toStationSection: String((checklistForm as any).toStationSection ?? ""),
+      offset: String((checklistForm as any).offset ?? ""),
+      revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
+      revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
+    };
     const record: ChecklistRecord = {
       id,
       projectId: normalizedProjectId,
       checklistNo: Number(checklistNo),
       ...checklistForm,
+      ...checklistDetails,
       items: normalizeChecklistItems(checklistForm.items),
       approval: normalizeApproval(checklistForm.approval),
       savedAt: nowLocal(),
-    };
+    } as any;
     await withSaving(async () => {
       setSavedChecklists((prev) => {
         const exists = prev.some((item) => item.id === id);
@@ -8880,6 +8933,7 @@ export default function Page() {
           notes: record.notes,
           items: record.items,
           approval: record.approval,
+          details: checklistDetails,
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -8891,7 +8945,7 @@ export default function Page() {
       }
     });
     setEditingChecklistId(id);
-    setChecklistForm((prev: any) => ({ ...prev, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt }));
+    setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt }));
     alert("רשימת התיוג נשמרה בהצלחה");
   };
   const loadChecklist = (record: ChecklistRecord) => {
@@ -9844,8 +9898,8 @@ export default function Page() {
     const template = checklistTemplates[templateKey] as any;
     const title = checklistForm.title || template.title || "רשימת תיוג";
     const procedureNo = template.procedureNo || "";
-    const edition = template.edition || "";
-    const procedureDate = template.procedureDate || "";
+    const edition = (checklistForm as any).revision || template.edition || CHECKLIST_DEFAULT_REVISION;
+    const procedureDate = (checklistForm as any).revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     const currentChecklistNo =
       forcedChecklistNo ??
