@@ -1,20 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import JSZip from "jszip";
+import type { LabCertificateResults } from "../lib/labCertificateParser";
 
 type ProjectConcentrationMeta = {
   projectName?: string;
   projectManager?: string;
-  projectManagement?: string;
   contractor?: string;
-  contractorName?: string;
   qualityAssurance?: string;
   qualityControl?: string;
-  workManager?: string;
-  surveyor?: string;
-  supervisor?: string;
 };
 
 type Props = {
@@ -26,138 +21,61 @@ type Props = {
   projectMeta?: ProjectConcentrationMeta;
 };
 
-type SourceType =
-  | "checklists"
-  | "nonconformances"
-  | "trialSections"
-  | "preliminary";
+type SourceType = "checklists" | "nonconformances" | "trialSections" | "preliminary";
 
 type ConcentrationTemplate = {
   id: string;
   title: string;
   fileName: string;
   description: string;
+  keywords: string[];
   source: SourceType;
+  mode?: "subbaseA" | "generic";
   preliminarySubtype?: "suppliers" | "subcontractors" | "materials";
-  keywords?: string[];
 };
 
-type ProjectMetaResolved = Required<
-  Pick<
-    ProjectConcentrationMeta,
-    "projectName" | "contractor" | "qualityAssurance" | "qualityControl"
-  >
-> & {
-  projectManager: string;
-};
-
-type ExportRow = {
-  id: string;
-  raw?: any;
-  source: SourceType;
-  values: Record<string, string | number>;
-};
-
-type ColumnDef = {
-  key: string;
-  label: string;
-  width?: number;
-};
-
-type ExportDataset = {
-  template: ConcentrationTemplate;
-  columns: ColumnDef[];
-  rows: ExportRow[];
+type ConcentrationRow = {
+  sourceType: SourceType;
+  recordId: string;
+  checklistNo: string;
+  title: string;
+  category: string;
+  location: string;
+  contractor: string;
+  date: string;
+  itemDescription: string;
+  responsible: string;
+  inspector: string;
+  status: string;
+  executionDate: string;
+  notes: string;
+  attachmentKind: string;
+  certificateNo: string;
+  fileName: string;
+  uploadedAt: string;
+  labResults?: LabCertificateResults;
+  rawRecord?: any;
+  rawItem?: any;
+  rawAttachment?: any;
 };
 
 const templates: ConcentrationTemplate[] = [
-  {
-    id: "nonconformances",
-    title: "דוח ריכוז אי התאמות",
-    fileName: "non-conformance.xlsx",
-    description: "ריכוז אי התאמות לפי הטופס המקורי",
-    source: "nonconformances",
-  },
-  {
-    id: "suppliers",
-    title: "ריכוז ספקים",
-    fileName: "suppliers.xlsx",
-    description: "ריכוז ספקים לפי הטופס המקורי",
-    source: "preliminary",
-    preliminarySubtype: "suppliers",
-  },
-  {
-    id: "contractors",
-    title: "ריכוז קבלנים",
-    fileName: "contractors.xlsx",
-    description: "ריכוז קבלנים לפי הטופס המקורי",
-    source: "preliminary",
-    preliminarySubtype: "subcontractors",
-  },
-  {
-    id: "asphalt",
-    title: "ריכוז בדיקות אספלט",
-    fileName: "asphalt.xlsx",
-    description: "בדיקות אספלט / FWD / מישוריות",
-    source: "checklists",
-    keywords: ["אספלט", "fwd", "מישוריות", "שכבה סופית"],
-  },
-  {
-    id: "density",
-    title: "ריכוז בדיקות צפיפות",
-    fileName: "density.xlsx",
-    description: "צפיפות / הידוק / רטיבות / מצעים",
-    source: "checklists",
-    keywords: ["צפיפות", "הידוק", "רטיבות", "מצע", "מצעים"],
-  },
-  {
-    id: "concrete",
-    title: "ריכוז בטון",
-    fileName: "concrete.xlsx",
-    description: "בדיקות בטון",
-    source: "checklists",
-    keywords: ["בטון", "יציקה", "קוביות", "חוזק"],
-  },
-  {
-    id: "supervision",
-    title: "ריכוז דוחות פיקוח עליון",
-    fileName: "supervision.xlsx",
-    description: "דוחות פיקוח עליון",
-    source: "trialSections",
-    keywords: ["פיקוח עליון", "דוח פיקוח"],
-  },
-  {
-    id: "materials",
-    title: "ריכוז חומרים",
-    fileName: "materials.xlsx",
-    description: "אישורי חומרים",
-    source: "preliminary",
-    preliminarySubtype: "materials",
-  },
-  {
-    id: "trial-sections",
-    title: "ריכוז קטעי ניסוי",
-    fileName: "trial-sections.xlsx",
-    description: "קטעי ניסוי",
-    source: "trialSections",
-  },
-  {
-    id: "subbase-a",
-    title: "ריכוז אפיון מצע א׳",
-    fileName: "subbase-a.xlsx",
-    description: "אפיון מצע א׳ מתוך תעודות ייחוס/בדיקות",
-    source: "checklists",
-    keywords: ["מצע א", "מצע א׳", "אפיון", "cbr", "גרדציה", "24403"],
-  },
-  {
-    id: "selected-material",
-    title: "ריכוז אפיון נברר",
-    fileName: "selected-material.xlsx",
-    description: "אפיון חומר נברר",
-    source: "checklists",
-    keywords: ["נברר", "חומר נברר", "אפיון", "cbr", "גרדציה"],
-  },
+  { id: "nonconformances", title: "דוח ריכוז אי התאמות", fileName: "non-conformance.xlsx", description: "ריכוז אי התאמות לפי הטופס המקורי", keywords: ["אי התאמה", "אי תאמות"], source: "nonconformances" },
+  { id: "suppliers", title: "ריכוז ספקים", fileName: "suppliers.xlsx", description: "ריכוז ספקים לפי הטופס המקורי", keywords: ["ספק", "ספקים"], source: "preliminary", preliminarySubtype: "suppliers" },
+  { id: "contractors", title: "ריכוז קבלנים", fileName: "contractors.xlsx", description: "ריכוז קבלנים לפי הטופס המקורי", keywords: ["קבלן", "קבלנים", "קבלן משנה"], source: "preliminary", preliminarySubtype: "subcontractors" },
+  { id: "asphalt", title: "ריכוז בדיקות אספלט", fileName: "asphalt.xlsx", description: "בדיקות אספלט / FWD / מישוריות", keywords: ["אספלט", "FWD", "שכבה סופית", "מישוריות"], source: "checklists" },
+  { id: "density", title: "ריכוז בדיקות צפיפות", fileName: "density.xlsx", description: "צפיפות / הידוק / רטיבות / מצעים", keywords: ["צפיפות", "הידוק", "רטיבות", "דרגת", "תכולת", "מצע", "מצעים"], source: "checklists" },
+  { id: "concrete", title: "ריכוז בטון", fileName: "concrete.xlsx", description: "בדיקות בטון", keywords: ["בטון", "יציקה", "קוביות", "חוזק"], source: "checklists" },
+  { id: "supervision", title: "ריכוז דוחות פיקוח עליון", fileName: "supervision.xlsx", description: "דוחות פיקוח עליון", keywords: ["פיקוח עליון", "דוח פיקוח"], source: "trialSections" },
+  { id: "materials", title: "ריכוז חומרים", fileName: "materials.xlsx", description: "אישורי חומרים", keywords: ["חומר", "חומרים", "תקן", "מפרט", "תעודת התאמה"], source: "preliminary", preliminarySubtype: "materials" },
+  { id: "trial-sections", title: "ריכוז קטעי ניסוי", fileName: "trial-sections.xlsx", description: "קטעי ניסוי", keywords: ["קטע ניסוי", "קטעי ניסוי"], source: "trialSections" },
+  { id: "subbase-a", title: "ריכוז אפיון מצע א׳", fileName: "subbase-a.xlsx", description: "מצע א׳ — שורות 10-14 נשמרות בדיוק, שורה 15 מתמלאת מהתעודה המצורפת", keywords: ["אפיון מצע", "מצע א", "מצע א׳", "CBR", "גרדציה", "מצע"], source: "checklists", mode: "subbaseA" },
+  { id: "selected-material", title: "ריכוז אפיון נברר", fileName: "selected-material.xlsx", description: "אפיון חומר נברר", keywords: ["נברר", "חומר נברר", "אפיון נברר", "CBR", "גרדציה"], source: "checklists" },
 ];
+
+const excelNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const STORAGE_KEY = "yk-quality-stage4-multifile";
+const PROJECT_TEAMS_STORAGE_KEY = `${STORAGE_KEY}-project-teams`;
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -168,22 +86,21 @@ const normalize = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-const text = (value: unknown) => String(value ?? "").trim();
-
-const firstText = (...values: unknown[]) => {
-  for (const value of values) {
-    const candidate = text(value);
-    if (candidate) return candidate;
-  }
-  return "";
+const includesAny = (text: string, keywords: string[]) => {
+  const n = normalize(text);
+  return keywords.some((keyword) => n.includes(normalize(keyword)));
 };
 
-const shortDate = (value: unknown) => {
-  const raw = text(value);
-  if (!raw) return "";
-  const datePart = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0];
-  return datePart || raw;
-};
+const isApproved = (record: any) =>
+  record?.status === "מאושר" ||
+  record?.status === "approved" ||
+  record?.status === "נעול" ||
+  record?.approval?.status === "approved";
+
+const attachmentLabel = (kind: unknown) =>
+  kind === "lab" ? "תעודת מעבדה" : kind === "measurement" ? "רשימת מדידה" : "מסמך";
+
+const getTemplateUrl = (fileName: string) => `/concentrations/${encodeURIComponent(fileName)}`;
 
 const normalizeProjectKey = (value: unknown) =>
   String(value ?? "")
@@ -191,979 +108,48 @@ const normalizeProjectKey = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const buildProjectMeta = (
-  currentProjectName = "",
-  projectMeta?: ProjectConcentrationMeta,
-): ProjectMetaResolved => {
-  const projectName = firstText(projectMeta?.projectName, currentProjectName);
-  const meta: ProjectMetaResolved = {
-    projectName,
-    projectManager: firstText(
-      projectMeta?.projectManager,
-      projectMeta?.projectManagement,
-    ),
-    contractor: firstText(projectMeta?.contractor, projectMeta?.contractorName),
-    qualityAssurance: firstText(projectMeta?.qualityAssurance),
-    qualityControl: firstText(projectMeta?.qualityControl),
+const buildProjectConcentrationMeta = (currentProjectName: string, projectMeta?: ProjectConcentrationMeta): Required<ProjectConcentrationMeta> => {
+  const name = String(projectMeta?.projectName || currentProjectName || "").trim();
+  const metaFromProps: Required<ProjectConcentrationMeta> = {
+    projectName: name,
+    projectManager: String(projectMeta?.projectManager ?? "").trim(),
+    contractor: String(projectMeta?.contractor ?? "").trim(),
+    qualityAssurance: String(projectMeta?.qualityAssurance ?? "").trim(),
+    qualityControl: String(projectMeta?.qualityControl ?? "").trim(),
   };
 
-  if (typeof window !== "undefined") {
-    try {
-      const raw = window.localStorage.getItem(
-        "yk-quality-stage4-multifile-project-teams",
-      );
-      const teams = raw ? JSON.parse(raw) : {};
-      const team = teams?.[normalizeProjectKey(projectName)];
-      if (team && typeof team === "object") {
-        meta.projectManager = firstText(
-          meta.projectManager,
-          team.managementCompany,
-          team.projectManager,
-        );
-        meta.contractor = firstText(meta.contractor, team.contractor);
-        meta.qualityAssurance = firstText(
-          meta.qualityAssurance,
-          team.qualityAssurance,
-        );
-        meta.qualityControl = firstText(
-          meta.qualityControl,
-          team.qualityControl,
-        );
-      }
-    } catch {}
-  }
-
-  return meta;
-};
-
-const includesAny = (haystack: unknown, keywords: string[] = []) => {
-  if (!keywords.length) return true;
-  const normalized = normalize(haystack);
-  return keywords.some((keyword) => normalized.includes(normalize(keyword)));
-};
-
-const flattenText = (value: any, depth = 0): string => {
-  if (value === null || value === undefined || depth > 5) return "";
-  if (["string", "number", "boolean"].includes(typeof value))
-    return String(value);
-  if (Array.isArray(value))
-    return value.map((item) => flattenText(item, depth + 1)).join(" ");
-  if (typeof value === "object")
-    return Object.entries(value)
-      .map(([key, nested]) => `${key} ${flattenText(nested, depth + 1)}`)
-      .join(" ");
-  return "";
-};
-
-const keyNorm = (value: unknown) => normalize(value).replace(/[\s_\-\/]/g, "");
-
-const deepFind = (value: any, aliases: string[], depth = 0): string => {
-  if (value === null || value === undefined || depth > 7) return "";
-  if (typeof value !== "object") return "";
-  const normalizedAliases = aliases.map(keyNorm);
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = deepFind(item, aliases, depth + 1);
-      if (found) return found;
-    }
-    return "";
-  }
-
-  for (const [key, nested] of Object.entries(value)) {
-    const normalizedKey = keyNorm(key);
-    if (
-      normalizedAliases.some(
-        (alias) => normalizedKey === alias || normalizedKey.includes(alias),
-      )
-    ) {
-      const raw = text(nested);
-      if (raw && raw !== "[object Object]") return raw;
-      const nestedText = deepFind(nested, aliases, depth + 1);
-      if (nestedText) return nestedText;
-    }
-  }
-
-  for (const nested of Object.values(value)) {
-    const found = deepFind(nested, aliases, depth + 1);
-    if (found) return found;
-  }
-  return "";
-};
-
-const collectAttachments = (
-  value: any,
-  out: string[] = [],
-  depth = 0,
-): string[] => {
-  if (!value || depth > 7) return out;
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectAttachments(item, out, depth + 1));
-    return out;
-  }
-  if (typeof value !== "object") return out;
-
-  const name = firstText(
-    value.name,
-    value.fileName,
-    value.attachmentName,
-    value.originalName,
-    value.title,
-  );
-  const looksLikeAttachment = Boolean(
-    value.dataUrl ||
-    value.url ||
-    value.path ||
-    value.uploadedAt ||
-    value.attachedAt ||
-    value.kind ||
-    value.type ||
-    value.fileName ||
-    value.attachmentName,
-  );
-  if (name && looksLikeAttachment) out.push(name);
-
-  Object.values(value).forEach((nested) =>
-    collectAttachments(nested, out, depth + 1),
-  );
-  return out;
-};
-
-const unique = (items: string[]) =>
-  Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
-const attachmentNames = (record: any, item?: any, attachment?: any) =>
-  unique([
-    ...collectAttachments(record),
-    ...collectAttachments(item),
-    ...collectAttachments(attachment),
-  ]).join(", ");
-const splitDocs = (docs: string) =>
-  docs
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-const looksLikeIso = (value: unknown) => /\biso\b|איזו|9001/i.test(text(value));
-const withoutExt = (value: string) =>
-  value.replace(/\.[a-z0-9]{2,5}$/i, "").trim();
-const isoDocs = (docs: string) =>
-  splitDocs(docs).filter(looksLikeIso).join(", ");
-const nonIsoDocs = (docs: string) =>
-  splitDocs(docs)
-    .filter((doc) => !looksLikeIso(doc))
-    .join(", ");
-
-const approvalNumber = (record: any, fallback = "") =>
-  firstText(
-    record?.approvalNo,
-    record?.approvalNumber,
-    record?.preliminaryNo,
-    record?.number,
-    record?.supplier?.approvalNo,
-    record?.supplier?.approvalNumber,
-    record?.supplier?.certificateNo,
-    record?.subcontractor?.approvalNo,
-    record?.subcontractor?.approvalNumber,
-    record?.subcontractor?.licenseNo,
-    record?.material?.certificateNo,
-    deepFind(record, [
-      "approvalNo",
-      "approvalNumber",
-      "preliminaryNo",
-      "certificateNo",
-      "licenseNo",
-      "מספר אישור",
-      "אישור מס",
-      "מס תעודה",
-      "מספר תעודה",
-      "רישיון",
-    ]),
-    fallback,
-  );
-
-const recordId = (record: any, index: number) =>
-  firstText(record?.id, record?.recordId, record?.uuid, index + 1);
-
-const isSupplierRecord = (record: any) =>
-  record?.subtype === "suppliers" ||
-  Boolean(record?.supplier) ||
-  includesAny(flattenText(record), ["ספק"]);
-const isContractorRecord = (record: any) =>
-  record?.subtype === "subcontractors" ||
-  Boolean(record?.subcontractor) ||
-  includesAny(flattenText(record), ["קבלן משנה", "קבלן"]);
-const isMaterialRecord = (record: any) =>
-  record?.subtype === "materials" ||
-  Boolean(record?.material) ||
-  includesAny(flattenText(record), ["חומר", "חומרים"]);
-
-const baseColumns: Record<string, ColumnDef[]> = {
-  nonconformances: [
-    { key: "serial", label: "מס׳" },
-    { key: "ncrNo", label: "מס׳ אי התאמה" },
-    { key: "date", label: "תאריך פתיחה" },
-    { key: "openedBy", label: "נפתחה ע״י QA/QC" },
-    { key: "status", label: "סטטוס" },
-    { key: "location", label: "מיקום" },
-    { key: "element", label: "אלמנט/שכבה" },
-    { key: "description", label: "תיאור אי התאמה", width: 32 },
-    { key: "requiredTreatment", label: "טיפול נדרש", width: 28 },
-    { key: "closingDate", label: "תאריך סגירה משוער/בפועל" },
-    { key: "notes", label: "הערות" },
-    { key: "attachments", label: "קבצים מצורפים", width: 26 },
-  ],
-  suppliers: [
-    { key: "serial", label: "אישור מס" },
-    { key: "supplierName", label: "שם ספק" },
-    { key: "suppliedMaterial", label: "חומר מסופק" },
-    { key: "contact", label: "אנשי קשר וטלפון" },
-    { key: "projectScope", label: "תת פרויקט" },
-    { key: "standardCert", label: "מספר תעודה / רישיון / אישור" },
-    { key: "standardDocs", label: "אישור ת״ת רלוונטי / הסמכות - קבצים" },
-    { key: "standardExpiry", label: "תוקף" },
-    { key: "isoNo", label: "מס תעודת ISO" },
-    { key: "isoDocs", label: "תעודת ISO - קובץ" },
-    { key: "approvalDate", label: "תאריך אישור ה״א" },
-    { key: "approver", label: "שם המאשר ה״א" },
-    { key: "notes", label: "הערות" },
-  ],
-  contractors: [
-    { key: "serial", label: "אישור מס" },
-    { key: "approvalNo", label: "שם קבלן משנה" },
-    { key: "activity", label: "תחום פעילות" },
-    { key: "contact", label: "אנשי קשר וטלפון" },
-    { key: "projectScope", label: "תת פרויקט" },
-    {
-      key: "classificationNo",
-      label: "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור",
-    },
-    { key: "classificationDocs", label: "קבצים מצורפים" },
-    { key: "classificationExpiry", label: "תוקף" },
-    { key: "isoNo", label: "מס תעודת ISO" },
-    { key: "isoDocs", label: "תעודת ISO - קובץ" },
-    { key: "approvalDate", label: "תאריך אישור ה״א" },
-    { key: "approver", label: "שם המאשר ה״א" },
-    { key: "notes", label: "הערות" },
-  ],
-  materials: [
-    { key: "serial", label: "מס׳" },
-    { key: "materialName", label: "שם החומר" },
-    { key: "source", label: "מקור/יצרן" },
-    { key: "usage", label: "שימוש" },
-    { key: "certificateNo", label: "מספר תעודה / אישור" },
-    { key: "docs", label: "קבצים מצורפים" },
-    { key: "approvalDate", label: "תאריך אישור" },
-    { key: "approver", label: "שם המאשר" },
-    { key: "notes", label: "הערות" },
-  ],
-  "trial-sections": [
-    { key: "serial", label: "מס׳ אישור" },
-    { key: "project", label: "כביש" },
-    { key: "from", label: "מחתך" },
-    { key: "to", label: "עד חתך" },
-    { key: "side", label: "צד" },
-    { key: "element", label: "אלמנט" },
-    { key: "subElement", label: "תת אלמנט" },
-    { key: "contractor", label: "הקבלן המבצע" },
-    { key: "activity", label: "סוג החומר / פעילות" },
-    { key: "startDate", label: "תאריך ביצוע" },
-    { key: "endDate", label: "תאריך אישור" },
-    { key: "workManager", label: "מנהל עבודה / ראש צוות" },
-    { key: "process", label: "תהליך ביצוע", width: 36 },
-    { key: "requirements", label: "דרישות/הנחיות", width: 36 },
-    { key: "status", label: "סטטוס" },
-    { key: "notes", label: "הערות" },
-  ],
-  generic: [
-    { key: "serial", label: "מס׳" },
-    { key: "record", label: "מס׳ רשומה / תעודה" },
-    { key: "date", label: "תאריך" },
-    { key: "title", label: "נושא / בדיקה" },
-    { key: "category", label: "סוג" },
-    { key: "location", label: "מיקום" },
-    { key: "contractor", label: "קבלן" },
-    { key: "item", label: "פריט / תיאור", width: 34 },
-    { key: "result", label: "תוצאה / סטטוס" },
-    { key: "certificate", label: "מספר תעודה" },
-    { key: "attachments", label: "קבצים מצורפים", width: 28 },
-    { key: "notes", label: "הערות", width: 30 },
-  ],
-  "subbase-a": [
-    { key: "serial", label: "מס׳ סידורי" },
-    { key: "certificate", label: "מס׳ תעודה / רשומה" },
-    { key: "date", label: "תאריך" },
-    { key: "source", label: "מקור החומר" },
-    { key: "samplingLocation", label: "מקום הדגם לבדיקה" },
-    { key: "spreadingLocation", label: "מקום הפיזור" },
-    { key: "sieve3", label: '3"' },
-    { key: "sieve15", label: '1.5"' },
-    { key: "sieve34", label: '3/4"' },
-    { key: "sieve4", label: "#4" },
-    { key: "sieve10", label: "#10" },
-    { key: "sieve40", label: "#40" },
-    { key: "sieve200", label: "#200" },
-    { key: "ll", label: "LL" },
-    { key: "pl", label: "PL" },
-    { key: "pi", label: "PI" },
-    { key: "aashto", label: "AASHTO" },
-    { key: "status", label: "מעמד" },
-    { key: "attachments", label: "קבצים" },
-  ],
-};
-
-const valueByAliases = (record: any, aliases: string[]) =>
-  firstText(...aliases.map((alias) => deepFind(record, [alias])));
-
-const buildNonconformanceRows = (records: any[]): ExportRow[] =>
-  records.map((record, index) => ({
-    id: recordId(record, index),
-    source: "nonconformances",
-    raw: record,
-    values: {
-      serial: index + 1,
-      ncrNo: firstText(
-        record?.ncrNo,
-        record?.number,
-        record?.serial,
-        record?.id,
-      ),
-      date: shortDate(
-        firstText(
-          record?.date,
-          record?.openedAt,
-          record?.createdAt,
-          record?.savedAt,
-        ),
-      ),
-      openedBy: firstText(
-        record?.openedBy,
-        record?.raisedBy,
-        record?.inspector,
-        record?.responsible,
-      ),
-      status: firstText(record?.status, record?.approval?.status),
-      location: firstText(record?.location, record?.area, record?.section),
-      element: firstText(
-        record?.element,
-        record?.subElement,
-        record?.category,
-        record?.component,
-      ),
-      description: firstText(
-        record?.description,
-        record?.nonconformanceDescription,
-        record?.details,
-        record?.title,
-      ),
-      requiredTreatment: firstText(
-        record?.requiredTreatment,
-        record?.treatment,
-        record?.actionRequired,
-        record?.correctiveAction,
-      ),
-      closingDate: shortDate(
-        firstText(
-          record?.closingDate,
-          record?.targetCloseDate,
-          record?.closedAt,
-          record?.dueDate,
-        ),
-      ),
-      notes: firstText(record?.notes, record?.comments),
-      attachments: attachmentNames(record),
-    },
-  }));
-
-const buildSupplierRows = (records: any[]): ExportRow[] =>
-  records.filter(isSupplierRecord).map((record, index) => {
-    const supplier = record?.supplier ?? record;
-    const docs = attachmentNames(record);
-    const iso = isoDocs(docs);
-    const nonIso = nonIsoDocs(docs);
+  // גיבוי בטוח לפרויקט 806: ממלא את ראשי הריכוזים גם אם פרטי הפרויקט עדיין לא נשמרו בלוקל/סופאבייס.
+  const applyKnownProjectFallback = (meta: Required<ProjectConcentrationMeta>): Required<ProjectConcentrationMeta> => {
+    const normalizedName = normalizeProjectKey(meta.projectName || currentProjectName);
+    if (!normalizedName.includes("806") && !normalizedName.includes("צלמון")) return meta;
     return {
-      id: recordId(record, index),
-      source: "preliminary" as SourceType,
-      raw: record,
-      values: {
-        serial: approvalNumber(record, String(index + 1)),
-        supplierName: firstText(
-          supplier?.supplierName,
-          supplier?.name,
-          record?.title,
-        ),
-        suppliedMaterial: firstText(
-          supplier?.suppliedMaterial,
-          supplier?.material,
-          supplier?.materialName,
-          record?.description,
-        ),
-        contact: firstText(
-          supplier?.contact,
-          supplier?.contactPerson,
-          supplier?.phone,
-          supplier?.contactPhone,
-          valueByAliases(record, ["contact", "phone", "טלפון", "איש קשר"]),
-        ),
-        projectScope: firstText(
-          record?.projectScope,
-          record?.subProject,
-          record?.location,
-        ),
-        standardCert: firstText(
-          supplier?.standardCertificateNo,
-          supplier?.tiCertificateNo,
-          supplier?.licenseNo,
-          supplier?.approvalNo,
-          supplier?.certificateNo,
-          valueByAliases(record, [
-            "standardCertificateNo",
-            "tiCertificateNo",
-            "licenseNo",
-            "approvalNo",
-            "certificateNo",
-            "מספר תעודה",
-            "רישיון",
-            "אישור",
-          ]),
-        ),
-        standardDocs: nonIso,
-        standardExpiry: shortDate(
-          firstText(
-            supplier?.standardValidUntil,
-            supplier?.licenseValidUntil,
-            supplier?.validUntil,
-            valueByAliases(record, ["validUntil", "expiry", "תוקף"]),
-          ),
-        ),
-        isoNo: firstText(
-          supplier?.isoCertificateNo,
-          supplier?.isoNo,
-          supplier?.isoNumber,
-          valueByAliases(record, [
-            "isoCertificateNo",
-            "isoNo",
-            "isoNumber",
-            "מס iso",
-          ]),
-        ),
-        isoDocs: iso,
-        approvalDate: shortDate(
-          firstText(record?.approvalDate, record?.date, record?.savedAt),
-        ),
-        approver: firstText(
-          record?.approvedBy,
-          record?.approval?.signatures?.[0]?.signerName,
-        ),
-        notes: firstText(supplier?.notes, record?.notes),
-      },
+      projectName: meta.projectName || "כביש 806 צלמון שלב א׳",
+      projectManager: meta.projectManager || "א.ש. רונן הנדסה אזרחית בע״מ",
+      contractor: meta.contractor || "מפלסי הגליל סלילה עפר ופיתוח בע״מ",
+      qualityAssurance: meta.qualityAssurance || "תיקו הנדסה בע״מ",
+      qualityControl: meta.qualityControl || "יונס אברהים",
     };
-  });
+  };
 
-const buildContractorRows = (records: any[]): ExportRow[] =>
-  records.filter(isContractorRecord).map((record, index) => {
-    const subcontractor = record?.subcontractor ?? record;
-    const docs = attachmentNames(record);
-    const iso = isoDocs(docs);
-    const nonIso = nonIsoDocs(docs);
-    return {
-      id: recordId(record, index),
-      source: "preliminary" as SourceType,
-      raw: record,
-      values: {
-        serial: approvalNumber(record, String(index + 1)),
-        approvalNo: firstText(
-          subcontractor?.subcontractorName,
-          subcontractor?.contractorName,
-          subcontractor?.name,
-          record?.title,
-        ),
-        activity: firstText(
-          subcontractor?.field,
-          subcontractor?.activity,
-          subcontractor?.scope,
-          record?.description,
-        ),
-        contact: firstText(
-          subcontractor?.contact,
-          subcontractor?.contactPerson,
-          subcontractor?.phone,
-          valueByAliases(record, ["contact", "phone", "טלפון", "איש קשר"]),
-        ),
-        projectScope: firstText(
-          record?.projectScope,
-          record?.subProject,
-          record?.location,
-        ),
-        classificationNo: firstText(
-          subcontractor?.classificationNo,
-          subcontractor?.licenseNo,
-          subcontractor?.approvalNo,
-          subcontractor?.certificateNo,
-          valueByAliases(record, [
-            "classificationNo",
-            "licenseNo",
-            "approvalNo",
-            "certificateNo",
-            "סיווג",
-            "רישיון",
-            "מספר תעודה",
-            "אישור",
-          ]),
-        ),
-        classificationDocs: nonIso,
-        classificationExpiry: shortDate(
-          firstText(
-            subcontractor?.validUntil,
-            subcontractor?.licenseValidUntil,
-            valueByAliases(record, ["validUntil", "expiry", "תוקף"]),
-          ),
-        ),
-        isoNo: firstText(
-          subcontractor?.isoCertificateNo,
-          subcontractor?.isoNo,
-          valueByAliases(record, ["isoCertificateNo", "isoNo", "מס iso"]),
-        ),
-        isoDocs: iso,
-        approvalDate: shortDate(
-          firstText(record?.approvalDate, record?.date, record?.savedAt),
-        ),
-        approver: firstText(
-          record?.approvedBy,
-          record?.approval?.signatures?.[0]?.signerName,
-        ),
-        notes: firstText(subcontractor?.notes, record?.notes),
-      },
-    };
-  });
+  if (typeof window === "undefined") return applyKnownProjectFallback(metaFromProps);
 
-const buildMaterialRows = (records: any[]): ExportRow[] =>
-  records.filter(isMaterialRecord).map((record, index) => {
-    const material = record?.material ?? record;
-    return {
-      id: recordId(record, index),
-      source: "preliminary" as SourceType,
-      raw: record,
-      values: {
-        serial: index + 1,
-        materialName: firstText(
-          material?.materialName,
-          material?.name,
-          record?.title,
-        ),
-        source: firstText(
-          material?.source,
-          material?.manufacturer,
-          material?.supplierName,
-        ),
-        usage: firstText(
-          material?.usage,
-          material?.description,
-          record?.description,
-        ),
-        certificateNo: firstText(
-          material?.certificateNo,
-          material?.approvalNo,
-          approvalNumber(record, ""),
-        ),
-        docs: attachmentNames(record),
-        approvalDate: shortDate(
-          firstText(record?.approvalDate, record?.date, record?.savedAt),
-        ),
-        approver: firstText(
-          record?.approvedBy,
-          record?.approval?.signatures?.[0]?.signerName,
-        ),
-        notes: firstText(material?.notes, record?.notes),
-      },
-    };
-  });
+  try {
+    const raw = window.localStorage.getItem(PROJECT_TEAMS_STORAGE_KEY);
+    const teams = raw ? JSON.parse(raw) : {};
+    const key = normalizeProjectKey(name);
+    const team = teams?.[key];
+    if (!team || typeof team !== "object") return applyKnownProjectFallback(metaFromProps);
 
-const buildTrialRows = (records: any[], templateId: string): ExportRow[] => {
-  const filtered =
-    templateId === "supervision"
-      ? records.filter((r) =>
-          includesAny(flattenText(r), ["פיקוח עליון", "דוח פיקוח"]),
-        )
-      : records;
-  return filtered.map((record, index) => ({
-    id: recordId(record, index),
-    source: "trialSections",
-    raw: record,
-    values: {
-      serial: index + 1,
-      project: firstText(
-        record?.road,
-        record?.roadName,
-        record?.projectName,
-        record?.title,
-      ),
-      from: firstText(
-        record?.fromSection,
-        record?.from,
-        record?.startSection,
-        record?.startKm,
-      ),
-      to: firstText(
-        record?.toSection,
-        record?.to,
-        record?.endSection,
-        record?.endKm,
-      ),
-      side: firstText(record?.side),
-      element: firstText(record?.element, record?.layer, record?.component),
-      subElement: firstText(record?.subElement, record?.subLayer),
-      contractor: firstText(record?.contractor, record?.performer),
-      activity: firstText(
-        record?.activity,
-        record?.materialType,
-        record?.description,
-        record?.trialName,
-      ),
-      startDate: shortDate(
-        firstText(record?.executionDate, record?.startDate, record?.date),
-      ),
-      endDate: shortDate(
-        firstText(record?.approvalDate, record?.endDate, record?.approvedAt),
-      ),
-      workManager: firstText(
-        record?.workManager,
-        record?.foreman,
-        record?.teamLeader,
-      ),
-      process: firstText(
-        record?.process,
-        record?.executionProcess,
-        record?.workProcess,
-        record?.method,
-      ),
-      requirements: firstText(
-        record?.requirements,
-        record?.recommendations,
-        record?.approvalConditions,
-        record?.notes,
-      ),
-      status: firstText(record?.status, record?.approval?.status),
-      notes: firstText(record?.notes, record?.comments),
-    },
-  }));
-};
-
-const resultValue = (result: any, ...keys: string[]) =>
-  firstText(...keys.map((key) => result?.[key]), deepFind(result, keys));
-const buildChecklistRows = (
-  records: any[],
-  template: ConcentrationTemplate,
-): ExportRow[] => {
-  const rows: ExportRow[] = [];
-  records.forEach((checklist, checklistIndex) => {
-    const items = Array.isArray(checklist?.items) ? checklist.items : [];
-    if (
-      !items.length &&
-      includesAny(flattenText(checklist), template.keywords)
-    ) {
-      rows.push({
-        id: recordId(checklist, checklistIndex),
-        source: "checklists",
-        raw: checklist,
-        values: genericChecklistValues(
-          checklist,
-          undefined,
-          undefined,
-          template,
-          rows.length,
-        ),
-      });
-    }
-    items.forEach((item: any, itemIndex: number) => {
-      const attachments = Array.isArray(item?.attachments)
-        ? item.attachments
-        : [];
-      if (
-        !attachments.length &&
-        includesAny(
-          `${flattenText(checklist)} ${flattenText(item)}`,
-          template.keywords,
-        )
-      ) {
-        rows.push({
-          id: `${recordId(checklist, checklistIndex)}-${itemIndex}`,
-          source: "checklists",
-          raw: checklist,
-          values: genericChecklistValues(
-            checklist,
-            item,
-            undefined,
-            template,
-            rows.length,
-          ),
-        });
-      }
-      attachments.forEach((attachment: any, attIndex: number) => {
-        const combined = `${flattenText(checklist)} ${flattenText(item)} ${flattenText(attachment)} ${flattenText(attachment?.labResults)} ${flattenText(attachment?.results)}`;
-        if (!includesAny(combined, template.keywords)) return;
-        rows.push({
-          id: `${recordId(checklist, checklistIndex)}-${itemIndex}-${attIndex}`,
-          source: "checklists",
-          raw: checklist,
-          values: genericChecklistValues(
-            checklist,
-            item,
-            attachment,
-            template,
-            rows.length,
-          ),
-        });
-      });
+    return applyKnownProjectFallback({
+      projectName: name,
+      projectManager: String(projectMeta?.projectManager || team.managementCompany || "").trim(),
+      contractor: String(projectMeta?.contractor || team.contractor || metaFromProps.contractor || "").trim(),
+      qualityAssurance: String(projectMeta?.qualityAssurance || team.qualityAssurance || "").trim(),
+      qualityControl: String(projectMeta?.qualityControl || team.qualityControl || "").trim(),
     });
-  });
-  return rows;
-};
-
-const genericChecklistValues = (
-  checklist: any,
-  item: any,
-  attachment: any,
-  template: ConcentrationTemplate,
-  index: number,
-): Record<string, string | number> => {
-  const result =
-    attachment?.labResults ??
-    attachment?.results ??
-    item?.labResults ??
-    item?.results ??
-    {};
-  const cert = firstText(
-    result?.certificateNo,
-    attachment?.certificateNo,
-    extractNumberFromText(attachment?.name),
-    attachment?.name,
-  );
-  const common = {
-    serial: index + 1,
-    record: firstText(checklist?.checklistNo, checklist?.id, index + 1),
-    date: shortDate(
-      firstText(
-        item?.executionDate,
-        checklist?.date,
-        attachment?.uploadedAt,
-        checklist?.savedAt,
-      ),
-    ),
-    title: firstText(checklist?.title, checklist?.category),
-    category: firstText(checklist?.category, item?.category),
-    location: firstText(item?.location, checklist?.location),
-    contractor: firstText(item?.contractor, checklist?.contractor),
-    item: firstText(
-      item?.description,
-      checklist?.description,
-      attachment?.name,
-    ),
-    result: firstText(item?.status, result?.status, result?.result),
-    certificate: cert,
-    attachments: attachmentNames(checklist, item, attachment),
-    notes: firstText(item?.notes, checklist?.notes),
-  };
-
-  if (template.id === "subbase-a" || template.id === "selected-material") {
-    return {
-      serial: common.serial,
-      certificate: cert,
-      date: common.date,
-      source: firstText(
-        result?.source,
-        result?.materialSource,
-        deepFind(result, ["מקור החומר"]),
-        common.location,
-      ),
-      samplingLocation: firstText(
-        result?.samplingLocation,
-        deepFind(result, ["מקום נטילת", "מקום הדגם"]),
-        common.location,
-      ),
-      spreadingLocation: firstText(
-        result?.spreadingLocation,
-        deepFind(result, ["מקום הפיזור"]),
-        common.location,
-      ),
-      sieve3: resultValue(result, "sieve3", "3", "3inch"),
-      sieve15: resultValue(result, "sieve15", "1.5", "1_5"),
-      sieve34: resultValue(result, "sieve34", "3/4"),
-      sieve4: resultValue(result, "sieve4", "#4"),
-      sieve10: resultValue(result, "sieve10", "#10"),
-      sieve40: resultValue(result, "sieve40", "#40"),
-      sieve200: resultValue(result, "sieve200", "#200"),
-      ll: resultValue(result, "ll", "LL"),
-      pl: resultValue(result, "pl", "PL"),
-      pi: resultValue(result, "pi", "PI"),
-      aashto: resultValue(result, "aashto", "AASHTO"),
-      status: firstText(result?.status, common.result),
-      attachments: common.attachments,
-    };
+  } catch {
+    return applyKnownProjectFallback(metaFromProps);
   }
-  return common;
-};
-
-const extractNumberFromText = (value: unknown) => {
-  const match = text(value).match(/(?:^|[^0-9])(\d{2,})(?:[^0-9]|$)/);
-  return match?.[1] ?? "";
-};
-
-const columnsForTemplate = (template: ConcentrationTemplate): ColumnDef[] =>
-  baseColumns[template.id] ?? baseColumns.generic;
-
-const rowsForTemplate = (
-  template: ConcentrationTemplate,
-  data: Pick<
-    Props,
-    | "savedChecklists"
-    | "savedNonconformances"
-    | "savedTrialSections"
-    | "savedPreliminary"
-  >,
-): ExportRow[] => {
-  if (template.id === "nonconformances")
-    return buildNonconformanceRows(data.savedNonconformances ?? []);
-  if (template.id === "suppliers")
-    return buildSupplierRows(data.savedPreliminary ?? []);
-  if (template.id === "contractors")
-    return buildContractorRows(data.savedPreliminary ?? []);
-  if (template.id === "materials")
-    return buildMaterialRows(data.savedPreliminary ?? []);
-  if (template.source === "trialSections")
-    return buildTrialRows(data.savedTrialSections ?? [], template.id);
-  if (template.source === "checklists")
-    return buildChecklistRows(data.savedChecklists ?? [], template);
-  return [];
-};
-
-const makeDataset = (
-  template: ConcentrationTemplate,
-  props: Pick<
-    Props,
-    | "savedChecklists"
-    | "savedNonconformances"
-    | "savedTrialSections"
-    | "savedPreliminary"
-  >,
-): ExportDataset => ({
-  template,
-  columns: columnsForTemplate(template),
-  rows: rowsForTemplate(template, props),
-});
-
-const xmlEscape = (value: unknown) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
-const columnLetter = (index: number) => {
-  let n = index;
-  let result = "";
-  while (n > 0) {
-    const mod = (n - 1) % 26;
-    result = String.fromCharCode(65 + mod) + result;
-    n = Math.floor((n - mod) / 26);
-  }
-  return result;
-};
-
-const cellXml = (row: number, col: number, value: unknown, style = 0) => {
-  const ref = `${columnLetter(col)}${row}`;
-  if (typeof value === "number" && Number.isFinite(value))
-    return `<c r="${ref}" s="${style}" t="n"><v>${value}</v></c>`;
-  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
-};
-
-const rowXml = (rowNumber: number, cells: unknown[], style = 0) =>
-  `<row r="${rowNumber}">${cells.map((value, index) => cellXml(rowNumber, index + 1, value, style)).join("")}</row>`;
-
-const buildSheetXml = (dataset: ExportDataset, meta: ProjectMetaResolved) => {
-  const cols = dataset.columns
-    .map(
-      (col, index) =>
-        `<col min="${index + 1}" max="${index + 1}" width="${col.width ?? 16}" customWidth="1"/>`,
-    )
-    .join("");
-  const headerValues = dataset.columns.map((col) => col.label);
-  const rows: string[] = [];
-  rows.push(rowXml(1, [dataset.template.title], 1));
-  rows.push(rowXml(2, ["שם פרויקט", meta.projectName], 2));
-  rows.push(rowXml(3, ["ניהול פרויקט", meta.projectManager], 2));
-  rows.push(rowXml(4, ["שם הקבלן", meta.contractor], 2));
-  rows.push(rowXml(5, ["הבטחת איכות", meta.qualityAssurance], 2));
-  rows.push(rowXml(6, ["בקרת איכות", meta.qualityControl], 2));
-  rows.push(rowXml(8, headerValues, 3));
-  dataset.rows.forEach((record, index) =>
-    rows.push(
-      rowXml(
-        9 + index,
-        dataset.columns.map((column) => record.values[column.key] ?? ""),
-        4,
-      ),
-    ),
-  );
-  const lastRow = Math.max(9 + dataset.rows.length, 9);
-  const lastCol = columnLetter(Math.max(dataset.columns.length, 2));
-
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${rows.join("")}</sheetData>
-  <mergeCells count="1"><mergeCell ref="A1:${lastCol}1"/></mergeCells>
-  <autoFilter ref="A8:${lastCol}${lastRow}"/>
-</worksheet>`;
-};
-
-const buildStylesXml =
-  () => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="4"><font><sz val="11"/><name val="Arial"/></font><font><b/><sz val="16"/><name val="Arial"/></font><font><b/><sz val="11"/><name val="Arial"/></font><font><b/><sz val="11"/><name val="Arial"/><color rgb="FFFFFFFF"/></font></fonts>
-  <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9EAD3"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F4E79"/><bgColor indexed="64"/></patternFill></fill></fills>
-  <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border></borders>
-  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top" wrapText="1"/></xf></cellXfs>
-</styleSheet>`;
-
-const exportDatasetToXlsx = async (
-  dataset: ExportDataset,
-  meta: ProjectMetaResolved,
-) => {
-  const zip = new JSZip();
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
-  );
-  zip
-    .folder("_rels")
-    ?.file(
-      ".rels",
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-    );
-  zip
-    .folder("xl")
-    ?.file(
-      "workbook.xml",
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEscape(dataset.template.title).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
-    );
-  zip
-    .folder("xl")
-    ?.folder("_rels")
-    ?.file(
-      "workbook.xml.rels",
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
-    );
-  zip
-    .folder("xl")
-    ?.folder("worksheets")
-    ?.file("sheet1.xml", buildSheetXml(dataset, meta));
-  zip.folder("xl")?.file("styles.xml", buildStylesXml());
-  return zip.generateAsync({
-    type: "blob",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
 };
 
 const downloadBlob = (blob: Blob, fileName: string) => {
@@ -1177,30 +163,849 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   URL.revokeObjectURL(url);
 };
 
-const cardStyle: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 18,
-  background: "#fff",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+const recordText = (record: any) => {
+  const parts: unknown[] = [record?.title, record?.category, record?.location, record?.contractor, record?.status, record?.description, record?.notes, record?.subtype];
+  if (Array.isArray(record?.items)) {
+    record.items.forEach((item: any) => {
+      parts.push(item?.description, item?.notes, item?.status, item?.inspector, item?.responsible);
+      if (Array.isArray(item?.attachments)) item.attachments.forEach((a: any) => parts.push(a?.name, a?.kind));
+    });
+  }
+  if (record?.supplier) parts.push(record.supplier.supplierName, record.supplier.suppliedMaterial, record.supplier.notes, record.supplier.approvalNo);
+  if (record?.subcontractor) parts.push(record.subcontractor.subcontractorName, record.subcontractor.field, record.subcontractor.notes, record.subcontractor.approvalNo);
+  if (record?.material) parts.push(record.material.materialName, record.material.source, record.material.usage, record.material.notes, record.material.certificateNo);
+  return parts.filter(Boolean).join(" ");
 };
-const buttonStyle: CSSProperties = {
-  border: 0,
-  borderRadius: 12,
-  padding: "12px 14px",
-  fontWeight: 900,
-  color: "#fff",
-  background: "#0f172a",
-  cursor: "pointer",
+
+const isRelevantPreliminaryRecord = (record: any, template: ConcentrationTemplate) => {
+  if (template.preliminarySubtype) return record?.subtype === template.preliminarySubtype;
+  return includesAny(recordText(record), template.keywords);
 };
-const secondaryButtonStyle: CSSProperties = {
-  border: "1px solid #cbd5e1",
-  borderRadius: 12,
-  padding: "10px 12px",
-  fontWeight: 900,
-  color: "#0f172a",
-  background: "#fff",
-  cursor: "pointer",
+
+const extractCertificateNo = (name: unknown) => {
+  const text = String(name ?? "");
+  const pdfPrefix = text.match(/pdf[.\-_\s]*(\d{3,})/i);
+  if (pdfPrefix) return pdfPrefix[1];
+  const longNumber = text.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
+  return longNumber?.[1] ?? "";
+};
+
+const rowsFromChecklists = (checklists: any[], template: ConcentrationTemplate): ConcentrationRow[] => {
+  const rows: ConcentrationRow[] = [];
+  checklists.filter(isApproved).forEach((checklist) => {
+    (Array.isArray(checklist?.items) ? checklist.items : []).forEach((item: any) => {
+      const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+      attachments.forEach((attachment: any) => {
+        const labResults = attachment?.labResults ?? attachment?.results ?? item?.labResults ?? item?.results;
+        const fullText = [recordText(checklist), item?.description, item?.notes, attachment?.name, attachment?.kind, JSON.stringify(labResults ?? {})].join(" ");
+        if (!includesAny(fullText, template.keywords)) return;
+        rows.push({
+          sourceType: "checklists",
+          recordId: String(checklist?.id ?? ""),
+          checklistNo: String(checklist?.checklistNo ?? ""),
+          title: String(checklist?.title ?? ""),
+          category: String(checklist?.category ?? ""),
+          location: String(checklist?.location ?? ""),
+          contractor: String(checklist?.contractor ?? ""),
+          date: String(checklist?.date ?? ""),
+          itemDescription: String(item?.description ?? ""),
+          responsible: String(item?.responsible ?? ""),
+          inspector: String(item?.inspector ?? ""),
+          status: String(item?.status ?? ""),
+          executionDate: String(item?.executionDate ?? ""),
+          notes: String(item?.notes ?? ""),
+          attachmentKind: attachmentLabel(attachment?.kind),
+          certificateNo: String((labResults as any)?.certificateNo ?? extractCertificateNo(attachment?.name)),
+          fileName: String(attachment?.name ?? ""),
+          uploadedAt: String(attachment?.uploadedAt ?? ""),
+          labResults,
+          rawRecord: checklist,
+          rawItem: item,
+          rawAttachment: attachment,
+        });
+      });
+    });
+  });
+  return rows;
+};
+
+const rowsFromSimpleRecords = (records: any[], template: ConcentrationTemplate, sourceType: SourceType): ConcentrationRow[] =>
+  records
+    .filter(isApproved)
+    .filter((record) => sourceType === "preliminary" ? isRelevantPreliminaryRecord(record, template) : includesAny(recordText(record), template.keywords))
+    .map((record) => ({
+      sourceType,
+      recordId: String(record?.id ?? ""),
+      checklistNo: "",
+      title: String(record?.title ?? record?.supplier?.supplierName ?? record?.subcontractor?.subcontractorName ?? record?.material?.materialName ?? ""),
+      category: String(record?.subtype ?? ""),
+      location: String(record?.location ?? ""),
+      contractor: String(record?.contractor ?? record?.supplier?.supplierName ?? record?.subcontractor?.subcontractorName ?? ""),
+      date: String(record?.date ?? ""),
+      itemDescription: String(record?.description ?? record?.spec ?? record?.material?.usage ?? record?.supplier?.suppliedMaterial ?? record?.subcontractor?.field ?? ""),
+      responsible: String(record?.approvedBy ?? record?.raisedBy ?? record?.approval?.signatures?.[0]?.signerName ?? ""),
+      inspector: String(record?.approvedBy ?? record?.raisedBy ?? record?.approval?.signatures?.[0]?.signerName ?? ""),
+      status: String(record?.status ?? record?.approval?.status ?? ""),
+      executionDate: String(record?.date ?? ""),
+      notes: String(record?.notes ?? record?.actionRequired ?? record?.supplier?.notes ?? record?.subcontractor?.notes ?? record?.material?.notes ?? ""),
+      attachmentKind: "רשומה",
+      certificateNo: String(record?.supplier?.approvalNo ?? record?.subcontractor?.approvalNo ?? record?.material?.certificateNo ?? ""),
+      fileName: "",
+      uploadedAt: String(record?.savedAt ?? ""),
+      rawRecord: record,
+    }));
+
+type SubbaseAValues = {
+  sieve3?: number;
+  sieve15?: number;
+  sieve34?: number;
+  sieve4?: number;
+  sieve10?: number;
+  sieve40?: number;
+  sieve200?: number;
+  ll?: string | number;
+  pl?: string | number;
+  pi?: string | number;
+  swelling?: number;
+  density?: number;
+  absorption?: number;
+  losAngeles?: number | string;
+  aashto?: string;
+  maxDensity?: number;
+  optimumMoisture?: number;
+};
+
+const numberFromResult = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const extractNumberByAliases = (text: string, aliases: string[]) => {
+  const source = String(text ?? "");
+  for (const alias of aliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`${escaped}\\s*[:=\\-]?\\s*([0-9]+(?:[.,][0-9]+)?)`, "i");
+    const match = source.match(re);
+    if (match) return Number(match[1].replace(",", "."));
+  }
+  return undefined;
+};
+
+const subbaseValuesFromLabResults = (results?: LabCertificateResults): SubbaseAValues | null => {
+  if (!results) return null;
+  const r = results as any;
+  return {
+    sieve3: numberFromResult(r.sieve3),
+    sieve15: numberFromResult(r.sieve15),
+    sieve34: numberFromResult(r.sieve34),
+    sieve4: numberFromResult(r.sieve4),
+    sieve10: numberFromResult(r.sieve10),
+    sieve40: numberFromResult(r.sieve40),
+    sieve200: numberFromResult(r.sieve200),
+    ll: numberFromResult(r.ll),
+    pl: numberFromResult(r.pl),
+    pi: numberFromResult(r.pi),
+    swelling: numberFromResult(r.sandEquivalent),
+    density: numberFromResult(r.specificGravity),
+    absorption: numberFromResult(r.absorption),
+    losAngeles: numberFromResult(r.losAngeles),
+    aashto: r.aashto ?? "",
+    maxDensity: numberFromResult(r.maxDensity),
+    optimumMoisture: numberFromResult(r.optimumMoisture),
+  };
+};
+
+const parseSubbaseAValues = (row: ConcentrationRow): SubbaseAValues => {
+  const fromSavedResults = subbaseValuesFromLabResults(row.labResults);
+  if (fromSavedResults) return fromSavedResults;
+  const text = [row.notes, row.itemDescription, row.fileName, row.title, row.category].join(" ");
+  return {
+    sieve3: extractNumberByAliases(text, ['3"', "3 in", "sieve3", "נפה 3"]),
+    sieve15: extractNumberByAliases(text, ['1.5"', "1.5", "sieve15", "נפה 1.5"]),
+    sieve34: extractNumberByAliases(text, ["3/4", '3/4"', "sieve34", "נפה 3/4"]),
+    sieve4: extractNumberByAliases(text, ["#4", "נפה 4"]),
+    sieve10: extractNumberByAliases(text, ["#10", "נפה 10"]),
+    sieve40: extractNumberByAliases(text, ["#40", "נפה 40"]),
+    sieve200: extractNumberByAliases(text, ["#200", "נפה 200"]),
+    ll: extractNumberByAliases(text, ["LL", "גבול נזילות"]),
+    pl: extractNumberByAliases(text, ["PL", "גבול פלסטיות"]),
+    pi: extractNumberByAliases(text, ["PI", "אינדקס פלסטיות"]),
+    swelling: extractNumberByAliases(text, ["שעמ", "שעח", "swelling"]),
+    density: extractNumberByAliases(text, ["צפיפות ממשית", "density"]),
+    absorption: extractNumberByAliases(text, ["ספיגות", "absorption"]),
+    losAngeles: extractNumberByAliases(text, ["לוס אנגלס", "los angeles", "LA"]),
+    aashto: (text.match(/A-\d-a?\s*\(?\d?\)?/i)?.[0] ?? "").trim(),
+    maxDensity: extractNumberByAliases(text, ["צפיפות מעבדתית", "max density"]),
+    optimumMoisture: extractNumberByAliases(text, ["רטיבות אופטימלית", "omc"]),
+  };
+};
+
+const valueOrDefault = (value: unknown, fallback: string | number = ""): string | number => {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return String(value);
+};
+
+const evaluateSubbaseA = (v: SubbaseAValues) => {
+  const checks: Array<boolean | null> = [
+    v.sieve3 === undefined ? null : v.sieve3 >= 100,
+    v.sieve15 === undefined ? null : v.sieve15 >= 80,
+    v.sieve34 === undefined ? null : v.sieve34 >= 60 && v.sieve34 <= 85,
+    v.sieve4 === undefined ? null : v.sieve4 >= 30 && v.sieve4 <= 55,
+    v.sieve10 === undefined ? null : v.sieve10 >= 20 && v.sieve10 <= 40,
+    v.sieve200 === undefined ? null : v.sieve200 >= 5 && v.sieve200 <= 15,
+    typeof v.ll !== "number" ? null : v.ll <= 25,
+    typeof v.pi !== "number" ? null : v.pi <= 6,
+    typeof v.losAngeles !== "number" ? null : v.losAngeles <= 35,
+  ];
+  const populated = checks.filter((item) => item !== null) as boolean[];
+  if (!populated.length) return "OK";
+  return populated.every(Boolean) ? "OK" : "NC";
+};
+
+const SUBBASE_A_FIXED_CELLS: Record<string, string | number> = {
+  H2: " דו\"ח ריכוז בדיקות  איפיון למצע סוג א' ",
+  H4: "שם פרויקט:", H5: "ניהול פרויקט:", H6: "שם הקבלן:", H7: "בקרת איכות:", L7: "הבטחת איכות:",
+  A10: "מס' סידורי", B10: "ביצוע ע\"י ", C10: "מס' ר.ת.", D10: "תאריך ", E10: "מקור החומר", F10: "מקום נטילת מדגם לבדיקה", G10: "מקום הפיזור", J10: "דירוג (  % עובר )", Q10: "גבולות פלסטיות וסומך (%)", T10: "שע\"ח (%)", U10: "אגרגט גס", W10: " לוס אנג'לס (%)", X10: " מיון AASHTO", Y10: "צפיפות מעבדתית מקסימלית", Z10: "רטיבות אופטימלית", AA10: "מספר תעודה", AB10: "מעמד החומר", AC10: "הערות",
+  J11: '3"', K11: '"1.5', L11: '"3/4 ', M11: "#4", N11: "#10", O11: "#40", P11: "#200", Q11: "LL", R11: "PL", S11: "PI", U11: "צפיפות ממשית (ט/מ\"ק) ", V11: "ספיגות (%)",
+  J12: "דרישות המפרט", B13: "QC/QA", G13: "מבנה", H13: "חתכים", K13: 100, L13: 85, M13: 55, N13: 40, P13: 15, Q13: 25, S13: 6, T13: 27, U13: 2.3, W13: "35 max", H14: "התחלה", I14: "סוף", J14: 100, K14: 80, L14: 60, M14: 30, N14: 20, P14: 5,
+};
+
+const buildSubbaseARow15 = (row: ConcentrationRow | undefined, projectMeta: Required<ProjectConcentrationMeta>): Record<string, string | number> => {
+  const values = row ? parseSubbaseAValues(row) : {};
+  const certificateNo = row?.certificateNo || "";
+  const result = evaluateSubbaseA(values);
+  return {
+    J4: projectMeta.projectName || row?.title || "", J5: projectMeta.projectManager || "", J6: projectMeta.contractor || row?.contractor || "", J7: projectMeta.qualityControl || "", M7: projectMeta.qualityAssurance || "",
+    A15: 1, B15: row?.inspector || row?.responsible || "QC", C15: row?.checklistNo || 1, D15: row?.executionDate || row?.date || "", E15: row?.notes || "", F15: row?.location || "", G15: projectMeta.projectName || row?.itemDescription || "", H15: "", I15: "",
+    J15: String(valueOrDefault(values.sieve3, "")), K15: String(valueOrDefault(values.sieve15, "")), L15: String(valueOrDefault(values.sieve34, "")), M15: String(valueOrDefault(values.sieve4, "")), N15: String(valueOrDefault(values.sieve10, "")), O15: String(valueOrDefault(values.sieve40, "")), P15: String(valueOrDefault(values.sieve200, "")), Q15: String(valueOrDefault(values.ll, "")), R15: String(valueOrDefault(values.pl, "")), S15: String(valueOrDefault(values.pi, "")), T15: valueOrDefault(values.swelling, ""), U15: valueOrDefault(values.density, ""), V15: valueOrDefault(values.absorption, ""), W15: valueOrDefault(values.losAngeles, ""), X15: valueOrDefault(values.aashto, ""), Y15: valueOrDefault(values.maxDensity, ""), Z15: valueOrDefault(values.optimumMoisture, ""), AA15: certificateNo, AB15: result, AC15: row?.notes || "",
+  };
+};
+
+const columnNumber = (letters: string) => {
+  let number = 0;
+  for (const letter of letters.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
+  return number;
+};
+
+const columnLetters = (index: number) => {
+  let n = index;
+  let letters = "";
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - mod) / 26);
+  }
+  return letters;
+};
+
+const cellColumnIndex = (cellRef: string) => columnNumber(cellRef.replace(/\d+/g, ""));
+const cellRowIndex = (cellRef: string) => Number(cellRef.replace(/\D+/g, ""));
+const cellRef = (col: number, row: number) => `${columnLetters(col)}${row}`;
+
+const getOrCreateRow = (doc: Document, sheetData: Element, rowNumber: number) => {
+  const rows = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row"));
+  let row = rows.find((candidate) => candidate.getAttribute("r") === String(rowNumber));
+  if (row) return row;
+  row = doc.createElementNS(excelNs, "row");
+  row.setAttribute("r", String(rowNumber));
+  const nextRow = rows.find((candidate) => Number(candidate.getAttribute("r")) > rowNumber);
+  sheetData.insertBefore(row, nextRow ?? null);
+  return row;
+};
+
+const getOrCreateCell = (doc: Document, row: Element, ref: string) => {
+  const cells = Array.from(row.getElementsByTagNameNS(excelNs, "c"));
+  let cell = cells.find((candidate) => candidate.getAttribute("r") === ref);
+  if (cell) return cell;
+  cell = doc.createElementNS(excelNs, "c");
+  cell.setAttribute("r", ref);
+  const nextCell = cells.find((candidate) => cellColumnIndex(candidate.getAttribute("r") ?? "A1") > cellColumnIndex(ref));
+  row.insertBefore(cell, nextCell ?? null);
+  return cell;
+};
+
+const setCell = (doc: Document, sheetData: Element, ref: string, value: string | number, styleId?: string) => {
+  const row = getOrCreateRow(doc, sheetData, cellRowIndex(ref));
+  const cell = getOrCreateCell(doc, row, ref);
+  Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
+  if (styleId) cell.setAttribute("s", styleId);
+
+  if (typeof value === "number") {
+    cell.setAttribute("t", "n");
+    const v = doc.createElementNS(excelNs, "v");
+    v.textContent = String(value);
+    cell.appendChild(v);
+  } else {
+    cell.setAttribute("t", "inlineStr");
+    const is = doc.createElementNS(excelNs, "is");
+    const t = doc.createElementNS(excelNs, "t");
+    t.setAttribute("xml:space", "preserve");
+    t.textContent = value;
+    is.appendChild(t);
+    cell.appendChild(is);
+  }
+};
+
+const nextCellRef = (ref: string) => `${columnLetters(cellColumnIndex(ref) + 1)}${cellRowIndex(ref)}`;
+
+const readSharedStrings = async (zip: JSZip) => {
+  const file = zip.file("xl/sharedStrings.xml");
+  if (!file) return [] as string[];
+  const xml = await file.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return Array.from(doc.getElementsByTagNameNS(excelNs, "si")).map((si) =>
+    Array.from(si.getElementsByTagNameNS(excelNs, "t")).map((t) => t.textContent ?? "").join("")
+  );
+};
+
+const cellText = (cell: Element, sharedStrings: string[]) => {
+  const type = cell.getAttribute("t");
+  if (type === "s") {
+    const index = Number(cell.getElementsByTagNameNS(excelNs, "v")[0]?.textContent ?? -1);
+    return sharedStrings[index] ?? "";
+  }
+  if (type === "inlineStr") {
+    return Array.from(cell.getElementsByTagNameNS(excelNs, "t")).map((t) => t.textContent ?? "").join("");
+  }
+  return cell.getElementsByTagNameNS(excelNs, "v")[0]?.textContent ?? "";
+};
+
+const collectAttachmentNames = (value: any, names: string[], depth = 0) => {
+  if (!value || depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectAttachmentNames(item, names, depth + 1));
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const name = String(value.name ?? value.fileName ?? value.attachmentName ?? value.originalName ?? value.title ?? "").trim();
+  const looksLikeFile = Boolean(value.dataUrl || value.url || value.path || value.type || value.uploadedAt || value.attachedAt || value.attachmentName);
+  if (name && looksLikeFile) names.push(name);
+
+  Object.entries(value).forEach(([key, nested]) => {
+    if (["approval", "signature", "signatures"].includes(key)) return;
+    collectAttachmentNames(nested, names, depth + 1);
+  });
+};
+
+const attachedFilesText = (record: any, row?: ConcentrationRow) => {
+  const names: string[] = [];
+  collectAttachmentNames(record, names);
+  if (row?.fileName) names.push(row.fileName);
+  if (row?.rawAttachment?.name) names.push(row.rawAttachment.name);
+  if (row?.rawItem?.attachments) {
+    row.rawItem.attachments.forEach((att: any) => {
+      if (att?.name) names.push(att.name);
+    });
+  }
+  return Array.from(new Set(names.map((name) => name.trim()).filter(Boolean))).join(", ");
+};
+
+const looksLikeIso = (text: unknown) => /\biso\b|איזו|ISO|9001/i.test(String(text ?? ""));
+
+const splitDocumentNames = (docs: string) =>
+  docs
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+const withoutExtension = (name: string) => name.replace(/\.[a-z0-9]{2,5}$/i, "").trim();
+
+const isoCertificateLabel = (docs: string) => {
+  const iso = splitDocumentNames(docs).find(looksLikeIso);
+  return iso ? withoutExtension(iso) : "";
+};
+
+const nonIsoDocumentsText = (docs: string) => splitDocumentNames(docs).filter((name) => !looksLikeIso(name)).join(", ");
+const isoDocumentsText = (docs: string) => splitDocumentNames(docs).filter(looksLikeIso).join(", ");
+const genericExpiryFromRecord = (record: any) => firstNonEmpty(
+  record?.validUntil,
+  record?.expiry,
+  record?.expiryDate,
+  record?.certificateValidUntil,
+  record?.certificateExpiry,
+  record?.supplier?.validUntil,
+  record?.supplier?.expiry,
+  record?.supplier?.expiryDate,
+  record?.supplier?.certificateValidUntil,
+  record?.supplier?.certificateExpiry,
+  deepFindValue(record, ["validUntil", "expiry", "expiryDate", "certificateValidUntil", "certificateExpiry", "תוקף", "תאריך תוקף"])
+);
+
+
+const normalizeKey = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[׳`’']/g, "")
+    .replace(/[\s_\-]+/g, "")
+    .trim()
+    .toLowerCase();
+
+const deepFindValue = (value: any, keys: string[], depth = 0): string => {
+  if (!value || depth > 6) return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = deepFindValue(item, keys, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (typeof value !== "object") return "";
+  const normalizedKeys = keys.map(normalizeKey);
+  for (const [key, nested] of Object.entries(value)) {
+    const nk = normalizeKey(key);
+    if (normalizedKeys.some((wanted) => nk === wanted || nk.includes(wanted))) {
+      if (nested !== null && nested !== undefined && String(nested).trim() !== "") return String(nested).trim();
+    }
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (["signature", "signatures"].includes(key)) continue;
+    const found = deepFindValue(nested, keys, depth + 1);
+    if (found) return found;
+  }
+  return "";
+};
+
+const firstNonEmpty = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+const approvalNumberFromRecord = (record: any, fallback: number) => {
+  const fromFields = firstNonEmpty(
+    record?.approvalNo,
+    record?.approvalNumber,
+    record?.preliminaryNo,
+    record?.supplier?.approvalNo,
+    record?.supplier?.approvalNumber,
+    record?.subcontractor?.approvalNo,
+    record?.subcontractor?.approvalNumber,
+    record?.material?.certificateNo,
+    deepFindValue(record, ["approvalNo", "approvalNumber", "preliminaryNo", "מספר אישור", "אישור מס"])
+  );
+  if (fromFields) return fromFields;
+  const titleMatch = String(record?.title ?? "").match(/(?:מס[׳'’]?|#)?\s*(\d+)/);
+  return titleMatch?.[1] ?? String(fallback);
+};
+
+const certificateNumberFromDocs = (docs: string) => {
+  const first = splitDocumentNames(docs)[0] ?? "";
+  return first ? withoutExtension(first) : "";
+};
+
+const certificateNumberFromFieldsOnly = (record: any, keys: string[]) => {
+  const value = deepFindValue(record, keys);
+  return value && !looksLikeIso(value) ? value : "";
+};
+
+const supplierIsoNumberFallback = (supplier: any, record: any, isoDocs: string, nonIsoDocs: string) => {
+  // אם קיימת רק תעודת ISO, ובמערכת נשמר מספר תעודה בשדה כללי/ישן,
+  // מתייחסים אליו כאל מספר ISO ולא כאל אישור ת״י/הסמכות.
+  if (!isoDocs || nonIsoDocs) return "";
+  return firstNonEmpty(
+    supplier.isoCertificateNo,
+    supplier.isoNo,
+    supplier.isoNumber,
+    supplier.standardCertificateNo,
+    supplier.tiCertificateNo,
+    supplier.tavTekenCertificateNo,
+    supplier.licenseNo,
+    supplier.accreditationNo,
+    record.isoCertificateNo,
+    record.isoNo,
+    record.isoNumber,
+    deepFindValue(record, ["isoCertificateNo", "isoNo", "isoNumber", "iso certificate", "מס תעודת iso", "מספר iso", "certificateNo", "certificateNumber"])
+  );
+};
+
+const supplierIsoExpiryFallback = (supplier: any, record: any, isoDocs: string, nonIsoDocs: string) => {
+  if (!isoDocs || nonIsoDocs) return "";
+  return firstNonEmpty(
+    supplier.isoValidUntil,
+    supplier.isoExpiry,
+    supplier.standardValidUntil,
+    supplier.tiValidUntil,
+    supplier.tavTekenValidUntil,
+    supplier.licenseValidUntil,
+    supplier.accreditationValidUntil,
+    record.isoValidUntil,
+    record.isoExpiry,
+    deepFindValue(record, ["isoValidUntil", "isoExpiry", "תוקף iso", "validUntil", "expiry"])
+  );
+};
+
+const clearCellValue = (cell: Element) => {
+  Array.from(cell.childNodes).forEach((child) => cell.removeChild(child));
+  cell.removeAttribute("t");
+};
+
+const clearRowsContent = (sheetData: Element, fromRow: number, toRow: number) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) return;
+    const row = cellRowIndex(ref);
+    if (row >= fromRow && row <= toRow) clearCellValue(cell);
+  });
+};
+
+const applyProjectHeaderCells = (doc: Document, sheetData: Element, sharedStrings: string[], meta: Required<ProjectConcentrationMeta>) => {
+  // ממלאים רק את טבלת פרטי הפרויקט המרכזית. לא מחפשים תוויות בצד ימין כדי לא ליצור כפילות.
+  // בנוסף מנקים את הכפילות שנוצרה בעבר בצד ימין של הגיליון.
+  ["A5", "B5", "C5", "D5", "A6", "B6", "C6", "D6", "A7", "B7", "C7", "D7", "A8", "B8", "C8", "D8", "A9", "B9", "C9", "D9"].forEach((cellRef) => {
+    const row = getOrCreateRow(doc, sheetData, cellRowIndex(cellRef));
+    const cell = getOrCreateCell(doc, row, cellRef);
+    clearCellValue(cell);
+  });
+
+  const items: Array<{ labelCell: string; valueCell: string; label: string; value: string }> = [
+    { labelCell: "H5", valueCell: "J5", label: "שם פרויקט", value: meta.projectName },
+    { labelCell: "H6", valueCell: "J6", label: "ניהול פרויקט", value: meta.projectManager },
+    { labelCell: "H7", valueCell: "J7", label: "שם הקבלן", value: meta.contractor },
+    { labelCell: "H8", valueCell: "J8", label: "הבטחת איכות", value: meta.qualityAssurance },
+    { labelCell: "H9", valueCell: "J9", label: "בקרת איכות", value: meta.qualityControl },
+  ];
+
+  items.forEach((item) => {
+    setCell(doc, sheetData, item.labelCell, `${item.label}:`);
+    setCell(doc, sheetData, item.valueCell, item.value || "");
+  });
+};
+
+const patchWorkbookProjectHeader = async (buffer: ArrayBuffer, meta: Required<ProjectConcentrationMeta>) => {
+  const zip = await JSZip.loadAsync(buffer);
+  const sharedStrings = await readSharedStrings(zip);
+  const worksheetPaths = Object.keys(zip.files).filter((path) => /^xl\/worksheets\/sheet\d+\.xml$/.test(path));
+
+  for (const sheetPath of worksheetPaths) {
+    const worksheetFile = zip.file(sheetPath);
+    if (!worksheetFile) continue;
+    const xml = await worksheetFile.async("text");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+    if (!sheetData) continue;
+    applyProjectHeaderCells(doc, sheetData, sharedStrings, meta);
+    zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  }
+
+  return zip;
+};
+
+const patchSubbaseAWorkbook = async (buffer: ArrayBuffer, row: ConcentrationRow | undefined, projectMeta: Required<ProjectConcentrationMeta>) => {
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml בתוך קובץ מצע א׳");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
+
+  Object.entries(SUBBASE_A_FIXED_CELLS).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
+  Object.entries(buildSubbaseARow15(row, projectMeta)).forEach(([cell, value]) => setCell(doc, sheetData, cell, value));
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+
+const parseMergeRef = (ref: string) => {
+  const [start, end] = ref.split(":");
+  return {
+    startCol: cellColumnIndex(start),
+    startRow: cellRowIndex(start),
+    endCol: cellColumnIndex(end ?? start),
+    endRow: cellRowIndex(end ?? start),
+  };
+};
+
+const findGroupRange = (doc: Document, sheetData: Element, sharedStrings: string[], labels: string[]) => {
+  const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
+  const target = cells.find((cell) => labels.some((label) => normalize(cellText(cell, sharedStrings)).includes(normalize(label))));
+  if (!target) return null;
+  const ref = target.getAttribute("r") ?? "";
+  const targetCol = cellColumnIndex(ref);
+  const targetRow = cellRowIndex(ref);
+  const mergeCells = Array.from(doc.getElementsByTagNameNS(excelNs, "mergeCell"));
+  const merge = mergeCells
+    .map((m) => parseMergeRef(m.getAttribute("ref") ?? ""))
+    .find((r) => targetCol >= r.startCol && targetCol <= r.endCol && targetRow >= r.startRow && targetRow <= r.endRow);
+  return merge ?? { startCol: targetCol, startRow: targetRow, endCol: targetCol + 3, endRow: targetRow };
+};
+
+const renameHeader = (doc: Document, sheetData: Element, sharedStrings: string[], fromLabels: string[], toLabel: string) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) return;
+    const current = cellText(cell, sharedStrings);
+    if (fromLabels.some((label) => normalize(current).includes(normalize(label)))) setCell(doc, sheetData, ref, toLabel, cell.getAttribute("s") ?? undefined);
+  });
+};
+
+const findColumn = (sheetData: Element, sharedStrings: string[], labels: string[], rowMin = 1, rowMax = 25, fromCol = 1, toCol = 200) => {
+  const cells = Array.from(sheetData.getElementsByTagNameNS(excelNs, "c"));
+  for (const cell of cells) {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) continue;
+    const row = cellRowIndex(ref);
+    const col = cellColumnIndex(ref);
+    if (row < rowMin || row > rowMax || col < fromCol || col > toCol) continue;
+    const text = normalize(cellText(cell, sharedStrings));
+    if (labels.some((label) => text.includes(normalize(label)))) return col;
+  }
+  return 0;
+};
+
+const findColumnRightmost = (sheetData: Element, sharedStrings: string[], labels: string[], rowMin = 1, rowMax = 25) => {
+  let best = 0;
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    if (!ref) return;
+    const row = cellRowIndex(ref);
+    if (row < rowMin || row > rowMax) return;
+    const text = normalize(cellText(cell, sharedStrings));
+    if (labels.some((label) => text.includes(normalize(label)))) best = Math.max(best, cellColumnIndex(ref));
+  });
+  return best;
+};
+
+const findColumnInGroup = (sheetData: Element, sharedStrings: string[], group: ReturnType<typeof findGroupRange>, labels: string[]) => {
+  if (!group) return 0;
+  return findColumn(sheetData, sharedStrings, labels, group.startRow, group.startRow + 3, group.startCol, group.endCol);
+};
+
+const rowStyleMap = (sheetData: Element, rowNumber = 13) => {
+  const styles: Record<number, string> = {};
+  const row = Array.from(sheetData.getElementsByTagNameNS(excelNs, "row")).find((candidate) => candidate.getAttribute("r") === String(rowNumber));
+  if (!row) return styles;
+  Array.from(row.getElementsByTagNameNS(excelNs, "c")).forEach((cell) => {
+    const ref = cell.getAttribute("r") ?? "";
+    const s = cell.getAttribute("s") ?? "";
+    if (ref && s) styles[cellColumnIndex(ref)] = s;
+  });
+  return styles;
+};
+
+const clearTableRows = (sheetData: Element, fromRow = 13, toRow = 500) => {
+  Array.from(sheetData.getElementsByTagNameNS(excelNs, "row")).forEach((row) => {
+    const n = Number(row.getAttribute("r") ?? 0);
+    if (n >= fromRow && n <= toRow) row.parentNode?.removeChild(row);
+  });
+};
+
+const setByColumn = (doc: Document, sheetData: Element, row: number, col: number, value: unknown, styles: Record<number, string>) => {
+  if (!col) return;
+  const v = value === null || value === undefined ? "" : value;
+  if (v === "") return;
+  setCell(doc, sheetData, cellRef(col, row), typeof v === "number" ? v : String(v), styles[col]);
+};
+
+const approvalSignerName = (record: any) =>
+  String(record?.approval?.signatures?.find?.((s: any) => s?.signerName)?.signerName ?? record?.approvedBy ?? "יונס אברהים");
+
+const approvalDate = (record: any) =>
+  String(record?.approval?.signatures?.find?.((s: any) => s?.signedAt)?.signedAt ?? record?.date ?? "");
+
+const patchPreliminaryWorkbook = async (buffer: ArrayBuffer, rows: ConcentrationRow[], template: ConcentrationTemplate, projectMeta: Required<ProjectConcentrationMeta>) => {
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
+  const sharedStrings = await readSharedStrings(zip);
+  // לא מוחקים את הכותרת העליונה המקורית של התבנית. רק ממלאים את פרטי הפרויקט.
+  applyProjectHeaderCells(doc, sheetData, sharedStrings, projectMeta);
+  const styles = rowStyleMap(sheetData, 13);
+
+  const isContractors = template.id === "contractors";
+  const isSuppliers = template.id === "suppliers";
+
+  if (isContractors) renameHeader(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים"], "סיווג ברשם הקבלנים/תעודות");
+
+  const registrationGroup = isContractors
+    ? findGroupRange(doc, sheetData, sharedStrings, ["סיווג ברשם הקבלנים", "סיווג ברשם הקבלנים/תעודות"])
+    : findGroupRange(doc, sheetData, sharedStrings, ["אישור תי", "רשיון", "הסמכות"]);
+  const isoGroup = findGroupRange(doc, sheetData, sharedStrings, ["תעודת ISO", "ISO"]);
+
+  const columns = {
+    approval: findColumnRightmost(sheetData, sharedStrings, ["אישור מס"], 10, 13) || findColumnRightmost(sheetData, sharedStrings, ["מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    serial: findColumn(sheetData, sharedStrings, ["מס סידורי", "מס' סידורי"], 10, 13),
+    contractorName: isContractors
+      ? findColumn(sheetData, sharedStrings, ["שם קבלן משנה", "שם הקבלן"], 10, 13)
+      : findColumn(sheetData, sharedStrings, ["שם ספק"], 10, 13),
+    activity: isContractors
+      ? findColumn(sheetData, sharedStrings, ["תחום פעילות"], 10, 13)
+      : findColumn(sheetData, sharedStrings, ["חומר מסופק"], 10, 13),
+    phone: findColumn(sheetData, sharedStrings, ["אנשי קשר וטלפון", "טלפון"], 10, 13),
+    subProject: findColumn(sheetData, sharedStrings, ["תת פרויקט"], 10, 13),
+    regExists: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["קיים/לא", "קיים"]),
+    regNumber: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["מס תעודה", "מס' תעודה", "מספר"]),
+    regExpiry: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["תוקף"]),
+    regDocs: findColumnInGroup(sheetData, sharedStrings, registrationGroup, ["מסמכים מצורפים", "מסמכים"]),
+    isoExists: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["קיים/לא", "קיים"]),
+    isoNumber: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["מס תעודה", "מס' תעודה", "מספר"]),
+    isoExpiry: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["תוקף"]),
+    isoDocs: findColumnInGroup(sheetData, sharedStrings, isoGroup, ["מסמכים מצורפים", "מסמכים"]),
+    qaDate: findColumn(sheetData, sharedStrings, ["תאריך אישור ב\"א", "תאריך אישור בא"], 10, 13),
+    qaName: findColumn(sheetData, sharedStrings, ["שם המאשר ב\"א", "שם המאשר בא"], 10, 13),
+    assuranceDate: findColumn(sheetData, sharedStrings, ["תאריך אישור ה\"א", "תאריך אישור הא"], 10, 13),
+    assuranceName: findColumn(sheetData, sharedStrings, ["שם המאשר ה\"א", "שם המאשר הא"], 10, 13),
+  };
+
+  clearTableRows(sheetData, 13, 500);
+
+  const rowsToWrite = [...rows].sort((a, b) => {
+    const aNo = Number(approvalNumberFromRecord(a.rawRecord ?? {}, 0));
+    const bNo = Number(approvalNumberFromRecord(b.rawRecord ?? {}, 0));
+    if (Number.isFinite(aNo) && Number.isFinite(bNo) && aNo !== bNo) return aNo - bNo;
+    return String(a.rawRecord?.savedAt ?? a.uploadedAt ?? a.date ?? '').localeCompare(String(b.rawRecord?.savedAt ?? b.uploadedAt ?? b.date ?? ''));
+  });
+
+  rowsToWrite.forEach((row, index) => {
+    const record = row.rawRecord ?? {};
+    const supplier = record.supplier ?? {};
+    const subcontractor = record.subcontractor ?? {};
+    const material = record.material ?? {};
+    const docs = attachedFilesText(record, row);
+    const isoDocs = isoDocumentsText(docs);
+    const nonIsoDocs = nonIsoDocumentsText(docs);
+    const rowNumber = 13 + index;
+    const approvalNo = approvalNumberFromRecord(record, index + 1);
+    const supplierRegistrationNumber = nonIsoDocs ? firstNonEmpty(
+      supplier.standardCertificateNo,
+      supplier.tiCertificateNo,
+      supplier.tavTekenCertificateNo,
+      supplier.licenseNo,
+      supplier.accreditationNo,
+      deepFindValue(record, ["standardCertificateNo", "tiCertificateNo", "tavTekenCertificateNo", "licenseNo", "accreditationNo", "מס תעודת תי", "מספר תי", "מספר הסמכה", "מספר רשיון"]),
+      certificateNumberFromDocs(nonIsoDocs)
+    ) : "";
+    const supplierRegistrationExpiry = nonIsoDocs ? firstNonEmpty(
+      supplier.standardValidUntil,
+      supplier.tiValidUntil,
+      supplier.tavTekenValidUntil,
+      supplier.licenseValidUntil,
+      supplier.accreditationValidUntil,
+      deepFindValue(record, ["standardValidUntil", "tiValidUntil", "tavTekenValidUntil", "licenseValidUntil", "accreditationValidUntil", "תוקף תי", "תוקף הסמכה", "תוקף רשיון"])
+    ) : "";
+    const contractorRegistrationNumber = firstNonEmpty(
+      subcontractor.registrationNo,
+      subcontractor.contractorRegistrationNo,
+      subcontractor.certificateNo,
+      certificateNumberFromFieldsOnly(record, ["registrationNo", "contractorRegistrationNo", "מס תעודה", "מספר תעודה", "רשם הקבלנים"])
+    );
+    const contractorRegistrationExpiry = firstNonEmpty(
+      subcontractor.validUntil,
+      subcontractor.registrationValidUntil,
+      deepFindValue(record, ["registrationValidUntil", "validUntil", "expiry", "תוקף רשם", "תוקף"])
+    );
+    const registrationNumber = isSuppliers ? supplierRegistrationNumber : (isContractors ? contractorRegistrationNumber : firstNonEmpty(material.certificateNo, certificateNumberFromDocs(nonIsoDocs || docs)));
+    const registrationExpiry = isSuppliers ? supplierRegistrationExpiry : (isContractors ? contractorRegistrationExpiry : firstNonEmpty(record.validUntil, deepFindValue(record, ["validUntil", "expiry", "תוקף"])));
+
+    // עמודת "אישור מס" מקבלת את מספר האישור מתוך המערכת, לא מספור עיוור.
+    setByColumn(doc, sheetData, rowNumber, columns.approval, approvalNo, styles);
+    // אם קיימת עמודת מס׳ סידורי נפרדת — ממלאים אותה 1,2,3.
+    setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.contractorName, isContractors ? subcontractor.subcontractorName : supplier.supplierName, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.activity, isContractors ? subcontractor.field : supplier.suppliedMaterial, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.phone, subcontractor.contactPhone ?? supplier.contactPhone, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.subProject, record.subProject ?? record.location ?? "", styles);
+
+    // קבלנים: כל תעודה שלא שייכת ל-ISO נכנסת לסיווג ברשם הקבלנים/תעודות.
+    // ספקים: ISO נכנס רק לקבוצת ISO ולא לקבוצת ת״י/הסמכות.
+    const registrationDocs = isSuppliers ? nonIsoDocs : (nonIsoDocs || docs);
+    if (registrationNumber || registrationExpiry || registrationDocs) setByColumn(doc, sheetData, rowNumber, columns.regExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regNumber, registrationNumber, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regExpiry, registrationExpiry, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.regDocs, registrationDocs, styles);
+
+    const isoNumber = firstNonEmpty(
+      record.isoCertificateNo,
+      supplier.isoCertificateNo,
+      subcontractor.isoCertificateNo,
+      deepFindValue(record, ["isoCertificateNo", "isoNo", "isoNumber", "מס תעודת iso"]),
+      looksLikeIso(approvalNo) ? approvalNo : "",
+      isoCertificateLabel(isoDocs)
+    );
+    const isoExpiry = firstNonEmpty(
+      record.isoValidUntil,
+      record.isoExpiry,
+      record.isoExpiryDate,
+      supplier.isoValidUntil,
+      supplier.isoExpiry,
+      supplier.isoExpiryDate,
+      supplier.isoCertificateValidUntil,
+      supplier.isoCertificateExpiry,
+      subcontractor.isoValidUntil,
+      subcontractor.isoExpiry,
+      subcontractor.isoExpiryDate,
+      deepFindValue(record, ["isoValidUntil", "isoExpiry", "isoExpiryDate", "isoCertificateValidUntil", "isoCertificateExpiry", "תוקף iso", "תוקף איזו"]),
+      // אם לרשומת ספק צורפה רק תעודת ISO, תוקף כללי של התעודה שייך ל-ISO ולא לת״י/הסמכות.
+      isSuppliers && isoDocs && !nonIsoDocs ? genericExpiryFromRecord(record) : ""
+    );
+    if (isoDocs || isoNumber || isoExpiry) setByColumn(doc, sheetData, rowNumber, columns.isoExists, "קיים", styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoNumber, isoNumber, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoExpiry, isoExpiry, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.isoDocs, isoDocs, styles);
+
+    setByColumn(doc, sheetData, rowNumber, columns.qaDate, approvalDate(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.qaName, approvalSignerName(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.assuranceDate, record.assuranceDate ?? approvalDate(record), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.assuranceName, record.assuranceName ?? approvalSignerName(record), styles);
+  });
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+
+const patchGenericWorkbook = async (buffer: ArrayBuffer, rows: ConcentrationRow[], template: ConcentrationTemplate, projectMeta: Required<ProjectConcentrationMeta>) => {
+  if (template.preliminarySubtype) return patchPreliminaryWorkbook(buffer, rows, template, projectMeta);
+
+  const zip = await patchWorkbookProjectHeader(buffer, projectMeta);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const worksheetFile = zip.file(sheetPath);
+  if (!worksheetFile) throw new Error("לא נמצא sheet1.xml");
+  const xml = await worksheetFile.async("text");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const sheetData = doc.getElementsByTagNameNS(excelNs, "sheetData")[0];
+  if (!sheetData) throw new Error("מבנה Excel לא תקין — sheetData חסר");
+  const sharedStrings = await readSharedStrings(zip);
+  const styles = rowStyleMap(sheetData, 13);
+
+  const columns = {
+    serial: findColumn(sheetData, sharedStrings, ["אישור מס", "מס סידורי", "מס' סידורי"], 10, 13) || 1,
+    title: findColumn(sheetData, sharedStrings, ["שם", "תיאור", "נושא"], 10, 13) || 2,
+    location: findColumn(sheetData, sharedStrings, ["מיקום", "קטע"], 10, 13),
+    date: findColumn(sheetData, sharedStrings, ["תאריך"], 10, 13),
+    status: findColumn(sheetData, sharedStrings, ["סטטוס", "מעמד"], 10, 13),
+    certificate: findColumn(sheetData, sharedStrings, ["מס תעודה", "תעודה"], 10, 13),
+    docs: findColumn(sheetData, sharedStrings, ["מסמכים", "קבצים", "מצורפים"], 10, 13),
+    notes: findColumn(sheetData, sharedStrings, ["הערות"], 10, 13),
+  };
+
+  clearTableRows(sheetData, 13, 500);
+  rows.forEach((row, index) => {
+    const rowNumber = 13 + index;
+    setByColumn(doc, sheetData, rowNumber, columns.serial, index + 1, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.title, row.itemDescription || row.title, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.location, row.location, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.date, row.executionDate || row.date, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.status, row.status, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.certificate, row.certificateNo, styles);
+    setByColumn(doc, sheetData, rowNumber, columns.docs, attachedFilesText(row.rawRecord, row), styles);
+    setByColumn(doc, sheetData, rowNumber, columns.notes, row.notes, styles);
+  });
+
+  zip.file(sheetPath, new XMLSerializer().serializeToString(doc));
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
 
 export function ConcentrationsSection({
@@ -1212,59 +1017,43 @@ export function ConcentrationsSection({
   projectMeta,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string>("nonconformances");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const meta = useMemo(
-    () => buildProjectMeta(currentProjectName, projectMeta),
-    [currentProjectName, projectMeta],
-  );
+  const meta = useMemo(() => buildProjectConcentrationMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
 
-  const datasets = useMemo(() => {
-    const props = {
-      savedChecklists,
-      savedNonconformances,
-      savedTrialSections,
-      savedPreliminary,
-    };
-    const result: Record<string, ExportDataset> = {};
+  const rowsByTemplate = useMemo(() => {
+    const result: Record<string, ConcentrationRow[]> = {};
     templates.forEach((template) => {
-      result[template.id] = makeDataset(template, props);
+      if (template.source === "checklists") result[template.id] = rowsFromChecklists(savedChecklists, template);
+      else if (template.source === "nonconformances") result[template.id] = rowsFromSimpleRecords(savedNonconformances, template, "nonconformances");
+      else if (template.source === "trialSections") result[template.id] = rowsFromSimpleRecords(savedTrialSections, template, "trialSections");
+      else result[template.id] = rowsFromSimpleRecords(savedPreliminary, template, "preliminary");
     });
     return result;
-  }, [
-    savedChecklists,
-    savedNonconformances,
-    savedTrialSections,
-    savedPreliminary,
-  ]);
+  }, [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary]);
 
   const filteredTemplates = useMemo(() => {
     const q = normalize(query);
     if (!q) return templates;
-    return templates.filter((template) =>
-      normalize(
-        `${template.title} ${template.description} ${template.fileName}`,
-      ).includes(q),
-    );
+    return templates.filter((template) => normalize([template.title, template.description, template.fileName].join(" ")).includes(q));
   }, [query]);
 
-  const selected = datasets[selectedId] ?? datasets.nonconformances;
-
-  const downloadDataset = async (dataset: ExportDataset) => {
-    setBusyId(dataset.template.id);
+  const downloadTemplate = async (template: ConcentrationTemplate, withProjectDetails = false) => {
+    setBusyId(template.id + (withProjectDetails ? ":project" : ":auto"));
     setMessage("");
     try {
-      const blob = await exportDatasetToXlsx(dataset, meta);
-      downloadBlob(blob, dataset.template.fileName);
-      setMessage(
-        `הופק ${dataset.template.title} עם ${dataset.rows.length} שורות לפי הטבלה שמוצגת במסך.`,
-      );
+      const response = await fetch(getTemplateUrl(template.fileName));
+      if (!response.ok) throw new Error(`לא ניתן לטעון את תבנית ${template.fileName}`);
+      const buffer = await response.arrayBuffer();
+      const rows = rowsByTemplate[template.id] ?? [];
+      let blob: Blob;
+      if (template.mode === "subbaseA") blob = await patchSubbaseAWorkbook(buffer, rows[0], meta);
+      else blob = await patchGenericWorkbook(buffer, rows, template, meta);
+      downloadBlob(blob, template.fileName);
+      setMessage(`הופק קובץ ${template.title} עם ${rows.length} רשומות.`);
     } catch (error) {
       console.error(error);
-      setMessage(
-        error instanceof Error ? error.message : "שגיאה בהפקת קובץ Excel",
-      );
+      setMessage(error instanceof Error ? error.message : "שגיאה בהורדת הריכוז");
     } finally {
       setBusyId(null);
     }
@@ -1272,334 +1061,59 @@ export function ConcentrationsSection({
 
   return (
     <section dir="rtl">
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 16,
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>ריכוזים</h2>
           <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.7 }}>
-            תצוגת בדיקה לפני Excel: מה שמופיע בטבלה כאן הוא בדיוק מה שיורד
-            לקובץ. כך אין ניחוש לפי כותרות ואין ערבוב בין טופס, פריט וקובץ
-            מצורף.
+            ריכוז מצטבר לפי רשומות מאושרות ותעודות מצורפות. הנתונים נכתבים ישירות לתבניות ה־Excel המקוריות.
           </div>
-          {currentProjectName ? (
-            <div style={{ marginTop: 8, fontWeight: 900 }}>
-              פרויקט נוכחי: {currentProjectName}
-            </div>
-          ) : null}
+          {currentProjectName ? <div style={{ marginTop: 8, fontWeight: 900 }}>פרויקט נוכחי: {currentProjectName}</div> : null}
         </div>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="חיפוש ריכוז..."
-          style={{
-            border: "1px solid #cbd5e1",
-            borderRadius: 14,
-            padding: "12px 14px",
-            minWidth: 260,
-            fontWeight: 800,
-          }}
+          style={{ border: "1px solid #cbd5e1", borderRadius: 14, padding: "12px 14px", minWidth: 260, fontWeight: 800 }}
         />
       </div>
 
-      <div
-        style={{
-          border: "1px solid #bfdbfe",
-          background: "#eff6ff",
-          borderRadius: 16,
-          padding: 14,
-          marginBottom: 16,
-          color: "#1e3a8a",
-          fontWeight: 800,
-          lineHeight: 1.7,
-        }}
-      >
-        מנגנון חדש: קודם מציגים את נתוני הריכוז במסך, ורק לאחר שהנתונים נכונים
-        מורידים Excel. הקובץ שיורד נבנה מהטבלה המוצגת כאן, לא מהתאמת כותרות
-        אוטומטית.
-      </div>
+      {message ? <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e3a8a", borderRadius: 14, padding: 12, marginBottom: 14, fontWeight: 900 }}>{message}</div> : null}
 
-      {message ? (
-        <div
-          style={{
-            border: "1px solid #bbf7d0",
-            background: "#f0fdf4",
-            borderRadius: 14,
-            padding: 12,
-            marginBottom: 16,
-            color: "#166534",
-            fontWeight: 900,
-          }}
-        >
-          {message}
-        </div>
-      ) : null}
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-          gap: 14,
-          marginBottom: 22,
-        }}
-      >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
         {filteredTemplates.map((template) => {
-          const dataset = datasets[template.id];
-          const count = dataset?.rows.length ?? 0;
-          const active = selectedId === template.id;
+          const rows = rowsByTemplate[template.id] ?? [];
+          const busy = busyId?.startsWith(template.id);
           return (
-            <div
-              key={template.id}
-              style={{
-                ...cardStyle,
-                borderColor: active ? "#1d4ed8" : "#e2e8f0",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  alignItems: "center",
-                }}
+            <div key={template.id} style={{ border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>{template.title}</h3>
+                <span style={{ background: "#eef2ff", color: "#3730a3", padding: "6px 10px", borderRadius: 999, fontWeight: 900 }}>{rows.length} תוצאות</span>
+              </div>
+              <div style={{ color: "#64748b", marginTop: 8, minHeight: 42, lineHeight: 1.6 }}>{template.description}</div>
+              <div style={{ marginTop: 8, color: rows.length ? "#166534" : "#64748b", fontWeight: 900 }}>
+                {rows.length ? `נמצאו ${rows.length} רשומות/תעודות לשיבוץ בריכוז.` : "אין עדיין תוצאות — ניתן להוריד ריכוז ריק."}
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => downloadTemplate(template)}
+                style={{ width: "100%", marginTop: 14, border: 0, borderRadius: 12, padding: "13px 14px", background: busy ? "#475569" : "#0f172a", color: "#fff", fontWeight: 950, cursor: busy ? "wait" : "pointer" }}
               >
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>
-                  {template.title}
-                </h3>
-                <span
-                  style={{
-                    background: active ? "#dbeafe" : "#eef2ff",
-                    color: "#3730a3",
-                    borderRadius: 999,
-                    padding: "6px 10px",
-                    fontWeight: 900,
-                  }}
-                >
-                  {count} תוצאות
-                </span>
-              </div>
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "#64748b",
-                  minHeight: 48,
-                  lineHeight: 1.6,
-                }}
+                {busy ? "מכין Excel..." : "הורד ריכוז אוטומטי Excel"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => downloadTemplate(template, true)}
+                style={{ width: "100%", marginTop: 8, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", background: "#fff", color: "#0f172a", fontWeight: 900, cursor: busy ? "wait" : "pointer" }}
               >
-                {template.description}
-              </div>
-              <div
-                style={{
-                  marginTop: 12,
-                  minHeight: 36,
-                  color: count ? "#166534" : "#64748b",
-                  fontWeight: 800,
-                }}
-              >
-                {count
-                  ? `נמצאו ${count} שורות לשיבוץ בריכוז.`
-                  : "אין עדיין שורות לריכוז זה."}
-              </div>
-              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(template.id)}
-                  style={secondaryButtonStyle}
-                >
-                  הצג לפני הורדה
-                </button>
-                <button
-                  type="button"
-                  disabled={busyId === template.id}
-                  onClick={() => downloadDataset(dataset)}
-                  style={{
-                    ...buttonStyle,
-                    cursor: busyId === template.id ? "wait" : "pointer",
-                    opacity: busyId === template.id ? 0.75 : 1,
-                  }}
-                >
-                  {busyId === template.id
-                    ? "מפיק Excel..."
-                    : "הורד Excel לפי התצוגה"}
-                </button>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#64748b",
-                    direction: "ltr",
-                    textAlign: "right",
-                  }}
-                >
-                  {template.fileName}
-                </div>
-              </div>
+                הורד תבנית עם פרטי פרויקט
+              </button>
+              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 8, textAlign: "left" }}>{template.fileName}</div>
             </div>
           );
         })}
       </div>
-
-      <div style={{ ...cardStyle, overflow: "hidden" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-            marginBottom: 12,
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>
-              בדיקה לפני הורדה: {selected.template.title}
-            </h3>
-            <div style={{ color: "#64748b", marginTop: 4 }}>
-              השורות הבאות הן המקור להורדת Excel.
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={busyId === selected.template.id}
-            onClick={() => downloadDataset(selected)}
-            style={buttonStyle}
-          >
-            הורד Excel לריכוז המוצג
-          </button>
-        </div>
-
-        <div
-          style={{
-            border: "1px solid #e2e8f0",
-            borderRadius: 14,
-            overflow: "hidden",
-            marginBottom: 14,
-          }}
-        >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              tableLayout: "fixed",
-            }}
-          >
-            <tbody>
-              <tr>
-                <th style={metaCell(true)}>שם פרויקט</th>
-                <td style={metaCell()}>{meta.projectName}</td>
-                <th style={metaCell(true)}>ניהול פרויקט</th>
-                <td style={metaCell()}>{meta.projectManager}</td>
-              </tr>
-              <tr>
-                <th style={metaCell(true)}>שם הקבלן</th>
-                <td style={metaCell()}>{meta.contractor}</td>
-                <th style={metaCell(true)}>הבטחת איכות</th>
-                <td style={metaCell()}>{meta.qualityAssurance}</td>
-              </tr>
-              <tr>
-                <th style={metaCell(true)}>בקרת איכות</th>
-                <td style={metaCell()}>{meta.qualityControl}</td>
-                <th style={metaCell(true)}>מס׳ שורות</th>
-                <td style={metaCell()}>{selected.rows.length}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div
-          style={{
-            overflowX: "auto",
-            border: "1px solid #e2e8f0",
-            borderRadius: 14,
-          }}
-        >
-          <table
-            style={{
-              minWidth: Math.max(900, selected.columns.length * 150),
-              width: "100%",
-              borderCollapse: "collapse",
-            }}
-          >
-            <thead>
-              <tr>
-                {selected.columns.map((column) => (
-                  <th
-                    key={column.key}
-                    style={{
-                      background: "#dbeafe",
-                      border: "1px solid #bfdbfe",
-                      padding: 10,
-                      fontWeight: 950,
-                      textAlign: "center",
-                      whiteSpace: "normal",
-                    }}
-                  >
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {selected.rows.length ? (
-                selected.rows.slice(0, 50).map((row) => (
-                  <tr key={row.id}>
-                    {selected.columns.map((column) => (
-                      <td
-                        key={column.key}
-                        style={{
-                          border: "1px solid #e2e8f0",
-                          padding: 9,
-                          verticalAlign: "top",
-                          whiteSpace: "pre-wrap",
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        {row.values[column.key] ?? ""}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={selected.columns.length}
-                    style={{
-                      padding: 24,
-                      textAlign: "center",
-                      color: "#64748b",
-                      fontWeight: 800,
-                    }}
-                  >
-                    אין נתונים להצגה בריכוז זה.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {selected.rows.length > 50 ? (
-          <div style={{ marginTop: 10, color: "#64748b", fontWeight: 800 }}>
-            מוצגות 50 שורות ראשונות מתוך {selected.rows.length}. קובץ Excel כולל
-            את כולן.
-          </div>
-        ) : null}
-      </div>
     </section>
   );
 }
-
-const metaCell = (head = false): CSSProperties => ({
-  border: "1px solid #e2e8f0",
-  padding: "8px 10px",
-  background: head ? "#f8fafc" : "#fff",
-  fontWeight: head ? 950 : 800,
-  textAlign: "right",
-});
-
-export default ConcentrationsSection;
