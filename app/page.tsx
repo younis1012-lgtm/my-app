@@ -2978,7 +2978,7 @@ function ChecklistsSection({
             />
           </label>
           <label>
-            <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
+            <span style={labelStyle}>מס׳ שכבה</span>
             <input
               value={checklistForm.location ?? ""}
               onChange={(event) => setField("location", event.target.value)}
@@ -3031,7 +3031,7 @@ function ChecklistsSection({
               />
             </label>
             <label>
-              <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
+              <span style={labelStyle}>מס׳ שכבה</span>
               <input
                 value={checklistForm.location ?? ""}
                 onChange={(event) => setField("location", event.target.value)}
@@ -8746,7 +8746,7 @@ export default function Page() {
     if (!String(controlProcessForm.title ?? "").trim())
       return alert("יש להזין שם תהליך בקרה");
     if (!String(controlProcessForm.location ?? "").trim())
-      return alert("יש להזין מס׳ תוכנית ביצוע");
+      return alert("יש להזין מס׳ שכבה");
     const actor =
       projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
     const existing = editingControlProcessId
@@ -9962,13 +9962,13 @@ export default function Page() {
     return `<div class="checklist-export-title">${safeText(title)}</div>
     <table class="doc-header">
       <tbody>
-        <tr><td>מספר הליך:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td>מס׳ שכבה:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
         <tr><td>${valueOrBlank(procedureNo, 20)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
       </tbody>
     </table>
     <table class="checklist-top-table source-meta">
       <tbody>
-        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ תוכנית ביצוע</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
+        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ שכבה</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
         <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(executionPlanNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
         <tr><th>מחתך</th><th>לחתך</th><th>היטס</th><th colspan="2">הערות</th></tr>
         <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
