@@ -183,9 +183,8 @@ const firstDateText = (...values: unknown[]) => {
 };
 
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
-const attachmentCertificateNo = (attachment: any, fallback = "") => {
-  // מספר תעודה/רישיון/אישור נלקח קודם כל מתוך המטא־דאטה של המסמך ולא מתוך שם הקובץ.
-  // כך מונעים מצב שבו "ISO 9001 2015.pdf" נכנס בטעות כמספר תעודה.
+
+const certificateNumberFromAttachment = (attachment: any): string => {
   const direct = firstText(
     attachment?.certificateNo,
     attachment?.certificateNumber,
@@ -196,6 +195,9 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
     attachment?.licenseNo,
     attachment?.licenseNumber,
     attachment?.registrationNo,
+    attachment?.מספר_תעודה,
+    attachment?.["מספר תעודה"],
+    attachment?.["מספר תעודה / רישיון / אישור"],
     attachment?.results?.certificateNo,
     attachment?.results?.certificateNumber,
     attachment?.results?.documentNo,
@@ -203,13 +205,46 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
     attachment?.labResults?.certificateNumber,
     attachment?.details?.certificateNo,
     attachment?.details?.certificateNumber,
-    fallback
+    attachment?.details?.documentNo,
+    attachment?.details?.documentNumber,
+    attachment?.details?.approvalNo,
+    attachment?.details?.approvalNumber,
+    attachment?.details?.licenseNo,
+    attachment?.details?.licenseNumber,
+    attachment?.details?.["מספר תעודה"],
+    attachment?.details?.["מס תעודה"],
+    attachment?.details?.["מספר רישיון"],
+    attachment?.details?.["מספר רשיון"],
+    attachment?.details?.["מספר אישור"],
+    attachment?.details?.["מספר תעודה / רישיון / אישור"],
+    valueByKeyOrLabel(attachment, [
+      "certificateNo",
+      "certificateNumber",
+      "documentNo",
+      "documentNumber",
+      "approvalNo",
+      "approvalNumber",
+      "licenseNo",
+      "licenseNumber",
+      "registrationNo",
+      "מספר תעודה",
+      "מס תעודה",
+      "מספר רישיון",
+      "מספר רשיון",
+      "מספר אישור",
+      "מספר תעודה / רישיון / אישור",
+    ])
   );
-  if (direct) return direct;
+  const text = cleanText(direct);
+  if (text && !looksLikeUuid(text) && !["כן", "לא", "מאושר"].includes(text)) return text;
+
   const name = attachmentName(attachment);
   const match = name.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
   return match?.[1] ?? "";
 };
+
+const attachmentCertificateNo = (attachment: any, fallback = "") =>
+  firstText(certificateNumberFromAttachment(attachment), fallback);
 
 const normalizeCertificateType = (value: unknown, doc?: any): string => {
   const text = cleanText(value);
@@ -238,6 +273,9 @@ const inferDocumentType = (doc: any): string => {
     doc?.docType,
     doc?.approvalType,
     doc?.licenseType,
+    doc?.["פרטים"],
+    valueByKeyOrLabel(doc, ["certificateType", "documentType", "docType", "approvalType", "licenseType", "details", "פרטים", "סוג תעודה", "סוג מסמך"]),
+    valueByLabel(doc, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
     doc?.details,
     doc?.פרטים,
     doc?.kind,
@@ -329,28 +367,29 @@ const supplierRow = (record: any, index: number): Row => {
   );
 
   const docNo = firstText(
+    docs.map((d) => attachmentCertificateNo(d)).find(Boolean),
     supplier?.certificateNo,
     supplier?.certificateNumber,
     supplier?.licenseNo,
     supplier?.licenseNumber,
-    supplier?.approvalNo,
-    supplier?.approvalNumber,
     supplier?.documentNo,
     supplier?.documentNumber,
     record?.certificateNo,
     record?.certificateNumber,
     record?.licenseNo,
     record?.licenseNumber,
-    record?.approvalNo,
-    record?.approvalNumber,
     record?.documentNo,
     record?.documentNumber,
-    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "licenseNo", "licenseNumber", "documentNo", "documentNumber", "approvalNumber", "approvalNo"]),
+    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "licenseNo", "licenseNumber", "documentNo", "documentNumber", "מספר תעודה", "מספר רישיון", "מספר רשיון", "מספר אישור"]),
     valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר רישיון", "מס רישיון", "מספר רשיון", "מס רשיון", "מספר אישור", "מס אישור"]),
-    docs.map((d) => attachmentCertificateNo(d)).find(Boolean)
+    supplier?.approvalNo,
+    supplier?.approvalNumber,
+    record?.approvalNo,
+    record?.approvalNumber
   );
 
   const docType = firstText(
+    docs.map(inferDocumentType).find(Boolean),
     supplier?.certificateType,
     supplier?.documentType,
     supplier?.approvalType,
@@ -364,8 +403,7 @@ const supplierRow = (record: any, index: number): Row => {
     record?.details,
     record?.פרטים,
     valueByKeyOrLabel(record, ["certificateType", "documentType", "approvalType", "licenseType", "docType", "details", "פרטים"]),
-    valueByLabel(record, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
-    docs.map(inferDocumentType).find(Boolean)
+    valueByLabel(record, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"])
   );
 
   const approvalDate = firstDateText(
@@ -447,7 +485,7 @@ const materialRow = (record: any, index: number): Row => {
     "שם חומר": firstText(material?.materialName, material?.name, record?.title),
     "מקור/יצרן": firstText(material?.source, material?.manufacturer),
     "שימוש מיועד": firstText(material?.usage, record?.description),
-    "מספר תעודה / אישור": firstText(material?.certificateNo, material?.approvalNo, record?.certificateNo, docs.map((d) => attachmentCertificateNo(d)).find(Boolean)),
+    "מספר תעודה / אישור": firstText(docs.map((d) => attachmentCertificateNo(d)).find(Boolean), material?.certificateNo, material?.approvalNo, record?.certificateNo),
     "סטטוס": firstText(record?.status, record?.approval?.status),
     "תאריך": dateText(record?.date ?? record?.savedAt),
     "הערות": firstText(material?.notes, record?.notes),
