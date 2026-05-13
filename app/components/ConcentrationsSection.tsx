@@ -81,6 +81,79 @@ const firstText = (...values: unknown[]): string => {
   return "";
 };
 
+
+
+const compactValue = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (text === "[object Object]") return "";
+  return text;
+};
+
+const flattenRecord = (value: any, prefix = "", out: Array<{ key: string; value: unknown }> = [], seen = new WeakSet<object>()) => {
+  if (value === null || value === undefined) return out;
+  if (typeof value !== "object") {
+    out.push({ key: prefix, value });
+    return out;
+  }
+  if (seen.has(value)) return out;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => flattenRecord(item, `${prefix}.${index}`, out, seen));
+    return out;
+  }
+  Object.entries(value).forEach(([key, child]) => {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (child !== null && typeof child === "object") flattenRecord(child, fullKey, out, seen);
+    else out.push({ key: fullKey, value: child });
+  });
+  return out;
+};
+
+const valueByKeyOrLabel = (record: any, aliases: string[]): string => {
+  const normalizedAliases = aliases.map(normalize).filter(Boolean);
+  const flat = flattenRecord(record);
+  for (const { key, value } of flat) {
+    const nk = normalize(key.split(".").pop() ?? key);
+    if (normalizedAliases.some((alias) => nk === alias || nk.includes(alias) || alias.includes(nk))) {
+      const text = compactValue(value);
+      if (text) return text;
+    }
+  }
+  for (const { key, value } of flat) {
+    const nk = normalize(key);
+    if (normalizedAliases.some((alias) => nk.includes(alias))) {
+      const text = compactValue(value);
+      if (text) return text;
+    }
+  }
+  return "";
+};
+
+const valueByLabel = (record: any, labels: string[]): string => {
+  const flat = flattenRecord(record);
+  const normalizedLabels = labels.map(normalize).filter(Boolean);
+  for (const { key, value } of flat) {
+    const nk = normalize(key);
+    if (normalizedLabels.some((label) => nk.includes(label))) {
+      const text = compactValue(value);
+      if (text) return text;
+    }
+  }
+  return "";
+};
+
+const documentType = (doc: any): string =>
+  firstText(doc?.documentType, doc?.docType, doc?.type, doc?.kind, doc?.category, doc?.title, doc?.label);
+
+const documentSummary = (record: any): string => {
+  const docs = getAttachments(record);
+  if (!docs.length) return "";
+  const types = Array.from(new Set(docs.map(documentType).map(cleanText).filter(Boolean)));
+  const count = docs.length;
+  return types.length ? `${count} מסמכים: ${types.join(", ")}` : `${count} מסמכים`;
+};
+
 const includesAny = (text: unknown, keywords: string[]) => {
   const n = normalize(text);
   return keywords.some((keyword) => n.includes(normalize(keyword)));
@@ -158,7 +231,18 @@ const preliminaryBySubtype = (records: any[], subtype: string) => records.filter
 const supplierRow = (record: any, index: number): Row => {
   const supplier = record?.supplier ?? record;
   const docs = getAttachments(record);
-  const certNo = firstText(
+  const suppliedMaterial = firstText(
+    valueByKeyOrLabel(record, ["suppliedMaterial", "supplied_material", "materialSupplied", "suppliedProduct", "productSupplied", "material", "product"]),
+    valueByLabel(record, ["חומר מסופק", "מוצר מסופק", "חומר/מוצר מסופק", "חומר", "מוצר"]),
+    supplier?.suppliedMaterial,
+    supplier?.material,
+    supplier?.product,
+    supplier?.materialName,
+    record?.material?.materialName
+  );
+  const docNo = firstText(
+    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "approvalNo", "approvalNumber", "licenseNo", "licenseNumber", "isoCertificateNo", "documentNo", "documentNumber"]),
+    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר אישור", "מס אישור", "מספר רישיון", "מס רישיון", "מספר רישיון / אישור"]),
     supplier?.approvalNo,
     supplier?.certificateNo,
     supplier?.licenseNo,
@@ -167,12 +251,16 @@ const supplierRow = (record: any, index: number): Row => {
     record?.certificateNo,
     docs.map((d) => attachmentCertificateNo(d)).find(Boolean)
   );
+  const docTypes = Array.from(new Set(docs.map(documentType).map(cleanText).filter(Boolean)));
+  const docSummary = firstText(valueByLabel(record, ["מסמכים", "תעודות", "רישיונות", "סוג תעודה"]), documentSummary(record));
   return {
     "מס׳": index + 1,
     "שם ספק": firstText(supplier?.supplierName, supplier?.name, record?.title),
-    "חומר/מוצר מסופק": firstText(supplier?.suppliedMaterial, supplier?.material, supplier?.product, record?.material?.materialName),
+    "חומר/מוצר מסופק": suppliedMaterial,
     "יצרן/מקור": firstText(supplier?.manufacturer, supplier?.source, record?.material?.source),
-    "אישור ת\"ת רלוונטי / הסמכות / מספר תעודה / רישיון / אישור": certNo,
+    "מספר תעודה / רישיון / אישור": docNo,
+    "סוג תעודה": docTypes.join(", "),
+    "מס׳ מסמכים / תעודות / רישיונות": docSummary,
     "סטטוס": firstText(record?.status, record?.approval?.status),
     "תאריך": dateText(record?.date ?? record?.savedAt),
     "הערות": firstText(supplier?.notes, record?.notes),
@@ -333,7 +421,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "יצרן/מקור", "אישור ת\"ת רלוונטי / הסמכות / מספר תעודה / רישיון / אישור", "סטטוס", "תאריך", "הערות"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "יצרן/מקור", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים / תעודות / רישיונות", "סטטוס", "תאריך", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
