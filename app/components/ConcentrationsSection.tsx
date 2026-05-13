@@ -214,7 +214,6 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
 const normalizeCertificateType = (value: unknown, doc?: any): string => {
   const text = cleanText(value);
   const lower = text.toLowerCase();
-
   const name = cleanText(attachmentName(doc));
   const all = `${text} ${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
   const allLower = all.toLowerCase();
@@ -225,9 +224,9 @@ const normalizeCertificateType = (value: unknown, doc?: any): string => {
 
   if (includesAny(all, ["רישיון", "רשיון"])) return "רישיון";
   if (includesAny(all, ["אישור", "מאושר"])) return "אישור";
-  if (includesAny(all, ["תעודה", "תקן", "תקינה", "תו תקן", "תת", "ת"ת"])) return "ת"ת";
+  if (includesAny(all, ["תעודה", "תקן", "תקינה"])) return "ת"ת";
 
-  if (lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) return "";
+  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) return "";
 
   return text;
 };
