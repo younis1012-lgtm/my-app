@@ -163,11 +163,23 @@ const includesAny = (text: unknown, keywords: string[]) => {
   return keywords.some((keyword) => n.includes(normalize(keyword)));
 };
 
+const looksLikeUuid = (text: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text.trim());
+
 const dateText = (value: unknown) => {
   const text = cleanText(value);
-  if (!text) return "";
+  if (!text || looksLikeUuid(text)) return "";
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10).split("-").reverse().join("/");
-  return text;
+  if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(text)) return text;
+  // אל תחזיר טקסטים שאינם תאריך לשדות תאריך, כדי שלא יופיעו מזהי קבצים / UUID.
+  return "";
+};
+
+const firstDateText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = dateText(value);
+    if (text) return text;
+  }
+  return "";
 };
 
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
@@ -200,14 +212,20 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
 };
 
 const inferDocumentType = (doc: any): string => {
-  const explicit = firstText(doc?.documentType, doc?.docType, doc?.type, doc?.kind, doc?.category, doc?.title, doc?.label);
-  if (explicit) return explicit;
-  const name = attachmentName(doc);
-  if (includesAny(name, ["iso", "9001"])) return "ISO";
-  if (includesAny(name, ["רישיון", "רשיון", "license"])) return "רישיון";
-  if (includesAny(name, ["אישור", "approval"])) return "אישור";
-  if (includesAny(name, ["תעודה", "certificate"])) return "תעודה";
-  return "";
+  // סוג תעודה נלקח מהשדה שהוזן במערכת בלבד, לא משם הקובץ.
+  const explicit = firstText(
+    doc?.certificateType,
+    doc?.documentType,
+    doc?.docType,
+    doc?.type,
+    doc?.kind,
+    doc?.category,
+    doc?.details?.certificateType,
+    doc?.details?.documentType,
+    doc?.results?.certificateType,
+    doc?.results?.documentType
+  );
+  return explicit;
 };
 
 const getAttachments = (record: any): any[] => {
@@ -266,6 +284,8 @@ const preliminaryBySubtype = (records: any[], subtype: string) => records.filter
 const supplierRow = (record: any, index: number): Row => {
   const supplier = record?.supplier ?? record;
   const docs = getAttachments(record);
+  const firstDoc = docs[0] ?? {};
+
   const suppliedMaterial = firstText(
     supplier?.suppliedMaterial,
     supplier?.suppliedProduct,
@@ -282,8 +302,8 @@ const supplierRow = (record: any, index: number): Row => {
     valueByKeyOrLabel(record, ["suppliedMaterial", "supplied_material", "materialSupplied", "suppliedProduct", "productSupplied", "suppliedGood", "providedMaterial"]),
     valueByLabel(record, ["חומר מסופק", "מוצר מסופק", "חומר/מוצר מסופק"])
   );
+
   const docNo = firstText(
-    docs.map((d) => attachmentCertificateNo(d)).find(Boolean),
     supplier?.certificateNo,
     supplier?.certificateNumber,
     supplier?.licenseNo,
@@ -301,43 +321,68 @@ const supplierRow = (record: any, index: number): Row => {
     record?.documentNo,
     record?.documentNumber,
     valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "licenseNo", "licenseNumber", "documentNo", "documentNumber", "approvalNumber", "approvalNo"]),
-    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר רישיון", "מס רישיון", "מספר רשיון", "מס רשיון", "מספר אישור", "מס אישור"])
+    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר רישיון", "מס רישיון", "מספר רשיון", "מס רשיון", "מספר אישור", "מס אישור"]),
+    docs.map((d) => attachmentCertificateNo(d)).find(Boolean)
   );
-  const docTypes = Array.from(new Set(docs.map(inferDocumentType).map(cleanText).filter(Boolean)));
-  const status = firstText(record?.status, record?.approval?.status, supplier?.status);
-  const approvalDate = dateText(
-    supplier?.approvalDate ??
-    supplier?.certificateApprovalDate ??
-    supplier?.approvedAt ??
-    record?.approvalDate ??
-    record?.approval?.date ??
-    valueByKeyOrLabel(record, ["approvalDate", "certificateApprovalDate", "approvedAt"]) ??
+
+  const docType = firstText(
+    supplier?.certificateType,
+    supplier?.documentType,
+    supplier?.approvalType,
+    supplier?.licenseType,
+    record?.certificateType,
+    record?.documentType,
+    record?.approvalType,
+    record?.licenseType,
+    valueByKeyOrLabel(record, ["certificateType", "documentType", "approvalType", "licenseType", "docType"]),
+    valueByLabel(record, ["סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
+    docs.map(inferDocumentType).find(Boolean)
+  );
+
+  const approvalDate = firstDateText(
+    supplier?.approvalDate,
+    supplier?.certificateApprovalDate,
+    supplier?.approvedAt,
+    record?.approvalDate,
+    record?.approval?.date,
+    firstDoc?.approvalDate,
+    firstDoc?.certificateApprovalDate,
+    firstDoc?.approvedAt,
+    firstDoc?.date,
+    valueByKeyOrLabel(record, ["approvalDate", "certificateApprovalDate", "approvedAt"]),
     valueByLabel(record, ["תאריך אישור", "תאריך אישור תעודה", "תאריך אישור רישיון", "תאריך אישור רשיון"])
   );
-  const expiryDate = dateText(
-    supplier?.expiryDate ??
-    supplier?.validUntil ??
-    supplier?.certificateExpiryDate ??
-    supplier?.licenseExpiryDate ??
-    supplier?.expirationDate ??
-    record?.expiryDate ??
-    record?.validUntil ??
-    record?.certificateExpiryDate ??
-    record?.licenseExpiryDate ??
-    valueByKeyOrLabel(record, ["expiryDate", "validUntil", "certificateExpiryDate", "licenseExpiryDate", "expirationDate"]) ??
+
+  const expiryDate = firstDateText(
+    supplier?.expiryDate,
+    supplier?.validUntil,
+    supplier?.certificateExpiryDate,
+    supplier?.licenseExpiryDate,
+    supplier?.expirationDate,
+    record?.expiryDate,
+    record?.validUntil,
+    record?.certificateExpiryDate,
+    record?.licenseExpiryDate,
+    firstDoc?.expiryDate,
+    firstDoc?.validUntil,
+    firstDoc?.certificateExpiryDate,
+    firstDoc?.licenseExpiryDate,
+    firstDoc?.expirationDate,
+    valueByKeyOrLabel(record, ["expiryDate", "validUntil", "certificateExpiryDate", "licenseExpiryDate", "expirationDate"]),
     valueByLabel(record, ["תוקף", "בתוקף עד", "תאריך תוקף", "תוקף תעודה", "תוקף רישיון", "תוקף רשיון", "תאריך פג תוקף"])
   );
+
   return {
     "מס׳": index + 1,
     "שם ספק": firstText(supplier?.supplierName, supplier?.name, record?.title),
     "חומר/מוצר מסופק": suppliedMaterial,
     "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
-    "סוג תעודה": docTypes.join(", "),
+    "סוג תעודה": docType,
     "מס׳ מסמכים / תעודות / רישיונות": docs.length || "",
     "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
-    "סטטוס": status,
+    "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
   };
 };
 
@@ -678,12 +723,17 @@ const rowXml = (r: number, values: unknown[], style = 0) => `<row r="${r}">${val
 const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
   let r = 1;
   const sheetRows: string[] = [];
-  const widthCount = Math.max(definition.columns.length, 8);
+  const widthCount = Math.max(definition.columns.length, 10);
+
   sheetRows.push(rowXml(r++, [definition.title], 1));
   sheetRows.push(rowXml(r++, ["שם פרויקט", meta.projectName, "ניהול פרויקט", meta.projectManager || meta.projectManagement, "שם הקבלן", meta.contractor], 2));
   sheetRows.push(rowXml(r++, ["בקרת איכות", meta.qualityControl, "הבטחת איכות", meta.qualityAssurance], 2));
   sheetRows.push(rowXml(r++, ["מקור נתונים", definition.sourceLabel, "מספר רשומות", rows.length], 2));
-  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => "")));
+
+  // שורות 5-9 נשארות ריקות כדי ששורת הכותרות תהיה בשורה 10, בדומה לפורמט הריכוזים המאושר.
+  while (r < 10) sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0));
+
+  // שורת הכותרות היחידה של הריכוז — לפי הסדר המבוקש. אין יותר כותרת כפולה בשורה 6.
   sheetRows.push(rowXml(r++, definition.columns, 3));
 
   if (rows.length) {
@@ -713,11 +763,11 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="5">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
   </cellXfs>
 </styleSheet>`;
 
