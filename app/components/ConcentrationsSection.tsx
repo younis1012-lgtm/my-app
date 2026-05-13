@@ -21,6 +21,8 @@ type Props = {
   savedNonconformances?: any[];
   savedTrialSections?: any[];
   savedPreliminary?: any[];
+  savedRfis?: any[];
+  savedControlProcesses?: any[];
   currentProjectName?: string;
   projectMeta?: ProjectConcentrationMeta;
 };
@@ -57,6 +59,8 @@ type BuildContext = {
   savedNonconformances: any[];
   savedTrialSections: any[];
   savedPreliminary: any[];
+  savedRfis: any[];
+  savedControlProcesses: any[];
   projectMeta: Required<ProjectConcentrationMeta>;
 };
 
@@ -168,11 +172,42 @@ const dateText = (value: unknown) => {
 
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
 const attachmentCertificateNo = (attachment: any, fallback = "") => {
-  const direct = firstText(attachment?.certificateNo, attachment?.approvalNo, attachment?.licenseNo, attachment?.results?.certificateNo, attachment?.labResults?.certificateNo, fallback);
+  // מספר תעודה/רישיון/אישור נלקח קודם כל מתוך המטא־דאטה של המסמך ולא מתוך שם הקובץ.
+  // כך מונעים מצב שבו "ISO 9001 2015.pdf" נכנס בטעות כמספר תעודה.
+  const direct = firstText(
+    attachment?.certificateNo,
+    attachment?.certificateNumber,
+    attachment?.documentNo,
+    attachment?.documentNumber,
+    attachment?.approvalNo,
+    attachment?.approvalNumber,
+    attachment?.licenseNo,
+    attachment?.licenseNumber,
+    attachment?.registrationNo,
+    attachment?.results?.certificateNo,
+    attachment?.results?.certificateNumber,
+    attachment?.results?.documentNo,
+    attachment?.labResults?.certificateNo,
+    attachment?.labResults?.certificateNumber,
+    attachment?.details?.certificateNo,
+    attachment?.details?.certificateNumber,
+    fallback
+  );
   if (direct) return direct;
   const name = attachmentName(attachment);
   const match = name.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
   return match?.[1] ?? "";
+};
+
+const inferDocumentType = (doc: any): string => {
+  const explicit = firstText(doc?.documentType, doc?.docType, doc?.type, doc?.kind, doc?.category, doc?.title, doc?.label);
+  if (explicit) return explicit;
+  const name = attachmentName(doc);
+  if (includesAny(name, ["iso", "9001"])) return "ISO";
+  if (includesAny(name, ["רישיון", "רשיון", "license"])) return "רישיון";
+  if (includesAny(name, ["אישור", "approval"])) return "אישור";
+  if (includesAny(name, ["תעודה", "certificate"])) return "תעודה";
+  return "";
 };
 
 const getAttachments = (record: any): any[] => {
@@ -232,27 +267,44 @@ const supplierRow = (record: any, index: number): Row => {
   const supplier = record?.supplier ?? record;
   const docs = getAttachments(record);
   const suppliedMaterial = firstText(
-    valueByKeyOrLabel(record, ["suppliedMaterial", "supplied_material", "materialSupplied", "suppliedProduct", "productSupplied", "material", "product"]),
-    valueByLabel(record, ["חומר מסופק", "מוצר מסופק", "חומר/מוצר מסופק", "חומר", "מוצר"]),
     supplier?.suppliedMaterial,
+    supplier?.suppliedProduct,
+    supplier?.materialSupplied,
+    supplier?.productSupplied,
+    supplier?.materialName,
     supplier?.material,
     supplier?.product,
-    supplier?.materialName,
-    record?.material?.materialName
+    record?.suppliedMaterial,
+    record?.suppliedProduct,
+    record?.materialSupplied,
+    record?.productSupplied,
+    record?.material?.materialName,
+    valueByKeyOrLabel(record, ["suppliedMaterial", "supplied_material", "materialSupplied", "suppliedProduct", "productSupplied", "suppliedGood", "providedMaterial"]),
+    valueByLabel(record, ["חומר מסופק", "מוצר מסופק", "חומר/מוצר מסופק"])
   );
   const docNo = firstText(
-    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "approvalNo", "approvalNumber", "licenseNo", "licenseNumber", "isoCertificateNo", "documentNo", "documentNumber"]),
-    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר אישור", "מס אישור", "מספר רישיון", "מס רישיון", "מספר רישיון / אישור"]),
-    supplier?.approvalNo,
+    docs.map((d) => attachmentCertificateNo(d)).find(Boolean),
     supplier?.certificateNo,
+    supplier?.certificateNumber,
     supplier?.licenseNo,
-    supplier?.isoCertificateNo,
-    record?.approvalNo,
+    supplier?.licenseNumber,
+    supplier?.approvalNo,
+    supplier?.approvalNumber,
+    supplier?.documentNo,
+    supplier?.documentNumber,
     record?.certificateNo,
-    docs.map((d) => attachmentCertificateNo(d)).find(Boolean)
+    record?.certificateNumber,
+    record?.licenseNo,
+    record?.licenseNumber,
+    record?.approvalNo,
+    record?.approvalNumber,
+    record?.documentNo,
+    record?.documentNumber,
+    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "licenseNo", "licenseNumber", "documentNo", "documentNumber", "approvalNumber", "approvalNo"]),
+    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר רישיון", "מס רישיון", "מספר רשיון", "מס רשיון", "מספר אישור", "מס אישור"])
   );
-  const docTypes = Array.from(new Set(docs.map(documentType).map(cleanText).filter(Boolean)));
-  const docSummary = firstText(valueByLabel(record, ["מסמכים", "תעודות", "רישיונות", "סוג תעודה"]), documentSummary(record));
+  const docTypes = Array.from(new Set(docs.map(inferDocumentType).map(cleanText).filter(Boolean)));
+  const status = firstText(record?.status, record?.approval?.status, supplier?.status);
   return {
     "מס׳": index + 1,
     "שם ספק": firstText(supplier?.supplierName, supplier?.name, record?.title),
@@ -260,8 +312,8 @@ const supplierRow = (record: any, index: number): Row => {
     "יצרן/מקור": firstText(supplier?.manufacturer, supplier?.source, record?.material?.source),
     "מספר תעודה / רישיון / אישור": docNo,
     "סוג תעודה": docTypes.join(", "),
-    "מס׳ מסמכים / תעודות / רישיונות": docSummary,
-    "סטטוס": firstText(record?.status, record?.approval?.status),
+    "מס׳ מסמכים / תעודות / רישיונות": docs.length || "",
+    "סטטוס": status,
     "תאריך": dateText(record?.date ?? record?.savedAt),
     "הערות": firstText(supplier?.notes, record?.notes),
   };
@@ -405,6 +457,52 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
 
 const commonChecklistColumns = ["מס׳", "מספר רשימה", "שם בדיקה/רשימה", "קטגוריה", "מיקום", "קבלן", "תאריך", "תיאור סעיף", "מבצע/אחראי", "בודק", "סטטוס", "מספר תעודה", "שם קובץ", "תוצאות/הערות"];
 
+
+const controlProcessRow = (record: any, index: number): Row => {
+  const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
+  const referenceResults = Array.isArray(record?.referenceResults) ? record.referenceResults : [];
+  const certNo = firstText(
+    docs.map((d: any) => firstText(d?.certificateNo, d?.certificateNumber, d?.documentNo, d?.documentNumber, d?.approvalNo, d?.referenceNo, d?.fileName, d?.name)).find(Boolean),
+    referenceResults.map((r: any) => firstText(r?.certificateNo, r?.certificateNumber, r?.documentNo, r?.documentNumber, r?.referenceNo, r?.labCertificateNo)).find(Boolean)
+  );
+  const docTypes = Array.from(new Set(docs.map((d: any) => firstText(d?.type, d?.documentType, d?.title, d?.name)).filter(Boolean)));
+  return {
+    "מס׳": index + 1,
+    "שם/כותרת": firstText(record?.title, record?.processNo, record?.workType),
+    "מיקום": firstText(record?.location, record?.fromSection, record?.toSection),
+    "תאריך": dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt),
+    "סעיף מפרט": firstText(record?.specSection),
+    "סוג עבודה": firstText(record?.workType),
+    "מספר תעודה / רישיון / אישור": certNo,
+    "סוג תעודה": docTypes.join(", "),
+    "מס׳ מסמכים": docs.length || "",
+    "סטטוס": firstText(record?.status, record?.approval?.status),
+    "הערות": firstText(record?.notes, record?.description),
+  };
+};
+
+const rfiRow = (record: any, index: number): Row => ({
+  "מס׳": index + 1,
+  "מספר RFI": firstText(record?.rfiNumber, record?.referenceNo, record?.title),
+  "נושא": firstText(record?.title, record?.planName),
+  "מיקום": firstText(record?.location, record?.building, record?.fromSection, record?.toSection),
+  "תאריך פתיחה": dateText(record?.openDate ?? record?.savedAt),
+  "סטטוס": firstText(record?.status),
+  "תיאור הבקשה": firstText(record?.requestDescription),
+  "תשובה/טיפול": firstText(record?.response),
+  "נספחים": Array.isArray(record?.documents) ? record.documents.length : "",
+  "הערות": firstText(record?.notes),
+});
+
+const commonProcessColumns = ["מס׳", "שם/כותרת", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים", "סטטוס", "הערות"];
+const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keywords: string[], label: string): Row[] => {
+  const checklist = checklistRows(checklists, keywords, label);
+  const process = processes
+    .filter((r) => includesAny(recordText(r), keywords))
+    .map((r, i) => controlProcessRow(r, checklist.length + i));
+  return [...checklist, ...process];
+};
+
 const definitions: ConcentrationDefinition[] = [
   {
     id: "nonconformances",
@@ -440,7 +538,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "בדיקות אספלט מתוך רשימות תיוג ותעודות מצורפות",
     sourceLabel: "רשימות תיוג",
     columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["אספלט", "fwd", "מישוריות", "שכבה סופית"], "בדיקות אספלט"),
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["אספלט", "fwd", "מישוריות", "שכבה סופית", "מרשל"], "בדיקות אספלט"),
   },
   {
     id: "density",
@@ -449,7 +547,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "צפיפות / הידוק / רטיבות / מצעים מתוך רשימות תיוג",
     sourceLabel: "רשימות תיוג",
     columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["צפיפות", "הידוק", "רטיבות", "מצע", "מצעים", "דרגת הידוק"], "בדיקות צפיפות"),
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["צפיפות", "הידוק", "רטיבות", "מצע", "מצעים", "דרגת הידוק"], "בדיקות צפיפות"),
   },
   {
     id: "concrete",
@@ -458,7 +556,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "בדיקות בטון מתוך רשימות תיוג ותעודות מצורפות",
     sourceLabel: "רשימות תיוג",
     columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["בטון", "יציקה", "קוביות", "חוזק"], "בדיקות בטון"),
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["בטון", "יציקה", "קוביות", "חוזק", "ב-30", "ב-40", "ב-50", "ב-60"], "בדיקות בטון"),
   },
   {
     id: "supervision",
@@ -467,7 +565,11 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז דוחות/רשומות פיקוח עליון מתוך המערכת",
     sourceLabel: "דוחות / קטעי ניסוי",
     columns: ["מס׳", "נושא", "מיקום", "תאריך", "מאשר/בודק", "סטטוס", "תיאור", "הערות"],
-    buildRows: ({ savedTrialSections }) => savedTrialSections.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": i + 1, "נושא": firstText(r?.title), "מיקום": firstText(r?.location), "תאריך": dateText(r?.date ?? r?.savedAt), "מאשר/בודק": firstText(r?.approvedBy), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.spec), "הערות": firstText(r?.notes) })),
+    buildRows: ({ savedChecklists, savedTrialSections, savedControlProcesses }) => [
+      ...savedChecklists.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": i + 1, "נושא": firstText(r?.title, r?.checklistName), "מיקום": firstText(r?.location), "תאריך": dateText(r?.date ?? r?.savedAt), "מאשר/בודק": firstText(r?.approvedBy, r?.inspector), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.spec), "הערות": firstText(r?.notes) })),
+      ...savedTrialSections.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": savedChecklists.length + i + 1, "נושא": firstText(r?.title), "מיקום": firstText(r?.location), "תאריך": dateText(r?.date ?? r?.savedAt), "מאשר/בודק": firstText(r?.approvedBy), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.spec), "הערות": firstText(r?.notes) })),
+      ...savedControlProcesses.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": savedChecklists.length + savedTrialSections.length + i + 1, "נושא": firstText(r?.title, r?.workType), "מיקום": firstText(r?.location), "תאריך": dateText(r?.savedAt), "מאשר/בודק": firstText(r?.approval?.approvedBy), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.specSection), "הערות": firstText(r?.notes) })),
+    ],
   },
   {
     id: "materials",
@@ -493,8 +595,8 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז אפיון מצע א.xlsx",
     description: "אפיון מצע א׳ מתוך תעודות/רשימות תיוג רלוונטיות",
     sourceLabel: "רשימות תיוג / תעודות",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה"], "אפיון מצע א׳"),
+    columns: commonProcessColumns,
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה", "תעודת ייחוס", "24403"], "אפיון מצע א׳"),
   },
   {
     id: "selected-material",
@@ -502,8 +604,8 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז אפיון נברר.xlsx",
     description: "אפיון חומר נברר מתוך תעודות/רשימות תיוג רלוונטיות",
     sourceLabel: "רשימות תיוג / תעודות",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["נברר", "חומר נברר", "אפיון נברר", "cbr", "גרדציה"], "אפיון נברר"),
+    columns: commonProcessColumns,
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["נברר", "חומר נברר", "אפיון נברר", "cbr", "גרדציה"], "אפיון נברר"),
   },
   {
     id: "earthworks",
@@ -512,16 +614,16 @@ const definitions: ConcentrationDefinition[] = [
     description: "עבודות עפר / בדיקות שדה מתוך רשימות תיוג",
     sourceLabel: "רשימות תיוג",
     columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists }) => checklistRows(savedChecklists, ["עבודות עפר", "עפר", "חפירה", "מילוי", "שדה", "הידוק מבוקר"], "בדיקות שדה / עבודות עפר"),
+    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["עבודות עפר", "עפר", "חפירה", "מילוי", "שדה", "הידוק מבוקר"], "בדיקות שדה / עבודות עפר"),
   },
   {
     id: "rfi",
     title: "RFI",
     fileName: "RFI.xlsx",
-    description: "ריכוז RFI — יוצג אם רשומות RFI מועברות לרכיב בעתיד",
+    description: "ריכוז RFI מתוך הרשומות שנשמרו במערכת",
     sourceLabel: "RFI",
-    columns: ["מס׳", "נושא", "מיקום", "תאריך", "סטטוס", "תיאור", "הערות"],
-    buildRows: () => [],
+    columns: ["מס׳", "מספר RFI", "נושא", "מיקום", "תאריך פתיחה", "סטטוס", "תיאור הבקשה", "תשובה/טיפול", "נספחים", "הערות"],
+    buildRows: ({ savedRfis }) => savedRfis.map(rfiRow),
   },
 ];
 
@@ -624,13 +726,13 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], currentProjectName = "", projectMeta }: Props) {
+export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], currentProjectName = "", projectMeta }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
 
   const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
-  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, meta]);
+  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, meta]);
 
   const rowsById = useMemo(() => {
     const result: Record<string, Row[]> = {};
