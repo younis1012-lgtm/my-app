@@ -254,7 +254,7 @@ const buildProjectMeta = (currentProjectName = "", meta?: ProjectConcentrationMe
   projectManager: firstText(meta?.projectManager, meta?.projectManagement),
   projectManagement: firstText(meta?.projectManagement, meta?.projectManager),
   contractor: firstText(meta?.contractor),
-  qualityAssurance: firstText(meta?.qualityAssurance),
+  qualityAssurance: "תיקו הנדסה אזרחית",
   qualityControl: firstText(meta?.qualityControl),
   workManager: firstText(meta?.workManager),
   surveyor: firstText(meta?.surveyor),
@@ -305,17 +305,39 @@ const supplierRow = (record: any, index: number): Row => {
   );
   const docTypes = Array.from(new Set(docs.map(inferDocumentType).map(cleanText).filter(Boolean)));
   const status = firstText(record?.status, record?.approval?.status, supplier?.status);
+  const approvalDate = dateText(
+    supplier?.approvalDate ??
+    supplier?.certificateApprovalDate ??
+    supplier?.approvedAt ??
+    record?.approvalDate ??
+    record?.approval?.date ??
+    valueByKeyOrLabel(record, ["approvalDate", "certificateApprovalDate", "approvedAt"]) ??
+    valueByLabel(record, ["תאריך אישור", "תאריך אישור תעודה", "תאריך אישור רישיון", "תאריך אישור רשיון"])
+  );
+  const expiryDate = dateText(
+    supplier?.expiryDate ??
+    supplier?.validUntil ??
+    supplier?.certificateExpiryDate ??
+    supplier?.licenseExpiryDate ??
+    supplier?.expirationDate ??
+    record?.expiryDate ??
+    record?.validUntil ??
+    record?.certificateExpiryDate ??
+    record?.licenseExpiryDate ??
+    valueByKeyOrLabel(record, ["expiryDate", "validUntil", "certificateExpiryDate", "licenseExpiryDate", "expirationDate"]) ??
+    valueByLabel(record, ["תוקף", "בתוקף עד", "תאריך תוקף", "תוקף תעודה", "תוקף רישיון", "תוקף רשיון", "תאריך פג תוקף"])
+  );
   return {
     "מס׳": index + 1,
     "שם ספק": firstText(supplier?.supplierName, supplier?.name, record?.title),
     "חומר/מוצר מסופק": suppliedMaterial,
-    "יצרן/מקור": firstText(supplier?.manufacturer, supplier?.source, record?.material?.source),
+    "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
     "סוג תעודה": docTypes.join(", "),
     "מס׳ מסמכים / תעודות / רישיונות": docs.length || "",
-    "סטטוס": status,
-    "תאריך": dateText(record?.date ?? record?.savedAt),
+    "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
+    "סטטוס": status,
   };
 };
 
@@ -519,7 +541,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "יצרן/מקור", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים / תעודות / רישיונות", "סטטוס", "תאריך", "הערות"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים / תעודות / רישיונות", "תוקף", "הערות", "סטטוס"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
@@ -659,7 +681,7 @@ const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], met
   const widthCount = Math.max(definition.columns.length, 8);
   sheetRows.push(rowXml(r++, [definition.title], 1));
   sheetRows.push(rowXml(r++, ["שם פרויקט", meta.projectName, "ניהול פרויקט", meta.projectManager || meta.projectManagement, "שם הקבלן", meta.contractor], 2));
-  sheetRows.push(rowXml(r++, ["בקרת איכות", meta.qualityControl, "הבטחת איכות", meta.qualityAssurance, "תאריך יצוא", new Date().toLocaleDateString("he-IL")], 2));
+  sheetRows.push(rowXml(r++, ["בקרת איכות", meta.qualityControl, "הבטחת איכות", meta.qualityAssurance], 2));
   sheetRows.push(rowXml(r++, ["מקור נתונים", definition.sourceLabel, "מספר רשומות", rows.length], 2));
   sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => "")));
   sheetRows.push(rowXml(r++, definition.columns, 3));
@@ -691,9 +713,9 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="5">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
   </cellXfs>
