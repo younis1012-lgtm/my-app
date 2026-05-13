@@ -211,13 +211,33 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
   return match?.[1] ?? "";
 };
 
+const normalizeCertificateType = (value: unknown, doc?: any): string => {
+  const text = cleanText(value);
+  const lower = text.toLowerCase();
+  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) {
+    const name = cleanText(attachmentName(doc));
+    const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
+    if (includesAny(all, ["iso", "9001"])) return "ISO";
+    if (includesAny(all, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
+    if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
+    if (includesAny(all, ["אישור", "approval"])) return "אישור";
+    return "";
+  }
+  if (includesAny(text, ["iso", "9001"])) return "ISO";
+  if (includesAny(text, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
+  if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
+  return text;
+};
+
 const inferDocumentType = (doc: any): string => {
-  // סוג תעודה נלקח מהשדה שהוזן במערכת בלבד, לא משם הקובץ.
+  // סוג תעודה נלקח קודם כל מהשדה שהוזן במערכת. אם נשמר רק MIME כמו application/pdf,
+  // לא מציגים אותו; מנסים להסיק ISO/ת"ת/רישיון משם המסמך כדי שלא יופיע application/pdf בריכוז.
   const explicit = firstText(
     doc?.certificateType,
     doc?.documentType,
     doc?.docType,
-    doc?.type,
+    doc?.approvalType,
+    doc?.licenseType,
     doc?.kind,
     doc?.category,
     doc?.details?.certificateType,
@@ -225,7 +245,7 @@ const inferDocumentType = (doc: any): string => {
     doc?.results?.certificateType,
     doc?.results?.documentType
   );
-  return explicit;
+  return normalizeCertificateType(explicit, doc);
 };
 
 const getAttachments = (record: any): any[] => {
@@ -378,11 +398,10 @@ const supplierRow = (record: any, index: number): Row => {
     "חומר/מוצר מסופק": suppliedMaterial,
     "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
-    "סוג תעודה": docType,
-    "מס׳ מסמכים / תעודות / רישיונות": docs.length || "",
+    "סוג תעודה /ISO/ת"ת/רישיון": normalizeCertificateType(docType, firstDoc),
+    "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
     "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
-    "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
   };
 };
 
@@ -586,7 +605,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים / תעודות / רישיונות", "תוקף", "הערות", "סטטוס"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת"ת/רישיון", "סטטוס", "תוקף", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
@@ -718,26 +737,27 @@ const cell = (r: number, c: number, v: unknown, style = 0) => {
   return `<c r="${ref}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;
 };
 
-const rowXml = (r: number, values: unknown[], style = 0) => `<row r="${r}">${values.map((v, i) => cell(r, i + 1, v, style)).join("")}</row>`;
+const rowXml = (r: number, values: unknown[], style = 0, height?: number) => `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, i + 1, v, style)).join("")}</row>`;
 
 const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
   let r = 1;
   const sheetRows: string[] = [];
   const widthCount = Math.max(definition.columns.length, 10);
 
+  // טבלת פרטי פרויקט עליונה: שומרת על מבנה דומה לפורמט שאושר, ללא תאריך יצוא.
   sheetRows.push(rowXml(r++, [definition.title], 1));
   sheetRows.push(rowXml(r++, ["שם פרויקט", meta.projectName, "ניהול פרויקט", meta.projectManager || meta.projectManagement, "שם הקבלן", meta.contractor], 2));
   sheetRows.push(rowXml(r++, ["בקרת איכות", meta.qualityControl, "הבטחת איכות", meta.qualityAssurance], 2));
   sheetRows.push(rowXml(r++, ["מקור נתונים", definition.sourceLabel, "מספר רשומות", rows.length], 2));
 
-  // שורות 5-9 נשארות ריקות כדי ששורת הכותרות תהיה בשורה 10, בדומה לפורמט הריכוזים המאושר.
+  // שורות 5-9 נשארות ריקות כדי ששורת הכותרות תהיה בשורה 10, בדיוק כמו בתיקון שסימנת.
   while (r < 10) sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0));
 
   // שורת הכותרות היחידה של הריכוז — לפי הסדר המבוקש. אין יותר כותרת כפולה בשורה 6.
-  sheetRows.push(rowXml(r++, definition.columns, 3));
+  sheetRows.push(rowXml(r++, definition.columns, 3, 36));
 
   if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 0)));
+    rows.forEach((item) => sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 0, 42)));
   } else {
     sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4));
   }
@@ -767,7 +787,7 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
   </cellXfs>
 </styleSheet>`;
 
@@ -888,7 +908,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                     <thead>
                       <tr>
                         {definition.columns.slice(0, 8).map((column) => (
-                          <th key={column} style={{ position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: 8, border: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{column}</th>
+                          <th key={column} style={{ position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{column}</th>
                         ))}
                       </tr>
                     </thead>
@@ -896,7 +916,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                       {rows.length ? rows.slice(0, 20).map((row, rowIndex) => (
                         <tr key={rowIndex}>
                           {definition.columns.slice(0, 8).map((column) => (
-                            <td key={column} style={{ padding: 8, border: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{cleanText(row[column])}</td>
+                            <td key={column} style={{ padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{cleanText(row[column])}</td>
                           ))}
                         </tr>
                       )) : (
