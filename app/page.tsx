@@ -11345,21 +11345,24 @@ ${invalidRecipients.join("\n")}`);
             <>
               <MatzeaAConcentrationFromReferences processes={projectControlProcesses} />
               <ConcentrationsSection
-        projectData={projectData}
-        suppliers={suppliers}
-        nonConformances={nonConformances}
-        asphaltTests={asphaltTests}
-        densityTests={densityTests}
-        trialSections={trialSections}
-        materials={materials}
-        supervisionReports={supervisionReports}
-        concreteTests={concreteTests}
-        upperInspectionReports={upperInspectionReports}
-        laboratoryTests={laboratoryTests}
-        calibrations={calibrations}
-        employees={employees}
-        workPlans={workPlans}
-        />
+                savedChecklists={projectChecklists}
+                savedNonconformances={projectNonconformances}
+                savedTrialSections={projectTrialSections}
+                savedPreliminary={projectPreliminary}
+                currentProjectName={projectName}
+                projectMeta={
+                  {
+                    projectName: currentProjectLegend.projectName,
+                    projectManager: currentProjectLegend.projectManagement,
+                    contractor: currentProjectLegend.contractor,
+                    qualityAssurance: currentProjectLegend.qualityAssurance,
+                    qualityControl: currentProjectLegend.qualityControl,
+                    workManager: currentProjectLegend.workManager,
+                    surveyor: currentProjectLegend.surveyor,
+                    supervisor: currentProjectLegend.supervisor,
+                  } as any
+                }
+              />
             </>
           )}
         </main>
