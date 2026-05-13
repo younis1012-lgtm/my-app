@@ -214,20 +214,18 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
 const normalizeCertificateType = (value: unknown, doc?: any): string => {
   const text = cleanText(value);
   const lower = text.toLowerCase();
-  const name = cleanText(attachmentName(doc));
-  const all = `${text} ${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
-  const allLower = all.toLowerCase();
-
-  if (includesAny(allLower, ["iso", "9001"])) return "ISO";
-  if (includesAny(allLower, ["license"])) return "רישיון";
-  if (includesAny(allLower, ["approval"])) return "אישור";
-
-  if (includesAny(all, ["רישיון", "רשיון"])) return "רישיון";
-  if (includesAny(all, ["אישור", "מאושר"])) return "אישור";
-  if (includesAny(all, ["תעודה", "תקן", "תקינה"])) return "ת"ת";
-
-  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) return "";
-
+  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) {
+    const name = cleanText(attachmentName(doc));
+    const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
+    if (includesAny(all, ["iso", "9001"])) return "ISO";
+    if (includesAny(all, ['תת', 'ת"ת', 'תו תקן', 'תקן ישראלי'])) return 'ת"ת';
+    if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
+    if (includesAny(all, ["אישור", "approval"])) return "אישור";
+    return "";
+  }
+  if (includesAny(text, ["iso", "9001"])) return "ISO";
+  if (includesAny(text, ['תת', 'ת"ת', 'תו תקן', 'תקן ישראלי'])) return 'ת"ת';
+  if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
   return text;
 };
 
@@ -400,7 +398,7 @@ const supplierRow = (record: any, index: number): Row => {
     "חומר/מוצר מסופק": suppliedMaterial,
     "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
-    "סוג תעודה /ISO/ת"ת/רישיון": normalizeCertificateType(docType, firstDoc),
+    'סוג תעודה /ISO/ת"ת/רישיון': normalizeCertificateType(docType, firstDoc),
     "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
     "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
@@ -607,7 +605,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת"ת/רישיון", "סטטוס", "תוקף", "הערות"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", 'סוג תעודה /ISO/ת"ת/רישיון', "סטטוס", "תוקף", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
