@@ -218,13 +218,13 @@ const normalizeCertificateType = (value: unknown, doc?: any): string => {
     const name = cleanText(attachmentName(doc));
     const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
     if (includesAny(all, ["iso", "9001"])) return "ISO";
-    if (includesAny(all, ['תת', 'ת"ת', 'תו תקן', 'תקן ישראלי'])) return 'ת"ת';
+    if (includesAny(all, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
     if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
     if (includesAny(all, ["אישור", "approval"])) return "אישור";
     return "";
   }
   if (includesAny(text, ["iso", "9001"])) return "ISO";
-  if (includesAny(text, ['תת', 'ת"ת', 'תו תקן', 'תקן ישראלי'])) return 'ת"ת';
+  if (includesAny(text, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
   if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
   return text;
 };
@@ -238,10 +238,15 @@ const inferDocumentType = (doc: any): string => {
     doc?.docType,
     doc?.approvalType,
     doc?.licenseType,
+    doc?.details,
+    doc?.פרטים,
     doc?.kind,
     doc?.category,
     doc?.details?.certificateType,
     doc?.details?.documentType,
+    doc?.details?.type,
+    doc?.details?.kind,
+    doc?.details?.פרטים,
     doc?.results?.certificateType,
     doc?.results?.documentType
   );
@@ -350,12 +355,16 @@ const supplierRow = (record: any, index: number): Row => {
     supplier?.documentType,
     supplier?.approvalType,
     supplier?.licenseType,
+    supplier?.details,
+    supplier?.פרטים,
     record?.certificateType,
     record?.documentType,
     record?.approvalType,
     record?.licenseType,
-    valueByKeyOrLabel(record, ["certificateType", "documentType", "approvalType", "licenseType", "docType"]),
-    valueByLabel(record, ["סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
+    record?.details,
+    record?.פרטים,
+    valueByKeyOrLabel(record, ["certificateType", "documentType", "approvalType", "licenseType", "docType", "details", "פרטים"]),
+    valueByLabel(record, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
     docs.map(inferDocumentType).find(Boolean)
   );
 
@@ -398,7 +407,7 @@ const supplierRow = (record: any, index: number): Row => {
     "חומר/מוצר מסופק": suppliedMaterial,
     "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
-    'סוג תעודה /ISO/ת"ת/רישיון': normalizeCertificateType(docType, firstDoc),
+    "סוג תעודה /ISO/ת"ת/רישיון": normalizeCertificateType(docType, firstDoc),
     "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
     "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
@@ -605,7 +614,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", 'סוג תעודה /ISO/ת"ת/רישיון', "סטטוס", "תוקף", "הערות"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת"ת/רישיון", "סטטוס", "תוקף", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
