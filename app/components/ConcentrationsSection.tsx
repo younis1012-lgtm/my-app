@@ -214,18 +214,21 @@ const attachmentCertificateNo = (attachment: any, fallback = "") => {
 const normalizeCertificateType = (value: unknown, doc?: any): string => {
   const text = cleanText(value);
   const lower = text.toLowerCase();
-  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) {
-    const name = cleanText(attachmentName(doc));
-    const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
-    if (includesAny(all, ["iso", "9001"])) return "ISO";
-    if (includesAny(all, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
-    if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
-    if (includesAny(all, ["אישור", "approval"])) return "אישור";
-    return "";
-  }
-  if (includesAny(text, ["iso", "9001"])) return "ISO";
-  if (includesAny(text, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
-  if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
+
+  const name = cleanText(attachmentName(doc));
+  const all = `${text} ${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
+  const allLower = all.toLowerCase();
+
+  if (includesAny(allLower, ["iso", "9001"])) return "ISO";
+  if (includesAny(allLower, ["license"])) return "רישיון";
+  if (includesAny(allLower, ["approval"])) return "אישור";
+
+  if (includesAny(all, ["רישיון", "רשיון"])) return "רישיון";
+  if (includesAny(all, ["אישור", "מאושר"])) return "אישור";
+  if (includesAny(all, ["תעודה", "תקן", "תקינה", "תו תקן", "תת", "ת"ת"])) return "ת"ת";
+
+  if (lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) return "";
+
   return text;
 };
 
