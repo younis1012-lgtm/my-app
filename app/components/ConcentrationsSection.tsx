@@ -795,7 +795,7 @@ const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], met
   sheetRows.push(rowXml(r++, [definition.title], 1));
   sheetRows.push(rowXml(r++, ["שם פרויקט", meta.projectName, "ניהול פרויקט", meta.projectManager || meta.projectManagement, "שם הקבלן", meta.contractor], 2));
   sheetRows.push(rowXml(r++, ["בקרת איכות", meta.qualityControl, "הבטחת איכות", meta.qualityAssurance], 2));
-  sheetRows.push(rowXml(r++, ["מקור נתונים", definition.sourceLabel, "מספר רשומות", rows.length], 2));
+  sheetRows.push(rowXml(r++, ["מקור נתונים", definition.sourceLabel, "שם הקבלן", meta.contractor], 2));
 
   // שורות 5-9 נשארות ריקות כדי ששורת הכותרות תהיה בשורה 10, בדיוק כמו בתיקון שסימנת.
   while (r < 10) sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0));
