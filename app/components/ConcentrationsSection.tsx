@@ -218,13 +218,13 @@ const normalizeCertificateType = (value: unknown, doc?: any): string => {
     const name = cleanText(attachmentName(doc));
     const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
     if (includesAny(all, ["iso", "9001"])) return "ISO";
-    if (includesAny(all, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
+    if (includesAny(all, ["תת", 'ת"ת', "תו תקן", "תקן ישראלי"])) return 'ת"ת';
     if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
     if (includesAny(all, ["אישור", "approval"])) return "אישור";
     return "";
   }
   if (includesAny(text, ["iso", "9001"])) return "ISO";
-  if (includesAny(text, ["תת", "ת"ת", "תו תקן", "תקן ישראלי"])) return "ת"ת";
+  if (includesAny(text, ["תת", 'ת"ת', "תו תקן", "תקן ישראלי"])) return 'ת"ת';
   if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
   return text;
 };
@@ -407,7 +407,7 @@ const supplierRow = (record: any, index: number): Row => {
     "חומר/מוצר מסופק": suppliedMaterial,
     "תאריך אישור": approvalDate,
     "מספר תעודה / רישיון / אישור": docNo,
-    "סוג תעודה /ISO/ת"ת/רישיון": normalizeCertificateType(docType, firstDoc),
+    "סוג תעודה /ISO/ת״ת/רישיון": normalizeCertificateType(docType, firstDoc),
     "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
     "תוקף": expiryDate,
     "הערות": firstText(supplier?.notes, record?.notes),
@@ -614,7 +614,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז ספקים.xlsx",
     description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת"ת/רישיון", "סטטוס", "תוקף", "הערות"],
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת״ת/רישיון", "סטטוס", "תוקף", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
   },
   {
