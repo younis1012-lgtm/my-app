@@ -636,7 +636,7 @@ const rfiRow = (record: any, index: number): Row => ({
 const matzeaAColumns = [
   "מס׳ סדורי",
   "ביצוע ע״י",
-  "מס׳ ר.ת.",
+  "מס׳ תעודה",
   "תאריך",
   "מקור החומר",
   "מקום נטילת מדגם לבדיקה",
@@ -692,7 +692,7 @@ const isMatzeaAProcess = (record: any): boolean => {
 const matzeaAProcessRow = (record: any, index: number): Row => ({
   "מס׳ סדורי": index + 1,
   "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", "ביצוע ע\"י"]), "QC"),
-  "מס׳ ר.ת.": referenceDocNo(record),
+  "מס׳ תעודה": referenceDocNo(record),
   "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
   "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
   "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
@@ -721,7 +721,7 @@ const matzeaAProcessRow = (record: any, index: number): Row => ({
 const matzeaAChecklistRow = (row: Row, index: number): Row => ({
   "מס׳ סדורי": index + 1,
   "ביצוע ע״י": firstText(row["מבצע/אחראי"], "QC"),
-  "מס׳ ר.ת.": firstText(row["מספר תעודה"]),
+  "מס׳ תעודה": firstText(row["מספר תעודה"]),
   "תאריך": firstText(row["תאריך"]),
   "מקור החומר": "",
   "מקום נטילת מדגם לבדיקה": firstText(row["מיקום"]),
@@ -964,7 +964,7 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
   </fonts>
   <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill></fills>
-  <borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders>
+  <borders count="2"><border/><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="5">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
