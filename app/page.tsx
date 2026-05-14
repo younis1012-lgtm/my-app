@@ -11343,7 +11343,6 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "concentrations" && (
             <>
-              <MatzeaAConcentrationFromReferences processes={projectControlProcesses} />
               <ConcentrationsSection
                 savedChecklists={projectChecklists}
                 savedNonconformances={projectNonconformances}
