@@ -765,6 +765,81 @@ const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[]): Row
   return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
+const selectedMaterialColumns = [
+  "מס׳ סדורי",
+  "ביצוע ע״י",
+  "מס׳ תעודה",
+  "תאריך",
+  "מקור החומר",
+  "מקום נטילת מדגם לבדיקה",
+  "מקום הפיזור / מבנה",
+  "#10",
+  "#40",
+  "#200",
+  "LL",
+  "PL",
+  "PI",
+  "מיון AASHTO",
+  "צפיפות מעבדתית מקסימלית",
+  "רטיבות אופטימלית",
+  "מעמד החומר",
+  "הערות",
+];
+
+const isSelectedMaterialProcess = (record: any): boolean => {
+  const text = recordText(record);
+  return includesAny(text, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4"]);
+};
+
+const selectedMaterialProcessRow = (record: any, index: number): Row => ({
+  "מס׳ סדורי": index + 1,
+  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
+  "מס׳ תעודה": referenceDocNo(record),
+  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
+  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
+  "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
+  "#10": metricValue(record, ["#10", "נפה 10"]),
+  "#40": metricValue(record, ["#40", "נפה 40"]),
+  "#200": metricValue(record, ["#200", "נפה 200"]),
+  "LL": metricValue(record, ["LL", "גבול נזילות"]),
+  "PL": metricValue(record, ["PL", "גבול פלסטיות"]),
+  "PI": metricValue(record, ["PI", "אינדקס פלסטיות"]),
+  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
+  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
+  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
+  "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
+  "הערות": firstText(record?.notes, record?.description),
+});
+
+const buildSelectedMaterialConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
+  const checklist = checklistRows(checklists, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4", "cbr", "גרדציה"], "אפיון נברר")
+    .map((row, index) => ({
+      "מס׳ סדורי": index + 1,
+      "ביצוע ע״י": firstText(row["מבצע/אחראי"], "QC"),
+      "מס׳ תעודה": firstText(row["מספר תעודה"]),
+      "תאריך": firstText(row["תאריך"]),
+      "מקור החומר": "",
+      "מקום נטילת מדגם לבדיקה": firstText(row["מיקום"]),
+      "מקום הפיזור / מבנה": "",
+      "#10": "",
+      "#40": "",
+      "#200": "",
+      "LL": "",
+      "PL": "",
+      "PI": "",
+      "מיון AASHTO": "",
+      "צפיפות מעבדתית מקסימלית": "",
+      "רטיבות אופטימלית": "",
+      "מעמד החומר": firstText(row["סטטוס"]),
+      "הערות": firstText(row["תוצאות/הערות"]),
+    }));
+  const process = processes
+    .filter(isSelectedMaterialProcess)
+    .map((record, index) => selectedMaterialProcessRow(record, checklist.length + index));
+  return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+};
+
 const commonProcessColumns = ["מס׳", "שם/כותרת", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים", "סטטוס", "הערות"];
 const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keywords: string[], label: string): Row[] => {
   const checklist = checklistRows(checklists, keywords, label);
@@ -875,8 +950,8 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז אפיון נברר.xlsx",
     description: "אפיון חומר נברר מתוך תעודות/רשימות תיוג רלוונטיות",
     sourceLabel: "רשימות תיוג / תעודות",
-    columns: commonProcessColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["נברר", "חומר נברר", "אפיון נברר", "cbr", "גרדציה"], "אפיון נברר"),
+    columns: selectedMaterialColumns,
+    buildRows: ({ savedChecklists, savedControlProcesses }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses),
   },
   {
     id: "earthworks",
@@ -1016,8 +1091,59 @@ const buildMatzeaAWorksheetXml = (definition: ConcentrationDefinition, rows: Row
 </worksheet>`;
 };
 
+const selectedMaterialSpecHeaderRows = [
+  ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור / מבנה", "דירוג / גבולות", "", "", "גבולות פלסטיות (%)", "", "", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מעמד החומר", "הערות"],
+  ["", "QC/QA", "", "", "", "", "", "#10", "#40", "#200", "LL", "PL", "PI", "", "", "", "", ""],
+  ["", "", "", "", "", "", "", "דרישות המפרט", "", "0-35", "0-40", "", "0-10", "", "", "", "", ""],
+];
+
+const selectedMaterialExportColumns = selectedMaterialColumns;
+
+const buildSelectedMaterialWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+  let r = 1;
+  const sheetRows: string[] = [];
+  const widthCount = selectedMaterialExportColumns.length;
+
+  sheetRows.push(emptyRowXml(r++, 14));
+  sheetRows.push(rowXmlFromColumn(r++, 6, ["דו״ח ריכוז בדיקות איפיון לחומר נברר", "", "", "", "", "", "", ""], 1, 20));
+  sheetRows.push(emptyRowXml(r++, 18));
+  sheetRows.push(rowXmlFromColumn(r++, 6, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 6, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 6, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 6, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
+  sheetRows.push(emptyRowXml(r++, 16));
+  sheetRows.push(emptyRowXml(r++, 16));
+
+  selectedMaterialSpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
+
+  if (rows.length) {
+    rows.forEach((item) => sheetRows.push(rowXml(r++, selectedMaterialExportColumns.map((column) => item[column] ?? ""), 6, 24)));
+  } else {
+    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
+  }
+
+  const cols = Array.from({ length: widthCount }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i >= 7 && i <= 12 ? 11 : 18}" customWidth="1"/>`).join("");
+  const mergeRefs = [
+    "F2:M2",
+    "F4:G4", "H4:M4",
+    "F5:G5", "H5:M5",
+    "F6:G6", "H6:M6",
+    "F7:I7", "J7:M7",
+    "A10:A12", "B10:B12", "C10:C12", "D10:D12", "E10:E12", "F10:F12", "G10:G12",
+    "H10:J10", "K10:M10", "N10:N12", "O10:O12", "P10:P12", "Q10:Q12", "R10:R12",
+  ];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
+  if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
   let r = 1;
   const sheetRows: string[] = [];
   const widthCount = Math.max(definition.columns.length, 10);

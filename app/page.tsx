@@ -446,14 +446,51 @@ const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   { metric: "מבנה", minValue: "", maxValue: "" },
 ];
 
+const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
+  metric: string;
+  minValue: string;
+  maxValue: string;
+}> = [
+  { metric: "דירוג AASHTO מיין", minValue: "", maxValue: "" },
+  { metric: "תיאור החומר", minValue: "", maxValue: "" },
+  { metric: "#10", minValue: "", maxValue: "" },
+  { metric: "#40", minValue: "", maxValue: "" },
+  { metric: "#200", minValue: "0", maxValue: "35" },
+  { metric: "גבול נזילות (LL)", minValue: "0", maxValue: "40" },
+  { metric: "גבול פלסטיות (PL)", minValue: "", maxValue: "" },
+  { metric: "אינדקס פלסטיות (PI)", minValue: "0", maxValue: "10" },
+  { metric: "מיין AASHTO", minValue: "", maxValue: "" },
+  { metric: "צפיפות מעבדתית מקסימלית", minValue: "", maxValue: "" },
+  { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
+  { metric: "מספר תעודת מעבדה", minValue: "", maxValue: "" },
+  { metric: "תאריך", minValue: "", maxValue: "" },
+  { metric: "מקום הדגם לבדיקה", minValue: "", maxValue: "" },
+  { metric: "מבנה", minValue: "", maxValue: "" },
+];
+
 const isMatzeaAReference = (value: unknown) => {
   const text = normalizeHebrewProjectName(value);
   return text.includes("מצע א") || text.includes("מצע א׳");
 };
 
+const isSelectedMaterialReference = (value: unknown) => {
+  const text = normalizeHebrewProjectName(value);
+  return text.includes("נברר") || text.includes("A-2-4") || text.includes("a-2-4");
+};
+
 const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
   MATZEA_A_REFERENCE_RESULT_DEFS.map((row) => ({
     id: `matzea-a-${row.metric}`.replace(/\s+/g, "-"),
+    metric: row.metric,
+    resultValue: "",
+    qualityStatus: "",
+    minValue: row.minValue,
+    maxValue: row.maxValue,
+  }));
+
+const createSelectedMaterialReferenceResults = (): ReferenceResultRow[] =>
+  SELECTED_MATERIAL_REFERENCE_RESULT_DEFS.map((row) => ({
+    id: `selected-material-${row.metric}`.replace(/\s+/g, "-"),
     metric: row.metric,
     resultValue: "",
     qualityStatus: "",
@@ -509,14 +546,14 @@ const applyReferenceQualityStatus = (row: ReferenceResultRow): ReferenceResultRo
   return autoStatus ? { ...row, qualityStatus: autoStatus } : row;
 };
 
-const ensureReferenceResultsForMaterial = (
-  workType: unknown,
-  current: unknown,
+const mergeReferenceResultsWithTemplate = (
+  template: ReferenceResultRow[],
+  current: ReferenceResultRow[],
 ): ReferenceResultRow[] => {
-  const normalized = normalizeReferenceResults(current);
-  if (!isMatzeaAReference(workType)) return normalized;
-  const byMetric = new Map(normalized.map((row) => [normalizeHebrewProjectName(row.metric), row]));
-  return createMatzeaAReferenceResults().map((fixed) => {
+  const byMetric = new Map(
+    current.map((row) => [normalizeHebrewProjectName(row.metric), row]),
+  );
+  return template.map((fixed) => {
     const existing = byMetric.get(normalizeHebrewProjectName(fixed.metric));
     return existing
       ? applyReferenceQualityStatus({
@@ -527,6 +564,26 @@ const ensureReferenceResultsForMaterial = (
         })
       : fixed;
   });
+};
+
+const ensureReferenceResultsForMaterial = (
+  workType: unknown,
+  current: unknown,
+): ReferenceResultRow[] => {
+  const normalized = normalizeReferenceResults(current);
+  if (isMatzeaAReference(workType)) {
+    return mergeReferenceResultsWithTemplate(
+      createMatzeaAReferenceResults(),
+      normalized,
+    );
+  }
+  if (isSelectedMaterialReference(workType)) {
+    return mergeReferenceResultsWithTemplate(
+      createSelectedMaterialReferenceResults(),
+      normalized,
+    );
+  }
+  return normalized;
 };
 
 const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
@@ -5565,7 +5622,7 @@ function ControlProcessesSection({
     selectedMaterial,
     form.referenceResults,
   );
-  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial);
+  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial);
 
   const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
     if (readOnly) return;
