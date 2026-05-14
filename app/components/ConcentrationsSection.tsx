@@ -640,13 +640,12 @@ const matzeaAColumns = [
   "תאריך",
   "מקור החומר",
   "מקום נטילת מדגם לבדיקה",
-  "מקום הפיזור",
-  "מבנה",
+  "מקום הפיזור / מבנה",
   "חתך התחלה",
   "חתך סוף",
-  "3\"",
-  "1.5\"",
-  "3/4\"",
+  "3"",
+  "1.5"",
+  "3/4"",
   "#4",
   "#10",
   "#40",
@@ -659,7 +658,11 @@ const matzeaAColumns = [
   "ספיגות (%)",
   "לוס אנג׳לס (%)",
   "מיון AASHTO",
-  "סטטוס",
+  "צפיפות מעבדתית מקסימלית",
+  "רטיבות אופטימלית",
+  "מספר תעודה",
+  "מעמד החומר",
+  "הערות",
 ];
 
 const metricValue = (record: any, aliases: string[]): string => {
@@ -691,18 +694,17 @@ const isMatzeaAProcess = (record: any): boolean => {
 
 const matzeaAProcessRow = (record: any, index: number): Row => ({
   "מס׳ סדורי": index + 1,
-  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", "ביצוע ע\"י"]), "QC"),
+  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", "ביצוע ע"י"]), "QC"),
   "מס׳ תעודה": referenceDocNo(record),
   "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
   "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
   "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
-  "מקום הפיזור": firstText(metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
-  "מבנה": metricValue(record, ["מבנה"]),
+  "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
   "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
   "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
-  "3\"": metricValue(record, ["3\"", "3'", "3 אינץ", "3”"]),
-  "1.5\"": metricValue(record, ["1.5\"", "1.5'", "1.5 אינץ", "1.5”"]),
-  "3/4\"": metricValue(record, ["3/4\"", "3/4'", "3/4", "מקטע 3/4"]),
+  "3"": metricValue(record, ["3"", "3'", "3 אינץ", "3”"]),
+  "1.5"": metricValue(record, ["1.5"", "1.5'", "1.5 אינץ", "1.5”"]),
+  "3/4"": metricValue(record, ["3/4"", "3/4'", "3/4", "מקטע 3/4"]),
   "#4": metricValue(record, ["#4", "נפה 4"]),
   "#10": metricValue(record, ["#10", "נפה 10"]),
   "#40": metricValue(record, ["#40", "נפה 40"]),
@@ -711,11 +713,15 @@ const matzeaAProcessRow = (record: any, index: number): Row => ({
   "PL": metricValue(record, ["PL", "גבול פלסטיות"]),
   "PI": metricValue(record, ["PI", "אינדקס פלסטיות"]),
   "שע״ח (%)": metricValue(record, ["שווה ערך חול", "שעח"]),
-  "צפיפות ממשית (ט/מ״ק)": firstText(metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית", "צפיפות מעבדתית מקסימלית"])),
+  "צפיפות ממשית (ט/מ״ק)": metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית"]),
   "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
   "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
   "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
-  "סטטוס": firstText(record?.status, record?.approval?.status),
+  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
+  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
+  "מספר תעודה": referenceDocNo(record),
+  "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
+  "הערות": firstText(record?.notes, record?.description),
 });
 
 const matzeaAChecklistRow = (row: Row, index: number): Row => ({
@@ -725,13 +731,12 @@ const matzeaAChecklistRow = (row: Row, index: number): Row => ({
   "תאריך": firstText(row["תאריך"]),
   "מקור החומר": "",
   "מקום נטילת מדגם לבדיקה": firstText(row["מיקום"]),
-  "מקום הפיזור": "",
-  "מבנה": "",
+  "מקום הפיזור / מבנה": "",
   "חתך התחלה": "",
   "חתך סוף": "",
-  "3\"": "",
-  "1.5\"": "",
-  "3/4\"": "",
+  "3"": "",
+  "1.5"": "",
+  "3/4"": "",
   "#4": "",
   "#10": "",
   "#40": "",
@@ -744,7 +749,11 @@ const matzeaAChecklistRow = (row: Row, index: number): Row => ({
   "ספיגות (%)": "",
   "לוס אנג׳לס (%)": "",
   "מיון AASHTO": "",
-  "סטטוס": firstText(row["סטטוס"]),
+  "צפיפות מעבדתית מקסימלית": "",
+  "רטיבות אופטימלית": "",
+  "מספר תעודה": firstText(row["מספר תעודה"]),
+  "מעמד החומר": firstText(row["סטטוס"]),
+  "הערות": firstText(row["תוצאות/הערות"]),
 });
 
 const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
@@ -915,7 +924,94 @@ const cell = (r: number, c: number, v: unknown, style = 0) => {
 
 const rowXml = (r: number, values: unknown[], style = 0, height?: number) => `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, i + 1, v, style)).join("")}</row>`;
 
+
+const matzeaASpecHeaderRows = [
+  ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
+  ["", "", "", "", "", "", "", "", "", "3\"", "1.5\"", "3/4\"", "#4", "#10", "#40", "#200", "LL", "PL", "PI", "", "צפיפות ממשית (ט/מ״ק)", "ספיגות (%)", "", "", "", "", "", "", ""],
+  ["", "", "", "", "", "", "", "", "", "דרישות המפרט", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+  ["", "QC/QA", "", "", "", "", "מבנה", "חתכים", "", "", "100", "85", "55", "40", "", "15", "25", "", "6", "27", "2.3", "", "35 max", "", "", "", "", "", ""],
+  ["", "", "", "", "", "", "", "התחלה", "סוף", "100", "80", "60", "30", "20", "", "5", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+];
+
+const matzeaAExportColumns = [
+  "מס׳ סדורי",
+  "ביצוע ע״י",
+  "מס׳ תעודה",
+  "תאריך",
+  "מקור החומר",
+  "מקום נטילת מדגם לבדיקה",
+  "מקום הפיזור / מבנה",
+  "חתך התחלה",
+  "חתך סוף",
+  "3\"",
+  "1.5\"",
+  "3/4\"",
+  "#4",
+  "#10",
+  "#40",
+  "#200",
+  "LL",
+  "PL",
+  "PI",
+  "שע״ח (%)",
+  "צפיפות ממשית (ט/מ״ק)",
+  "ספיגות (%)",
+  "לוס אנג׳לס (%)",
+  "מיון AASHTO",
+  "צפיפות מעבדתית מקסימלית",
+  "רטיבות אופטימלית",
+  "מספר תעודה",
+  "מעמד החומר",
+  "הערות",
+];
+
+const buildMatzeaAWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+  let r = 1;
+  const sheetRows: string[] = [];
+  const widthCount = 29;
+
+  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 14));
+  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "דו״ח ריכוז בדיקות איפיון למצע סוג א׳", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 1, 20));
+  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 18));
+  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "שם פרויקט:", "", meta.projectName, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "שם הקבלן", "", meta.contractor, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", `בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 16));
+  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 16));
+
+  matzeaASpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
+
+  if (rows.length) {
+    rows.forEach((item) => sheetRows.push(rowXml(r++, matzeaAExportColumns.map((column) => item[column] ?? ""), 0, 24)));
+  } else {
+    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
+  }
+
+  const cols = Array.from({ length: widthCount }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i >= 9 && i <= 22 ? 11 : 18}" customWidth="1"/>`).join("");
+  const mergeRefs = [
+    "H2:O2",
+    "H4:I4", "J4:O4",
+    "H5:I5", "J5:O5",
+    "H6:I6", "J6:O6",
+    "H7:K7", "L7:O7",
+    "A10:A14", "B10:B12", "B13:B14", "C10:C14", "D10:D14", "E10:E14", "F10:F14",
+    "G10:I12", "G13:G14", "H13:I13",
+    "J10:P10", "Q10:S10", "T10:T11", "U10:V10", "W10:W11",
+    "J12:W12", "Q13:Q14", "R13:R14", "S13:S14", "T13:T14", "U13:U14", "V13:V14", "W13:W14",
+    "X10:X14", "Y10:Y14", "Z10:Z14", "AA10:AA14", "AB10:AB14", "AC10:AC14",
+  ];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+  if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   let r = 1;
   const sheetRows: string[] = [];
   const widthCount = Math.max(definition.columns.length, 10);
