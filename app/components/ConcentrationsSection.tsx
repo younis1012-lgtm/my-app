@@ -327,6 +327,11 @@ const recordText = (record: any): string => {
     });
   }
   getAttachments(record).forEach((a) => parts.push(attachmentName(a), a?.description, a?.documentType, a?.type));
+  if (Array.isArray(record?.referenceResults)) {
+    record.referenceResults.forEach((r: any) =>
+      parts.push(r?.metric, r?.resultValue, r?.qualityStatus, r?.minValue, r?.maxValue),
+    );
+  }
   return parts.filter(Boolean).join(" ");
 };
 
@@ -627,6 +632,130 @@ const rfiRow = (record: any, index: number): Row => ({
   "הערות": firstText(record?.notes),
 });
 
+
+const matzeaAColumns = [
+  "מס׳ סדורי",
+  "ביצוע ע״י",
+  "מס׳ ר.ת.",
+  "תאריך",
+  "מקור החומר",
+  "מקום נטילת מדגם לבדיקה",
+  "מקום הפיזור",
+  "מבנה",
+  "חתך התחלה",
+  "חתך סוף",
+  "3\"",
+  "1.5\"",
+  "3/4\"",
+  "#4",
+  "#10",
+  "#40",
+  "#200",
+  "LL",
+  "PL",
+  "PI",
+  "שע״ח (%)",
+  "צפיפות ממשית (ט/מ״ק)",
+  "ספיגות (%)",
+  "לוס אנג׳לס (%)",
+  "מיון AASHTO",
+  "סטטוס",
+];
+
+const metricValue = (record: any, aliases: string[]): string => {
+  const normalizedAliases = aliases.map(normalize).filter(Boolean);
+  const rows = Array.isArray(record?.referenceResults) ? record.referenceResults : [];
+  for (const row of rows) {
+    const metric = normalize(firstText(row?.metric, row?.name, row?.label, row?.measure));
+    if (normalizedAliases.some((alias) => metric === alias || metric.includes(alias) || alias.includes(metric))) {
+      const value = firstText(row?.resultValue, row?.value, row?.result);
+      if (value) return value;
+    }
+  }
+  return "";
+};
+
+const referenceDocNo = (record: any): string => {
+  const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
+  return firstText(
+    metricValue(record, ["מספר תעודת מעבדה", "מס תעודת מעבדה", "מספר תעודה", "תעודה"]),
+    docs.map((d: any) => certificateNumberFromAttachment(d)).find(Boolean),
+    docs.map((d: any) => firstText(d?.certificateNo, d?.certificateNumber, d?.documentNo, d?.documentNumber, d?.referenceNo, d?.attachmentName, d?.name)).find(Boolean),
+  );
+};
+
+const isMatzeaAProcess = (record: any): boolean => {
+  const text = recordText(record);
+  return includesAny(text, ["מצע א", "מצע א׳", "אפיון מצע", "תעודת ייחוס", "24403"]);
+};
+
+const matzeaAProcessRow = (record: any, index: number): Row => ({
+  "מס׳ סדורי": index + 1,
+  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", "ביצוע ע\"י"]), "QC"),
+  "מס׳ ר.ת.": referenceDocNo(record),
+  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
+  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
+  "מקום הפיזור": firstText(metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
+  "מבנה": metricValue(record, ["מבנה"]),
+  "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
+  "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
+  "3\"": metricValue(record, ["3\"", "3'", "3 אינץ", "3”"]),
+  "1.5\"": metricValue(record, ["1.5\"", "1.5'", "1.5 אינץ", "1.5”"]),
+  "3/4\"": metricValue(record, ["3/4\"", "3/4'", "3/4", "מקטע 3/4"]),
+  "#4": metricValue(record, ["#4", "נפה 4"]),
+  "#10": metricValue(record, ["#10", "נפה 10"]),
+  "#40": metricValue(record, ["#40", "נפה 40"]),
+  "#200": metricValue(record, ["#200", "נפה 200"]),
+  "LL": metricValue(record, ["LL", "גבול נזילות"]),
+  "PL": metricValue(record, ["PL", "גבול פלסטיות"]),
+  "PI": metricValue(record, ["PI", "אינדקס פלסטיות"]),
+  "שע״ח (%)": metricValue(record, ["שווה ערך חול", "שעח"]),
+  "צפיפות ממשית (ט/מ״ק)": firstText(metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית", "צפיפות מעבדתית מקסימלית"])),
+  "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
+  "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
+  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
+  "סטטוס": firstText(record?.status, record?.approval?.status),
+});
+
+const matzeaAChecklistRow = (row: Row, index: number): Row => ({
+  "מס׳ סדורי": index + 1,
+  "ביצוע ע״י": firstText(row["מבצע/אחראי"], "QC"),
+  "מס׳ ר.ת.": firstText(row["מספר תעודה"]),
+  "תאריך": firstText(row["תאריך"]),
+  "מקור החומר": "",
+  "מקום נטילת מדגם לבדיקה": firstText(row["מיקום"]),
+  "מקום הפיזור": "",
+  "מבנה": "",
+  "חתך התחלה": "",
+  "חתך סוף": "",
+  "3\"": "",
+  "1.5\"": "",
+  "3/4\"": "",
+  "#4": "",
+  "#10": "",
+  "#40": "",
+  "#200": "",
+  "LL": "",
+  "PL": "",
+  "PI": "",
+  "שע״ח (%)": "",
+  "צפיפות ממשית (ט/מ״ק)": "",
+  "ספיגות (%)": "",
+  "לוס אנג׳לס (%)": "",
+  "מיון AASHTO": "",
+  "סטטוס": firstText(row["סטטוס"]),
+});
+
+const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
+  const checklist = checklistRows(checklists, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה", "תעודת ייחוס", "24403"], "אפיון מצע א׳")
+    .map((row, index) => matzeaAChecklistRow(row, index));
+  const process = processes
+    .filter(isMatzeaAProcess)
+    .map((record, index) => matzeaAProcessRow(record, checklist.length + index));
+  return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+};
+
 const commonProcessColumns = ["מס׳", "שם/כותרת", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים", "סטטוס", "הערות"];
 const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keywords: string[], label: string): Row[] => {
   const checklist = checklistRows(checklists, keywords, label);
@@ -727,9 +856,9 @@ const definitions: ConcentrationDefinition[] = [
     title: "ריכוז אפיון מצע א׳",
     fileName: "ריכוז אפיון מצע א.xlsx",
     description: "אפיון מצע א׳ מתוך תעודות/רשימות תיוג רלוונטיות",
-    sourceLabel: "רשימות תיוג / תעודות",
-    columns: commonProcessColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה", "תעודת ייחוס", "24403"], "אפיון מצע א׳"),
+    sourceLabel: "בקרה מקדימה / תעודות ייחוס",
+    columns: matzeaAColumns,
+    buildRows: ({ savedChecklists, savedControlProcesses }) => buildMatzeaAConcentrationRows(savedChecklists, savedControlProcesses),
   },
   {
     id: "selected-material",
