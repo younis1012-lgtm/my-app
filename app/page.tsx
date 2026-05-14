@@ -5624,6 +5624,23 @@ const extractTextFromReferenceFile = async (file: File): Promise<string> => {
   return pages.join("\n");
 };
 
+const referenceBlobToFile = (blob: Blob, fileName: string, fallbackType = "application/pdf") =>
+  new File([blob], fileName || "reference-certificate.pdf", {
+    type: blob.type || fallbackType,
+    lastModified: Date.now(),
+  });
+
+const extractReferenceFileFromStoredDocument = async (doc: RequiredDocument): Promise<File | null> => {
+  const url = String(doc.attachmentDataUrl ?? "").trim();
+  if (!url) return null;
+  const name = String(doc.attachmentName || "reference-certificate.pdf");
+  const type = String(doc.attachmentType || "application/pdf");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("לא הצלחתי לפתוח את הקובץ המצורף");
+  const blob = await response.blob();
+  return referenceBlobToFile(blob, name, type);
+};
+
 const normalizeReferencePdfText = (value: unknown) =>
   String(value ?? "").replace(/\u200f|\u200e/g, "").replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim();
 
@@ -5723,9 +5740,29 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     return [] as string[];
   };
 
+  const extractQtestGradingValues = () => {
+    // תעודות QTEST לרוב מכילות את סדר הנפות מימין לשמאל:
+    // #200 #40 #10 #4 3/8 3/4 1 1.5 3 ולאחר מכן שורת גודל נפה ושורת % עובר.
+    const joined = rawLines.join(" | ");
+    const headerAt = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
+    if (headerAt >= 0) {
+      const candidateLines = rawLines.slice(headerAt + 1, headerAt + 14);
+      for (const line of candidateLines) {
+        const numbers = line.match(/\d+(?:\.\d+)?/g) ?? [];
+        if (numbers.length >= 7 && !line.includes("0.075") && !line.includes("4.75") && !line.includes("37.5")) return numbers;
+      }
+    }
+    const compact = joined.replace(/\s*\|\s*/g, " ");
+    const match = compact.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+((?:\d+(?:\.\d+)?\s+){6,10}\d+(?:\.\d+)?)/i);
+    return match?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
+  };
+
   const lineSieveValues = extractSieveValuesFromLines();
+  const qtestGradingValues = extractQtestGradingValues();
   if (lineSieveValues.length >= 7) {
     setSieveValues(lineSieveValues);
+  } else if (qtestGradingValues.length >= 7) {
+    setSieveValues(qtestGradingValues);
   } else {
     const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
     const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
@@ -5870,6 +5907,43 @@ function ControlProcessesSection({
       alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית ולשמור.");
       return 0;
     }
+  };
+
+  const autoFillReferenceResultsFromStoredDocument = async (doc: RequiredDocument): Promise<number> => {
+    if (readOnly || !showReferenceResultsTable) return 0;
+    if (!doc.attached || !doc.attachmentDataUrl) {
+      alert("אין קובץ מצורף לקריאה מחדש.");
+      return 0;
+    }
+    try {
+      const file = await extractReferenceFileFromStoredDocument(doc);
+      if (!file) return 0;
+      const parsedCount = await autoFillReferenceResultsFromFile(file);
+      askToSaveReferenceCertificate(
+        parsedCount
+          ? `נקלטו מחדש ${parsedCount} ערכים מהתעודה. לשמור עכשיו?`
+          : "לא נמצאו ערכים חדשים בתעודה. לשמור את הטופס כפי שהוא?",
+      );
+      return parsedCount;
+    } catch (error) {
+      console.warn("Reference certificate stored reparse failed", error);
+      alert("לא הצלחתי לקרוא מחדש את הקובץ המצורף. אפשר לצרף אותו מחדש או להקליד ידנית.");
+      return 0;
+    }
+  };
+
+  const updateReferenceResultsFromAttachedCertificates = async () => {
+    if (readOnly || !showReferenceResultsTable) return;
+    const docs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.attached && doc.attachmentDataUrl);
+    if (!docs.length) {
+      alert("אין תעודה מצורפת לקריאה מחדש.");
+      return;
+    }
+    let total = 0;
+    for (const doc of docs) {
+      total += await autoFillReferenceResultsFromStoredDocument(doc);
+    }
+    if (total > 0) alert(`סה״כ נקלטו מחדש ${total} ערכים מהתעודות המצורפות.`);
   };
 
   const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
@@ -6288,7 +6362,7 @@ function ControlProcessesSection({
       {showReferenceResultsTable ? (
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-            תוצאות הזמנה מפורטות - מצע א׳
+            תוצאות הזמנה מפורטות - {isSelectedMaterialReference(selectedMaterial) ? "חומר נברר" : "מצע א׳"}
           </h3>
           <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
             מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין ערך
@@ -6297,6 +6371,9 @@ function ControlProcessesSection({
           <div style={{ ...styles.buttonRow, marginBottom: 12 }}>
             <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
               שמור תוצאות
+            </button>
+            <button type="button" style={styles.secondaryBtn} onClick={updateReferenceResultsFromAttachedCertificates} disabled={readOnly || !attachedDocs.some((doc) => doc.attached)}>
+              קלוט נתונים מחדש מהתעודה
             </button>
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -6371,6 +6448,9 @@ function ControlProcessesSection({
             </div>
           </div>
           <div style={styles.buttonRow}>
+            <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
+              שמור תעודת ייחוס
+            </button>
             <button
               type="button"
               style={styles.secondaryBtn}
@@ -6498,6 +6578,16 @@ function ControlProcessesSection({
                           }}
                         />
                       </label>
+                      {doc.attached ? (
+                        <button
+                          type="button"
+                          style={{ ...styles.secondaryBtn, marginRight: 6 }}
+                          onClick={() => void autoFillReferenceResultsFromStoredDocument(doc)}
+                          disabled={readOnly || !showReferenceResultsTable}
+                        >
+                          קלוט מחדש
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         style={{ ...styles.dangerBtn, marginRight: 6 }}
