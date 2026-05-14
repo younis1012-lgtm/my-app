@@ -5624,25 +5624,12 @@ const extractTextFromReferenceFile = async (file: File): Promise<string> => {
   return pages.join("\n");
 };
 
-const referenceBlobToFile = (blob: Blob, fileName: string, fallbackType = "application/pdf") =>
-  new File([blob], fileName || "reference-certificate.pdf", {
-    type: blob.type || fallbackType,
-    lastModified: Date.now(),
-  });
-
-const extractReferenceFileFromStoredDocument = async (doc: RequiredDocument): Promise<File | null> => {
-  const url = String(doc.attachmentDataUrl ?? "").trim();
-  if (!url) return null;
-  const name = String(doc.attachmentName || "reference-certificate.pdf");
-  const type = String(doc.attachmentType || "application/pdf");
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("לא הצלחתי לפתוח את הקובץ המצורף");
-  const blob = await response.blob();
-  return referenceBlobToFile(blob, name, type);
-};
-
 const normalizeReferencePdfText = (value: unknown) =>
-  String(value ?? "").replace(/\u200f|\u200e/g, "").replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim();
+  String(value ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[׳`’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const firstRegexGroup = (text: string, patterns: RegExp[]) => {
   for (const pattern of patterns) {
@@ -5687,7 +5674,7 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   const text = normalizeReferencePdfText(rawText);
   if (!text) return [];
   const rawLines = String(rawText ?? "")
-    .replace(/\u200f|\u200e/g, "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
     .split(/\r?\n/)
     .map((line) => line.replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim())
     .filter(Boolean);
@@ -5712,6 +5699,27 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["מקור החומר", "מקור"], source);
   setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], samplePlace);
 
+
+  const valueAfterExactLabel = (labels: string[]) => {
+    const cleanLine = (value: unknown) =>
+      String(value ?? "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .replace(/[׳`’]/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+    for (let index = 0; index < rawLines.length - 1; index += 1) {
+      const line = cleanLine(rawLines[index]);
+      if (labels.some((label) => normalizeHebrewProjectName(line) === normalizeHebrewProjectName(label))) {
+        return cleanLine(rawLines[index + 1]);
+      }
+    }
+    return "";
+  };
+
+  setMetric(["תיאור החומר", "סוג החומר"], firstText(valueAfterExactLabel(["סוג החומר"]), material));
+  setMetric(["מקור החומר", "מקור"], firstText(valueAfterExactLabel(["מקור החומר"]), source));
+  setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], firstText(valueAfterExactLabel(["קטע נבדק"]), samplePlace));
+
   const setSieveValues = (values: string[]) => {
     const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
     if (cleanValues.length >= 9) {
@@ -5725,6 +5733,54 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
       cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
     }
   };
+
+
+  const normalizePdfLine = (value: unknown) =>
+    String(value ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/[׳`’]/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const cleanedLines = rawLines.map(normalizePdfLine).filter(Boolean);
+
+  const numbersFromLine = (line: string) => line.match(/\d+(?:\.\d+)?/g) ?? [];
+
+  const readNumbersAfterLine = (lineIndex: number, count = 4) => {
+    const result: string[] = [];
+    for (let index = lineIndex + 1; index < Math.min(cleanedLines.length, lineIndex + 8); index += 1) {
+      const line = cleanedLines[index];
+      if (/מתאים|מדגם|דירוג|קו דירוג|בדיקות|בדיקה|יחידות|תוצאה|דרישה|התאמה|שם הבדיקה/.test(line)) break;
+      result.push(...numbersFromLine(line));
+      if (result.length >= count) break;
+    }
+    return result;
+  };
+
+  const firstSieveResultAfterLabel = (labelTests: Array<(line: string) => boolean>, mmValues: string[]) => {
+    const index = cleanedLines.findIndex((line) => labelTests.some((test) => test(line)));
+    if (index < 0) return "";
+    const values = readNumbersAfterLine(index, 4);
+    const withoutMm = values.filter((value, valueIndex) => valueIndex > 0 || !mmValues.includes(value));
+    return withoutMm[0] ?? "";
+  };
+
+  const qtestSievePairs: Array<{ aliases: string[]; tests: Array<(line: string) => boolean>; mm: string[] }> = [
+    { aliases: ['3"', "3 אינץ"], tests: [(line) => line.includes('3"') && !line.includes('3/4') && !line.includes('3/8')], mm: ["75"] },
+    { aliases: ['1.5"', "1.5"], tests: [(line) => line.includes('1.5')], mm: ["37.5"] },
+    { aliases: ['1"', "1 אינץ"], tests: [(line) => line.includes('1"') && !line.includes('1.5')], mm: ["25"] },
+    { aliases: ['3/4"', "3/4"], tests: [(line) => line.includes('3/4')], mm: ["19"] },
+    { aliases: ['3/8"', "3/8"], tests: [(line) => line.includes('3/8')], mm: ["9.5"] },
+    { aliases: ["#4", "נפה 4"], tests: [(line) => line.includes("#4")], mm: ["4.75"] },
+    { aliases: ["#10", "נפה 10"], tests: [(line) => line.includes("#10") || line.includes("10#")], mm: ["2"] },
+    { aliases: ["#40", "נפה 40"], tests: [(line) => line.includes("#40") || line.includes("40#")], mm: ["0.425"] },
+    { aliases: ["#200", "נפה 200"], tests: [(line) => line.includes("#200") || line.includes("200#")], mm: ["0.075"] },
+  ];
+
+  qtestSievePairs.forEach((item) => {
+    const value = firstSieveResultAfterLabel(item.tests, item.mm);
+    if (value) setMetric(item.aliases, value);
+  });
 
   const extractSieveValuesFromLines = () => {
     const headerIndex = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
@@ -5740,29 +5796,9 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     return [] as string[];
   };
 
-  const extractQtestGradingValues = () => {
-    // תעודות QTEST לרוב מכילות את סדר הנפות מימין לשמאל:
-    // #200 #40 #10 #4 3/8 3/4 1 1.5 3 ולאחר מכן שורת גודל נפה ושורת % עובר.
-    const joined = rawLines.join(" | ");
-    const headerAt = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
-    if (headerAt >= 0) {
-      const candidateLines = rawLines.slice(headerAt + 1, headerAt + 14);
-      for (const line of candidateLines) {
-        const numbers = line.match(/\d+(?:\.\d+)?/g) ?? [];
-        if (numbers.length >= 7 && !line.includes("0.075") && !line.includes("4.75") && !line.includes("37.5")) return numbers;
-      }
-    }
-    const compact = joined.replace(/\s*\|\s*/g, " ");
-    const match = compact.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+((?:\d+(?:\.\d+)?\s+){6,10}\d+(?:\.\d+)?)/i);
-    return match?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
-  };
-
   const lineSieveValues = extractSieveValuesFromLines();
-  const qtestGradingValues = extractQtestGradingValues();
   if (lineSieveValues.length >= 7) {
     setSieveValues(lineSieveValues);
-  } else if (qtestGradingValues.length >= 7) {
-    setSieveValues(qtestGradingValues);
   } else {
     const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
     const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
@@ -5803,6 +5839,28 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["לוס אנג'לס", "לוס אנגלס"], firstText(numericAfter("לוס\\s+אנג"), findNumberNearLabel(["לוס אנגלס", "לוס אנג'לס"], "before")));
   setMetric(["רטיבות כוללת"], findNumberNearLabel(["רטיבות כוללת"], "before"));
   setMetric(["אבן +3/4"], findNumberNearLabel(["אבן +3/4", "אבן 3/4+"], "before"));
+
+
+
+  const numberBeforeExactLabel = (labels: string[]) => {
+    for (let index = 0; index < cleanedLines.length; index += 1) {
+      const line = cleanedLines[index];
+      if (!labels.some((label) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(label)))) continue;
+      for (let back = index - 1; back >= Math.max(0, index - 6); back -= 1) {
+        const candidate = cleanedLines[back];
+        if (/ב["׳']?פ/.test(candidate)) return "0";
+        const numbers = numbersFromLine(candidate);
+        if (numbers.length) return numbers[numbers.length - 1];
+      }
+    }
+    return "";
+  };
+
+  setMetric(["גבול נזילות", "LL"], numberBeforeExactLabel(["גבול נזילות", "L.L", "LL"]));
+  setMetric(["גבול פלסטיות", "PL", "LP"], numberBeforeExactLabel(["גבול הפלסטיות", "גבול פלסטיות", "P.L", "PL"]));
+  setMetric(["אינדקס פלסטיות", "PI"], numberBeforeExactLabel(["מדד פלסטיות", "אינדקס פלסטיות", "I.P", "P.I", "PI"]));
+  setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstText(aashto, valueAfterExactLabel(["מיון AASHTO"])));
+  setMetric(["מיון אחיד"], firstText(unified, valueAfterExactLabel(["מיון אחיד לפי תי 254", "מיון אחיד לפי ת\"י 254"])));
 
   return rows;
 };
@@ -5909,41 +5967,42 @@ function ControlProcessesSection({
     }
   };
 
-  const autoFillReferenceResultsFromStoredDocument = async (doc: RequiredDocument): Promise<number> => {
-    if (readOnly || !showReferenceResultsTable) return 0;
-    if (!doc.attached || !doc.attachmentDataUrl) {
-      alert("אין קובץ מצורף לקריאה מחדש.");
-      return 0;
-    }
+
+  const fileFromAttachedDocument = async (doc: RequiredDocument): Promise<File | null> => {
+    if (!doc.attachmentDataUrl) return null;
     try {
-      const file = await extractReferenceFileFromStoredDocument(doc);
-      if (!file) return 0;
-      const parsedCount = await autoFillReferenceResultsFromFile(file);
-      askToSaveReferenceCertificate(
-        parsedCount
-          ? `נקלטו מחדש ${parsedCount} ערכים מהתעודה. לשמור עכשיו?`
-          : "לא נמצאו ערכים חדשים בתעודה. לשמור את הטופס כפי שהוא?",
-      );
-      return parsedCount;
+      const fileName = doc.attachmentName || "reference-certificate.pdf";
+      if (doc.attachmentDataUrl.startsWith("data:")) {
+        const [header, base64Data = ""] = doc.attachmentDataUrl.split(",");
+        const mime = header.match(/data:([^;]+)/)?.[1] || doc.attachmentType || "application/pdf";
+        const binary = atob(base64Data);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return new File([bytes], fileName, { type: mime });
+      }
+      const response = await fetch(doc.attachmentDataUrl);
+      if (!response.ok) throw new Error("download failed");
+      const blob = await response.blob();
+      return new File([blob], fileName, { type: blob.type || doc.attachmentType || "application/pdf" });
     } catch (error) {
-      console.warn("Reference certificate stored reparse failed", error);
-      alert("לא הצלחתי לקרוא מחדש את הקובץ המצורף. אפשר לצרף אותו מחדש או להקליד ידנית.");
-      return 0;
+      console.warn("Failed to read existing reference attachment", error);
+      return null;
     }
   };
 
-  const updateReferenceResultsFromAttachedCertificates = async () => {
-    if (readOnly || !showReferenceResultsTable) return;
-    const docs = normalizeRequiredDocuments(form.requiredDocuments).filter((doc) => doc.attached && doc.attachmentDataUrl);
-    if (!docs.length) {
-      alert("אין תעודה מצורפת לקריאה מחדש.");
+  const reparseReferenceResultsFromDocument = async (doc: RequiredDocument) => {
+    if (readOnly) return;
+    const file = await fileFromAttachedDocument(doc);
+    if (!file) {
+      alert("לא ניתן לקרוא את הקובץ הקיים. אפשר לצרף את התעודה מחדש ואז ללחוץ שמירה.");
       return;
     }
-    let total = 0;
-    for (const doc of docs) {
-      total += await autoFillReferenceResultsFromStoredDocument(doc);
-    }
-    if (total > 0) alert(`סה״כ נקלטו מחדש ${total} ערכים מהתעודות המצורפות.`);
+    const parsedCount = await autoFillReferenceResultsFromFile(file);
+    askToSaveReferenceCertificate(
+      parsedCount
+        ? `נקלטו ${parsedCount} ערכים מהתעודה הקיימת. לשמור עכשיו?`
+        : "לא נמצאו ערכים חדשים בתעודה. לשמור את הטופס כפי שהוא?",
+    );
   };
 
   const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
@@ -6362,7 +6421,7 @@ function ControlProcessesSection({
       {showReferenceResultsTable ? (
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-            תוצאות הזמנה מפורטות - {isSelectedMaterialReference(selectedMaterial) ? "חומר נברר" : "מצע א׳"}
+            תוצאות הזמנה מפורטות - מצע א׳
           </h3>
           <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
             מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין ערך
@@ -6371,9 +6430,6 @@ function ControlProcessesSection({
           <div style={{ ...styles.buttonRow, marginBottom: 12 }}>
             <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
               שמור תוצאות
-            </button>
-            <button type="button" style={styles.secondaryBtn} onClick={updateReferenceResultsFromAttachedCertificates} disabled={readOnly || !attachedDocs.some((doc) => doc.attached)}>
-              קלוט נתונים מחדש מהתעודה
             </button>
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -6448,9 +6504,6 @@ function ControlProcessesSection({
             </div>
           </div>
           <div style={styles.buttonRow}>
-            <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
-              שמור תעודת ייחוס
-            </button>
             <button
               type="button"
               style={styles.secondaryBtn}
@@ -6578,12 +6631,12 @@ function ControlProcessesSection({
                           }}
                         />
                       </label>
-                      {doc.attached ? (
+                      {doc.attached && showReferenceResultsTable ? (
                         <button
                           type="button"
                           style={{ ...styles.secondaryBtn, marginRight: 6 }}
-                          onClick={() => void autoFillReferenceResultsFromStoredDocument(doc)}
-                          disabled={readOnly || !showReferenceResultsTable}
+                          onClick={() => void reparseReferenceResultsFromDocument(doc)}
+                          disabled={readOnly}
                         >
                           קלוט מחדש
                         </button>
