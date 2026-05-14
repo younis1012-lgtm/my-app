@@ -926,10 +926,6 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="חיפוש ריכוז..." style={{ width: 260, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 700 }} />
       </div>
 
-      <div style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 16, padding: 14, color: "#1e3a8a", fontWeight: 800, lineHeight: 1.7 }}>
-        לפני הורדה אפשר לפתוח תצוגה מקדימה. מה שמופיע בטבלה הוא מה שייכנס לאקסל.
-      </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
         {visibleDefinitions.map((definition) => {
           const rows = rowsById[definition.id] ?? [];
