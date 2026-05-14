@@ -5669,6 +5669,11 @@ const upsertParsedReferenceMetric = (
 const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: string): ReferenceResultRow[] => {
   const text = normalizeReferencePdfText(rawText);
   if (!text) return [];
+  const rawLines = String(rawText ?? "")
+    .replace(/\u200f|\u200e/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
   let rows = ensureReferenceResultsForMaterial(workType, []);
   const setMetric = (aliases: string[], value: string) => {
     rows = upsertParsedReferenceMetric(rows, aliases, value);
@@ -5691,42 +5696,76 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], samplePlace);
 
   const setSieveValues = (values: string[]) => {
-    if (values.length >= 9) {
+    const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
+    if (cleanValues.length >= 9) {
       const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-      values.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
+      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
       return;
     }
-    if (values.length >= 7) {
-      // בתעודות QTEST של חומר נברר לעיתים אין ערכים עבור 3/8 ו-1, ולכן השורה מכילה 7 ערכים בלבד.
+    if (cleanValues.length >= 7) {
+      // בתעודות QTEST של חומר נברר לעיתים אין ערכים עבור 3/8 ו-1, ולכן שורת המדגם מכילה 7 ערכים בלבד.
       const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-      values.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
+      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
     }
   };
 
-  const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
-  const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
-  if (qtestSieveValues.length >= 7) {
-    setSieveValues(qtestSieveValues);
+  const extractSieveValuesFromLines = () => {
+    const headerIndex = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
+    if (headerIndex < 0) return [] as string[];
+    for (let index = headerIndex + 1; index < Math.min(rawLines.length, headerIndex + 10); index += 1) {
+      const line = rawLines[index];
+      const numbers = line.match(/\d+(?:\.\d+)?/g) ?? [];
+      if (numbers.length < 7) continue;
+      // מדלגים על שורת גודל נפה במ״מ: 0.075 0.425 2 4.75 ...
+      if (line.includes("0.075") || line.includes("4.75") || line.includes("37.5")) continue;
+      return numbers;
+    }
+    return [] as string[];
+  };
+
+  const lineSieveValues = extractSieveValuesFromLines();
+  if (lineSieveValues.length >= 7) {
+    setSieveValues(lineSieveValues);
   } else {
-    const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,260}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
-    const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
-    const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
-    setSieveValues(values);
+    const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
+    const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
+    if (qtestSieveValues.length >= 7) {
+      setSieveValues(qtestSieveValues);
+    } else {
+      const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,260}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
+      const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
+      const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
+      setSieveValues(values);
+    }
   }
+
+  const findNumberNearLabel = (labels: string[], side: "after" | "before" = "after") => {
+    for (const label of labels) {
+      const labelRegex = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const pattern = side === "after"
+        ? new RegExp(`${labelRegex}[\\s\\S]{0,120}?([0-9]+(?:\\.[0-9]+)?)`, "i")
+        : new RegExp(`([0-9]+(?:\\.[0-9]+)?)[\\s\\S]{0,120}?${labelRegex}`, "i");
+      const match = text.match(pattern);
+      if (match?.[1]) return match[1];
+    }
+    return "";
+  };
 
   const numericAfter = (label: string) => {
     const pattern = new RegExp(`${label}[\\s\\S]{0,90}?([0-9]+(?:\\.[0-9]+)?)`, "i");
     return text.match(pattern)?.[1] ?? "";
   };
-  setMetric(["גבול נזילות", "LL"], numericAfter("גבול\\s+נזילות|L\\.?L"));
-  setMetric(["גבול פלסטיות", "PL", "LP"], numericAfter("גבול\\s+ה?פלסטיות|L\\.?P"));
-  setMetric(["אינדקס פלסטיות", "PI"], numericAfter("אינדקס\\s+פלסטיות|P\\.?I"));
-  setMetric(["שווה ערך חול", "שעח"], numericAfter("שווה\\s+ערך\\s+חול"));
-  setMetric(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], numericAfter("צפיפות\\s+מקסימלית"));
-  setMetric(["רטיבות אופטימלית"], numericAfter("רטיבות\\s+אופטימלית"));
-  setMetric(["צפיפות מכשירית", "צפיפות ממשית"], numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"));
-  setMetric(["ספיגות", "ספיגות (G)"], numericAfter("ספיגות"));
-  setMetric(["לוס אנג'לס", "לוס אנגלס"], numericAfter("לוס\\s+אנג"));
+  setMetric(["גבול נזילות", "LL"], firstText(numericAfter("גבול\\s+נזילות|L\\.?L"), findNumberNearLabel(["גבול נזילות", "L.L", "LL"], "before")));
+  setMetric(["גבול פלסטיות", "PL", "LP"], firstText(numericAfter("גבול\\s+ה?פלסטיות|L\\.?P"), findNumberNearLabel(["גבול הפלסטיות", "גבול פלסטיות", "L.P", "PL"], "before")));
+  setMetric(["אינדקס פלסטיות", "PI"], firstText(numericAfter("אינדקס\\s+פלסטיות|P\\.?I"), findNumberNearLabel(["אינדקס פלסטיות", "P.I", "PI"], "before")));
+  setMetric(["שווה ערך חול", "שעח"], firstText(numericAfter("שווה\\s+ערך\\s+חול"), findNumberNearLabel(["שווה ערך חול"], "before")));
+  setMetric(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], firstText(numericAfter("צפיפות\\s+מקסימלית"), findNumberNearLabel(["צפיפות מקסימלית"], "before")));
+  setMetric(["רטיבות אופטימלית"], firstText(numericAfter("רטיבות\\s+אופטימלית"), findNumberNearLabel(["רטיבות אופטימלית"], "before")));
+  setMetric(["צפיפות מכשירית", "צפיפות ממשית"], firstText(numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"), findNumberNearLabel(["משקל סגולי ממשי", "צפיפות מחושבת"], "before")));
+  setMetric(["ספיגות", "ספיגות (G)"], firstText(numericAfter("ספיגות"), findNumberNearLabel(["ספיגות"], "before")));
+  setMetric(["לוס אנג'לס", "לוס אנגלס"], firstText(numericAfter("לוס\\s+אנג"), findNumberNearLabel(["לוס אנגלס", "לוס אנג'לס"], "before")));
+  setMetric(["רטיבות כוללת"], findNumberNearLabel(["רטיבות כוללת"], "before"));
+  setMetric(["אבן +3/4"], findNumberNearLabel(["אבן +3/4", "אבן 3/4+"], "before"));
 
   return rows;
 };
@@ -5795,13 +5834,28 @@ function ControlProcessesSection({
   );
   const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial);
 
-  const autoFillReferenceResultsFromFile = async (file: File) => {
-    if (readOnly || !showReferenceResultsTable) return;
+  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. לשמור עכשיו את תעודת הייחוס?") => {
+    if (typeof window === "undefined") return;
+    window.setTimeout(() => {
+      if (window.confirm(message)) void onSave();
+    }, 120);
+  };
+
+  const autoFillReferenceResultsFromFile = async (file: File): Promise<number> => {
+    if (readOnly || !showReferenceResultsTable) return 0;
     try {
       const text = await extractTextFromReferenceFile(file);
       const parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
       const filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-      if (!filledRows.length) return;
+      if (!filledRows.length) return 0;
+      const currentRows = ensureReferenceResultsForMaterial(selectedMaterial, form.referenceResults);
+      const hasExistingValues = currentRows.some((row) => String(row.resultValue ?? "").trim());
+      if (hasExistingValues && typeof window !== "undefined") {
+        const shouldMerge = window.confirm(
+          "קיימים כבר נתונים בטבלת התוצאות. ללחוץ אישור כדי למזג ולעדכן לפי התעודה, או ביטול כדי להשאיר את הנתונים כפי שהם.",
+        );
+        if (!shouldMerge) return 0;
+      }
       setForm((prev: any) => ({
         ...prev,
         referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
@@ -5809,10 +5863,12 @@ function ControlProcessesSection({
           return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
         }),
       }));
-      alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. מומלץ לבדוק ולאשר לפני שמירה.`);
+      alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`);
+      return filledRows.length;
     } catch (error) {
       console.warn("Reference certificate auto parsing failed", error);
-      alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית.");
+      alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית ולשמור.");
+      return 0;
     }
   };
 
@@ -5881,7 +5937,12 @@ function ControlProcessesSection({
           .from("attachments")
           .getPublicUrl(filePath);
         applyAttachment(data.publicUrl);
-        await autoFillReferenceResultsFromFile(file);
+        const parsedCount = await autoFillReferenceResultsFromFile(file);
+        askToSaveReferenceCertificate(
+          parsedCount
+            ? `הקובץ צורף ונקלטו ${parsedCount} ערכים. לשמור עכשיו את תעודת הייחוס?`
+            : "הקובץ צורף לטופס. לשמור עכשיו את תעודת הייחוס?",
+        );
         return;
       } catch (error) {
         console.error("Control process document upload failed", error);
@@ -5892,7 +5953,12 @@ function ControlProcessesSection({
     const reader = new FileReader();
     reader.onload = async () => {
       applyAttachment(String(reader.result ?? ""));
-      await autoFillReferenceResultsFromFile(file);
+      const parsedCount = await autoFillReferenceResultsFromFile(file);
+      askToSaveReferenceCertificate(
+        parsedCount
+          ? `הקובץ צורף ונקלטו ${parsedCount} ערכים. לשמור עכשיו את תעודת הייחוס?`
+          : "הקובץ צורף לטופס. לשמור עכשיו את תעודת הייחוס?",
+      );
     };
     reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     reader.readAsDataURL(file);
