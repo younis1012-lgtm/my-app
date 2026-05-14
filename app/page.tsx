@@ -2551,9 +2551,9 @@ function ProcessSignatureFields({
     background: "#fff",
   };
   const [showDigitalPad, setShowDigitalPad] = useState(false);
-  const isImageSignature = String(value.signature || "").startsWith(
-    "data:image/",
-  );
+  const isImageSignature =
+    String(value.signature || "").startsWith("data:image/") ||
+    String(value.signature || "").startsWith("/signatures/");
   const uploadSignatureToThisForm = (file?: File) => {
     if (!file) return;
     const reader = new FileReader();
@@ -3264,9 +3264,9 @@ function ChecklistsSection({
                     item.responsible || "גורם אחראי",
                     autoName,
                   );
-                  const isImageSignature = String(
-                    signatureValue.signature || "",
-                  ).startsWith("data:image/");
+                  const isImageSignature =
+                    String(signatureValue.signature || "").startsWith("data:image/") ||
+                    String(signatureValue.signature || "").startsWith("/signatures/");
                   const isExcludedFromPrint = Boolean(
                     (item as any).excludedFromPrint,
                   );
