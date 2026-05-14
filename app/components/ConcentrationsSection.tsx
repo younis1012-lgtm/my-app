@@ -989,7 +989,7 @@ const buildMatzeaAWorksheetXml = (definition: ConcentrationDefinition, rows: Row
   matzeaASpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
 
   if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, matzeaAExportColumns.map((column) => item[column] ?? ""), 0, 24)));
+    rows.forEach((item) => sheetRows.push(rowXml(r++, matzeaAExportColumns.map((column) => item[column] ?? ""), 5, 24)));
   } else {
     sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
   }
@@ -1042,7 +1042,7 @@ const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], met
   sheetRows.push(rowXml(r++, definition.columns, 3, 36));
 
   if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 0, 42)));
+    rows.forEach((item) => sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 5, 42)));
   } else {
     sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4));
   }
@@ -1068,12 +1068,13 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill></fills>
   <borders count="2"><border/><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="5">
+  <cellXfs count="6">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
   </cellXfs>
 </styleSheet>`;
 
