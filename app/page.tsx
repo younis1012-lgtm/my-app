@@ -11348,6 +11348,8 @@ ${invalidRecipients.join("\n")}`);
                 savedNonconformances={projectNonconformances}
                 savedTrialSections={projectTrialSections}
                 savedPreliminary={projectPreliminary}
+                savedRfis={projectRfis}
+                savedControlProcesses={projectControlProcesses}
                 currentProjectName={projectName}
                 projectMeta={
                   {
