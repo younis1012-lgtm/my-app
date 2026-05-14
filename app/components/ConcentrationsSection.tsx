@@ -694,7 +694,7 @@ const isMatzeaAProcess = (record: any): boolean => {
 
 const matzeaAProcessRow = (record: any, index: number): Row => ({
   "מס׳ סדורי": index + 1,
-  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", "ביצוע ע"י"]), "QC"),
+  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
   "מס׳ תעודה": referenceDocNo(record),
   "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
   "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
