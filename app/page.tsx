@@ -5560,6 +5560,145 @@ function UserAccessPanel({
   );
 }
 
+
+
+const REFERENCE_PDFJS_VERSION = "3.11.174";
+const REFERENCE_PDFJS_SCRIPT = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${REFERENCE_PDFJS_VERSION}/pdf.min.js`;
+const REFERENCE_PDFJS_WORKER = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${REFERENCE_PDFJS_VERSION}/pdf.worker.min.js`;
+
+const loadReferencePdfJs = async (): Promise<any> => {
+  if (typeof window === "undefined") throw new Error("PDF parsing is available in the browser only");
+  const existing = (window as any).pdfjsLib;
+  if (existing) return existing;
+  await new Promise<void>((resolve, reject) => {
+    const previous = document.querySelector(`script[data-reference-pdfjs="true"]`) as HTMLScriptElement | null;
+    if (previous) {
+      previous.addEventListener("load", () => resolve(), { once: true });
+      previous.addEventListener("error", () => reject(new Error("טעינת קורא PDF נכשלה")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = REFERENCE_PDFJS_SCRIPT;
+    script.async = true;
+    script.dataset.referencePdfjs = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("טעינת קורא PDF נכשלה"));
+    document.head.appendChild(script);
+  });
+  const pdfjs = (window as any).pdfjsLib;
+  if (!pdfjs) throw new Error("קורא PDF לא זמין בדפדפן");
+  pdfjs.GlobalWorkerOptions.workerSrc = REFERENCE_PDFJS_WORKER;
+  return pdfjs;
+};
+
+const extractTextFromReferenceFile = async (file: File): Promise<string> => {
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith(".txt") || file.type.includes("text")) return await file.text();
+  if (!lowerName.endsWith(".pdf") && !file.type.includes("pdf")) return "";
+  const pdfjs = await loadReferencePdfJs();
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  const pages: string[] = [];
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+    pages.push((content.items || []).map((item: any) => String(item?.str ?? "")).join("\n"));
+  }
+  return pages.join("\n");
+};
+
+const normalizeReferencePdfText = (value: unknown) =>
+  String(value ?? "").replace(/\u200f|\u200e/g, "").replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim();
+
+const firstRegexGroup = (text: string, patterns: RegExp[]) => {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match?.[1]?.trim();
+    if (value) return value;
+  }
+  return "";
+};
+
+const extractReferencePdfNumber = (text: string) =>
+  firstRegexGroup(text, [
+    /ריכוז\s+בדיקות\s+מעבדה\s+מס['׳]?\s*-?\s*(\d{3,})/i,
+    /מס['׳]?\s*תעודה\s*-?\s*(\d{3,})/i,
+    /(?:^|\s)(\d{4,6})(?=\s*(?:שם\s+האתר|כביש|תאריך))/,
+  ]);
+
+const extractReferencePdfDate = (text: string) =>
+  normalizeDateValue(firstRegexGroup(text, [/תאריך\s+דגימה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i, /תאריך\s+הוצאה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i, /(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/])) ;
+
+const upsertParsedReferenceMetric = (
+  rows: ReferenceResultRow[],
+  aliases: string[],
+  value: string,
+): ReferenceResultRow[] => {
+  const clean = String(value ?? "").trim();
+  if (!clean) return rows;
+  const normalizedAliases = aliases.map((alias) => normalizeHebrewProjectName(alias));
+  let found = false;
+  const next = rows.map((row) => {
+    const metric = normalizeHebrewProjectName(row.metric);
+    const match = normalizedAliases.some((alias) => metric === alias || metric.includes(alias) || alias.includes(metric));
+    if (!match) return row;
+    found = true;
+    return applyReferenceQualityStatus({ ...row, resultValue: clean });
+  });
+  if (found) return next;
+  return rows;
+};
+
+const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: string): ReferenceResultRow[] => {
+  const text = normalizeReferencePdfText(rawText);
+  if (!text) return [];
+  let rows = ensureReferenceResultsForMaterial(workType, []);
+  const setMetric = (aliases: string[], value: string) => {
+    rows = upsertParsedReferenceMetric(rows, aliases, value);
+  };
+
+  const certNo = extractReferencePdfNumber(text);
+  const certDate = extractReferencePdfDate(text);
+  const aashto = firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i, /מיון\s+AASHTO\s*([A-Z0-9\-()\s]+)/i]);
+  const unified = firstRegexGroup(text, [/מיון\s+אחיד\s+לפי\s+ת["׳']?י\s*254\s*([A-Z]{1,3})/i, /\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]);
+  const material = firstRegexGroup(text, [/סוג\s+החומר\s+([^\n]+?)(?:\s+תאור|\s+תיאור|\s+מקור|\s+הדוגם|$)/i, /(אבן\s+גרוסה\s*-\s*[^\n]+)/i]);
+  const source = firstRegexGroup(text, [/מקור\s+החומר\s+([^\n]+?)(?:\s+הדוגם|\s+AASHTO|\s+מיון|$)/i, /(מחצבה\s+[^\n\s]+)/i]);
+  const samplePlace = firstRegexGroup(text, [/קטע\s+נבדק\s+([^\n]+?)(?:\s+סוג\s+החומר|\s+תאור|$)/i, /(ערמה\s+באתר)/i]);
+
+  setMetric(["מספר תעודת מעבדה", "מספר תעודה"], certNo);
+  setMetric(["תאריך"], certDate);
+  setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], aashto);
+  setMetric(["מיון אחיד", "מיון לפי תי 254"], unified);
+  setMetric(["תיאור החומר", "סוג החומר"], material);
+  setMetric(["מקור החומר", "מקור"], source);
+  setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], samplePlace);
+
+  const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,220}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
+  const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
+  const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
+  if (values.length >= 7) {
+    const sieveAliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
+    const start = values.length === 9 ? 0 : 0;
+    values.slice(start, start + sieveAliases.length).forEach((value, index) => setMetric(sieveAliases[index] ?? [], value));
+  }
+
+  const numericAfter = (label: string) => {
+    const pattern = new RegExp(`${label}[\\s\\S]{0,90}?([0-9]+(?:\\.[0-9]+)?)`, "i");
+    return text.match(pattern)?.[1] ?? "";
+  };
+  setMetric(["גבול נזילות", "LL"], numericAfter("גבול\\s+נזילות|L\\.?L"));
+  setMetric(["גבול פלסטיות", "PL", "LP"], numericAfter("גבול\\s+ה?פלסטיות|L\\.?P"));
+  setMetric(["אינדקס פלסטיות", "PI"], numericAfter("אינדקס\\s+פלסטיות|P\\.?I"));
+  setMetric(["שווה ערך חול", "שעח"], numericAfter("שווה\\s+ערך\\s+חול"));
+  setMetric(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], numericAfter("צפיפות\\s+מקסימלית"));
+  setMetric(["רטיבות אופטימלית"], numericAfter("רטיבות\\s+אופטימלית"));
+  setMetric(["צפיפות מכשירית", "צפיפות ממשית"], numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"));
+  setMetric(["ספיגות", "ספיגות (G)"], numericAfter("ספיגות"));
+  setMetric(["לוס אנג'לס", "לוס אנגלס"], numericAfter("לוס\\s+אנג"));
+
+  return rows;
+};
+
 function ControlProcessesSection({
   guardedBody,
   form,
@@ -5623,6 +5762,27 @@ function ControlProcessesSection({
     form.referenceResults,
   );
   const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial);
+
+  const autoFillReferenceResultsFromFile = async (file: File) => {
+    if (readOnly || !showReferenceResultsTable) return;
+    try {
+      const text = await extractTextFromReferenceFile(file);
+      const parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
+      const filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+      if (!filledRows.length) return;
+      setForm((prev: any) => ({
+        ...prev,
+        referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
+          const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
+          return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
+        }),
+      }));
+      alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. מומלץ לבדוק ולאשר לפני שמירה.`);
+    } catch (error) {
+      console.warn("Reference certificate auto parsing failed", error);
+      alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית.");
+    }
+  };
 
   const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
     if (readOnly) return;
@@ -5689,6 +5849,7 @@ function ControlProcessesSection({
           .from("attachments")
           .getPublicUrl(filePath);
         applyAttachment(data.publicUrl);
+        await autoFillReferenceResultsFromFile(file);
         return;
       } catch (error) {
         console.error("Control process document upload failed", error);
@@ -5697,7 +5858,10 @@ function ControlProcessesSection({
     }
 
     const reader = new FileReader();
-    reader.onload = () => applyAttachment(String(reader.result ?? ""));
+    reader.onload = async () => {
+      applyAttachment(String(reader.result ?? ""));
+      await autoFillReferenceResultsFromFile(file);
+    };
     reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     reader.readAsDataURL(file);
   };
