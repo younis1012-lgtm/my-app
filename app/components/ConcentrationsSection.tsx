@@ -924,6 +924,12 @@ const cell = (r: number, c: number, v: unknown, style = 0) => {
 
 const rowXml = (r: number, values: unknown[], style = 0, height?: number) => `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, i + 1, v, style)).join("")}</row>`;
 
+const emptyRowXml = (r: number, height?: number) =>
+  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}/>`;
+
+const rowXmlFromColumn = (r: number, startCol: number, values: unknown[], style = 0, height?: number) =>
+  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, startCol + i, v, style)).join("")}</row>`;
+
 
 const matzeaASpecHeaderRows = [
   ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
@@ -970,15 +976,15 @@ const buildMatzeaAWorksheetXml = (definition: ConcentrationDefinition, rows: Row
   const sheetRows: string[] = [];
   const widthCount = 29;
 
-  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 14));
-  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "דו״ח ריכוז בדיקות איפיון למצע סוג א׳", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 1, 20));
-  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 18));
-  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "שם פרויקט:", "", meta.projectName, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", "שם הקבלן", "", meta.contractor, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXml(r++, ["", "", "", "", "", "", "", `בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 16));
-  sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0, 16));
+  sheetRows.push(emptyRowXml(r++, 14));
+  sheetRows.push(rowXmlFromColumn(r++, 8, ["דו״ח ריכוז בדיקות איפיון למצע סוג א׳", "", "", "", "", "", "", ""], 1, 20));
+  sheetRows.push(emptyRowXml(r++, 18));
+  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
+  sheetRows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
+  sheetRows.push(emptyRowXml(r++, 16));
+  sheetRows.push(emptyRowXml(r++, 16));
 
   matzeaASpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
 
@@ -1030,7 +1036,7 @@ const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], met
   ], 2, 24));
 
   // שורות 5-9 נשארות ריקות כדי ששורת הכותרות תהיה בשורה 10, בדיוק כמו בתיקון שסימנת.
-  while (r < 10) sheetRows.push(rowXml(r++, Array.from({ length: widthCount }, () => ""), 0));
+  while (r < 10) sheetRows.push(emptyRowXml(r++));
 
   // שורת הכותרות היחידה של הריכוז — לפי הסדר המבוקש. אין יותר כותרת כפולה בשורה 6.
   sheetRows.push(rowXml(r++, definition.columns, 3, 36));
