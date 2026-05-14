@@ -452,16 +452,33 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   maxValue: string;
 }> = [
   { metric: "דירוג AASHTO מיין", minValue: "", maxValue: "" },
+  { metric: "רטיבות מחושבת", minValue: "", maxValue: "" },
   { metric: "תיאור החומר", minValue: "", maxValue: "" },
+  { metric: "מקור החומר", minValue: "", maxValue: "" },
+  { metric: 'מקטע 3/4"', minValue: "", maxValue: "" },
+  { metric: "100% מחושב", minValue: "", maxValue: "" },
+  { metric: '3"', minValue: "", maxValue: "100" },
+  { metric: '1.5"', minValue: "", maxValue: "100" },
+  { metric: '1"', minValue: "", maxValue: "" },
+  { metric: '3/4"', minValue: "", maxValue: "100" },
+  { metric: '3/8"', minValue: "", maxValue: "100" },
+  { metric: "#4", minValue: "", maxValue: "" },
   { metric: "#10", minValue: "", maxValue: "" },
   { metric: "#40", minValue: "", maxValue: "" },
   { metric: "#200", minValue: "0", maxValue: "35" },
   { metric: "גבול נזילות (LL)", minValue: "0", maxValue: "40" },
   { metric: "גבול פלסטיות (PL)", minValue: "", maxValue: "" },
   { metric: "אינדקס פלסטיות (PI)", minValue: "0", maxValue: "10" },
+  { metric: "שווה ערך חול", minValue: "", maxValue: "" },
+  { metric: "צפיפות מכשירית", minValue: "", maxValue: "" },
+  { metric: "ספיגות (G)", minValue: "", maxValue: "" },
+  { metric: "לוס אנג'לס", minValue: "", maxValue: "" },
   { metric: "מיין AASHTO", minValue: "", maxValue: "" },
+  { metric: "מיון אחיד", minValue: "", maxValue: "" },
   { metric: "צפיפות מעבדתית מקסימלית", minValue: "", maxValue: "" },
   { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
+  { metric: "רטיבות כוללת", minValue: "", maxValue: "" },
+  { metric: "אבן +3/4", minValue: "", maxValue: "" },
   { metric: "מספר תעודת מעבדה", minValue: "", maxValue: "" },
   { metric: "תאריך", minValue: "", maxValue: "" },
   { metric: "מקום הדגם לבדיקה", minValue: "", maxValue: "" },
@@ -5673,13 +5690,28 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["מקור החומר", "מקור"], source);
   setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], samplePlace);
 
-  const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,220}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
-  const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
-  const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
-  if (values.length >= 7) {
-    const sieveAliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-    const start = values.length === 9 ? 0 : 0;
-    values.slice(start, start + sieveAliases.length).forEach((value, index) => setMetric(sieveAliases[index] ?? [], value));
+  const setSieveValues = (values: string[]) => {
+    if (values.length >= 9) {
+      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
+      values.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
+      return;
+    }
+    if (values.length >= 7) {
+      // בתעודות QTEST של חומר נברר לעיתים אין ערכים עבור 3/8 ו-1, ולכן השורה מכילה 7 ערכים בלבד.
+      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
+      values.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
+    }
+  };
+
+  const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
+  const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
+  if (qtestSieveValues.length >= 7) {
+    setSieveValues(qtestSieveValues);
+  } else {
+    const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,260}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
+    const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
+    const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
+    setSieveValues(values);
   }
 
   const numericAfter = (label: string) => {
