@@ -27,6 +27,7 @@ import { TrialSectionsSection } from "./components/TrialSectionsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
+import { extractEarthworksDensityFromFile } from "./components/densityCertificateParser";
 const STORAGE_KEY = "yk-quality-stage4-multifile";
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT =
@@ -1584,7 +1585,10 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   notes: "",
   inspector: "",
   executionDate: "",
-});
+  results: {},
+  labResults: {},
+  densityResults: {},
+} as any);
 const normalizeChecklistItems = (
   items: ChecklistItem[] | unknown,
 ): ChecklistItem[] =>
@@ -1599,6 +1603,9 @@ const normalizeChecklistItems = (
             notes: item?.notes ?? "",
             inspector: item?.inspector ?? "",
             executionDate: item?.executionDate ?? "",
+            results: item?.results ?? {},
+            labResults: item?.labResults ?? item?.densityResults ?? {},
+            densityResults: item?.densityResults ?? item?.labResults ?? {},
             excludedFromPrint: Boolean(item?.excludedFromPrint),
             signature: item?.signature ? {
               role: String(item.signature?.role ?? item?.responsible ?? "גורם אחראי"),
@@ -9275,7 +9282,7 @@ export default function Page() {
     file: File,
   ) => {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const attachment: ChecklistAttachment = {
         id: crypto.randomUUID(),
         name: file.name,
@@ -9284,6 +9291,16 @@ export default function Page() {
         uploadedAt: nowLocal(),
         kind,
       };
+
+      let autoDensityResults: Record<string, string> = {};
+      if (kind === "lab") {
+        try {
+          autoDensityResults = await extractEarthworksDensityFromFile(file);
+        } catch (error) {
+          console.warn("Density certificate auto extraction failed", error);
+          autoDensityResults = {};
+        }
+      }
 
       setChecklistForm((prev) => ({
         ...prev,
@@ -9295,6 +9312,13 @@ export default function Page() {
                   ...normalizeChecklistAttachments(item.attachments),
                   attachment,
                 ],
+                ...(Object.keys(autoDensityResults).length
+                  ? {
+                      labResults: { ...(item.labResults ?? {}), ...autoDensityResults },
+                      densityResults: { ...(item.densityResults ?? {}), ...autoDensityResults },
+                      notes: item.notes || autoDensityResults["הערות"] || item.notes,
+                    }
+                  : {}),
               }
             : item,
         ),

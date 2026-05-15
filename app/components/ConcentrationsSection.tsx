@@ -1042,8 +1042,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const resultsSource = {
     ...(item?.results ?? {}),
     ...(item?.labResults ?? {}),
+    ...(item?.densityResults ?? {}),
     ...(attachment?.results ?? {}),
     ...(attachment?.labResults ?? {}),
+    ...(attachment?.densityResults ?? {}),
     ...(attachment?.details ?? {}),
   };
   const allSources = [resultsSource, attachment, item, checklist].filter(Boolean);
