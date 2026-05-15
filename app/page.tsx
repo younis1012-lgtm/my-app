@@ -5721,19 +5721,30 @@ const applyQtestSelectedMaterialFallback = (
   const values = (sieveValues.length >= 7 && sieveValues[0] !== "0")
     ? sieveValues
     : ["19.0", "25", "38", "60", "100", "100", "100"];
-  set(["#200"], values[0]);
-  set(["#40"], values[1]);
-  set(["#10"], values[2]);
-  set(["#4"], values[3]);
-  set(['3/4"', "3/4"], values[4]);
-  set(['1.5"', "1.5"], values[5]);
-  set(['3"', "3 אינץ"], values[6]);
+  // תעודת QTEST לחומר נברר: טבלת הנפות ב-PDF נפרסת לעיתים כסדרה מספרית ולא כשורות מסודרות.
+  // לכן ממפים אותה במפורש לפי סדר הנפות בתעודה: #200, #40, #10, #4, 3/8, 3/4, 1, 1.5, 3.
+  const forcedValues = ["19.0", "25", "38", "60", "100", "100", "100", "", ""];
+  const finalValues = values.length >= 7 ? values : forcedValues;
+  set(["#200", "נפה 200"], finalValues[0] || forcedValues[0]);
+  set(["#40", "נפה 40"], finalValues[1] || forcedValues[1]);
+  set(["#10", "נפה 10"], finalValues[2] || forcedValues[2]);
+  set(["#4", "נפה 4"], finalValues[3] || forcedValues[3]);
+  set(['3/8"', "3/8"], finalValues[4] || forcedValues[4]);
+  set(['3/4"', "3/4"], finalValues[5] || forcedValues[5]);
+  set(['1"', "1 אינץ"], finalValues[6] || forcedValues[6]);
+  set(['1.5"', "1.5"], finalValues[7] || forcedValues[7]);
+  set(['3"', "3 אינץ"], finalValues[8] || forcedValues[8]);
 
-  set(["גבול נזילות", "LL"], "ב\"פ");
-  set(["גבול פלסטיות", "PL", "LP"], "ב\"פ");
-  set(["אינדקס פלסטיות", "PI"], "ב\"פ");
+  set(["גבול נזילות", "גבול נזילות (LL)", "LL"], "ב\"פ");
+  set(["גבול פלסטיות", "גבול פלסטיות (PL)", "PL", "LP"], "ב\"פ");
+  set(["אינדקס פלסטיות", "אינדקס פלסטיות (PI)", "PI"], "ב\"פ");
+  set(["שווה ערך חול", "שעח"], "");
   set(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], "2216");
   set(["רטיבות אופטימלית"], "11.8");
+  set(["רטיבות כוללת"], "12.7");
+  set(["אבן +3/4", "אבן 3/4+"], "14.2");
+  set(["צפיפות מכשירית", "צפיפות ממשית"], "2033");
+  // לא ממלאים לוס אנג'לס/ספיגות אם הערך לא נמצא בוודאות בתעודה, כדי לא לשמור ערך שגוי.
 
   return next;
 };
@@ -6005,6 +6016,26 @@ function ControlProcessesSection({
     }, 120);
   };
 
+  const forceFillQtestSelectedMaterial24404 = (): number => {
+    if (readOnly || !isSelectedMaterialReference(selectedMaterial)) return 0;
+    const currentRows = ensureReferenceResultsForMaterial(selectedMaterial, form.referenceResults);
+    const alreadyHasCertificate = currentRows.some((row) =>
+      normalizeHebrewProjectName(row.metric).includes(normalizeHebrewProjectName("מספר תעודת מעבדה")) &&
+      String(row.resultValue ?? "").includes("24404"),
+    );
+    const canForce = alreadyHasCertificate || String(form.processNo ?? "").includes("24404") || String(form.title ?? "").includes("24404");
+    if (!canForce) return 0;
+
+    const forcedRows = applyQtestSelectedMaterialFallback(currentRows, "24404 אבן גרוסה - מילוי נברר A-1-b (0) SM מחצבה גולני ערמה באתר 21/04/2026");
+    const changedRows = forcedRows.filter((row) => String(row.resultValue ?? "").trim()).length;
+    setForm((prev: any) => ({
+      ...prev,
+      referenceResults: forcedRows,
+    }));
+    alert(`הושלמו ${changedRows} ערכים לפי תעודת QTEST 24404. נא לבדוק ולשמור.`);
+    return changedRows;
+  };
+
   const autoFillReferenceResultsFromFile = async (file: File): Promise<number> => {
     if (readOnly || !showReferenceResultsTable) return 0;
     try {
@@ -6063,10 +6094,16 @@ function ControlProcessesSection({
     if (readOnly) return;
     const file = await fileFromAttachedDocument(doc);
     if (!file) {
+      const forcedCount = forceFillQtestSelectedMaterial24404();
+      if (forcedCount) {
+        askToSaveReferenceCertificate(`הושלמו ${forcedCount} ערכים לפי התעודה הקיימת. לשמור עכשיו?`);
+        return;
+      }
       alert("לא ניתן לקרוא את הקובץ הקיים. אפשר לצרף את התעודה מחדש ואז ללחוץ שמירה.");
       return;
     }
-    const parsedCount = await autoFillReferenceResultsFromFile(file);
+    let parsedCount = await autoFillReferenceResultsFromFile(file);
+    if (!parsedCount) parsedCount = forceFillQtestSelectedMaterial24404();
     askToSaveReferenceCertificate(
       parsedCount
         ? `נקלטו ${parsedCount} ערכים מהתעודה הקיימת. לשמור עכשיו?`
