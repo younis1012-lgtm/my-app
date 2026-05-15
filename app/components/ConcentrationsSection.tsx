@@ -1154,35 +1154,33 @@ const buildStandardWorksheetXml = (
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
 ) => {
-  // כל הריכוזים הרגילים מקבלים בדיוק אותה פריסת Excel כמו ריכוז איפיון מצע א׳:
-  // 29 עמודות A:AC, כותרת פרויקט קבועה H:O, שורת כותרות בשורה 10, ושורות נתונים עם גבולות.
-  const widthCount = 29;
+  // רק טבלת פרטי הפרויקט זהה לריכוז איפיון מצע א׳.
+  // טבלת הריכוז עצמה נשארת לפי מספר העמודות האמיתי שלה, בלי למתוח אותה ל-A:AC.
+  const tableStartCol = 8; // H — מיושר מתחת לטבלת פרטי הפרויקט.
   const header = buildStandardHeaderRows(definition, meta);
   let r = header.nextRow;
   const sheetRows: string[] = [...header.rows];
-  const visibleColumns = definition.columns.slice(0, widthCount);
-  const pad = (values: unknown[]) => [
-    ...values.slice(0, widthCount),
-    ...Array.from({ length: Math.max(0, widthCount - values.length) }, () => ""),
-  ];
+  const visibleColumns = definition.columns;
+  const maxCol = Math.max(15, tableStartCol + visibleColumns.length - 1);
 
-  sheetRows.push(rowXml(r++, pad(visibleColumns), 3, 30));
+  sheetRows.push(rowXmlFromColumn(r++, tableStartCol, visibleColumns, 3, 30));
 
   if (rows.length) {
     rows.forEach((item) =>
-      sheetRows.push(rowXml(
+      sheetRows.push(rowXmlFromColumn(
         r++,
-        pad(visibleColumns.map((column) => item[column] ?? "")),
+        tableStartCol,
+        visibleColumns.map((column) => item[column] ?? ""),
         6,
         24,
       )),
     );
   } else {
-    sheetRows.push(rowXml(r++, pad(["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"]), 4, 24));
+    sheetRows.push(rowXmlFromColumn(r++, tableStartCol, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
   }
 
-  const cols = Array.from({ length: widthCount }, (_, i) =>
-    `<col min="${i + 1}" max="${i + 1}" width="${i >= 9 && i <= 22 ? 11 : 18}" customWidth="1"/>`,
+  const cols = Array.from({ length: maxCol }, (_, i) =>
+    `<col min="${i + 1}" max="${i + 1}" width="18" customWidth="1"/>`,
   ).join("");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
