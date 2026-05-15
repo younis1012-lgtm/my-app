@@ -291,6 +291,44 @@ const inferDocumentType = (doc: any): string => {
   return normalizeCertificateType(explicit, doc);
 };
 
+const certificateDisplayName = (doc: any): string => {
+  const explicit = firstText(
+    doc?.details,
+    doc?.description,
+    doc?.certificateName,
+    doc?.documentName,
+    doc?.title,
+    doc?.label,
+    doc?.פרטים,
+    doc?.["שם תעודה"],
+    doc?.["שם מסמך"],
+    valueByKeyOrLabel(doc, ["certificateName", "documentName", "details", "description", "title", "label", "פרטים", "שם תעודה", "שם מסמך"]),
+    valueByLabel(doc, ["פרטים", "שם תעודה", "שם מסמך", "סוג תעודה", "סוג מסמך"])
+  );
+  const normalized = normalizeCertificateType(explicit, doc);
+  if (normalized) return normalized;
+  return firstText(inferDocumentType(doc), attachmentName(doc), "תעודה");
+};
+
+const certificateNameAndNumber = (doc: any): string => {
+  const name = certificateDisplayName(doc);
+  const number = attachmentCertificateNo(doc);
+  if (name && number) return `${name} ${number}`;
+  return firstText(number, name);
+};
+
+const uniqueJoin = (values: unknown[], separator = ", "): string => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.map(cleanText).filter(Boolean).forEach((value) => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    result.push(value);
+  });
+  return result.join(separator);
+};
+
+
 const getAttachments = (record: any): any[] => {
   const result: any[] = [];
   const keys = ["attachments", "certificates", "images", "files", "documents", "requiredDocuments"];
@@ -460,7 +498,7 @@ const supplierRow = (record: any, index: number): Row => {
 const contractorRow = (record: any, index: number): Row => {
   const contractor = record?.subcontractor ?? record;
   const docs = getAttachments(record);
-  const certNo = firstText(
+  const certNumbers = uniqueJoin([
     contractor?.approvalNo,
     contractor?.certificateNo,
     contractor?.licenseNo,
@@ -468,14 +506,19 @@ const contractorRow = (record: any, index: number): Row => {
     contractor?.classificationNo,
     record?.approvalNo,
     record?.certificateNo,
-    docs.map((d) => attachmentCertificateNo(d)).find(Boolean)
-  );
+    ...docs.map((d) => attachmentCertificateNo(d)),
+  ]);
+  const certificateDetails = uniqueJoin(docs.map(certificateNameAndNumber), " | ");
+  const docTypes = uniqueJoin(docs.map(certificateDisplayName));
+  const certificatesSummary = firstText(certificateDetails, certNumbers);
   return {
     "מס׳": index + 1,
     "שם קבלן / קבלן משנה": firstText(contractor?.subcontractorName, contractor?.contractorName, contractor?.name, record?.title),
     "תחום ביצוע": firstText(contractor?.field, contractor?.workType, record?.workType),
-    "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור": firstText(contractor?.classification, contractor?.contractorClassification, certNo),
-    "מספר תעודה / רישיון / אישור": certNo,
+    "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור": firstText(contractor?.classification, contractor?.contractorClassification, certNumbers),
+    "מספר תעודה / רישיון / אישור": certificatesSummary,
+    "שם / סוג תעודה": docTypes,
+    "מס׳ מסמכים": docs.length || "",
     "סטטוס": firstText(record?.status, record?.approval?.status),
     "תאריך": dateText(record?.date ?? record?.savedAt),
     "הערות": firstText(contractor?.notes, record?.notes),
@@ -847,7 +890,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז קבלנים.xlsx",
     description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / קבלנים",
-    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "סטטוס", "תאריך", "הערות"],
+    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "subcontractors").map(contractorRow),
   },
   {

@@ -306,10 +306,17 @@ type RequiredDocument = {
   description: string;
   required: boolean;
   attached: boolean;
+  details?: string;
+  exists?: boolean;
+  certificateNo?: string;
+  documentNo?: string;
+  expiryDate?: string;
+  validUntil?: string;
   attachmentName?: string;
   attachedAt?: string;
   attachmentDataUrl?: string;
   attachmentType?: string;
+  attachments?: StoredAttachment[];
 };
 
 type ReferenceResultRow = {
@@ -680,15 +687,22 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] =>
     ? value.map((item: any, index) => ({
         id: String(item?.id ?? `${Date.now()}-${index}`),
         type: REQUIRED_DOCUMENT_TYPES.includes(item?.type) ? item.type : "אחר",
-        description: String(item?.description ?? item?.type ?? "מסמך"),
+        description: String(item?.description ?? item?.details ?? item?.type ?? "מסמך"),
         required: item?.required !== false,
         attached: Boolean(item?.attached),
+        details: String(item?.details ?? item?.description ?? item?.type ?? ""),
+        exists: item?.exists === false ? false : true,
+        certificateNo: String(item?.certificateNo ?? item?.certificateNumber ?? item?.documentNo ?? ""),
+        documentNo: String(item?.documentNo ?? item?.certificateNo ?? item?.certificateNumber ?? ""),
+        expiryDate: String(item?.expiryDate ?? item?.validUntil ?? ""),
+        validUntil: String(item?.validUntil ?? item?.expiryDate ?? ""),
         attachmentName: String(item?.attachmentName ?? ""),
         attachedAt: String(item?.attachedAt ?? ""),
         attachmentDataUrl: String(
           item?.attachmentDataUrl ?? item?.dataUrl ?? item?.url ?? "",
         ),
         attachmentType: String(item?.attachmentType ?? item?.type ?? ""),
+        attachments: normalizeAttachments(item?.attachments),
       }))
     : [];
 
