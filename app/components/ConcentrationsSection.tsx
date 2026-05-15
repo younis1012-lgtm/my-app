@@ -1154,32 +1154,35 @@ const buildStandardWorksheetXml = (
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
 ) => {
-  const widthCount = Math.max(definition.columns.length, 15);
+  // כל הריכוזים הרגילים מקבלים בדיוק אותה פריסת Excel כמו ריכוז איפיון מצע א׳:
+  // 29 עמודות A:AC, כותרת פרויקט קבועה H:O, שורת כותרות בשורה 10, ושורות נתונים עם גבולות.
+  const widthCount = 29;
   const header = buildStandardHeaderRows(definition, meta);
   let r = header.nextRow;
   const sheetRows: string[] = [...header.rows];
+  const visibleColumns = definition.columns.slice(0, widthCount);
+  const pad = (values: unknown[]) => [
+    ...values.slice(0, widthCount),
+    ...Array.from({ length: Math.max(0, widthCount - values.length) }, () => ""),
+  ];
 
-  sheetRows.push(rowXml(r++, [
-    ...definition.columns,
-    ...Array.from({ length: Math.max(0, widthCount - definition.columns.length) }, () => ""),
-  ], 3, 30));
+  sheetRows.push(rowXml(r++, pad(visibleColumns), 3, 30));
 
   if (rows.length) {
     rows.forEach((item) =>
-      sheetRows.push(rowXml(r++, [
-        ...definition.columns.map((column) => item[column] ?? ""),
-        ...Array.from({ length: Math.max(0, widthCount - definition.columns.length) }, () => ""),
-      ], 6, 24)),
+      sheetRows.push(rowXml(
+        r++,
+        pad(visibleColumns.map((column) => item[column] ?? "")),
+        6,
+        24,
+      )),
     );
   } else {
-    sheetRows.push(rowXml(r++, [
-      "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי",
-      ...Array.from({ length: widthCount - 1 }, () => ""),
-    ], 4, 24));
+    sheetRows.push(rowXml(r++, pad(["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"]), 4, 24));
   }
 
   const cols = Array.from({ length: widthCount }, (_, i) =>
-    `<col min="${i + 1}" max="${i + 1}" width="${i === 0 ? 10 : 22}" customWidth="1"/>`,
+    `<col min="${i + 1}" max="${i + 1}" width="${i >= 9 && i <= 22 ? 11 : 18}" customWidth="1"/>`,
   ).join("");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
