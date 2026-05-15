@@ -1007,6 +1007,97 @@ const numericLike = (value: unknown): string => {
   return match?.[0] ?? text;
 };
 
+
+const safeStringify = (value: unknown): string => {
+  try {
+    return JSON.stringify(value ?? "");
+  } catch {
+    return "";
+  }
+};
+
+const normalizeDensityNumber = (value: unknown): string => {
+  const text = cleanText(value).replace(/,/g, ".");
+  if (!text) return "";
+  const dotPrefix = text.match(/(^|[^0-9])(\.\d{1,3})(?=\D|$)/);
+  if (dotPrefix?.[2]) return String(Number(dotPrefix[2]) * 100).replace(/\.0$/, "");
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  return match?.[0] ?? "";
+};
+
+const firstRegexGroup = (text: string, patterns: RegExp[]): string => {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match?.[1] ?? match?.[2] ?? "";
+    if (value) return normalizeDensityNumber(value);
+  }
+  return "";
+};
+
+const parseEarthworksDensityText = (value: unknown): Record<string, string> => {
+  const text = cleanText(value)
+    .replace(/\u200f|\u200e/g, " ")
+    .replace(/\s+/g, " ");
+  if (!text) return {};
+  const parsed: Record<string, string> = {};
+  parsed.certificateNo = firstRegexGroup(text, [
+    /(?:דו[״\"']?ח|דוח|מספר תעודה|תעודת בדיקה|דוח מספר|בדיקה מספר)\s*(?:בדיקה)?\s*(?:מספר|מס׳|:)?\s*([0-9]{4,})/i,
+    /(?:pdf\.|pdf|תעודה\s*)\s*([0-9]{4,})/i,
+  ]);
+  parsed.testDate = firstText(
+    firstRegexGroup(text, [/(?:תאריך הבדיקה|תאריך הדגימה|תאריך)\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]),
+    firstRegexGroup(text, [/(\d{1,2}[./-]\d{1,2}[./-]\d{4})/])
+  );
+  parsed.computedDensity = firstRegexGroup(text, [
+    /צפיפות\s+מחושבת[^0-9]{0,30}([0-9]{3,5}(?:[.,][0-9]+)?)/i,
+    /צפיפות\s+מעבדתית\s+מקסימלית[^0-9]{0,30}([0-9]{3,5}(?:[.,][0-9]+)?)/i,
+  ]);
+  parsed.lowerLimit = firstRegexGroup(text, [
+    /La\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*%?/i,
+    /גבול\s+תחתון[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
+    /אחוז\s+דרישה[^0-9.]{0,40}(?:\.\s*)?([0-9]{2,3}(?:[.,][0-9]+)?)/i,
+  ]);
+  parsed.average = firstRegexGroup(text, [
+    /x\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*%?/i,
+    /ממוצע[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
+    /שיעור\s+הידוק\s+ממוצע[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
+  ]);
+  parsed.upperLimit = firstRegexGroup(text, [
+    /גבול\s+עליון[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
+  ]);
+  parsed.optimalMoisture = firstRegexGroup(text, [/רטיבות\s+אופטימלית[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i]);
+  parsed.status = includesAny(text, ["הבדיקה עוברת", "מסקנה מתאים", "מתאים", "OK", "תקין"]) ? "OK" : includesAny(text, ["לא מתאים", "לא תקין", "נכשל", "NC"]) ? "NC" : "";
+  parsed.points = firstRegexGroup(text, [
+    /כמות\s+נקודות[^0-9]{0,20}([0-9]{1,3})/i,
+    /(?:בדיקה\s+מספר|מספר\s+בדיקה)[^0-9]{0,20}([0-9]{1,3})/i,
+  ]);
+  parsed.layer = firstRegexGroup(text, [/(?:שכבה\s+מספר|שכבה\s+מס|מס׳\s+שכבה)[^0-9]{0,20}([0-9]{1,3})/i]);
+  return parsed;
+};
+
+const parsedDensityFromSources = (sources: any[]): Record<string, string> => {
+  const text = sources
+    .map((source) => [
+      source?.extractedText,
+      source?.pdfText,
+      source?.text,
+      source?.summary,
+      source?.notes,
+      source?.remarks,
+      source?.attachmentName,
+      source?.name,
+      source?.fileName,
+      source?.certificateText,
+      source?.densitySummary,
+      source?.densityExtractionSummary,
+      source?.description,
+      safeStringify(source?.densityResults ?? source?.labResults ?? source?.results ?? source),
+    ].map(cleanText).filter(Boolean).join(" "))
+    .filter(Boolean)
+    .join(" ");
+  return parseEarthworksDensityText(text);
+};
+
 const attachmentOrMetricCertificate = (records: any[], attachment: any, aliases: string[] = []): string =>
   firstText(
     attachmentCertificateNo(attachment),
@@ -1049,13 +1140,14 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     ...(attachment?.details ?? {}),
   };
   const allSources = [resultsSource, attachment, item, checklist].filter(Boolean);
+  const parsedDensity = parsedDensityFromSources(allSources);
   const workType = firstText(
     firstFromRecords(allSources, ["סוג העבודה", "סוג עבודה", "workType", "work_type", "activity", "פעילות", "קטגוריה"]),
     item?.description,
     checklist?.title,
   );
   const materialDesc = firstFromRecords(allSources, ["תאור החומר", "תיאור החומר", "חומר", "material", "materialDescription"]);
-  const certificate = attachmentOrMetricCertificate(allSources, attachment);
+  const certificate = firstText(parsedDensity.certificateNo, attachmentOrMetricCertificate(allSources, attachment));
   const controlledDensityCert = firstText(
     firstFromRecords(allSources, ["מספר תעודת בדיקה צפיפות", "מספר תעודת בדיקה צפיפות רטיבות שדה", "תעודת צפיפות", "fieldDensityCertificate", "densityCertificateNo"]),
     includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["צפיפות", "רטיבות", "מד גרעיני"]) ? certificate : "",
@@ -1073,14 +1165,14 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     "ביצוע ע\"י": firstText(firstFromRecords(allSources, ["ביצוע עי", "ביצוע ע\"י", "performedBy", "qaQc", "QC/QA"]), "QC"),
     "מס׳ סדורי": serial,
     "רשימת תיוג": firstText(checklist?.checklistNo, checklist?.number, checklist?.id, serial),
-    "תאריך הבדיקה": firstDateFromRecords(allSources, ["תאריך הבדיקה", "תאריך", "date", "executionDate", "testDate"], item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
+    "תאריך הבדיקה": firstText(parsedDensity.testDate, firstDateFromRecords(allSources, ["תאריך הבדיקה", "תאריך", "date", "executionDate", "testDate"], item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt)),
     "כביש\\ציר \\רמפה": firstText(firstFromRecords(allSources, ["כביש", "ציר", "רמפה", "road", "axis", "ramp", "section"]), checklist?.location),
     "מחתך": firstText(firstFromRecords(allSources, ["מחתך", "חתך התחלה", "fromSection", "from_station", "from"]), checklist?.fromSection),
     "עד חתך": firstText(firstFromRecords(allSources, ["עד חתך", "חתך סוף", "toSection", "to_station", "to"]), checklist?.toSection),
     "צד": firstFromRecords(allSources, ["צד", "side"]),
     "מקום נטילה": firstText(firstFromRecords(allSources, ["מקום נטילה", "מקום דיגום", "מקום הדגם", "sampleLocation", "samplingLocation"]), checklist?.location),
     "שטח": numericLike(firstFromRecords(allSources, ["שטח", "area", "מ\"ר", "sqm"])),
-    "שכבה מס׳": firstFromRecords(allSources, ["שכבה", "שכבה מס", "שכבה מס׳", "layer", "layerNo"]),
+    "שכבה מס׳": firstText(firstFromRecords(allSources, ["שכבה", "שכבה מס", "שכבה מס׳", "layer", "layerNo"]), parsedDensity.layer),
     "עובי השכבה": numericLike(firstFromRecords(allSources, ["עובי השכבה", "עובי", "thickness"])),
     "סוג העבודה": workType,
     "תאור החומר": materialDesc,
@@ -1089,9 +1181,9 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     "מס׳ תעודת בדיקה הידוק רגיל": regularCompactionCert,
     "מעברי מכבש": numericLike(firstFromRecords(allSources, ["מעברי מכבש", "מספר מעברי מכבש", "כמות מעברי מכבש", "rollerPasses"])),
     "מעמד הידוק רגיל": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק רגיל", "סטטוס הידוק רגיל", "regularCompactionStatus"]), item?.status),
-    "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": controlledDensityCert,
-    "הידוק מבוקר (צפיפות מד גרעיני)": numericLike(firstText(firstFromRecords(allSources, ["הידוק מבוקר", "צפיפות מד גרעיני", "כמות נקודות בדיקה", "densityPoints", "nuclearGaugePoints"]), controlledPoints)),
-    "מעמד הידוק מבוקר": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק מבוקר", "סטטוס צפיפות", "densityStatus", "qualityStatus"]), item?.status),
+    "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": firstText(controlledDensityCert, parsedDensity.certificateNo),
+    "הידוק מבוקר (צפיפות מד גרעיני)": numericLike(firstText(firstFromRecords(allSources, ["הידוק מבוקר", "צפיפות מד גרעיני", "כמות נקודות בדיקה", "densityPoints", "nuclearGaugePoints"]), parsedDensity.points, controlledPoints)),
+    "מעמד הידוק מבוקר": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק מבוקר", "סטטוס צפיפות", "densityStatus", "qualityStatus"]), parsedDensity.status, item?.status),
     "מנת בדיקה (חרוט חול / שלבי)": numericLike(firstFromRecords(allSources, ["מנת בדיקה", "חרוט חול", "שלבי", "sandCone", "batch"])),
     "מעמד מנת בדיקה": earthworksStatus(firstFromRecords(allSources, ["מעמד מנת בדיקה", "סטטוס מנת בדיקה", "sandConeStatus"])),
     "מדידה": numericLike(measurementQty),
@@ -1099,11 +1191,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     "מספר תעודת בדיקה אפיון - 100%": firstFromRecords(allSources, ["מספר תעודת בדיקה אפיון", "אפיון 100", "100%", "proctorCertificateNo", "אפיון"]),
     "HWD": firstFromRecords(allSources, ["HWD", "hwd"]),
     "מעמד HWD": earthworksStatus(firstFromRecords(allSources, ["מעמד HWD", "סטטוס HWD"])),
-    "צפיפות מחושבת": numericLike(firstFromRecords(allSources, ["צפיפות מחושבת", "צפיפות", "density", "computedDensity"])),
-    "גבול תחתון": numericLike(firstFromRecords(allSources, ["גבול תחתון", "lowerLimit", "minValue", "minimum"])),
-    "גבול עליון": numericLike(firstFromRecords(allSources, ["גבול עליון", "upperLimit", "maxValue", "maximum"])),
-    "ממוצע": numericLike(firstFromRecords(allSources, ["ממוצע", "average", "avg"])),
-    "מעמד תוצאות": earthworksStatus(firstFromRecords(allSources, ["מעמד", "מעמד תוצאות", "סטטוס", "qualityStatus", "status"]), item?.status),
+    "צפיפות מחושבת": numericLike(firstText(firstFromRecords(allSources, ["צפיפות מחושבת", "צפיפות", "density", "computedDensity", "maxLabDensity", "maximumDryDensity"]), parsedDensity.computedDensity)),
+    "גבול תחתון": numericLike(firstText(firstFromRecords(allSources, ["גבול תחתון", "lowerLimit", "minValue", "minimum", "La"]), parsedDensity.lowerLimit)),
+    "גבול עליון": numericLike(firstText(firstFromRecords(allSources, ["גבול עליון", "upperLimit", "maxValue", "maximum"]), parsedDensity.upperLimit)),
+    "ממוצע": numericLike(firstText(firstFromRecords(allSources, ["ממוצע", "average", "avg", "x", "compactionAverage"]), parsedDensity.average)),
+    "מעמד תוצאות": earthworksStatus(firstFromRecords(allSources, ["מעמד", "מעמד תוצאות", "סטטוס", "qualityStatus", "status"]), parsedDensity.status, item?.status),
     "בדיקה חוזרת לתעודה": firstFromRecords(allSources, ["בדיקה חוזרת לתעודה", "תעודת בדיקה חוזרת", "retestCertificateNo"]),
     "מתאריך": firstDateFromRecords(allSources, ["מתאריך", "תאריך תעודה NC", "retestDate"]),
     "מספר אי התאמה": firstFromRecords(allSources, ["מספר אי התאמה", "NCR", "ncr", "ncrNumber"]),
