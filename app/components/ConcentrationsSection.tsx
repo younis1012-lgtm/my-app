@@ -540,19 +540,80 @@ const materialRow = (record: any, index: number): Row => {
   };
 };
 
-const nonconformanceRow = (record: any, index: number): Row => ({
-  "מס׳": index + 1,
-  "מספר NCR": firstText(record?.ncrNumber, record?.number, record?.id),
-  "נושא": firstText(record?.title, record?.subject),
-  "מיקום": firstText(record?.location),
-  "תאריך פתיחה": dateText(record?.date ?? record?.createdAt ?? record?.savedAt),
-  "פותח/מדווח": firstText(record?.raisedBy, record?.reportedBy),
-  "חומרה": firstText(record?.severity),
-  "סטטוס": firstText(record?.status),
-  "תיאור אי התאמה": firstText(record?.description),
-  "פעולה נדרשת": firstText(record?.actionRequired),
-  "הערות": firstText(record?.notes),
-});
+const extractNonconformanceNumber = (record: any, index: number): string => {
+  const raw = firstText(record?.ncrNumber, record?.number, record?.title, record?.subject);
+  const match = raw.match(/\d+/);
+  if (match) return match[0];
+  const id = cleanText(record?.id);
+  return looksLikeUuid(id) ? String(index + 1) : firstText(id, index + 1);
+};
+
+const yesNoText = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (["true", "1", "yes", "כן"].includes(text.toLowerCase())) return "כן";
+  if (["false", "0", "no", "לא"].includes(text.toLowerCase())) return "לא";
+  return text;
+};
+
+const isClosedNonconformance = (record: any): boolean => {
+  const status = normalize(record?.status);
+  return Boolean(
+    status.includes("סגור") ||
+    status.includes("נסגר") ||
+    status.includes("closed") ||
+    cleanText(record?.closingDate) ||
+    cleanText(record?.closedAt)
+  );
+};
+
+const nonconformanceGrade = (record: any): string =>
+  firstText(record?.grade, record?.severity, record?.severityLevel, valueByKeyOrLabel(record, ["grade", "severity", "דרגה", "חומרה"]));
+
+const nonconformanceRow = (record: any, index: number): Row => {
+  const ncrNumber = extractNonconformanceNumber(record, index);
+  const grade = nonconformanceGrade(record);
+  const closed = isClosedNonconformance(record);
+  const closingBy = firstText(record?.closedBy, record?.closingRole, record?.closedName, record?.closedByName);
+  return {
+    "מס׳": index + 1,
+    "מס'": index + 1,
+    "מספר NCR": ncrNumber,
+    "מס' אי התאמה": ncrNumber,
+    "מסי אי התאמה בSAP": firstText(record?.sapNumber, record?.sapNo, record?.sapNcrNumber, record?.sap),
+    "מס סעיף במפרט": firstText(record?.specSection, record?.specNo, record?.spec, record?.specificationSection),
+    "תאריך פתיחת": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
+    "תאריך פתיחה": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
+    "נפתחה": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
+    "פותח/מדווח": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
+    "דרגת אי התאמה": grade,
+    "חומרה": grade,
+    "גורם אחראי לליקוי (תכנון, ביצוע, ספק)": firstText(record?.responsibleParty, record?.responsibleFactor, record?.responsible, record?.contractor),
+    "קטע (כביש, רמפה, גשר...)": firstText(record?.location, record?.section, record?.roadSection),
+    "מיקום": firstText(record?.fromSection, record?.stationSection, record?.location),
+    "מיקום עד": firstText(record?.toSection, record?.toStationSection),
+    "היסט": firstText(record?.offset, record?.side, record?.lane),
+    "חלק": firstText(record?.building, record?.part, record?.structure),
+    "אלמנט/ שכבה": firstText(record?.element, record?.layer),
+    "תת אלמנט": firstText(record?.subElement, record?.subelement),
+    "תאור אי התאמה": firstText(record?.description),
+    "תיאור אי התאמה": firstText(record?.description),
+    "טיפול הנדרש": firstText(record?.actionRequired, record?.requiredAction),
+    "פעולה נדרשת": firstText(record?.actionRequired, record?.requiredAction),
+    "גורם המטפל": firstText(record?.handler, record?.handledBy, record?.responsible),
+    "תאריך  סגירת אי התאמה משוער-מסוכם": firstDateText(record?.expectedCloseDate, record?.plannedCloseDate),
+    "תאריך  סגירה משוער על פי החלטת מנה״פ": firstDateText(record?.updatedExpectedCloseDate, record?.managerExpectedCloseDate),
+    "שבר": yesNoText(record?.breakage),
+    "השפעה על איכות": firstText(record?.qualityImpact),
+    "פירוט ביצוע פעולה מתקנת": firstText(record?.correctiveActionDetails, record?.correctiveAction, record?.actionTaken),
+    "נסגרה": firstText(closingBy, closed ? "כן" : ""),
+    "תאריך  סגירה": firstDateText(record?.closingDate, record?.closedAt, record?.closeDate),
+    "אישור מנהל ה״א לסגירת אי התאמה QC": firstText(record?.qcManagerApproval, record?.closeApproval, record?.approval?.status, closed ? "כן" : ""),
+    "סטטוס": firstText(record?.status, closed ? "סגור" : "פתוח"),
+    "נושא": firstText(record?.title, record?.subject),
+    "הערות": firstText(record?.notes),
+  };
+};
 
 const trialRow = (record: any, index: number): Row => ({
   "מס׳": index + 1,
@@ -872,7 +933,34 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "דוח ריכוז אי התאמות.xlsx",
     description: "ריכוז מתוך טפסי אי־התאמות שנשמרו במערכת",
     sourceLabel: "אי התאמות",
-    columns: ["מס׳", "מספר NCR", "נושא", "מיקום", "תאריך פתיחה", "פותח/מדווח", "חומרה", "סטטוס", "תיאור אי התאמה", "פעולה נדרשת", "הערות"],
+    columns: [
+      "מס'",
+      "מס' אי התאמה",
+      "מסי אי התאמה בSAP",
+      "מס סעיף במפרט",
+      "תאריך פתיחת",
+      "נפתחה",
+      "דרגת אי התאמה",
+      "גורם אחראי לליקוי (תכנון, ביצוע, ספק)",
+      "קטע (כביש, רמפה, גשר...)",
+      "מיקום",
+      "מיקום עד",
+      "היסט",
+      "חלק",
+      "אלמנט/ שכבה",
+      "תת אלמנט",
+      "תאור אי התאמה",
+      "טיפול הנדרש",
+      "גורם המטפל",
+      "תאריך  סגירת אי התאמה משוער-מסוכם",
+      "תאריך  סגירה משוער על פי החלטת מנה״פ",
+      "שבר",
+      "השפעה על איכות",
+      "פירוט ביצוע פעולה מתקנת",
+      "נסגרה",
+      "תאריך  סגירה",
+      "אישור מנהל ה״א לסגירת אי התאמה QC",
+    ],
     buildRows: ({ savedNonconformances }) => savedNonconformances.map(nonconformanceRow),
   },
   {
@@ -1235,11 +1323,93 @@ const buildStandardWorksheetXml = (
 </worksheet>`;
 };
 
+const buildNonconformanceWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  const openRows = rows.filter((row) => !includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]));
+  const closedRows = rows.filter((row) => includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]));
+  const grade3Rows = rows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
+  const grade3OpenRows = openRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
+  const grade3ClosedRows = closedRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
+  const headerRow1 = [
+    "", "", "שם פרויקט:", "", meta.projectName, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "",
+  ];
+  const headerRow2 = [
+    "", "", "ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", "", "", definition.title, "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", grade3OpenRows.length,
+  ];
+  const headerRow3 = [
+    "", "", "שם הקבלן", "", meta.contractor, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", grade3ClosedRows.length,
+  ];
+  const headerRow4 = [
+    "", "", "בקרת איכות", "", meta.qualityControl, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", grade3Rows.length,
+  ];
+  const sheetRows: string[] = [
+    emptyRowXml(1, 16),
+    rowXml(2, headerRow1, 2, 20),
+    rowXml(3, headerRow2, 2, 20),
+    rowXml(4, headerRow3, 2, 20),
+    rowXml(5, headerRow4, 2, 20),
+    emptyRowXml(6, 16),
+    rowXml(7, [
+      "מס'",
+      "מס' אי התאמה",
+      "מסי אי התאמה בSAP",
+      "מס סעיף במפרט",
+      "תאריך פתיחת",
+      "נפתחה",
+      "דרגת אי התאמה",
+      "גורם אחראי לליקוי (תכנון, ביצוע, ספק)",
+      "קטע (כביש, רמפה, גשר...)",
+      "מיקום",
+      "",
+      "היסט",
+      "חלק",
+      "אלמנט/ שכבה",
+      "תת אלמנט",
+      "תאור אי התאמה",
+      "טיפול הנדרש",
+      "גורם המטפל",
+      "תאריך  סגירת אי התאמה משוער-מסוכם",
+      "תאריך  סגירה משוער על פי החלטת מנה״פ",
+      "שבר",
+      "השפעה על איכות",
+      "פירוט ביצוע פעולה מתקנת",
+      "נסגרה",
+      "תאריך  סגירה",
+      "אישור מנהל ה״א לסגירת אי התאמה QC",
+    ], 3, 34),
+    rowXml(8, ["", "", "", "", "", "על ידי QA/QC", "", "", "", "מחתך", "לחתך", "", "מבנה", "", "", "", "", "", "", "", "", "", "", "על ידי QA/QC", "", ""], 3, 24),
+  ];
+
+  let r = 9;
+  if (rows.length) {
+    rows.forEach((item) => {
+      sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 6, 36));
+    });
+  } else {
+    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
+  }
+
+  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 42, 14, 16, 24];
+  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+  const merges = ["L3:N3"];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
 ) => {
+  if (definition.id === "nonconformances") return buildNonconformanceWorksheetXml(definition, rows, meta);
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
