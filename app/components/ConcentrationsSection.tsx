@@ -1123,55 +1123,29 @@ const buildSelectedMaterialWorksheetXml = (definition: ConcentrationDefinition, 
 const buildStandardHeaderRows = (
   definition: ConcentrationDefinition,
   meta: Required<ProjectConcentrationMeta>,
-  widthCount: number,
 ): { rows: string[]; nextRow: number; merges: string[] } => {
   let r = 1;
   const rows: string[] = [];
   const merges: string[] = [];
-  const headerWidth = Math.min(Math.max(widthCount, 8), 8);
 
-  rows.push(rowXml(r++, [definition.title, ...Array.from({ length: headerWidth - 1 }, () => "")], 1, 24));
-  merges.push(`A1:${colName(headerWidth)}1`);
-
-  rows.push(rowXml(r++, [
-    "שם פרויקט:",
-    meta.projectName,
-    "",
-    "",
-    "ניהול פרויקט",
-    meta.projectManager || meta.projectManagement,
-    "",
-    "",
-  ], 2, 22));
-  rows.push(rowXml(r++, [
-    "שם הקבלן",
-    meta.contractor,
-    "",
-    "",
-    "הבטחת איכות",
-    meta.qualityAssurance,
-    "",
-    "",
-  ], 2, 22));
-  rows.push(rowXml(r++, [
-    "בקרת איכות",
-    meta.qualityControl,
-    "",
-    "",
-    "מקור נתונים",
-    definition.sourceLabel,
-    "",
-    "",
-  ], 2, 22));
-
-  [2, 3, 4].forEach((rowNumber) => {
-    merges.push(`A${rowNumber}:B${rowNumber}`);
-    merges.push(`C${rowNumber}:D${rowNumber}`);
-    merges.push(`E${rowNumber}:F${rowNumber}`);
-    merges.push(`G${rowNumber}:H${rowNumber}`);
-  });
-
+  // כותרת עליונה אחידה לכל הריכוזים — זהה לפריסת ריכוז איפיון מצע א׳.
+  // מתחילה בעמודה H ומסתיימת בעמודה O כדי שלא תימתח לפי מספר עמודות הריכוז.
+  rows.push(emptyRowXml(r++, 14));
+  rows.push(rowXmlFromColumn(r++, 8, [definition.title, "", "", "", "", "", "", ""], 1, 20));
+  rows.push(emptyRowXml(r++, 18));
+  rows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
   rows.push(emptyRowXml(r++, 16));
+  rows.push(emptyRowXml(r++, 16));
+
+  merges.push("H2:O2");
+  merges.push("H4:I4", "J4:O4");
+  merges.push("H5:I5", "J5:O5");
+  merges.push("H6:I6", "J6:O6");
+  merges.push("H7:K7", "L7:O7");
+
   return { rows, nextRow: r, merges };
 };
 
@@ -1180,8 +1154,8 @@ const buildStandardWorksheetXml = (
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
 ) => {
-  const widthCount = Math.max(definition.columns.length, 8);
-  const header = buildStandardHeaderRows(definition, meta, widthCount);
+  const widthCount = Math.max(definition.columns.length, 15);
+  const header = buildStandardHeaderRows(definition, meta);
   let r = header.nextRow;
   const sheetRows: string[] = [...header.rows];
 
