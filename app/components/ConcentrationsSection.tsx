@@ -1120,42 +1120,111 @@ const buildSelectedMaterialWorksheetXml = (definition: ConcentrationDefinition, 
 };
 
 
-const buildGenericWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+const buildStandardHeaderRows = (
+  definition: ConcentrationDefinition,
+  meta: Required<ProjectConcentrationMeta>,
+  widthCount: number,
+): { rows: string[]; nextRow: number; merges: string[] } => {
   let r = 1;
-  const sheetRows: string[] = [];
-  const columns = definition.columns.length ? definition.columns : ["נתון"];
-  const widthCount = Math.max(columns.length, 8);
+  const rows: string[] = [];
+  const merges: string[] = [];
+  const headerWidth = Math.min(Math.max(widthCount, 8), 8);
 
-  sheetRows.push(rowXml(r++, [definition.title, ...Array.from({ length: widthCount - 1 }, () => "")], 1, 26));
-  sheetRows.push(rowXml(r++, ["שם פרויקט", meta.projectName, "ניהול פרויקט", meta.projectManager || meta.projectManagement, "קבלן", meta.contractor, "בקרת איכות", meta.qualityControl], 2, 22));
-  sheetRows.push(rowXml(r++, ["הבטחת איכות", meta.qualityAssurance, "מנהל עבודה", meta.workManager, "מודד", meta.surveyor, "מפקח", meta.supervisor], 2, 22));
-  sheetRows.push(emptyRowXml(r++, 10));
-  sheetRows.push(rowXml(r++, columns, 3, 24));
+  rows.push(rowXml(r++, [definition.title, ...Array.from({ length: headerWidth - 1 }, () => "")], 1, 24));
+  merges.push(`A1:${colName(headerWidth)}1`);
+
+  rows.push(rowXml(r++, [
+    "שם פרויקט:",
+    meta.projectName,
+    "",
+    "",
+    "ניהול פרויקט",
+    meta.projectManager || meta.projectManagement,
+    "",
+    "",
+  ], 2, 22));
+  rows.push(rowXml(r++, [
+    "שם הקבלן",
+    meta.contractor,
+    "",
+    "",
+    "הבטחת איכות",
+    meta.qualityAssurance,
+    "",
+    "",
+  ], 2, 22));
+  rows.push(rowXml(r++, [
+    "בקרת איכות",
+    meta.qualityControl,
+    "",
+    "",
+    "מקור נתונים",
+    definition.sourceLabel,
+    "",
+    "",
+  ], 2, 22));
+
+  [2, 3, 4].forEach((rowNumber) => {
+    merges.push(`A${rowNumber}:B${rowNumber}`);
+    merges.push(`C${rowNumber}:D${rowNumber}`);
+    merges.push(`E${rowNumber}:F${rowNumber}`);
+    merges.push(`G${rowNumber}:H${rowNumber}`);
+  });
+
+  rows.push(emptyRowXml(r++, 16));
+  return { rows, nextRow: r, merges };
+};
+
+const buildStandardWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  const widthCount = Math.max(definition.columns.length, 8);
+  const header = buildStandardHeaderRows(definition, meta, widthCount);
+  let r = header.nextRow;
+  const sheetRows: string[] = [...header.rows];
+
+  sheetRows.push(rowXml(r++, [
+    ...definition.columns,
+    ...Array.from({ length: Math.max(0, widthCount - definition.columns.length) }, () => ""),
+  ], 3, 30));
 
   if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, columns.map((column) => item[column] ?? ""), 5, 24)));
+    rows.forEach((item) =>
+      sheetRows.push(rowXml(r++, [
+        ...definition.columns.map((column) => item[column] ?? ""),
+        ...Array.from({ length: Math.max(0, widthCount - definition.columns.length) }, () => ""),
+      ], 6, 24)),
+    );
   } else {
-    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
+    sheetRows.push(rowXml(r++, [
+      "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי",
+      ...Array.from({ length: widthCount - 1 }, () => ""),
+    ], 4, 24));
   }
 
-  const cols = Array.from({ length: widthCount }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i === 0 ? 10 : 22}" customWidth="1"/>`).join("");
-  const lastCol = colName(widthCount);
-  const mergeRefs = [`A1:${lastCol}1`];
-  if (!rows.length) mergeRefs.push(`A6:${lastCol}6`);
+  const cols = Array.from({ length: widthCount }, (_, i) =>
+    `<col min="${i + 1}" max="${i + 1}" width="${i === 0 ? 10 : 22}" customWidth="1"/>`,
+  ).join("");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
   <cols>${cols}</cols>
   <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+  <mergeCells count="${header.merges.length}">${header.merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
 </worksheet>`;
 };
 
-const buildWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+const buildWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
-  return buildGenericWorksheetXml(definition, rows, meta);
+  return buildStandardWorksheetXml(definition, rows, meta);
 };
 
 const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
