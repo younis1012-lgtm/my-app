@@ -329,15 +329,34 @@ const uniqueJoin = (values: unknown[], separator = ", "): string => {
 };
 
 
+const isRealAttachment = (attachment: any): boolean => {
+  if (!attachment || typeof attachment !== "object") return false;
+  if (attachment?.attached === false || attachment?.exists === false) return false;
+  return Boolean(
+    cleanText(attachment?.attachmentName) ||
+      cleanText(attachment?.fileName) ||
+      cleanText(attachment?.name) ||
+      cleanText(attachment?.url) ||
+      cleanText(attachment?.dataUrl) ||
+      cleanText(attachment?.attachmentDataUrl) ||
+      cleanText(attachment?.storagePath) ||
+      cleanText(attachment?.path) ||
+      cleanText(attachment?.certificateNo) ||
+      cleanText(attachment?.certificateNumber) ||
+      cleanText(attachment?.documentNo) ||
+      cleanText(attachment?.documentNumber),
+  );
+};
+
 const getAttachments = (record: any): any[] => {
   const result: any[] = [];
   const keys = ["attachments", "certificates", "images", "files", "documents", "requiredDocuments"];
   keys.forEach((key) => {
-    if (Array.isArray(record?.[key])) result.push(...record[key]);
+    if (Array.isArray(record?.[key])) result.push(...record[key].filter(isRealAttachment));
   });
-  if (record?.supplier) keys.forEach((key) => Array.isArray(record.supplier?.[key]) && result.push(...record.supplier[key]));
-  if (record?.subcontractor) keys.forEach((key) => Array.isArray(record.subcontractor?.[key]) && result.push(...record.subcontractor[key]));
-  if (record?.material) keys.forEach((key) => Array.isArray(record.material?.[key]) && result.push(...record.material[key]));
+  if (record?.supplier) keys.forEach((key) => Array.isArray(record.supplier?.[key]) && result.push(...record.supplier[key].filter(isRealAttachment)));
+  if (record?.subcontractor) keys.forEach((key) => Array.isArray(record.subcontractor?.[key]) && result.push(...record.subcontractor[key].filter(isRealAttachment)));
+  if (record?.material) keys.forEach((key) => Array.isArray(record.material?.[key]) && result.push(...record.material[key].filter(isRealAttachment)));
   return result;
 };
 
@@ -633,47 +652,17 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
   records.forEach((checklist) => {
     const checklistMatches = includesAny(recordText(checklist), keywords);
     const items = Array.isArray(checklist?.items) ? checklist.items : [];
-    if (!items.length && checklistMatches) {
-      rows.push({
-        "מס׳": rows.length + 1,
-        "מספר רשימה": firstText(checklist?.checklistNo, checklist?.id),
-        "שם בדיקה/רשימה": firstText(checklist?.title, label),
-        "קטגוריה": firstText(checklist?.category),
-        "מיקום": firstText(checklist?.location),
-        "קבלן": firstText(checklist?.contractor),
-        "תאריך": dateText(checklist?.date ?? checklist?.savedAt),
-        "תיאור סעיף": firstText(checklist?.description),
-        "מבצע/אחראי": firstText(checklist?.responsible),
-        "בודק": firstText(checklist?.inspector),
-        "סטטוס": firstText(checklist?.status),
-        "מספר תעודה": "",
-        "שם קובץ": "",
-        "תוצאות/הערות": firstText(checklist?.notes),
-      });
-    }
+
+    // ריכוזים המבוססים על רשימות תיוג יכללו רק סעיפים שאליהם צורף קובץ בפועל.
+    // לא נכניס סעיפים ריקים רק בגלל שהכותרת או התיאור שלהם מתאימים למילות החיפוש.
     items.forEach((item: any) => {
-      const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+      const attachments = (Array.isArray(item?.attachments) ? item.attachments : []).filter(isRealAttachment);
+      if (!attachments.length) return;
+
       const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
       const relevant = checklistMatches || includesAny(itemText, keywords) || attachments.some((a: any) => includesAny([attachmentName(a), JSON.stringify(a?.results ?? a?.labResults ?? {})].join(" "), keywords));
       if (!relevant) return;
-      if (!attachments.length) {
-        rows.push({
-          "מס׳": rows.length + 1,
-          "מספר רשימה": firstText(checklist?.checklistNo, checklist?.id),
-          "שם בדיקה/רשימה": firstText(checklist?.title, label),
-          "קטגוריה": firstText(checklist?.category),
-          "מיקום": firstText(checklist?.location),
-          "קבלן": firstText(checklist?.contractor),
-          "תאריך": dateText(item?.executionDate ?? checklist?.date ?? checklist?.savedAt),
-          "תיאור סעיף": firstText(item?.description),
-          "מבצע/אחראי": firstText(item?.responsible),
-          "בודק": firstText(item?.inspector),
-          "סטטוס": firstText(item?.status),
-          "מספר תעודה": firstText(item?.certificateNo, item?.results?.certificateNo, item?.labResults?.certificateNo),
-          "שם קובץ": "",
-          "תוצאות/הערות": firstText(item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})),
-        });
-      }
+
       attachments.forEach((attachment: any) => {
         rows.push({
           "מס׳": rows.length + 1,
@@ -1208,19 +1197,12 @@ const buildEarthworksFieldRows = (checklists: any[]): Row[] => {
   checklists.forEach((checklist) => {
     if (!isEarthworksRecord(checklist)) return;
     const items = Array.isArray(checklist?.items) ? checklist.items : [];
-    if (!items.length) {
-      rows.push(earthworksRowFromSources([checklist], {}, rows.length + 1));
-      return;
-    }
     items.forEach((item: any) => {
       const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
       if (includesAny(itemText, earthworksExcludeKeywords)) return;
       if (!includesAny(itemText, earthworksIncludeKeywords)) return;
-      const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
-      if (!attachments.length) {
-        rows.push(earthworksRowFromSources([checklist, item], {}, rows.length + 1));
-        return;
-      }
+      const attachments = (Array.isArray(item?.attachments) ? item.attachments : []).filter(isRealAttachment);
+      if (!attachments.length) return;
       attachments.forEach((attachment: any) => {
         rows.push(earthworksRowFromSources([checklist, item], attachment, rows.length + 1));
       });
