@@ -9283,15 +9283,6 @@ export default function Page() {
   ) => {
     const reader = new FileReader();
     reader.onload = async () => {
-      const attachment: ChecklistAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name,
-        type: file.type,
-        dataUrl: String(reader.result ?? ""),
-        uploadedAt: nowLocal(),
-        kind,
-      };
-
       let autoDensityResults: Record<string, string> = {};
       if (kind === "lab") {
         try {
@@ -9301,6 +9292,29 @@ export default function Page() {
           autoDensityResults = {};
         }
       }
+
+      const densitySummary = Object.keys(autoDensityResults).length
+        ? [
+            autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] ? `מס׳ דוח: ${autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"]}` : "",
+            autoDensityResults["תאריך הבדיקה"] ? `תאריך: ${autoDensityResults["תאריך הבדיקה"]}` : "",
+            autoDensityResults["ממוצע"] ? `שיעור הידוק: ${autoDensityResults["ממוצע"]}` : "",
+            autoDensityResults["גבול תחתון"] ? `La: ${autoDensityResults["גבול תחתון"]}` : "",
+            autoDensityResults["צפיפות מחושבת"] ? `צפיפות: ${autoDensityResults["צפיפות מחושבת"]}` : "",
+            autoDensityResults["רטיבות ממוצעת"] ? `רטיבות: ${autoDensityResults["רטיבות ממוצעת"]}` : "",
+          ].filter(Boolean).join(" | ")
+        : "";
+
+      const attachment: ChecklistAttachment = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: file.type,
+        dataUrl: String(reader.result ?? ""),
+        uploadedAt: nowLocal(),
+        kind,
+        ...(Object.keys(autoDensityResults).length
+          ? { results: autoDensityResults, labResults: autoDensityResults }
+          : {}),
+      } as ChecklistAttachment;
 
       setChecklistForm((prev) => ({
         ...prev,
@@ -9316,13 +9330,26 @@ export default function Page() {
                   ? {
                       labResults: { ...(item.labResults ?? {}), ...autoDensityResults },
                       densityResults: { ...(item.densityResults ?? {}), ...autoDensityResults },
-                      notes: item.notes || autoDensityResults["הערות"] || item.notes,
+                      certificateNo: autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] || item.certificateNo,
+                      notes: densitySummary ? `${item.notes ? `${item.notes}\n` : ""}✅ נקלטו תוצאות צפיפות אוטומטית: ${densitySummary}` : item.notes,
                     }
-                  : {}),
+                  : {
+                      notes: item.notes || "⚠️ התעודה צורפה, אך לא נקלטו ממנה תוצאות צפיפות אוטומטית.",
+                    }),
               }
             : item,
         ),
       }));
+
+      if (kind === "lab") {
+        window.setTimeout(() => {
+          alert(
+            Object.keys(autoDensityResults).length
+              ? `נקלטו תוצאות צפיפות מהתעודה:\n${densitySummary}\n\nיש ללחוץ שמירה כדי לשמור את הנתונים.`
+              : "התעודה צורפה, אך לא נקלטו ממנה תוצאות צפיפות. יש לבדוק שהקובץ הוא PDF טקסטואלי של בדיקת צפיפות."
+          );
+        }, 0);
+      }
     };
     reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     reader.readAsDataURL(file);
