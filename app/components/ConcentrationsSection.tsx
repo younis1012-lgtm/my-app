@@ -1109,6 +1109,12 @@ const emptyRowXml = (r: number, height?: number) =>
 const rowXmlFromColumn = (r: number, startCol: number, values: unknown[], style = 0, height?: number) =>
   `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, startCol + i, v, style)).join("")}</row>`;
 
+const sparseRowXml = (r: number, cells: Array<[number, unknown, number?]>, height?: number) =>
+  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${cells.map(([c, v, style]) => cell(r, c, v, style ?? 0)).join("")}</row>`;
+
+const rangeCells = (startCol: number, values: unknown[], style = 0): Array<[number, unknown, number]> =>
+  values.map((value, index) => [startCol + index, value, style]);
+
 
 const matzeaASpecHeaderRows = [
   ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
@@ -1333,24 +1339,28 @@ const buildNonconformanceWorksheetXml = (
   const grade3Rows = rows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
   const grade3OpenRows = openRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
   const grade3ClosedRows = closedRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
-  const headerRow1 = [
-    "", "", "שם פרויקט:", "", meta.projectName, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "",
-  ];
-  const headerRow2 = [
-    "", "", "ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", "", "", definition.title, "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", grade3OpenRows.length,
-  ];
-  const headerRow3 = [
-    "", "", "שם הקבלן", "", meta.contractor, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", grade3ClosedRows.length,
-  ];
-  const headerRow4 = [
-    "", "", "בקרת איכות", "", meta.qualityControl, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", grade3Rows.length,
-  ];
+
+  // פריסת כותרת עליונה לפי קובץ הדוגמה: רק בלוקים מוגדרים עם גבולות,
+  // ללא צביעה/גבולות על כל העמודות הריקות של הגיליון.
   const sheetRows: string[] = [
     emptyRowXml(1, 16),
-    rowXml(2, headerRow1, 2, 20),
-    rowXml(3, headerRow2, 2, 20),
-    rowXml(4, headerRow3, 2, 20),
-    rowXml(5, headerRow4, 2, 20),
+    sparseRowXml(2, [
+      ...rangeCells(3, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2),
+      ...rangeCells(22, ["תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "", ""], 2),
+    ], 20),
+    sparseRowXml(3, [
+      ...rangeCells(3, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2),
+      ...rangeCells(12, [definition.title, "", "", "", ""], 1),
+      ...rangeCells(22, ["סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", "", grade3OpenRows.length], 2),
+    ], 20),
+    sparseRowXml(4, [
+      ...rangeCells(3, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2),
+      ...rangeCells(22, ["סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", "", grade3ClosedRows.length], 2),
+    ], 20),
+    sparseRowXml(5, [
+      ...rangeCells(3, ["בקרת איכות", "", meta.qualityControl, "", "", "", "", ""], 2),
+      ...rangeCells(22, ["סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", "", grade3Rows.length], 2),
+    ], 20),
     emptyRowXml(6, 16),
     rowXml(7, [
       "מס'",
@@ -1392,9 +1402,16 @@ const buildNonconformanceWorksheetXml = (
     sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
   }
 
-  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 42, 14, 16, 24];
+  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 16, 14, 16, 14];
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
-  const merges = ["L3:N3"];
+  const merges = [
+    "C2:D2", "E2:J2", "V2:X2", "Y2:AA2",
+    "C3:D3", "E3:J3", "L3:P3", "V3:W3", "Y3:Z3",
+    "C4:D4", "E4:J4", "V4:W4", "Y4:Z4",
+    "C5:D5", "E5:J5", "V5:W5", "Y5:Z5",
+    "A7:A8", "B7:B8", "C7:C8", "D7:D8", "E7:E8", "G7:G8", "H7:H8", "I7:I8",
+    "J7:K7", "L7:L8", "N7:N8", "O7:O8", "P7:P8", "Q7:Q8", "R7:R8", "S7:S8", "T7:T8", "U7:U8", "V7:V8", "W7:W8", "Y7:Y8", "Z7:Z8",
+  ];
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
