@@ -917,6 +917,224 @@ const buildSelectedMaterialConcentrationRows = (checklists: any[], processes: an
   return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
+
+const earthworksFieldColumns = [
+  "ביצוע ע\"י",
+  "מס׳ סדורי",
+  "רשימת תיוג",
+  "תאריך הבדיקה",
+  "כביש\\ציר \\רמפה",
+  "מחתך",
+  "עד חתך",
+  "צד",
+  "מקום נטילה",
+  "שטח",
+  "שכבה מס׳",
+  "עובי השכבה",
+  "סוג העבודה",
+  "תאור החומר",
+  "מיון החומר",
+  "מקור החומר",
+  "מס׳ תעודת בדיקה הידוק רגיל",
+  "מעברי מכבש",
+  "מעמד הידוק רגיל",
+  "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה",
+  "הידוק מבוקר (צפיפות מד גרעיני)",
+  "מעמד הידוק מבוקר",
+  "מנת בדיקה (חרוט חול / שלבי)",
+  "מעמד מנת בדיקה",
+  "מדידה",
+  "מעמד מדידה",
+  "מספר תעודת בדיקה אפיון - 100%",
+  "HWD",
+  "מעמד HWD",
+  "צפיפות מחושבת",
+  "גבול תחתון",
+  "גבול עליון",
+  "ממוצע",
+  "מעמד תוצאות",
+  "בדיקה חוזרת לתעודה",
+  "מתאריך",
+  "מספר אי התאמה",
+  "הערות",
+];
+
+const earthworksIncludeKeywords = [
+  "עבודות עפר",
+  "עפר",
+  "חפירה",
+  "מילוי",
+  "מילוי מבוקר",
+  "הידוק מבוקר",
+  "הידוק רגיל",
+  "קרקע יסוד",
+  "שתית",
+  "החלפת קרקע",
+  "צפיפות שדה",
+  "רטיבות שדה",
+  "מד גרעיני",
+  "חרוט חול",
+  "מעברי מכבש",
+];
+
+const earthworksExcludeKeywords = [
+  "מצע א",
+  "מצע א׳",
+  "מצעים",
+  "בדיקת שדה למצעים",
+  "אפיון מצע",
+  "מצע סוג א",
+];
+
+const aliasesValue = (record: any, aliases: string[]): string =>
+  firstText(valueByKeyOrLabel(record, aliases), valueByLabel(record, aliases));
+
+const firstFromRecords = (records: any[], aliases: string[]): string => {
+  for (const record of records) {
+    const value = aliasesValue(record, aliases);
+    if (value) return value;
+  }
+  return "";
+};
+
+const firstDateFromRecords = (records: any[], aliases: string[], ...fallbacks: unknown[]): string =>
+  firstDateText(...records.map((record) => aliasesValue(record, aliases)), ...fallbacks);
+
+const numericLike = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  const match = text.match(/-?\d+(?:[.,]\d+)?/);
+  return match?.[0] ?? text;
+};
+
+const attachmentOrMetricCertificate = (records: any[], attachment: any, aliases: string[] = []): string =>
+  firstText(
+    attachmentCertificateNo(attachment),
+    firstFromRecords(records, [
+      ...aliases,
+      "certificateNo",
+      "certificateNumber",
+      "documentNo",
+      "documentNumber",
+      "מספר תעודה",
+      "מספר תעודת בדיקה",
+      "מס תעודת בדיקה",
+      "מספר תעודת מעבדה",
+    ]),
+  );
+
+const isEarthworksRecord = (record: any): boolean => {
+  const text = recordText(record);
+  return includesAny(text, earthworksIncludeKeywords) && !includesAny(text, earthworksExcludeKeywords);
+};
+
+const earthworksStatus = (...values: unknown[]): string => {
+  const text = firstText(...values);
+  if (!text) return "";
+  if (includesAny(text, ["לא תקין", "נכשל", "NC", "נדחה", "פסול"])) return "NC";
+  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר"])) return "OK";
+  return text;
+};
+
+const earthworksRowFromSources = (sources: any[], attachment: any, serial: number): Row => {
+  const checklist = sources[0] ?? {};
+  const item = sources[1] ?? {};
+  const resultsSource = {
+    ...(item?.results ?? {}),
+    ...(item?.labResults ?? {}),
+    ...(attachment?.results ?? {}),
+    ...(attachment?.labResults ?? {}),
+    ...(attachment?.details ?? {}),
+  };
+  const allSources = [resultsSource, attachment, item, checklist].filter(Boolean);
+  const workType = firstText(
+    firstFromRecords(allSources, ["סוג העבודה", "סוג עבודה", "workType", "work_type", "activity", "פעילות", "קטגוריה"]),
+    item?.description,
+    checklist?.title,
+  );
+  const materialDesc = firstFromRecords(allSources, ["תאור החומר", "תיאור החומר", "חומר", "material", "materialDescription"]);
+  const certificate = attachmentOrMetricCertificate(allSources, attachment);
+  const controlledDensityCert = firstText(
+    firstFromRecords(allSources, ["מספר תעודת בדיקה צפיפות", "מספר תעודת בדיקה צפיפות רטיבות שדה", "תעודת צפיפות", "fieldDensityCertificate", "densityCertificateNo"]),
+    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["צפיפות", "רטיבות", "מד גרעיני"]) ? certificate : "",
+  );
+  const regularCompactionCert = firstText(
+    firstFromRecords(allSources, ["מספר תעודת בדיקה הידוק רגיל", "תעודת הידוק רגיל", "regularCompactionCertificateNo"]),
+    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["הידוק רגיל", "מעברי מכבש"]) ? certificate : "",
+  );
+  const controlledPoints = firstText(
+    firstFromRecords(allSources, ["כמות נקודות בדיקה", "נקודות בדיקה", "testPoints", "pointsCount"]),
+    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["צפיפות", "רטיבות", "מד גרעיני"]) ? "1" : "",
+  );
+  const measurementQty = firstText(firstFromRecords(allSources, ["מדידה", "כמות", "quantity", "measurementCount"]));
+  return {
+    "ביצוע ע\"י": firstText(firstFromRecords(allSources, ["ביצוע עי", "ביצוע ע\"י", "performedBy", "qaQc", "QC/QA"]), "QC"),
+    "מס׳ סדורי": serial,
+    "רשימת תיוג": firstText(checklist?.checklistNo, checklist?.number, checklist?.id, serial),
+    "תאריך הבדיקה": firstDateFromRecords(allSources, ["תאריך הבדיקה", "תאריך", "date", "executionDate", "testDate"], item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
+    "כביש\\ציר \\רמפה": firstText(firstFromRecords(allSources, ["כביש", "ציר", "רמפה", "road", "axis", "ramp", "section"]), checklist?.location),
+    "מחתך": firstText(firstFromRecords(allSources, ["מחתך", "חתך התחלה", "fromSection", "from_station", "from"]), checklist?.fromSection),
+    "עד חתך": firstText(firstFromRecords(allSources, ["עד חתך", "חתך סוף", "toSection", "to_station", "to"]), checklist?.toSection),
+    "צד": firstFromRecords(allSources, ["צד", "side"]),
+    "מקום נטילה": firstText(firstFromRecords(allSources, ["מקום נטילה", "מקום דיגום", "מקום הדגם", "sampleLocation", "samplingLocation"]), checklist?.location),
+    "שטח": numericLike(firstFromRecords(allSources, ["שטח", "area", "מ\"ר", "sqm"])),
+    "שכבה מס׳": firstFromRecords(allSources, ["שכבה", "שכבה מס", "שכבה מס׳", "layer", "layerNo"]),
+    "עובי השכבה": numericLike(firstFromRecords(allSources, ["עובי השכבה", "עובי", "thickness"])),
+    "סוג העבודה": workType,
+    "תאור החומר": materialDesc,
+    "מיון החומר": firstFromRecords(allSources, ["מיון החומר", "AASHTO", "aashto", "classification", "soilClassification"]),
+    "מקור החומר": firstFromRecords(allSources, ["מקור החומר", "מקור", "source", "materialSource"]),
+    "מס׳ תעודת בדיקה הידוק רגיל": regularCompactionCert,
+    "מעברי מכבש": numericLike(firstFromRecords(allSources, ["מעברי מכבש", "מספר מעברי מכבש", "כמות מעברי מכבש", "rollerPasses"])),
+    "מעמד הידוק רגיל": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק רגיל", "סטטוס הידוק רגיל", "regularCompactionStatus"]), item?.status),
+    "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": controlledDensityCert,
+    "הידוק מבוקר (צפיפות מד גרעיני)": numericLike(firstText(firstFromRecords(allSources, ["הידוק מבוקר", "צפיפות מד גרעיני", "כמות נקודות בדיקה", "densityPoints", "nuclearGaugePoints"]), controlledPoints)),
+    "מעמד הידוק מבוקר": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק מבוקר", "סטטוס צפיפות", "densityStatus", "qualityStatus"]), item?.status),
+    "מנת בדיקה (חרוט חול / שלבי)": numericLike(firstFromRecords(allSources, ["מנת בדיקה", "חרוט חול", "שלבי", "sandCone", "batch"])),
+    "מעמד מנת בדיקה": earthworksStatus(firstFromRecords(allSources, ["מעמד מנת בדיקה", "סטטוס מנת בדיקה", "sandConeStatus"])),
+    "מדידה": numericLike(measurementQty),
+    "מעמד מדידה": earthworksStatus(firstFromRecords(allSources, ["מעמד מדידה", "סטטוס מדידה", "measurementStatus"]), measurementQty ? item?.status : ""),
+    "מספר תעודת בדיקה אפיון - 100%": firstFromRecords(allSources, ["מספר תעודת בדיקה אפיון", "אפיון 100", "100%", "proctorCertificateNo", "אפיון"]),
+    "HWD": firstFromRecords(allSources, ["HWD", "hwd"]),
+    "מעמד HWD": earthworksStatus(firstFromRecords(allSources, ["מעמד HWD", "סטטוס HWD"])),
+    "צפיפות מחושבת": numericLike(firstFromRecords(allSources, ["צפיפות מחושבת", "צפיפות", "density", "computedDensity"])),
+    "גבול תחתון": numericLike(firstFromRecords(allSources, ["גבול תחתון", "lowerLimit", "minValue", "minimum"])),
+    "גבול עליון": numericLike(firstFromRecords(allSources, ["גבול עליון", "upperLimit", "maxValue", "maximum"])),
+    "ממוצע": numericLike(firstFromRecords(allSources, ["ממוצע", "average", "avg"])),
+    "מעמד תוצאות": earthworksStatus(firstFromRecords(allSources, ["מעמד", "מעמד תוצאות", "סטטוס", "qualityStatus", "status"]), item?.status),
+    "בדיקה חוזרת לתעודה": firstFromRecords(allSources, ["בדיקה חוזרת לתעודה", "תעודת בדיקה חוזרת", "retestCertificateNo"]),
+    "מתאריך": firstDateFromRecords(allSources, ["מתאריך", "תאריך תעודה NC", "retestDate"]),
+    "מספר אי התאמה": firstFromRecords(allSources, ["מספר אי התאמה", "NCR", "ncr", "ncrNumber"]),
+    "הערות": firstText(item?.notes, attachment?.notes, firstFromRecords(allSources, ["הערות", "notes", "remarks"])),
+  };
+};
+
+const buildEarthworksFieldRows = (checklists: any[]): Row[] => {
+  const rows: Row[] = [];
+  checklists.forEach((checklist) => {
+    if (!isEarthworksRecord(checklist)) return;
+    const items = Array.isArray(checklist?.items) ? checklist.items : [];
+    if (!items.length) {
+      rows.push(earthworksRowFromSources([checklist], {}, rows.length + 1));
+      return;
+    }
+    items.forEach((item: any) => {
+      const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
+      if (includesAny(itemText, earthworksExcludeKeywords)) return;
+      if (!includesAny(itemText, earthworksIncludeKeywords)) return;
+      const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+      if (!attachments.length) {
+        rows.push(earthworksRowFromSources([checklist, item], {}, rows.length + 1));
+        return;
+      }
+      attachments.forEach((attachment: any) => {
+        rows.push(earthworksRowFromSources([checklist, item], attachment, rows.length + 1));
+      });
+    });
+  });
+  return rows.map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+};
+
 const commonProcessColumns = ["מס׳", "שם/כותרת", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים", "סטטוס", "הערות"];
 const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keywords: string[], label: string): Row[] => {
   const checklist = checklistRows(checklists, keywords, label);
@@ -1059,12 +1277,12 @@ const definitions: ConcentrationDefinition[] = [
   },
   {
     id: "earthworks",
-    title: "בדיקות שדה / עבודות עפר",
+    title: "בדיקות שדה - עבודות עפר",
     fileName: "בדיקות שדה - עבודות עפר.xlsx",
-    description: "עבודות עפר / בדיקות שדה מתוך רשימות תיוג",
-    sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["עבודות עפר", "עפר", "חפירה", "מילוי", "שדה", "הידוק מבוקר"], "בדיקות שדה / עבודות עפר"),
+    description: "ריכוז בדיקות צפיפות/רטיבות שדה לעבודות עפר בלבד: חפירה, קרקע יסוד, מילוי והידוק רגיל/מבוקר. לא כולל מצע א׳.",
+    sourceLabel: "רשימות תיוג / עבודות עפר",
+    columns: earthworksFieldColumns,
+    buildRows: ({ savedChecklists }) => buildEarthworksFieldRows(savedChecklists),
   },
   {
     id: "rfi",
@@ -1421,6 +1639,69 @@ const buildNonconformanceWorksheetXml = (
 </worksheet>`;
 };
 
+
+const earthworksFieldHeaderRows = [
+  ["ביצוע ע\"י", "מס׳ סדורי", "רשימת תיוג", "תאריך הבדיקה", "כביש\\ציר \\רמפה", "מחתך", "עד חתך", "צד", "מקום נטילה", "שטח", "שכבה מס׳", "עובי השכבה", "סוג העבודה", "תאור החומר", "מיון החומר", "מקור החומר", "מס׳ תעודת בדיקה הידוק רגיל", "מעברי מכבש", "מעמד", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "הידוק מבוקר (צפיפות מד גרעיני)", "מעמד", "מנת בדיקה (חרוט חול / שלבי)", "מעמד", "מדידה", "מעמד", "מספר תעודת בדיקה אפיון - 100%", "HWD", "מעמד", "תוצאות בדיקה", "", "", "", "", "בדיקה חוזרת לתעודה", "מתאריך", "מספר אי התאמה", "הערות"],
+  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "צפיפות מחושבת", "צפיפות סטטיסטיקה", "", "", "מעמד", "", "", "", ""],
+  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "גבול תחתון", "גבול עליון", "ממוצע", "", "", "", "", ""],
+  ["QC/QA", "מס׳", "מס׳", "תאריך", "מס׳", "מס׳", "מס׳", "", "", "מ״ר", "מס׳", "ס״מ", "קרקע יסוד, מילוי, חפירה", "", "AASHTO", "", "מס׳ תעודה", "כמות מעברי מכבש", "OK / NC", "מס׳ תעודה", "כמות נקודות בדיקה", "OK / NC", "כמות נקודות בדיקה", "OK / NC", "כמות (1,2,3...)", "OK / NC", "מס׳ תעודה", "מס׳ תעודה", "OK / NC", "(קג/מ״ק)", "(%)", "(%)", "(%)", "OK / NC", "מס׳ תעודה NC", "תאריך תעודה NC", "", ""],
+];
+
+const buildEarthworksWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  const sheetRows: string[] = [
+    emptyRowXml(1, 14),
+    sparseRowXml(2, [
+      ...rangeCells(3, ["שם פרויקט:", "", meta.projectName, "", "", ""], 2),
+    ], 20),
+    sparseRowXml(3, [
+      ...rangeCells(3, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", ""], 2),
+      ...rangeCells(13, [definition.title, "", "", "", "", "", ""], 1),
+    ], 22),
+    sparseRowXml(4, [
+      ...rangeCells(3, ["שם הקבלן", "", meta.contractor, "", "", ""], 2),
+    ], 20),
+    sparseRowXml(5, [
+      ...rangeCells(3, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", ""], 2),
+      ...rangeCells(7, [`הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2),
+    ], 20),
+  ];
+
+  let r = 6;
+  earthworksFieldHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index === 0 ? 34 : 24)));
+
+  if (rows.length) {
+    rows.forEach((item) => {
+      sheetRows.push(rowXml(r++, earthworksFieldColumns.map((column) => item[column] ?? ""), 6, 32));
+    });
+  } else {
+    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: earthworksFieldColumns.length - 1 }, () => "")], 4, 24));
+  }
+
+  const widths = [12, 10, 12, 14, 18, 10, 10, 8, 18, 10, 10, 12, 20, 18, 14, 16, 18, 14, 10, 20, 18, 10, 18, 10, 12, 10, 20, 12, 10, 14, 12, 12, 12, 10, 18, 14, 16, 24];
+  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+  const merges = [
+    "C2:D2", "E2:J2",
+    "C3:D3", "E3:J3", "M3:S3",
+    "C4:D4", "E4:J4",
+    "C5:F5", "G5:J5",
+    "A6:A9", "B6:B9", "C6:C9", "D6:D9", "E6:E9", "F6:F9", "G6:G9", "H6:H9", "I6:I9", "J6:J9", "K6:K9", "L6:L9", "M6:M9", "N6:N9", "O6:O9", "P6:P9",
+    "Q6:Q8", "R6:R8", "S6:S8", "T6:T8", "U6:U8", "V6:V8", "W6:W8", "X6:X8", "Y6:Y8", "Z6:Z8", "AA6:AA8", "AB6:AB8", "AC6:AC8",
+    "AD6:AH6", "AD7:AD9", "AE7:AG7", "AE8:AE9", "AF8:AF9", "AG8:AG9", "AH7:AH9",
+    "AI6:AI8", "AJ6:AJ8", "AK6:AK8", "AL6:AL9",
+  ];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -1429,6 +1710,7 @@ const buildWorksheetXml = (
   if (definition.id === "nonconformances") return buildNonconformanceWorksheetXml(definition, rows, meta);
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
+  if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
 };
 
