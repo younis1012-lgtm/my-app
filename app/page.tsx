@@ -4462,16 +4462,16 @@ type HomeDashboardProps = {
 const dashboardCardStyle: CSSProperties = {
   background: "#fff",
   border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 16,
-  boxShadow: "0 10px 30px rgba(15,23,42,0.04)",
+  borderRadius: 16,
+  padding: 12,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.035)",
 };
 
 const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
-  if (tone === "danger") return { bg: "#fef2f2", border: "#fecaca", text: "#991b1b", pill: "#dc2626" };
-  if (tone === "warn") return { bg: "#fffbeb", border: "#fde68a", text: "#92400e", pill: "#f59e0b" };
-  if (tone === "good") return { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534", pill: "#16a34a" };
-  return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb" };
+  if (tone === "danger") return { bg: "#fef2f2", border: "#fecaca", text: "#991b1b", pill: "#dc2626", soft: "#fee2e2" };
+  if (tone === "warn") return { bg: "#fffbeb", border: "#fde68a", text: "#92400e", pill: "#f59e0b", soft: "#fef3c7" };
+  if (tone === "good") return { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534", pill: "#16a34a", soft: "#dcfce7" };
+  return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
 function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, homeModules, setSection }: HomeDashboardProps) {
@@ -4512,23 +4512,23 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     return { openNcr, openRfi, pendingApprovals, overdue, checklistPercent, openTrial };
   }, [projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports]);
   const urgentTasks = [
-    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 4).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", meta: item?.status || "פתוח", tone: "danger" as const })),
-    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", meta: item?.status || "ממתין", tone: "warn" as const })),
-    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", meta: item?.status || "בטיפול", tone: "info" as const })),
-  ].slice(0, 8);
+    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", meta: item?.status || "פתוח", tone: "danger" as const })),
+    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", meta: item?.status || "ממתין", tone: "warn" as const })),
+    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", meta: item?.status || "בטיפול", tone: "info" as const })),
+  ].slice(0, 5);
   const kpis = [
-    { label: "אי התאמות פתוחות", value: metrics.openNcr, tone: metrics.openNcr ? "danger" : "good", help: metrics.openNcr ? "דורש טיפול" : "אין פתוחות", section: "nonconformances" as AppSection },
-    { label: "RFI פתוחים", value: metrics.openRfi, tone: metrics.openRfi ? "warn" : "good", help: metrics.openRfi ? "ממתין למענה" : "אין פתוחים", section: "rfi" as AppSection },
-    { label: "משימות באיחור", value: metrics.overdue, tone: metrics.overdue ? "danger" : "good", help: metrics.overdue ? "לטיפול מיידי" : "אין איחורים", section: "home" as AppSection },
-    { label: "ממתין לאישור", value: metrics.pendingApprovals, tone: metrics.pendingApprovals ? "warn" : "good", help: "חתימות / אישורים", section: "checklists" as AppSection },
-    { label: "השלמת רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
-    { label: "קטעי ניסוי פתוחים", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "מעקב ביצוע", section: "trialSections" as AppSection },
+    { icon: "⚠️", label: "אי התאמות", value: metrics.openNcr, tone: metrics.openNcr ? "danger" : "good", help: metrics.openNcr ? "דורש טיפול" : "אין פתוחות", section: "nonconformances" as AppSection },
+    { icon: "📨", label: "RFI", value: metrics.openRfi, tone: metrics.openRfi ? "warn" : "good", help: metrics.openRfi ? "ממתין למענה" : "אין פתוחים", section: "rfi" as AppSection },
+    { icon: "⏱️", label: "באיחור", value: metrics.overdue, tone: metrics.overdue ? "danger" : "good", help: metrics.overdue ? "לטיפול מיידי" : "ללא איחורים", section: "home" as AppSection },
+    { icon: "✍️", label: "לאישור", value: metrics.pendingApprovals, tone: metrics.pendingApprovals ? "warn" : "good", help: "חתימות / אישורים", section: "checklists" as AppSection },
+    { icon: "📋", label: "רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
+    { icon: "🧪", label: "קטעי ניסוי", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "פתוחים", section: "trialSections" as AppSection },
   ] as const;
   const quickActions = [
-    { label: "➕ אי התאמה", section: "nonconformances" as AppSection },
-    { label: "➕ RFI", section: "rfi" as AppSection },
-    { label: "➕ רשימת תיוג", section: "checklists" as AppSection },
-    { label: "➕ קטע ניסוי", section: "trialSections" as AppSection },
+    { label: "אי התאמה", icon: "⚠️", section: "nonconformances" as AppSection },
+    { label: "RFI", icon: "📨", section: "rfi" as AppSection },
+    { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
+    { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
   ];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length);
   const distribution = [
@@ -4540,29 +4540,38 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
   ];
   return (
-    <div style={{ display: "grid", gap: 18 }}>
-      <div style={{ ...dashboardCardStyle, background: "linear-gradient(135deg,#0f172a,#1e293b)", color: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <div><div style={{ fontSize: 26, fontWeight: 950 }}>חדר בקרה לפרויקט</div><div style={{ opacity: 0.82, marginTop: 6 }}>מה פתוח, מה באיחור ומה דורש טיפול עכשיו</div></div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 999, padding: "10px 14px", fontWeight: 850, cursor: "pointer" }}>{action.label}</button>)}</div>
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
+            <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
+          </div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-        {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}><span style={{ width: 10, height: 10, borderRadius: 999, background: tone.pill, display: "inline-block" }} /><span style={{ color: tone.text, fontWeight: 850 }}>{item.help}</span></div><div style={{ fontSize: 34, fontWeight: 950, marginTop: 12, color: "#0f172a" }}>{item.value}</div><div style={{ color: "#334155", fontWeight: 850 }}>{item.label}</div></button>; })}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
+        {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 92, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
+          <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
+        </button>; })}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 14 }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
         <div style={dashboardCardStyle}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-          {urgentTasks.length ? <div style={{ display: "grid", gap: 10 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 12, alignItems: "center", padding: "12px 14px", borderRadius: 14, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 22 }}>{task.icon}</span><span><span style={{ display: "block", fontWeight: 900, color: "#0f172a" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 13 }}>לחץ לפתיחת התיקייה הרלוונטית</span></span><span style={{ color: tone.text, fontWeight: 900 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 18, borderRadius: 14, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות. מצב הפרויקט נראה תקין.</div>}
+          <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
+          {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
         </div>
         <div style={dashboardCardStyle}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>חלוקת רשומות</h3>
-          <div style={{ display: "grid", gap: 10 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 4 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 9, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
+          <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
+          <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
         </div>
       </div>
+
       <div style={dashboardCardStyle}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>תיקיות המערכת</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 12 }}>{homeModules.map((module) => <button key={String(module.key)} type="button" onClick={() => setSection(module.key as AppSection)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 16, padding: 16, textAlign: "right", cursor: "pointer", boxShadow: "0 8px 20px rgba(15,23,42,0.03)" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}><span style={{ fontSize: 24 }}>{module.icon}</span><span style={{ borderRadius: 999, background: "#f1f5f9", padding: "4px 10px", fontWeight: 900 }}>{module.count}</span></div><div style={{ fontWeight: 950, marginTop: 12, color: "#0f172a" }}>{module.title}</div><div style={{ color: "#64748b", marginTop: 5, fontSize: 13 }}>{module.description}</div></button>)}</div>
+        <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>תיקיות המערכת</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(185px,1fr))", gap: 8 }}>{homeModules.map((module) => <button key={String(module.key)} type="button" onClick={() => setSection(module.key as AppSection)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 14, padding: 11, minHeight: 104, textAlign: "right", cursor: "pointer", boxShadow: "0 6px 16px rgba(15,23,42,0.025)" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}><span style={{ fontSize: 20 }}>{module.icon}</span><span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 9px", fontWeight: 900, fontSize: 13 }}>{module.count}</span></div><div style={{ fontWeight: 950, marginTop: 8, color: "#0f172a", fontSize: 14 }}>{module.title}</div><div style={{ color: "#64748b", marginTop: 4, fontSize: 12 }}>{module.description}</div></button>)}</div>
       </div>
     </div>
   );
