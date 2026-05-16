@@ -991,6 +991,7 @@ type SupervisionReportRecord = {
   author: string;
   status: SupervisionReportStatus;
   treatment: string;
+  treatmentDate: string;
   notes: string;
   attachment?: StoredAttachment | null;
   attachments?: StoredAttachment[];
@@ -1012,6 +1013,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
   author: "",
   status: "פתוח",
   treatment: "",
+  treatmentDate: "",
   notes: "",
   attachment: null,
   attachments: [],
@@ -1032,6 +1034,7 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     author: String(value.author ?? value.createdBy ?? ""),
     status,
     treatment: String(value.treatment ?? value.response ?? ""),
+    treatmentDate: String(value.treatmentDate ?? value.treatment_date ?? ""),
     notes: String(value.notes ?? ""),
     attachments: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])),
     attachment: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])).at(0) ?? null,
@@ -4152,7 +4155,10 @@ function SupervisionReportsSection({
               </div>
             ) : null}
           </label>
-          <label style={{ ...label, gridColumn: "span 2" }}>טיפול
+          <label style={label}>תאריך טיפול
+            <input style={input} type="date" value={form.treatmentDate} onChange={(e) => onChange("treatmentDate", e.target.value)} />
+          </label>
+          <label style={{ ...label, gridColumn: "span 3" }}>טיפול
             <textarea style={{ ...input, minHeight: 90 }} value={form.treatment} onChange={(e) => onChange("treatment", e.target.value)} />
           </label>
           <label style={{ ...label, gridColumn: "span 2" }}>הערות
@@ -4174,7 +4180,7 @@ function SupervisionReportsSection({
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
               <thead>
                 <tr>
-                  {["מס׳", "נושא", "מספר", "תאריך", "מיקום", "עורך", "סטטוס", "קבצים", "פעולות"].map((header) => (
+                  {["מס׳", "נושא", "מספר", "תאריך", "תאריך טיפול", "מיקום", "עורך", "סטטוס", "קבצים", "פעולות"].map((header) => (
                     <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
                   ))}
                 </tr>
@@ -4186,6 +4192,7 @@ function SupervisionReportsSection({
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.treatmentDate}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.location}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.author}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.status}</td>
@@ -11703,6 +11710,7 @@ ${invalidRecipients.join("\n")}`);
       author: record.author,
       status: record.status,
       treatment: record.treatment,
+      treatmentDate: record.treatmentDate,
       notes: record.notes,
       attachment: (record.attachments ?? (record.attachment ? [record.attachment] : [])).at(0) ?? null,
       attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
@@ -11711,6 +11719,7 @@ ${invalidRecipients.join("\n")}`);
 
   const closeSupervisionReport = () => {
     updateSupervisionReportForm("status", "הושלם");
+    updateSupervisionReportForm("treatmentDate", new Date().toISOString().slice(0, 10));
   };
 
   const deleteSupervisionReport = (id: string) => {
@@ -11722,20 +11731,69 @@ ${invalidRecipients.join("\n")}`);
   const supervisionReportAttachments = (record: SupervisionReportRecord) =>
     normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : []));
 
-  const downloadSupervisionReportPdf = (record: SupervisionReportRecord) => {
-    const pdf = supervisionReportAttachments(record).find((item) =>
-      item.type.includes("pdf") || item.name.toLowerCase().endsWith(".pdf"),
+  const supervisionReportHtml = (record: SupervisionReportRecord) => {
+    const attachmentRows = supervisionReportAttachments(record)
+      .map((file, index) => `<tr><td>${index + 1}</td><td>${String(file.name || "").replace(/</g, "&lt;")}</td><td>${String(file.uploadedAt || "")}</td></tr>`)
+      .join("");
+    return `
+      <div dir="rtl" style="font-family:Arial,sans-serif;padding:28px;color:#0f172a">
+        <h1 style="margin:0 0 14px;text-align:center">דוח פיקוח עליון</h1>
+        <h2 style="margin:0 0 20px;text-align:center">${projectName}</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:15px">
+          <tbody>
+            <tr><th>נושא הדוח</th><td>${record.title || ""}</td><th>מספר דוח</th><td>${record.reportNo || ""}</td></tr>
+            <tr><th>תאריך</th><td>${record.date || ""}</td><th>תאריך טיפול</th><td>${record.treatmentDate || ""}</td></tr>
+            <tr><th>מיקום</th><td>${record.location || ""}</td><th>מבצע / עורך</th><td>${record.author || ""}</td></tr>
+            <tr><th>סטטוס</th><td>${record.status || ""}</td><th>נשמר בתאריך</th><td>${record.savedAt || ""}</td></tr>
+            <tr><th>טיפול</th><td colspan="3">${record.treatment || ""}</td></tr>
+            <tr><th>הערות</th><td colspan="3">${record.notes || ""}</td></tr>
+          </tbody>
+        </table>
+        <h3 style="margin-top:22px">קבצים / תמונות מצורפים</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <thead><tr><th>מס׳</th><th>שם קובץ</th><th>תאריך צירוף</th></tr></thead>
+          <tbody>${attachmentRows || `<tr><td colspan="3">אין קבצים מצורפים</td></tr>`}</tbody>
+        </table>
+        <style>
+          th{background:#0f172a;color:#fff;font-weight:800}
+          th,td{border:1px solid #94a3b8;padding:8px;vertical-align:top}
+        </style>
+      </div>`;
+  };
+
+  const buildSupervisionReportMergedPdfBlob = async (record: SupervisionReportRecord) => {
+    const { PDFDocument } = await loadPdfTools();
+    const title = record.title || "דוח פיקוח עליון";
+    const formPdfBytes = await buildFormOnlyPdfBytes(supervisionReportHtml(record), title);
+    const mergedPdf = await PDFDocument.create();
+    const formPdf = await PDFDocument.load(formPdfBytes);
+    const formPages = await mergedPdf.copyPages(formPdf, formPdf.getPageIndices());
+    formPages.forEach((page: any) => mergedPdf.addPage(page));
+
+    const attachments = uniqueEmailAttachments(
+      supervisionReportAttachments(record).map((file) => dataUrlToEmailAttachment(file.name, file.dataUrl, file.type)),
     );
-    if (!pdf?.dataUrl) {
-      alert("לא נמצא קובץ PDF מצורף לרשומה זו.");
-      return;
+    for (const attachment of attachments) {
+      await appendAttachmentToPdf(mergedPdf, attachment);
     }
-    const link = document.createElement("a");
-    link.href = pdf.dataUrl;
-    link.download = pdf.name || `${record.title || "דוח פיקוח עליון"}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const bytes = await mergedPdf.save();
+    return new Blob([bytes], { type: "application/pdf" });
+  };
+
+  const downloadSupervisionReportPdf = async (record: SupervisionReportRecord) => {
+    try {
+      const blob = await buildSupervisionReportMergedPdfBlob(record);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${record.title || "דוח פיקוח עליון"} - כולל נספחים.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "יצירת PDF מאוחד נכשלה");
+    }
   };
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
@@ -11748,31 +11806,33 @@ ${invalidRecipients.join("\n")}`);
 ${invalidRecipients.join("\n")}`);
       return;
     }
-    const attachments = uniqueEmailAttachments(
-      supervisionReportAttachments(record).map((file) => dataUrlToEmailAttachment(file.name, file.dataUrl, file.type)),
-    );
-    if (!attachments.length) {
-      alert("אין קבצים מצורפים לשליחה.");
-      return;
+    try {
+      const blob = await buildSupervisionReportMergedPdfBlob(record);
+      const pdfDataUrl = await blobToDataUrl(blob);
+      const attachments = uniqueEmailAttachments([
+        dataUrlToEmailAttachment(`${record.title || "דוח פיקוח עליון"} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
+      ]);
+      const response = await fetch("/api/send-checklist-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: Array.from(new Set(recipients)).join(", "),
+          subject: `${record.title || "דוח פיקוח עליון"} - ${projectName}`,
+          html: `<div dir="rtl">מצורף PDF מאוחד הכולל דוח פיקוח עליון וכל הקבצים/התמונות מפרויקט ${projectName}</div>`,
+          text: `מצורף PDF מאוחד הכולל דוח פיקוח עליון וכל הקבצים/התמונות מפרויקט ${projectName}`,
+          attachments,
+          projectId: currentProject?.id || projectName || "806",
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
+        return;
+      }
+      alert("המייל נשלח בהצלחה עם PDF מאוחד הכולל את הדוח והנספחים.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
-    const response = await fetch("/api/send-checklist-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: Array.from(new Set(recipients)).join(", "),
-        subject: `${record.title || "דוח פיקוח עליון"} - ${projectName}`,
-        html: `<div dir="rtl">מצורפים קבצי דוח פיקוח עליון מפרויקט ${projectName}</div>`,
-        text: `מצורפים קבצי דוח פיקוח עליון מפרויקט ${projectName}`,
-        attachments,
-        projectId: currentProject?.id || projectName || "806",
-      }),
-    });
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
-      return;
-    }
-    alert("המייל נשלח בהצלחה.");
   };
 
   const showExportButtons = [
