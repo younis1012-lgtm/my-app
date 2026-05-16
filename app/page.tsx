@@ -283,6 +283,7 @@ const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 const PROJECT_LEGEND_TABLE = "project_legends";
 const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
 const CONTROL_PROCESS_STORAGE_KEY = `${STORAGE_KEY}-control-processes`;
+const SUPERVISION_REPORTS_STORAGE_KEY = `${STORAGE_KEY}-supervision-reports`;
 const CONTROL_PROCESS_TABLE = "control_processes";
 
 type ControlProcessStatus =
@@ -977,6 +978,63 @@ const rfiRecordToRow = (record: RfiRecord) => ({
   documents: normalizeAttachments(record.documents),
 });
 
+
+type SupervisionReportStatus = "פתוח" | "בטיפול" | "הושלם" | "מאושר";
+
+type SupervisionReportRecord = {
+  id: string;
+  projectId: string;
+  title: string;
+  reportNo: string;
+  date: string;
+  location: string;
+  author: string;
+  status: SupervisionReportStatus;
+  treatment: string;
+  notes: string;
+  attachment?: StoredAttachment | null;
+  savedAt: string;
+};
+
+const SUPERVISION_REPORT_STATUS_OPTIONS: SupervisionReportStatus[] = [
+  "פתוח",
+  "בטיפול",
+  "הושלם",
+  "מאושר",
+];
+
+const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt"> => ({
+  title: "",
+  reportNo: "",
+  date: new Date().toISOString().slice(0, 10),
+  location: "",
+  author: "",
+  status: "פתוח",
+  treatment: "",
+  notes: "",
+  attachment: null,
+});
+
+const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null => {
+  if (!value || typeof value !== "object") return null;
+  const status = SUPERVISION_REPORT_STATUS_OPTIONS.includes(value.status)
+    ? value.status
+    : "פתוח";
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    projectId: normalizeStoredProjectId(value.projectId ?? value.project_id ?? ""),
+    title: String(value.title ?? ""),
+    reportNo: String(value.reportNo ?? value.report_no ?? ""),
+    date: String(value.date ?? ""),
+    location: String(value.location ?? ""),
+    author: String(value.author ?? value.createdBy ?? ""),
+    status,
+    treatment: String(value.treatment ?? value.response ?? ""),
+    notes: String(value.notes ?? ""),
+    attachment: normalizeAttachments(value.attachment ? [value.attachment] : value.attachments ?? []).at(0) ?? null,
+    savedAt: String(value.savedAt ?? value.saved_at ?? ""),
+  };
+};
 type ProjectLegend = {
   projectName: string;
   projectManagement: string;
@@ -3983,6 +4041,141 @@ function SimpleFolderSection({
       </div>
       <div style={styles.emptyBox}>
         התיקייה נוצרה. בשלב הבא ניתן להוסיף כאן טפסים, קבצים ורשומות ייעודיות.
+      </div>
+    </section>
+  );
+}
+
+
+function SupervisionReportsSection({
+  records,
+  form,
+  editingId,
+  onChange,
+  onAttachmentChange,
+  onSave,
+  onNew,
+  onLoad,
+  onDelete,
+  onClose,
+}: {
+  records: SupervisionReportRecord[];
+  form: Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">;
+  editingId: string | null;
+  onChange: (field: keyof Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">, value: any) => void;
+  onAttachmentChange: (file: File | null) => void;
+  onSave: () => void;
+  onNew: () => void;
+  onLoad: (record: SupervisionReportRecord) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const input: CSSProperties = {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: 12,
+    padding: "10px 12px",
+    fontWeight: 700,
+    background: "#fff",
+    boxSizing: "border-box",
+  };
+  const label: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    fontWeight: 900,
+    color: "#0f172a",
+  };
+  const primaryBtn: CSSProperties = {
+    ...styles.primaryBtn,
+    minHeight: 44,
+  };
+
+  return (
+    <section>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>🏛️ דוחות פיקוח עליון</h2>
+        </div>
+        <button type="button" onClick={onNew} style={styles.secondaryBtn}>הוספה</button>
+      </div>
+
+      <div style={{ ...styles.card, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 12 }}>
+          <label style={label}>נושא הדוח
+            <input style={input} value={form.title} onChange={(e) => onChange("title", e.target.value)} />
+          </label>
+          <label style={label}>מספר דוח
+            <input style={input} value={form.reportNo} onChange={(e) => onChange("reportNo", e.target.value)} />
+          </label>
+          <label style={label}>תאריך
+            <input style={input} type="date" value={form.date} onChange={(e) => onChange("date", e.target.value)} />
+          </label>
+          <label style={label}>סטטוס
+            <select style={input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
+              {SUPERVISION_REPORT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </label>
+          <label style={label}>מיקום
+            <input style={input} value={form.location} onChange={(e) => onChange("location", e.target.value)} />
+          </label>
+          <label style={label}>מבצע / עורך
+            <input style={input} value={form.author} onChange={(e) => onChange("author", e.target.value)} />
+          </label>
+          <label style={{ ...label, gridColumn: "span 2" }}>קובץ דוח
+            <input style={input} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={(e) => onAttachmentChange(e.target.files?.[0] ?? null)} />
+            {form.attachment?.name ? <span style={{ color: "#15803d", fontWeight: 900 }}>צורף: {form.attachment.name}</span> : null}
+          </label>
+          <label style={{ ...label, gridColumn: "span 2" }}>טיפול
+            <textarea style={{ ...input, minHeight: 90 }} value={form.treatment} onChange={(e) => onChange("treatment", e.target.value)} />
+          </label>
+          <label style={{ ...label, gridColumn: "span 2" }}>הערות
+            <textarea style={{ ...input, minHeight: 90 }} value={form.notes} onChange={(e) => onChange("notes", e.target.value)} />
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+          <button type="button" onClick={onSave} style={primaryBtn}>שמירה</button>
+          <button type="button" onClick={onClose} style={styles.secondaryBtn}>טיפול / סגירה</button>
+          <button type="button" onClick={onNew} style={styles.secondaryBtn}>נקה / הוספה חדשה</button>
+          {editingId ? <span style={{ alignSelf: "center", color: "#64748b", fontWeight: 800 }}>עורך רשומה קיימת</span> : null}
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <h3 style={{ marginTop: 0, fontWeight: 950 }}>רשומות שנשמרו</h3>
+        {records.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+              <thead>
+                <tr>
+                  {["מס׳", "נושא", "מספר", "תאריך", "מיקום", "עורך", "סטטוס", "קובץ", "פעולות"].map((header) => (
+                    <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((record, index) => (
+                  <tr key={record.id}>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{index + 1}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.location}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.author}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.status}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.attachment?.dataUrl ? <a href={record.attachment.dataUrl} download={record.attachment.name}>{record.attachment.name}</a> : ""}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", whiteSpace: "nowrap" }}>
+                      <button type="button" onClick={() => onLoad(record)} style={styles.secondaryBtn}>טיפול</button>{" "}
+                      <button type="button" onClick={() => onDelete(record.id)} style={styles.dangerBtn}>מחיקה</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={styles.emptyBox}>אין עדיין דוחות פיקוח עליון. לחץ הוספה, מלא פרטים ולחץ שמירה.</div>
+        )}
       </div>
     </section>
   );
@@ -7394,6 +7587,9 @@ export default function Page() {
   const [editingControlProcessId, setEditingControlProcessId] = useState<
     string | null
   >(null);
+  const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
+  const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
+  const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7555,6 +7751,26 @@ export default function Page() {
       JSON.stringify(savedControlProcesses),
     );
   }, [savedControlProcesses]);
+
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(SUPERVISION_REPORTS_STORAGE_KEY) || "[]");
+      setSavedSupervisionReports(
+        Array.isArray(parsed)
+          ? parsed.map(normalizeSupervisionReport).filter(Boolean) as SupervisionReportRecord[]
+          : [],
+      );
+    } catch {
+      setSavedSupervisionReports([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(savedSupervisionReports));
+  }, [savedSupervisionReports]);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -8768,6 +8984,20 @@ export default function Page() {
               .includes(normalizedSearchTerm),
         ),
     [savedControlProcesses, currentProjectId, normalizedSearchTerm],
+  );
+  const projectSupervisionReports = useMemo(
+    () =>
+      savedSupervisionReports
+        .filter((item) => item.projectId === currentProjectId)
+        .filter(
+          (item) =>
+            !normalizedSearchTerm ||
+            [item.title, item.reportNo, item.location, item.author, item.status, item.treatment, item.notes]
+              .join(" ")
+              .toLowerCase()
+              .includes(normalizedSearchTerm),
+        ),
+    [savedSupervisionReports, currentProjectId, normalizedSearchTerm],
   );
   const projectTrialSections = useMemo(
     () =>
@@ -10295,7 +10525,7 @@ export default function Page() {
       title: "דוחות פיקוח עליון",
       icon: "🏛️",
       description: "תיקיית דוחות פיקוח עליון",
-      count: 0,
+      count: projectSupervisionReports.length,
     },
     {
       key: "concentrations",
@@ -11366,6 +11596,86 @@ ${invalidRecipients.join("\n")}`);
     await sendEmailToRecipients(recipientEmails);
   };
 
+
+  const resetSupervisionReportForm = () => {
+    setSupervisionReportForm(createDefaultSupervisionReport());
+    setEditingSupervisionReportId(null);
+  };
+
+  const updateSupervisionReportForm = (
+    field: keyof Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">,
+    value: any,
+  ) => {
+    setSupervisionReportForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const uploadSupervisionReportAttachment = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSupervisionReportForm((prev) => ({
+        ...prev,
+        attachment: {
+          name: file.name,
+          type: file.type,
+          dataUrl: String(reader.result ?? ""),
+          uploadedAt: nowLocal(),
+        },
+      }));
+    };
+    reader.onerror = () => alert("לא ניתן לקרוא את הקובץ המצורף.");
+    reader.readAsDataURL(file);
+  };
+
+  const saveSupervisionReport = () => {
+    if (!currentProjectId) {
+      alert("יש לבחור פרויקט לפני שמירה.");
+      return;
+    }
+    if (!supervisionReportForm.title.trim() && !supervisionReportForm.attachment?.name) {
+      alert("יש להזין נושא או לצרף קובץ דוח לפני שמירה.");
+      return;
+    }
+    const id = editingSupervisionReportId ?? crypto.randomUUID();
+    const record: SupervisionReportRecord = {
+      ...supervisionReportForm,
+      id,
+      projectId: currentProjectId,
+      savedAt: nowLocal(),
+    };
+    setSavedSupervisionReports((prev) => {
+      const exists = prev.some((item) => item.id === id);
+      return exists ? prev.map((item) => item.id === id ? record : item) : [record, ...prev];
+    });
+    setEditingSupervisionReportId(id);
+    alert("דוח פיקוח עליון נשמר בהצלחה.");
+  };
+
+  const loadSupervisionReport = (record: SupervisionReportRecord) => {
+    setEditingSupervisionReportId(record.id);
+    setSupervisionReportForm({
+      title: record.title,
+      reportNo: record.reportNo,
+      date: record.date,
+      location: record.location,
+      author: record.author,
+      status: record.status,
+      treatment: record.treatment,
+      notes: record.notes,
+      attachment: record.attachment ?? null,
+    });
+  };
+
+  const closeSupervisionReport = () => {
+    updateSupervisionReportForm("status", "הושלם");
+  };
+
+  const deleteSupervisionReport = (id: string) => {
+    if (!window.confirm("למחוק את דוח הפיקוח?")) return;
+    setSavedSupervisionReports((prev) => prev.filter((item) => item.id !== id));
+    if (editingSupervisionReportId === id) resetSupervisionReportForm();
+  };
+
   const showExportButtons = [
     "checklists",
     "nonconformances",
@@ -11729,10 +12039,17 @@ ${invalidRecipients.join("\n")}`);
             </>
           )}
           {section === "supervisionReports" && (
-            <SimpleFolderSection
-              title="דוחות פיקוח עליון"
-              description="תיקייה ייעודית לדוחות פיקוח עליון."
-              icon="🏛️"
+            <SupervisionReportsSection
+              records={projectSupervisionReports}
+              form={supervisionReportForm}
+              editingId={editingSupervisionReportId}
+              onChange={updateSupervisionReportForm}
+              onAttachmentChange={uploadSupervisionReportAttachment}
+              onSave={saveSupervisionReport}
+              onNew={resetSupervisionReportForm}
+              onLoad={loadSupervisionReport}
+              onDelete={deleteSupervisionReport}
+              onClose={closeSupervisionReport}
             />
           )}
           {section === "home" && (
@@ -11743,7 +12060,7 @@ ${invalidRecipients.join("\n")}`);
               projectTrialSections={projectTrialSections}
               projectPreliminary={projectPreliminary}
               projectRFIs={projectRfis as any}
-              projectSupervisionReports={[] as any}
+              projectSupervisionReports={projectSupervisionReports as any}
               homeModules={homeModules}
               setSection={setSection as any}
             />
