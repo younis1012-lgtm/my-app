@@ -993,6 +993,7 @@ type SupervisionReportRecord = {
   treatment: string;
   notes: string;
   attachment?: StoredAttachment | null;
+  attachments?: StoredAttachment[];
   savedAt: string;
 };
 
@@ -1013,6 +1014,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
   treatment: "",
   notes: "",
   attachment: null,
+  attachments: [],
 });
 
 const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null => {
@@ -1031,7 +1033,8 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     status,
     treatment: String(value.treatment ?? value.response ?? ""),
     notes: String(value.notes ?? ""),
-    attachment: normalizeAttachments(value.attachment ? [value.attachment] : value.attachments ?? []).at(0) ?? null,
+    attachments: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])),
+    attachment: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])).at(0) ?? null,
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
   };
 };
@@ -4058,17 +4061,21 @@ function SupervisionReportsSection({
   onLoad,
   onDelete,
   onClose,
+  onDownloadPdf,
+  onSendEmail,
 }: {
   records: SupervisionReportRecord[];
   form: Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">;
   editingId: string | null;
   onChange: (field: keyof Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">, value: any) => void;
-  onAttachmentChange: (file: File | null) => void;
+  onAttachmentChange: (files: FileList | File[] | null) => void;
   onSave: () => void;
   onNew: () => void;
   onLoad: (record: SupervisionReportRecord) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  onDownloadPdf: (record: SupervisionReportRecord) => void;
+  onSendEmail: (record: SupervisionReportRecord) => void;
 }) {
   const input: CSSProperties = {
     width: "100%",
@@ -4122,9 +4129,28 @@ function SupervisionReportsSection({
           <label style={label}>מבצע / עורך
             <input style={input} value={form.author} onChange={(e) => onChange("author", e.target.value)} />
           </label>
-          <label style={{ ...label, gridColumn: "span 2" }}>קובץ דוח
-            <input style={input} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={(e) => onAttachmentChange(e.target.files?.[0] ?? null)} />
-            {form.attachment?.name ? <span style={{ color: "#15803d", fontWeight: 900 }}>צורף: {form.attachment.name}</span> : null}
+          <label style={{ ...label, gridColumn: "span 2" }}>קבצי דוח / תמונות
+            <input style={input} type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={(e) => onAttachmentChange(e.target.files)} />
+            {(form.attachments ?? (form.attachment ? [form.attachment] : [])).length ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {(form.attachments ?? (form.attachment ? [form.attachment] : [])).map((file, fileIndex) => (
+                  <div key={`${file.name}-${fileIndex}`} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "6px 8px", border: "1px solid #dbeafe", borderRadius: 10, background: "#eff6ff" }}>
+                    <a href={file.dataUrl} download={file.name} style={{ color: "#15803d", fontWeight: 900 }}>{file.name}</a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = (form.attachments ?? (form.attachment ? [form.attachment] : [])).filter((_, idx) => idx !== fileIndex);
+                        onChange("attachments", next);
+                        onChange("attachment", next.at(0) ?? null);
+                      }}
+                      style={styles.dangerBtn}
+                    >
+                      הסר
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </label>
           <label style={{ ...label, gridColumn: "span 2" }}>טיפול
             <textarea style={{ ...input, minHeight: 90 }} value={form.treatment} onChange={(e) => onChange("treatment", e.target.value)} />
@@ -4148,7 +4174,7 @@ function SupervisionReportsSection({
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
               <thead>
                 <tr>
-                  {["מס׳", "נושא", "מספר", "תאריך", "מיקום", "עורך", "סטטוס", "קובץ", "פעולות"].map((header) => (
+                  {["מס׳", "נושא", "מספר", "תאריך", "מיקום", "עורך", "סטטוס", "קבצים", "פעולות"].map((header) => (
                     <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
                   ))}
                 </tr>
@@ -4163,9 +4189,17 @@ function SupervisionReportsSection({
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.location}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.author}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.status}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.attachment?.dataUrl ? <a href={record.attachment.dataUrl} download={record.attachment.name}>{record.attachment.name}</a> : ""}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {(record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file, fileIndex) => (
+                          <a key={`${file.name}-${fileIndex}`} href={file.dataUrl} download={file.name}>{file.name}</a>
+                        ))}
+                      </div>
+                    </td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", whiteSpace: "nowrap" }}>
                       <button type="button" onClick={() => onLoad(record)} style={styles.secondaryBtn}>טיפול</button>{" "}
+                      <button type="button" onClick={() => onDownloadPdf(record)} style={styles.secondaryBtn}>הורדת PDF</button>{" "}
+                      <button type="button" onClick={() => onSendEmail(record)} style={styles.secondaryBtn}>שליחה בדוא״ל</button>{" "}
                       <button type="button" onClick={() => onDelete(record.id)} style={styles.dangerBtn}>מחיקה</button>
                     </td>
                   </tr>
@@ -11609,22 +11643,27 @@ ${invalidRecipients.join("\n")}`);
     setSupervisionReportForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const uploadSupervisionReportAttachment = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setSupervisionReportForm((prev) => ({
-        ...prev,
-        attachment: {
+  const uploadSupervisionReportAttachment = (files: FileList | File[] | null) => {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return;
+    selectedFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const attachment: StoredAttachment = {
           name: file.name,
           type: file.type,
           dataUrl: String(reader.result ?? ""),
           uploadedAt: nowLocal(),
-        },
-      }));
-    };
-    reader.onerror = () => alert("לא ניתן לקרוא את הקובץ המצורף.");
-    reader.readAsDataURL(file);
+        };
+        setSupervisionReportForm((prev) => ({
+          ...prev,
+          attachment,
+          attachments: [...(prev.attachments ?? (prev.attachment ? [prev.attachment] : [])), attachment],
+        }));
+      };
+      reader.onerror = () => alert(`לא ניתן לקרוא את הקובץ: ${file.name}`);
+      reader.readAsDataURL(file);
+    });
   };
 
   const saveSupervisionReport = () => {
@@ -11637,8 +11676,11 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     const id = editingSupervisionReportId ?? crypto.randomUUID();
+    const attachments = normalizeAttachments(supervisionReportForm.attachments ?? (supervisionReportForm.attachment ? [supervisionReportForm.attachment] : []));
     const record: SupervisionReportRecord = {
       ...supervisionReportForm,
+      attachment: attachments.at(0) ?? null,
+      attachments,
       id,
       projectId: currentProjectId,
       savedAt: nowLocal(),
@@ -11662,7 +11704,8 @@ ${invalidRecipients.join("\n")}`);
       status: record.status,
       treatment: record.treatment,
       notes: record.notes,
-      attachment: record.attachment ?? null,
+      attachment: (record.attachments ?? (record.attachment ? [record.attachment] : [])).at(0) ?? null,
+      attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
     });
   };
 
@@ -11674,6 +11717,62 @@ ${invalidRecipients.join("\n")}`);
     if (!window.confirm("למחוק את דוח הפיקוח?")) return;
     setSavedSupervisionReports((prev) => prev.filter((item) => item.id !== id));
     if (editingSupervisionReportId === id) resetSupervisionReportForm();
+  };
+
+  const supervisionReportAttachments = (record: SupervisionReportRecord) =>
+    normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : []));
+
+  const downloadSupervisionReportPdf = (record: SupervisionReportRecord) => {
+    const pdf = supervisionReportAttachments(record).find((item) =>
+      item.type.includes("pdf") || item.name.toLowerCase().endsWith(".pdf"),
+    );
+    if (!pdf?.dataUrl) {
+      alert("לא נמצא קובץ PDF מצורף לרשומה זו.");
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = pdf.dataUrl;
+    link.download = pdf.name || `${record.title || "דוח פיקוח עליון"}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
+    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const recipients = normalizeEmailList(recipientInput);
+    if (!recipients.length) return;
+    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
+    if (invalidRecipients.length) {
+      alert(`כתובות המייל הבאות אינן תקינות:
+${invalidRecipients.join("\n")}`);
+      return;
+    }
+    const attachments = uniqueEmailAttachments(
+      supervisionReportAttachments(record).map((file) => dataUrlToEmailAttachment(file.name, file.dataUrl, file.type)),
+    );
+    if (!attachments.length) {
+      alert("אין קבצים מצורפים לשליחה.");
+      return;
+    }
+    const response = await fetch("/api/send-checklist-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: Array.from(new Set(recipients)).join(", "),
+        subject: `${record.title || "דוח פיקוח עליון"} - ${projectName}`,
+        html: `<div dir="rtl">מצורפים קבצי דוח פיקוח עליון מפרויקט ${projectName}</div>`,
+        text: `מצורפים קבצי דוח פיקוח עליון מפרויקט ${projectName}`,
+        attachments,
+        projectId: currentProject?.id || projectName || "806",
+      }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
+      return;
+    }
+    alert("המייל נשלח בהצלחה.");
   };
 
   const showExportButtons = [
@@ -12050,6 +12149,8 @@ ${invalidRecipients.join("\n")}`);
               onLoad={loadSupervisionReport}
               onDelete={deleteSupervisionReport}
               onClose={closeSupervisionReport}
+              onDownloadPdf={downloadSupervisionReportPdf}
+              onSendEmail={sendSupervisionReportEmail}
             />
           )}
           {section === "home" && (
