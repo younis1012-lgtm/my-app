@@ -1901,7 +1901,6 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
-                  <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>{definition.description}</div>
                 </div>
                 <span style={{ borderRadius: 999, background: rows.length ? "#dcfce7" : "#f1f5f9", color: rows.length ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length} רשומות</span>
               </div>
