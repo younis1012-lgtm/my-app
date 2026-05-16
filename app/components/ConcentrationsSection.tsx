@@ -23,6 +23,7 @@ type Props = {
   savedPreliminary?: any[];
   savedRfis?: any[];
   savedControlProcesses?: any[];
+  savedSupervisionReports?: any[];
   currentProjectName?: string;
   projectMeta?: ProjectConcentrationMeta;
 };
@@ -61,6 +62,7 @@ type BuildContext = {
   savedPreliminary: any[];
   savedRfis: any[];
   savedControlProcesses: any[];
+  savedSupervisionReports: any[];
   projectMeta: Required<ProjectConcentrationMeta>;
 };
 
@@ -1220,6 +1222,31 @@ const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keyw
   return [...checklist, ...process];
 };
 
+
+const supervisionReportAttachments = (record: any): any[] => {
+  const direct = getAttachments(record);
+  const legacy = record?.attachment ? [record.attachment].filter(isRealAttachment) : [];
+  return [...direct, ...legacy].filter(isRealAttachment);
+};
+
+const supervisionReportRow = (record: any, index: number): Row => {
+  const docs = supervisionReportAttachments(record);
+  return {
+    "מס׳": index + 1,
+    "מספר דוח": firstText(record?.reportNo, record?.report_no, index + 1),
+    "נושא הדוח": firstText(record?.title, record?.subject, record?.name),
+    "מיקום": firstText(record?.location),
+    "תאריך": firstDateText(record?.date, record?.savedAt, record?.createdAt),
+    "מבצע / עורך": firstText(record?.author, record?.createdBy, record?.editor, record?.approvedBy),
+    "סטטוס": firstText(record?.status),
+    "תאריך טיפול": firstDateText(record?.treatmentDate, record?.treatment_date, record?.closedAt),
+    "טיפול": firstText(record?.treatment, record?.response, record?.actionTaken),
+    "מס׳ קבצים": docs.length || "",
+    "שם קובץ": uniqueJoin(docs.map(attachmentName)),
+    "הערות": firstText(record?.notes, record?.remarks),
+  };
+};
+
 const definitions: ConcentrationDefinition[] = [
   {
     id: "nonconformances",
@@ -1306,14 +1333,10 @@ const definitions: ConcentrationDefinition[] = [
     id: "supervision",
     title: "ריכוז דוחות פיקוח עליון",
     fileName: "ריכוז דוחות פיקוח עליון.xlsx",
-    description: "ריכוז דוחות/רשומות פיקוח עליון מתוך המערכת",
-    sourceLabel: "דוחות / קטעי ניסוי",
-    columns: ["מס׳", "נושא", "מיקום", "תאריך", "מאשר/בודק", "סטטוס", "תיאור", "הערות"],
-    buildRows: ({ savedChecklists, savedTrialSections, savedControlProcesses }) => [
-      ...savedChecklists.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": i + 1, "נושא": firstText(r?.title, r?.checklistName), "מיקום": firstText(r?.location), "תאריך": dateText(r?.date ?? r?.savedAt), "מאשר/בודק": firstText(r?.approvedBy, r?.inspector), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.spec), "הערות": firstText(r?.notes) })),
-      ...savedTrialSections.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": savedChecklists.length + i + 1, "נושא": firstText(r?.title), "מיקום": firstText(r?.location), "תאריך": dateText(r?.date ?? r?.savedAt), "מאשר/בודק": firstText(r?.approvedBy), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.spec), "הערות": firstText(r?.notes) })),
-      ...savedControlProcesses.filter((r) => includesAny(recordText(r), ["פיקוח עליון", "דוח פיקוח", "פיקוח"])).map((r, i) => ({ "מס׳": savedChecklists.length + savedTrialSections.length + i + 1, "נושא": firstText(r?.title, r?.workType), "מיקום": firstText(r?.location), "תאריך": dateText(r?.savedAt), "מאשר/בודק": firstText(r?.approval?.approvedBy), "סטטוס": firstText(r?.status), "תיאור": firstText(r?.description, r?.specSection), "הערות": firstText(r?.notes) })),
-    ],
+    description: "",
+    sourceLabel: "דוחות פיקוח עליון",
+    columns: ["מס׳", "מספר דוח", "נושא הדוח", "מיקום", "תאריך", "מבצע / עורך", "סטטוס", "תאריך טיפול", "טיפול", "מס׳ קבצים", "שם קובץ", "הערות"],
+    buildRows: ({ savedSupervisionReports }) => savedSupervisionReports.map(supervisionReportRow),
   },
   {
     id: "materials",
@@ -1839,13 +1862,13 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], currentProjectName = "", projectMeta }: Props) {
+export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
 
   const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
-  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, meta]);
+  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, meta]);
 
   const rowsById = useMemo(() => {
     const result: Record<string, Row[]> = {};

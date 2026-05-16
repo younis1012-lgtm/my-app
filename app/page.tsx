@@ -12493,6 +12493,7 @@ ${invalidRecipients.join("\n")}`);
                 savedPreliminary={projectPreliminary}
                 savedRfis={projectRfis}
                 savedControlProcesses={projectControlProcesses}
+                savedSupervisionReports={projectSupervisionReports}
                 currentProjectName={projectName}
                 projectMeta={
                   {
