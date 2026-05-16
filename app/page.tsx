@@ -4100,11 +4100,30 @@ function SupervisionReportsSection({
     ...styles.primaryBtn,
     minHeight: 44,
   };
+  const activeRecord = records.find((record) => record.id === editingId) ?? records[0] ?? null;
 
   return (
     <section>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <button
+              type="button"
+              onClick={() => activeRecord && onDownloadPdf(activeRecord)}
+              disabled={!activeRecord}
+              style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}
+            >
+              הורד PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => activeRecord && onSendEmail(activeRecord)}
+              disabled={!activeRecord}
+              style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}
+            >
+              שלח מייל
+            </button>
+          </div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>🏛️ דוחות פיקוח עליון</h2>
         </div>
         <button type="button" onClick={onNew} style={styles.secondaryBtn}>הוספה</button>
@@ -7631,6 +7650,7 @@ export default function Page() {
   const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
   const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
+  const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7805,13 +7825,15 @@ export default function Page() {
       );
     } catch {
       setSavedSupervisionReports([]);
+    } finally {
+      setSupervisionReportsLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !supervisionReportsLoaded) return;
     window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(savedSupervisionReports));
-  }, [savedSupervisionReports]);
+  }, [savedSupervisionReports, supervisionReportsLoaded]);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -11694,7 +11716,11 @@ ${invalidRecipients.join("\n")}`);
     };
     setSavedSupervisionReports((prev) => {
       const exists = prev.some((item) => item.id === id);
-      return exists ? prev.map((item) => item.id === id ? record : item) : [record, ...prev];
+      const next = exists ? prev.map((item) => item.id === id ? record : item) : [record, ...prev];
+      try {
+        window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
     });
     setEditingSupervisionReportId(id);
     alert("דוח פיקוח עליון נשמר בהצלחה.");
@@ -11724,7 +11750,13 @@ ${invalidRecipients.join("\n")}`);
 
   const deleteSupervisionReport = (id: string) => {
     if (!window.confirm("למחוק את דוח הפיקוח?")) return;
-    setSavedSupervisionReports((prev) => prev.filter((item) => item.id !== id));
+    setSavedSupervisionReports((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      try {
+        window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (editingSupervisionReportId === id) resetSupervisionReportForm();
   };
 
