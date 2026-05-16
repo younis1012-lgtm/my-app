@@ -4569,9 +4569,9 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
         </div>
       </div>
 
-      <div style={{ ...dashboardCardStyle, padding: 12 }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 950 }}>תיקיות המערכת</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 8 }}>
+      <div style={dashboardCardStyle}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>תיקיות המערכת</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(175px,1fr))", gap: 8 }}>
           {homeModules.map((module) => (
             <button
               key={String(module.key)}
@@ -4581,57 +4581,66 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
                 border: "1px solid #e2e8f0",
                 background: "#fff",
                 borderRadius: 14,
-                padding: "9px 10px",
-                minHeight: 78,
-                textAlign: "right",
+                padding: "8px 10px",
+                minHeight: 76,
                 cursor: "pointer",
                 boxShadow: "0 6px 16px rgba(15,23,42,0.025)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 10,
+                direction: "ltr",
               }}
             >
               <span
                 style={{
-                  width: 42,
-                  height: 42,
+                  width: 38,
+                  height: 38,
                   borderRadius: 12,
                   background: "#f1f5f9",
-                  display: "inline-flex",
+                  display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: 20,
                   flexShrink: 0,
-                  order: 1,
                 }}
               >
                 {module.icon}
               </span>
 
-              <span style={{ flex: 1, minWidth: 0, order: 2 }}>
-                <span style={{ display: "block", fontWeight: 950, color: "#0f172a", fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div style={{ flex: 1, minWidth: 0, textAlign: "right", direction: "rtl" }}>
+                <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 14, lineHeight: 1.2 }}>
                   {module.title}
-                </span>
-                <span style={{ display: "block", color: "#64748b", marginTop: 3, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                </div>
+                <div
+                  style={{
+                    color: "#64748b",
+                    marginTop: 3,
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={module.description}
+                >
                   {module.description}
-                </span>
-              </span>
+                </div>
+              </div>
 
               <span
                 style={{
                   borderRadius: 999,
                   background: "#f8fafc",
                   border: "1px solid #e2e8f0",
-                  minWidth: 34,
-                  height: 34,
-                  display: "inline-flex",
+                  minWidth: 32,
+                  height: 32,
+                  display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontWeight: 950,
                   fontSize: 14,
                   color: "#0f172a",
-                  order: 3,
+                  flexShrink: 0,
                 }}
               >
                 {module.count}
