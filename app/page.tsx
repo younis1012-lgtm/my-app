@@ -1024,6 +1024,7 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
   const status = SUPERVISION_REPORT_STATUS_OPTIONS.includes(value.status)
     ? value.status
     : "פתוח";
+  const attachments = normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : []));
   return {
     id: String(value.id ?? crypto.randomUUID()),
     projectId: normalizeStoredProjectId(value.projectId ?? value.project_id ?? ""),
@@ -1036,10 +1037,98 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     treatment: String(value.treatment ?? value.response ?? ""),
     treatmentDate: String(value.treatmentDate ?? value.treatment_date ?? ""),
     notes: String(value.notes ?? ""),
-    attachments: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])),
-    attachment: normalizeAttachments(value.attachments ?? (value.attachment ? [value.attachment] : [])).at(0) ?? null,
+    attachments,
+    attachment: attachments.at(0) ?? null,
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
   };
+};
+
+const SUPERVISION_REPORTS_DB_NAME = "yk-quality-supervision-reports-db";
+const SUPERVISION_REPORTS_DB_STORE = "reports";
+const SUPERVISION_REPORTS_DB_KEY = "all";
+
+const openSupervisionReportsDb = (): Promise<IDBDatabase | null> =>
+  new Promise((resolve) => {
+    if (typeof window === "undefined" || !("indexedDB" in window)) {
+      resolve(null);
+      return;
+    }
+    const request = window.indexedDB.open(SUPERVISION_REPORTS_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SUPERVISION_REPORTS_DB_STORE)) {
+        db.createObjectStore(SUPERVISION_REPORTS_DB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+    request.onblocked = () => resolve(null);
+  });
+
+const readSupervisionReportsFromBrowser = async (): Promise<SupervisionReportRecord[]> => {
+  if (typeof window === "undefined") return [];
+
+  const normalizeList = (value: unknown): SupervisionReportRecord[] =>
+    Array.isArray(value)
+      ? (value.map(normalizeSupervisionReport).filter(Boolean) as SupervisionReportRecord[])
+      : [];
+
+  try {
+    const db = await openSupervisionReportsDb();
+    if (db) {
+      const data = await new Promise<unknown>((resolve) => {
+        const tx = db.transaction(SUPERVISION_REPORTS_DB_STORE, "readonly");
+        const request = tx.objectStore(SUPERVISION_REPORTS_DB_STORE).get(SUPERVISION_REPORTS_DB_KEY);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      });
+      db.close();
+      const fromDb = normalizeList(data);
+      if (fromDb.length) return fromDb;
+    }
+  } catch {
+    // נמשיך ל-LocalStorage כגיבוי.
+  }
+
+  try {
+    return normalizeList(JSON.parse(window.localStorage.getItem(SUPERVISION_REPORTS_STORAGE_KEY) || "[]"));
+  } catch {
+    return [];
+  }
+};
+
+const writeSupervisionReportsToBrowser = async (reports: SupervisionReportRecord[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    const db = await openSupervisionReportsDb();
+    if (db) {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(SUPERVISION_REPORTS_DB_STORE, "readwrite");
+        tx.objectStore(SUPERVISION_REPORTS_DB_STORE).put(reports, SUPERVISION_REPORTS_DB_KEY);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+        tx.onabort = () => resolve();
+      });
+      db.close();
+    }
+  } catch {
+    // IndexedDB נכשל — ננסה לשמור לפחות את המטא-דאטה ב-LocalStorage.
+  }
+
+  try {
+    window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(reports));
+  } catch {
+    const metadataOnly = reports.map((report) => ({
+      ...report,
+      attachment: report.attachment ? { ...report.attachment, dataUrl: "" } : null,
+      attachments: (report.attachments ?? []).map((file) => ({ ...file, dataUrl: "" })),
+    }));
+    try {
+      window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(metadataOnly));
+    } catch {
+      // לא מפילים את הדף אם הדפדפן חסם שמירה.
+    }
+  }
 };
 type ProjectLegend = {
   projectName: string;
@@ -7816,23 +7905,25 @@ export default function Page() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(SUPERVISION_REPORTS_STORAGE_KEY) || "[]");
-      setSavedSupervisionReports(
-        Array.isArray(parsed)
-          ? parsed.map(normalizeSupervisionReport).filter(Boolean) as SupervisionReportRecord[]
-          : [],
-      );
-    } catch {
-      setSavedSupervisionReports([]);
-    } finally {
-      setSupervisionReportsLoaded(true);
-    }
+    let cancelled = false;
+    readSupervisionReportsFromBrowser()
+      .then((reports) => {
+        if (!cancelled) setSavedSupervisionReports(reports);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedSupervisionReports([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSupervisionReportsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !supervisionReportsLoaded) return;
-    window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(savedSupervisionReports));
+    void writeSupervisionReportsToBrowser(savedSupervisionReports);
   }, [savedSupervisionReports, supervisionReportsLoaded]);
 
   const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
@@ -8971,7 +9062,11 @@ export default function Page() {
   const projectChecklists = useMemo(
     () =>
       savedChecklists
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => {
+          const itemProjectId = normalizeStoredProjectId(item.projectId);
+          const activeProjectId = normalizeStoredProjectId(currentProjectId);
+          return !itemProjectId || !activeProjectId || itemProjectId === activeProjectId;
+        })
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -11700,12 +11795,22 @@ ${invalidRecipients.join("\n")}`);
       alert("יש לבחור פרויקט לפני שמירה.");
       return;
     }
-    if (!supervisionReportForm.title.trim() && !supervisionReportForm.attachment?.name) {
-      alert("יש להזין נושא או לצרף קובץ דוח לפני שמירה.");
+    const currentAttachments = normalizeAttachments(supervisionReportForm.attachments ?? (supervisionReportForm.attachment ? [supervisionReportForm.attachment] : []));
+    const hasAnyContent = Boolean(
+      supervisionReportForm.title.trim() ||
+      supervisionReportForm.reportNo.trim() ||
+      supervisionReportForm.location.trim() ||
+      supervisionReportForm.author.trim() ||
+      supervisionReportForm.treatment.trim() ||
+      supervisionReportForm.notes.trim() ||
+      currentAttachments.length
+    );
+    if (!hasAnyContent) {
+      alert("יש להזין לפחות פרט אחד או לצרף קובץ לפני שמירה.");
       return;
     }
     const id = editingSupervisionReportId ?? crypto.randomUUID();
-    const attachments = normalizeAttachments(supervisionReportForm.attachments ?? (supervisionReportForm.attachment ? [supervisionReportForm.attachment] : []));
+    const attachments = currentAttachments;
     const record: SupervisionReportRecord = {
       ...supervisionReportForm,
       attachment: attachments.at(0) ?? null,
@@ -11717,9 +11822,7 @@ ${invalidRecipients.join("\n")}`);
     setSavedSupervisionReports((prev) => {
       const exists = prev.some((item) => item.id === id);
       const next = exists ? prev.map((item) => item.id === id ? record : item) : [record, ...prev];
-      try {
-        window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(next));
-      } catch {}
+      void writeSupervisionReportsToBrowser(next);
       return next;
     });
     setEditingSupervisionReportId(id);
@@ -11752,9 +11855,7 @@ ${invalidRecipients.join("\n")}`);
     if (!window.confirm("למחוק את דוח הפיקוח?")) return;
     setSavedSupervisionReports((prev) => {
       const next = prev.filter((item) => item.id !== id);
-      try {
-        window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(next));
-      } catch {}
+      void writeSupervisionReportsToBrowser(next);
       return next;
     });
     if (editingSupervisionReportId === id) resetSupervisionReportForm();
