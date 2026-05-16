@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type {
   ApprovalFlow,
   ChecklistItem,
@@ -21,7 +22,6 @@ import {
   normalizeChecklistTemplateKey,
 } from "./checklistTemplates";
 import { styles } from "./components/common";
-import { HomeSection } from "./components/HomeSection";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
@@ -2790,7 +2790,7 @@ function ProcessSignatureFields({
 }) {
   const set = (patch: Partial<ProcessSignature>) =>
     onChange({ ...value, role, ...patch });
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     border: "1px solid #cbd5e1",
     borderRadius: 10,
     padding: "8px 10px",
@@ -2968,7 +2968,7 @@ function ChecklistsSection({
   savedSignatureForSigner,
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
     borderRadius: 10,
@@ -2977,13 +2977,13 @@ function ChecklistsSection({
     fontWeight: 700,
     minHeight: 44,
   };
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     fontWeight: 900,
     marginBottom: 6,
     display: "block",
     color: "#0f172a",
   };
-  const cardStyle: React.CSSProperties = {
+  const cardStyle: CSSProperties = {
     border: "1px solid #e2e8f0",
     borderRadius: 18,
     padding: 16,
@@ -2992,7 +2992,7 @@ function ChecklistsSection({
   };
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
-  const topTableInputStyle: React.CSSProperties = {
+  const topTableInputStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
     border: 0,
@@ -3005,17 +3005,17 @@ function ChecklistsSection({
     boxSizing: "border-box",
     whiteSpace: "normal",
   };
-  const topTableCellStyle: React.CSSProperties = {
+  const topTableCellStyle: CSSProperties = {
     border: "1px solid #0f172a",
     padding: 3,
     minWidth: 120,
     verticalAlign: "middle",
   };
-  const topTableWideCellStyle: React.CSSProperties = {
+  const topTableWideCellStyle: CSSProperties = {
     ...topTableCellStyle,
     minWidth: 240,
   };
-  const topTableHeaderStyle: React.CSSProperties = {
+  const topTableHeaderStyle: CSSProperties = {
     border: "1px solid #0f172a",
     padding: 7,
     background: "#f8fafc",
@@ -3518,7 +3518,7 @@ function ChecklistsSection({
                   const isExcludedFromPrint = Boolean(
                     (item as any).excludedFromPrint,
                   );
-                  const cellStyle: React.CSSProperties = {
+                  const cellStyle: CSSProperties = {
                     border: "1px solid #94a3b8",
                     padding: 6,
                     verticalAlign: "top",
@@ -3529,7 +3529,7 @@ function ChecklistsSection({
                         : "#fff",
                     opacity: isExcludedFromPrint ? 0.72 : 1,
                   };
-                  const compactInputStyle: React.CSSProperties = {
+                  const compactInputStyle: CSSProperties = {
                     width: "100%",
                     border: "1px solid #cbd5e1",
                     borderRadius: 8,
@@ -3936,7 +3936,7 @@ function ProjectLegendPanel({
   onAddFactor: () => void;
   onRemoveFactor: (id: string) => void;
 }) {
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
     borderRadius: 12,
@@ -3944,7 +3944,7 @@ function ProjectLegendPanel({
     fontWeight: 800,
     background: "#fff",
   };
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     display: "grid",
     gap: 6,
     fontWeight: 900,
@@ -4445,6 +4445,129 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
   );
 }
 
+
+
+type HomeDashboardProps = {
+  projects: Project[];
+  projectChecklists: any[];
+  projectNonconformances: any[];
+  projectTrialSections: any[];
+  projectPreliminary: any[];
+  projectRFIs: any[];
+  projectSupervisionReports: any[];
+  homeModules: Array<{ key: AppSection | string; title: string; icon: string; description: string; count: number }>;
+  setSection: (section: AppSection) => void;
+};
+
+const dashboardCardStyle: CSSProperties = {
+  background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
+  padding: 16,
+  boxShadow: "0 10px 30px rgba(15,23,42,0.04)",
+};
+
+const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
+  if (tone === "danger") return { bg: "#fef2f2", border: "#fecaca", text: "#991b1b", pill: "#dc2626" };
+  if (tone === "warn") return { bg: "#fffbeb", border: "#fde68a", text: "#92400e", pill: "#f59e0b" };
+  if (tone === "good") return { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534", pill: "#16a34a" };
+  return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb" };
+};
+
+function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, homeModules, setSection }: HomeDashboardProps) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isClosed = (value: unknown) => {
+    const text = String(value ?? "").toLowerCase();
+    return ["סגור", "מאושר", "הושלם", "נעול", "closed", "approved", "done"].some((word) => text.includes(word.toLowerCase()));
+  };
+  const isOpen = (value: unknown) => !isClosed(value);
+  const parseDate = (value: unknown) => {
+    const text = String(value ?? "").trim();
+    if (!text) return null;
+    const direct = new Date(text);
+    if (!Number.isNaN(direct.getTime())) return direct;
+    const parts = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (!parts) return null;
+    const year = Number(parts[3].length === 2 ? `20${parts[3]}` : parts[3]);
+    const date = new Date(year, Number(parts[2]) - 1, Number(parts[1]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const isOverdue = (record: any) => {
+    if (isClosed(record?.status ?? record?.approval?.status)) return false;
+    const date = parseDate(record?.expectedCloseDate ?? record?.closeDate ?? record?.dueDate ?? record?.date ?? record?.openDate);
+    return Boolean(date && date < today);
+  };
+  const metrics = useMemo(() => {
+    const openNcr = projectNonconformances.filter((item) => isOpen(item?.status)).length;
+    const openRfi = projectRFIs.filter((item) => isOpen(item?.status)).length;
+    const pendingApprovals = [...projectChecklists, ...projectNonconformances, ...projectTrialSections, ...projectPreliminary, ...projectRFIs, ...projectSupervisionReports].filter((item) => {
+      const status = String(item?.approval?.status ?? item?.status ?? "");
+      return status.includes("ממתין") || status.includes("טיוטה") || status === "draft";
+    }).length;
+    const overdue = [...projectNonconformances, ...projectRFIs, ...projectTrialSections, ...projectSupervisionReports].filter(isOverdue).length;
+    const completedChecklists = projectChecklists.filter((item) => isClosed(item?.approval?.status ?? item?.status)).length;
+    const checklistPercent = projectChecklists.length ? Math.round((completedChecklists / projectChecklists.length) * 100) : 0;
+    const openTrial = projectTrialSections.filter((item) => isOpen(item?.status)).length;
+    return { openNcr, openRfi, pendingApprovals, overdue, checklistPercent, openTrial };
+  }, [projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports]);
+  const urgentTasks = [
+    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 4).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", meta: item?.status || "פתוח", tone: "danger" as const })),
+    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", meta: item?.status || "ממתין", tone: "warn" as const })),
+    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", meta: item?.status || "בטיפול", tone: "info" as const })),
+  ].slice(0, 8);
+  const kpis = [
+    { label: "אי התאמות פתוחות", value: metrics.openNcr, tone: metrics.openNcr ? "danger" : "good", help: metrics.openNcr ? "דורש טיפול" : "אין פתוחות", section: "nonconformances" as AppSection },
+    { label: "RFI פתוחים", value: metrics.openRfi, tone: metrics.openRfi ? "warn" : "good", help: metrics.openRfi ? "ממתין למענה" : "אין פתוחים", section: "rfi" as AppSection },
+    { label: "משימות באיחור", value: metrics.overdue, tone: metrics.overdue ? "danger" : "good", help: metrics.overdue ? "לטיפול מיידי" : "אין איחורים", section: "home" as AppSection },
+    { label: "ממתין לאישור", value: metrics.pendingApprovals, tone: metrics.pendingApprovals ? "warn" : "good", help: "חתימות / אישורים", section: "checklists" as AppSection },
+    { label: "השלמת רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
+    { label: "קטעי ניסוי פתוחים", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "מעקב ביצוע", section: "trialSections" as AppSection },
+  ] as const;
+  const quickActions = [
+    { label: "➕ אי התאמה", section: "nonconformances" as AppSection },
+    { label: "➕ RFI", section: "rfi" as AppSection },
+    { label: "➕ רשימת תיוג", section: "checklists" as AppSection },
+    { label: "➕ קטע ניסוי", section: "trialSections" as AppSection },
+  ];
+  const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length);
+  const distribution = [
+    { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
+    { label: "אי התאמות", value: projectNonconformances.length, section: "nonconformances" as AppSection },
+    { label: "קטעי ניסוי", value: projectTrialSections.length, section: "trialSections" as AppSection },
+    { label: "בקרה מקדימה", value: projectPreliminary.length, section: "preliminary" as AppSection },
+    { label: "RFI", value: projectRFIs.length, section: "rfi" as AppSection },
+    { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
+  ];
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ ...dashboardCardStyle, background: "linear-gradient(135deg,#0f172a,#1e293b)", color: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 26, fontWeight: 950 }}>חדר בקרה לפרויקט</div><div style={{ opacity: 0.82, marginTop: 6 }}>מה פתוח, מה באיחור ומה דורש טיפול עכשיו</div></div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 999, padding: "10px 14px", fontWeight: 850, cursor: "pointer" }}>{action.label}</button>)}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+        {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}><span style={{ width: 10, height: 10, borderRadius: 999, background: tone.pill, display: "inline-block" }} /><span style={{ color: tone.text, fontWeight: 850 }}>{item.help}</span></div><div style={{ fontSize: 34, fontWeight: 950, marginTop: 12, color: "#0f172a" }}>{item.value}</div><div style={{ color: "#334155", fontWeight: 850 }}>{item.label}</div></button>; })}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 14 }}>
+        <div style={dashboardCardStyle}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
+          {urgentTasks.length ? <div style={{ display: "grid", gap: 10 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 12, alignItems: "center", padding: "12px 14px", borderRadius: 14, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 22 }}>{task.icon}</span><span><span style={{ display: "block", fontWeight: 900, color: "#0f172a" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 13 }}>לחץ לפתיחת התיקייה הרלוונטית</span></span><span style={{ color: tone.text, fontWeight: 900 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 18, borderRadius: 14, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות. מצב הפרויקט נראה תקין.</div>}
+        </div>
+        <div style={dashboardCardStyle}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>חלוקת רשומות</h3>
+          <div style={{ display: "grid", gap: 10 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 4 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 9, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
+        </div>
+      </div>
+      <div style={dashboardCardStyle}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 950 }}>תיקיות המערכת</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 12 }}>{homeModules.map((module) => <button key={String(module.key)} type="button" onClick={() => setSection(module.key as AppSection)} style={{ border: "1px solid #e2e8f0", background: "#fff", borderRadius: 16, padding: 16, textAlign: "right", cursor: "pointer", boxShadow: "0 8px 20px rgba(15,23,42,0.03)" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}><span style={{ fontSize: 24 }}>{module.icon}</span><span style={{ borderRadius: 999, background: "#f1f5f9", padding: "4px 10px", fontWeight: 900 }}>{module.count}</span></div><div style={{ fontWeight: 950, marginTop: 12, color: "#0f172a" }}>{module.title}</div><div style={{ color: "#64748b", marginTop: 5, fontSize: 13 }}>{module.description}</div></button>)}</div>
+      </div>
+    </div>
+  );
+}
+
 function getPreliminaryNested(record: any) {
   return record?.supplier || record?.subcontractor || record?.material || {};
 }
@@ -4647,7 +4770,7 @@ function FormGrid({
   setForm: React.Dispatch<React.SetStateAction<any>>;
   readOnly?: boolean;
 }) {
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
     borderRadius: 12,
@@ -4656,7 +4779,7 @@ function FormGrid({
     background: readOnly ? "#f1f5f9" : "#fff",
     minHeight: 44,
   };
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     display: "grid",
     gap: 6,
     fontWeight: 900,
@@ -4786,7 +4909,7 @@ function RfiSection({
   projectMeta: ProjectLegend;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
-  const metaStyle: React.CSSProperties = {
+  const metaStyle: CSSProperties = {
     border: "1px solid #e2e8f0",
     borderRadius: 14,
     padding: 12,
@@ -6340,7 +6463,7 @@ function ControlProcessesSection({
   if (guardedBody) return <>{guardedBody}</>;
 
   const readOnly = form.status === "נעול";
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
     borderRadius: 12,
@@ -6349,12 +6472,12 @@ function ControlProcessesSection({
     background: readOnly ? "#f1f5f9" : "#fff",
     minHeight: 44,
   };
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     display: "grid",
     gap: 6,
     fontWeight: 900,
   };
-  const cardStyle: React.CSSProperties = {
+  const cardStyle: CSSProperties = {
     border: "1px solid #e2e8f0",
     borderRadius: 18,
     padding: 16,
@@ -7328,7 +7451,7 @@ type ProjectUsersSectionProps = {
 
 function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
   const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", active: true });
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
     borderRadius: 10,
@@ -7544,7 +7667,7 @@ function MatzeaAConcentrationFromReferences({
     URL.revokeObjectURL(url);
   };
 
-  const tableHeaderStyle: React.CSSProperties = {
+  const tableHeaderStyle: CSSProperties = {
     border: '1px solid #1f2937',
     padding: '8px 6px',
     textAlign: 'center',
@@ -7552,11 +7675,11 @@ function MatzeaAConcentrationFromReferences({
     fontWeight: 900,
     whiteSpace: 'nowrap',
   };
-  const greenHeaderStyle: React.CSSProperties = {
+  const greenHeaderStyle: CSSProperties = {
     ...tableHeaderStyle,
     background: '#bbf7d0',
   };
-  const cellStyle: React.CSSProperties = {
+  const cellStyle: CSSProperties = {
     border: '1px solid #334155',
     padding: '8px 6px',
     textAlign: 'center',
