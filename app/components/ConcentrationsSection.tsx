@@ -1,1976 +1,264 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
-import JSZip from "jszip";
-
-type ProjectConcentrationMeta = {
-  projectName?: string;
-  projectManager?: string;
-  projectManagement?: string;
-  contractor?: string;
-  qualityAssurance?: string;
-  qualityControl?: string;
-  workManager?: string;
-  surveyor?: string;
-  supervisor?: string;
-};
+import type React from "react";
+import type { ControlProcess, ChecklistRecord } from "../types";
+import { Field, styles } from "./common";
 
 type Props = {
-  savedChecklists?: any[];
-  savedNonconformances?: any[];
-  savedTrialSections?: any[];
-  savedPreliminary?: any[];
-  savedRfis?: any[];
-  savedControlProcesses?: any[];
-  savedSupervisionReports?: any[];
-  currentProjectName?: string;
-  projectMeta?: ProjectConcentrationMeta;
+  guardedBody?: React.ReactNode;
+  currentProjectId: string | null;
+  processes: ControlProcess[];
+  setProcesses: React.Dispatch<React.SetStateAction<ControlProcess[]>>;
+  projectChecklists?: ChecklistRecord[];
+  projectRFIs?: any[];
+  projectNonconformances?: any[];
 };
 
-type ConcentrationId =
-  | "nonconformances"
-  | "suppliers"
-  | "contractors"
-  | "asphalt"
-  | "density"
-  | "concrete"
-  | "supervision"
-  | "materials"
-  | "trial-sections"
-  | "subbase-a"
-  | "selected-material"
-  | "earthworks"
-  | "rfi";
+const defaultRequiredDocuments = [
+  { type: "תעודת מעבדה", required: true },
+  { type: "רשימת מדידה", required: false },
+  { type: "צילום", required: false },
+  { type: "תוכנית", required: false },
+] as const;
 
-type ConcentrationDefinition = {
-  id: ConcentrationId;
-  title: string;
-  fileName: string;
-  description: string;
-  sourceLabel: string;
-  columns: string[];
-  buildRows: (ctx: BuildContext) => Row[];
-};
+type DensityReportColumn = { key: string; title: string; hint: string };
 
-type Row = Record<string, string | number | boolean | null | undefined>;
-
-type BuildContext = {
-  savedChecklists: any[];
-  savedNonconformances: any[];
-  savedTrialSections: any[];
-  savedPreliminary: any[];
-  savedRfis: any[];
-  savedControlProcesses: any[];
-  savedSupervisionReports: any[];
-  projectMeta: Required<ProjectConcentrationMeta>;
-};
-
-const cleanText = (value: unknown): string => {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value.replace(/\s+/g, " ").trim();
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return "";
-};
-
-const normalize = (value: unknown): string =>
-  cleanText(value)
-    .replace(/[׳`’']/g, "")
-    .replace(/[:：]/g, "")
-    .toLowerCase();
-
-const firstText = (...values: unknown[]): string => {
-  for (const value of values) {
-    const text = cleanText(value);
-    if (text) return text;
-  }
-  return "";
-};
-
-
-
-const compactValue = (value: unknown): string => {
-  const text = cleanText(value);
-  if (!text) return "";
-  if (text === "[object Object]") return "";
-  return text;
-};
-
-const flattenRecord = (value: any, prefix = "", out: Array<{ key: string; value: unknown }> = [], seen = new WeakSet<object>()) => {
-  if (value === null || value === undefined) return out;
-  if (typeof value !== "object") {
-    out.push({ key: prefix, value });
-    return out;
-  }
-  if (seen.has(value)) return out;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => flattenRecord(item, `${prefix}.${index}`, out, seen));
-    return out;
-  }
-  Object.entries(value).forEach(([key, child]) => {
-    const fullKey = prefix ? `${prefix}.${key}` : key;
-    if (child !== null && typeof child === "object") flattenRecord(child, fullKey, out, seen);
-    else out.push({ key: fullKey, value: child });
-  });
-  return out;
-};
-
-const valueByKeyOrLabel = (record: any, aliases: string[]): string => {
-  const normalizedAliases = aliases.map(normalize).filter(Boolean);
-  const flat = flattenRecord(record);
-  for (const { key, value } of flat) {
-    const nk = normalize(key.split(".").pop() ?? key);
-    if (normalizedAliases.some((alias) => nk === alias || nk.includes(alias) || alias.includes(nk))) {
-      const text = compactValue(value);
-      if (text) return text;
-    }
-  }
-  for (const { key, value } of flat) {
-    const nk = normalize(key);
-    if (normalizedAliases.some((alias) => nk.includes(alias))) {
-      const text = compactValue(value);
-      if (text) return text;
-    }
-  }
-  return "";
-};
-
-const valueByLabel = (record: any, labels: string[]): string => {
-  const flat = flattenRecord(record);
-  const normalizedLabels = labels.map(normalize).filter(Boolean);
-  for (const { key, value } of flat) {
-    const nk = normalize(key);
-    if (normalizedLabels.some((label) => nk.includes(label))) {
-      const text = compactValue(value);
-      if (text) return text;
-    }
-  }
-  return "";
-};
-
-const documentType = (doc: any): string =>
-  firstText(doc?.documentType, doc?.docType, doc?.type, doc?.kind, doc?.category, doc?.title, doc?.label);
-
-const documentSummary = (record: any): string => {
-  const docs = getAttachments(record);
-  if (!docs.length) return "";
-  const types = Array.from(new Set(docs.map(documentType).map(cleanText).filter(Boolean)));
-  const count = docs.length;
-  return types.length ? `${count} מסמכים: ${types.join(", ")}` : `${count} מסמכים`;
-};
-
-const includesAny = (text: unknown, keywords: string[]) => {
-  const n = normalize(text);
-  return keywords.some((keyword) => n.includes(normalize(keyword)));
-};
-
-const looksLikeUuid = (text: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text.trim());
-
-const dateText = (value: unknown) => {
-  const text = cleanText(value);
-  if (!text || looksLikeUuid(text)) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10).split("-").reverse().join("/");
-  if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(text)) return text;
-  // אל תחזיר טקסטים שאינם תאריך לשדות תאריך, כדי שלא יופיעו מזהי קבצים / UUID.
-  return "";
-};
-
-const firstDateText = (...values: unknown[]) => {
-  for (const value of values) {
-    const text = dateText(value);
-    if (text) return text;
-  }
-  return "";
-};
-
-const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
-
-const certificateNumberFromAttachment = (attachment: any): string => {
-  const direct = firstText(
-    attachment?.certificateNo,
-    attachment?.certificateNumber,
-    attachment?.documentNo,
-    attachment?.documentNumber,
-    attachment?.approvalNo,
-    attachment?.approvalNumber,
-    attachment?.licenseNo,
-    attachment?.licenseNumber,
-    attachment?.registrationNo,
-    attachment?.מספר_תעודה,
-    attachment?.["מספר תעודה"],
-    attachment?.["מספר תעודה / רישיון / אישור"],
-    attachment?.results?.certificateNo,
-    attachment?.results?.certificateNumber,
-    attachment?.results?.documentNo,
-    attachment?.labResults?.certificateNo,
-    attachment?.labResults?.certificateNumber,
-    attachment?.details?.certificateNo,
-    attachment?.details?.certificateNumber,
-    attachment?.details?.documentNo,
-    attachment?.details?.documentNumber,
-    attachment?.details?.approvalNo,
-    attachment?.details?.approvalNumber,
-    attachment?.details?.licenseNo,
-    attachment?.details?.licenseNumber,
-    attachment?.details?.["מספר תעודה"],
-    attachment?.details?.["מס תעודה"],
-    attachment?.details?.["מספר רישיון"],
-    attachment?.details?.["מספר רשיון"],
-    attachment?.details?.["מספר אישור"],
-    attachment?.details?.["מספר תעודה / רישיון / אישור"],
-    valueByKeyOrLabel(attachment, [
-      "certificateNo",
-      "certificateNumber",
-      "documentNo",
-      "documentNumber",
-      "approvalNo",
-      "approvalNumber",
-      "licenseNo",
-      "licenseNumber",
-      "registrationNo",
-      "מספר תעודה",
-      "מס תעודה",
-      "מספר רישיון",
-      "מספר רשיון",
-      "מספר אישור",
-      "מספר תעודה / רישיון / אישור",
-    ])
-  );
-  const text = cleanText(direct);
-  if (text && !looksLikeUuid(text) && !["כן", "לא", "מאושר"].includes(text)) return text;
-
-  const name = attachmentName(attachment);
-  const match = name.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
-  return match?.[1] ?? "";
-};
-
-const attachmentCertificateNo = (attachment: any, fallback = "") =>
-  firstText(certificateNumberFromAttachment(attachment), fallback);
-
-const normalizeCertificateType = (value: unknown, doc?: any): string => {
-  const text = cleanText(value);
-  const lower = text.toLowerCase();
-  if (!text || lower === "application/pdf" || lower === "pdf" || lower.includes("octet-stream")) {
-    const name = cleanText(attachmentName(doc));
-    const all = `${name} ${cleanText(doc?.title)} ${cleanText(doc?.label)} ${cleanText(doc?.description)}`;
-    if (includesAny(all, ["iso", "9001"])) return "ISO";
-    if (includesAny(all, ["תת", 'ת"ת', "תו תקן", "תקן ישראלי"])) return 'ת"ת';
-    if (includesAny(all, ["רישיון", "רשיון", "license"])) return "רישיון";
-    if (includesAny(all, ["אישור", "approval"])) return "אישור";
-    return "";
-  }
-  if (includesAny(text, ["iso", "9001"])) return "ISO";
-  if (includesAny(text, ["תת", 'ת"ת', "תו תקן", "תקן ישראלי"])) return 'ת"ת';
-  if (includesAny(text, ["רישיון", "רשיון", "license"])) return "רישיון";
-  return text;
-};
-
-const inferDocumentType = (doc: any): string => {
-  // סוג תעודה נלקח קודם כל מהשדה שהוזן במערכת. אם נשמר רק MIME כמו application/pdf,
-  // לא מציגים אותו; מנסים להסיק ISO/ת"ת/רישיון משם המסמך כדי שלא יופיע application/pdf בריכוז.
-  const explicit = firstText(
-    doc?.certificateType,
-    doc?.documentType,
-    doc?.docType,
-    doc?.approvalType,
-    doc?.licenseType,
-    doc?.["פרטים"],
-    valueByKeyOrLabel(doc, ["certificateType", "documentType", "docType", "approvalType", "licenseType", "details", "פרטים", "סוג תעודה", "סוג מסמך"]),
-    valueByLabel(doc, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"]),
-    doc?.details,
-    doc?.פרטים,
-    doc?.kind,
-    doc?.category,
-    doc?.details?.certificateType,
-    doc?.details?.documentType,
-    doc?.details?.type,
-    doc?.details?.kind,
-    doc?.details?.פרטים,
-    doc?.results?.certificateType,
-    doc?.results?.documentType
-  );
-  return normalizeCertificateType(explicit, doc);
-};
-
-const certificateDisplayName = (doc: any): string => {
-  const explicit = firstText(
-    doc?.details,
-    doc?.description,
-    doc?.certificateName,
-    doc?.documentName,
-    doc?.title,
-    doc?.label,
-    doc?.פרטים,
-    doc?.["שם תעודה"],
-    doc?.["שם מסמך"],
-    valueByKeyOrLabel(doc, ["certificateName", "documentName", "details", "description", "title", "label", "פרטים", "שם תעודה", "שם מסמך"]),
-    valueByLabel(doc, ["פרטים", "שם תעודה", "שם מסמך", "סוג תעודה", "סוג מסמך"])
-  );
-  const normalized = normalizeCertificateType(explicit, doc);
-  if (normalized) return normalized;
-  return firstText(inferDocumentType(doc), attachmentName(doc), "תעודה");
-};
-
-const certificateNameAndNumber = (doc: any): string => {
-  const name = certificateDisplayName(doc);
-  const number = attachmentCertificateNo(doc);
-  if (name && number) return `${name} ${number}`;
-  return firstText(number, name);
-};
-
-const uniqueJoin = (values: unknown[], separator = ", "): string => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  values.map(cleanText).filter(Boolean).forEach((value) => {
-    if (seen.has(value)) return;
-    seen.add(value);
-    result.push(value);
-  });
-  return result.join(separator);
-};
-
-
-const isRealAttachment = (attachment: any): boolean => {
-  if (!attachment || typeof attachment !== "object") return false;
-  if (attachment?.attached === false || attachment?.exists === false) return false;
-  return Boolean(
-    cleanText(attachment?.attachmentName) ||
-      cleanText(attachment?.fileName) ||
-      cleanText(attachment?.name) ||
-      cleanText(attachment?.url) ||
-      cleanText(attachment?.dataUrl) ||
-      cleanText(attachment?.attachmentDataUrl) ||
-      cleanText(attachment?.storagePath) ||
-      cleanText(attachment?.path) ||
-      cleanText(attachment?.certificateNo) ||
-      cleanText(attachment?.certificateNumber) ||
-      cleanText(attachment?.documentNo) ||
-      cleanText(attachment?.documentNumber),
-  );
-};
-
-const getAttachments = (record: any): any[] => {
-  const result: any[] = [];
-  const keys = ["attachments", "certificates", "images", "files", "documents", "requiredDocuments"];
-  keys.forEach((key) => {
-    if (Array.isArray(record?.[key])) result.push(...record[key].filter(isRealAttachment));
-  });
-  if (record?.supplier) keys.forEach((key) => Array.isArray(record.supplier?.[key]) && result.push(...record.supplier[key].filter(isRealAttachment)));
-  if (record?.subcontractor) keys.forEach((key) => Array.isArray(record.subcontractor?.[key]) && result.push(...record.subcontractor[key].filter(isRealAttachment)));
-  if (record?.material) keys.forEach((key) => Array.isArray(record.material?.[key]) && result.push(...record.material[key].filter(isRealAttachment)));
-  return result;
-};
-
-const recordText = (record: any): string => {
-  const parts: unknown[] = [
-    record?.title,
-    record?.category,
-    record?.location,
-    record?.contractor,
-    record?.status,
-    record?.description,
-    record?.notes,
-    record?.subtype,
-    record?.spec,
-    record?.result,
-    record?.approvedBy,
-  ];
-  if (record?.supplier) parts.push(...Object.values(record.supplier));
-  if (record?.subcontractor) parts.push(...Object.values(record.subcontractor));
-  if (record?.material) parts.push(...Object.values(record.material));
-  if (Array.isArray(record?.items)) {
-    record.items.forEach((item: any) => {
-      parts.push(item?.description, item?.notes, item?.status, item?.inspector, item?.responsible, item?.executionDate);
-      if (Array.isArray(item?.attachments)) item.attachments.forEach((a: any) => parts.push(attachmentName(a), a?.kind, JSON.stringify(a?.results ?? a?.labResults ?? {})));
-    });
-  }
-  getAttachments(record).forEach((a) => parts.push(attachmentName(a), a?.description, a?.documentType, a?.type));
-  if (Array.isArray(record?.referenceResults)) {
-    record.referenceResults.forEach((r: any) =>
-      parts.push(r?.metric, r?.resultValue, r?.qualityStatus, r?.minValue, r?.maxValue),
-    );
-  }
-  return parts.filter(Boolean).join(" ");
-};
-
-const buildProjectMeta = (currentProjectName = "", meta?: ProjectConcentrationMeta): Required<ProjectConcentrationMeta> => ({
-  projectName: firstText(meta?.projectName, currentProjectName),
-  projectManager: firstText(meta?.projectManager, meta?.projectManagement),
-  projectManagement: firstText(meta?.projectManagement, meta?.projectManager),
-  contractor: firstText(meta?.contractor),
-  qualityAssurance: "תיקו הנדסה אזרחית",
-  qualityControl: firstText(meta?.qualityControl),
-  workManager: firstText(meta?.workManager),
-  surveyor: firstText(meta?.surveyor),
-  supervisor: firstText(meta?.supervisor),
-});
-
-const preliminaryBySubtype = (records: any[], subtype: string) => records.filter((r) => normalize(r?.subtype) === normalize(subtype));
-
-const supplierRow = (record: any, index: number): Row => {
-  const supplier = record?.supplier ?? record;
-  const docs = getAttachments(record);
-  const firstDoc = docs[0] ?? {};
-
-  const suppliedMaterial = firstText(
-    supplier?.suppliedMaterial,
-    supplier?.suppliedProduct,
-    supplier?.materialSupplied,
-    supplier?.productSupplied,
-    supplier?.materialName,
-    supplier?.material,
-    supplier?.product,
-    record?.suppliedMaterial,
-    record?.suppliedProduct,
-    record?.materialSupplied,
-    record?.productSupplied,
-    record?.material?.materialName,
-    valueByKeyOrLabel(record, ["suppliedMaterial", "supplied_material", "materialSupplied", "suppliedProduct", "productSupplied", "suppliedGood", "providedMaterial"]),
-    valueByLabel(record, ["חומר מסופק", "מוצר מסופק", "חומר/מוצר מסופק"])
-  );
-
-  const docNo = firstText(
-    docs.map((d) => attachmentCertificateNo(d)).find(Boolean),
-    supplier?.certificateNo,
-    supplier?.certificateNumber,
-    supplier?.licenseNo,
-    supplier?.licenseNumber,
-    supplier?.documentNo,
-    supplier?.documentNumber,
-    record?.certificateNo,
-    record?.certificateNumber,
-    record?.licenseNo,
-    record?.licenseNumber,
-    record?.documentNo,
-    record?.documentNumber,
-    valueByKeyOrLabel(record, ["certificateNo", "certificateNumber", "licenseNo", "licenseNumber", "documentNo", "documentNumber", "מספר תעודה", "מספר רישיון", "מספר רשיון", "מספר אישור"]),
-    valueByLabel(record, ["מספר תעודה", "מס תעודה", "מספר רישיון", "מס רישיון", "מספר רשיון", "מס רשיון", "מספר אישור", "מס אישור"]),
-    supplier?.approvalNo,
-    supplier?.approvalNumber,
-    record?.approvalNo,
-    record?.approvalNumber
-  );
-
-  const docType = firstText(
-    docs.map(inferDocumentType).find(Boolean),
-    supplier?.certificateType,
-    supplier?.documentType,
-    supplier?.approvalType,
-    supplier?.licenseType,
-    supplier?.details,
-    supplier?.פרטים,
-    record?.certificateType,
-    record?.documentType,
-    record?.approvalType,
-    record?.licenseType,
-    record?.details,
-    record?.פרטים,
-    valueByKeyOrLabel(record, ["certificateType", "documentType", "approvalType", "licenseType", "docType", "details", "פרטים"]),
-    valueByLabel(record, ["פרטים", "סוג תעודה", "סוג מסמך", "סוג אישור", "סוג רישיון", "סוג רשיון"])
-  );
-
-  const approvalDate = firstDateText(
-    supplier?.approvalDate,
-    supplier?.certificateApprovalDate,
-    supplier?.approvedAt,
-    record?.approvalDate,
-    record?.approval?.date,
-    firstDoc?.approvalDate,
-    firstDoc?.certificateApprovalDate,
-    firstDoc?.approvedAt,
-    firstDoc?.date,
-    valueByKeyOrLabel(record, ["approvalDate", "certificateApprovalDate", "approvedAt"]),
-    valueByLabel(record, ["תאריך אישור", "תאריך אישור תעודה", "תאריך אישור רישיון", "תאריך אישור רשיון"])
-  );
-
-  const expiryDate = firstDateText(
-    supplier?.expiryDate,
-    supplier?.validUntil,
-    supplier?.certificateExpiryDate,
-    supplier?.licenseExpiryDate,
-    supplier?.expirationDate,
-    record?.expiryDate,
-    record?.validUntil,
-    record?.certificateExpiryDate,
-    record?.licenseExpiryDate,
-    firstDoc?.expiryDate,
-    firstDoc?.validUntil,
-    firstDoc?.certificateExpiryDate,
-    firstDoc?.licenseExpiryDate,
-    firstDoc?.expirationDate,
-    valueByKeyOrLabel(record, ["expiryDate", "validUntil", "certificateExpiryDate", "licenseExpiryDate", "expirationDate"]),
-    valueByLabel(record, ["תוקף", "בתוקף עד", "תאריך תוקף", "תוקף תעודה", "תוקף רישיון", "תוקף רשיון", "תאריך פג תוקף"])
-  );
-
-  return {
-    "מס׳": index + 1,
-    "שם ספק": firstText(supplier?.supplierName, supplier?.name, record?.title),
-    "חומר/מוצר מסופק": suppliedMaterial,
-    "תאריך אישור": approvalDate,
-    "מספר תעודה / רישיון / אישור": docNo,
-    "סוג תעודה /ISO/ת״ת/רישיון": normalizeCertificateType(docType, firstDoc),
-    "סטטוס": firstText(record?.status, record?.approval?.status, supplier?.status),
-    "תוקף": expiryDate,
-    "הערות": firstText(supplier?.notes, record?.notes),
-  };
-};
-
-const contractorRow = (record: any, index: number): Row => {
-  const contractor = record?.subcontractor ?? record;
-  const docs = getAttachments(record);
-  const certNumbers = uniqueJoin([
-    contractor?.approvalNo,
-    contractor?.certificateNo,
-    contractor?.licenseNo,
-    contractor?.registrationNo,
-    contractor?.classificationNo,
-    record?.approvalNo,
-    record?.certificateNo,
-    ...docs.map((d) => attachmentCertificateNo(d)),
-  ]);
-  const certificateDetails = uniqueJoin(docs.map(certificateNameAndNumber), " | ");
-  const docTypes = uniqueJoin(docs.map(certificateDisplayName));
-  const certificatesSummary = firstText(certificateDetails, certNumbers);
-  return {
-    "מס׳": index + 1,
-    "שם קבלן / קבלן משנה": firstText(contractor?.subcontractorName, contractor?.contractorName, contractor?.name, record?.title),
-    "תחום ביצוע": firstText(contractor?.field, contractor?.workType, record?.workType),
-    "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור": firstText(contractor?.classification, contractor?.contractorClassification, certNumbers),
-    "מספר תעודה / רישיון / אישור": certificatesSummary,
-    "שם / סוג תעודה": docTypes,
-    "מס׳ מסמכים": docs.length || "",
-    "סטטוס": firstText(record?.status, record?.approval?.status),
-    "תאריך": dateText(record?.date ?? record?.savedAt),
-    "הערות": firstText(contractor?.notes, record?.notes),
-  };
-};
-
-const materialRow = (record: any, index: number): Row => {
-  const material = record?.material ?? record;
-  const docs = getAttachments(record);
-  return {
-    "מס׳": index + 1,
-    "שם חומר": firstText(material?.materialName, material?.name, record?.title),
-    "מקור/יצרן": firstText(material?.source, material?.manufacturer),
-    "שימוש מיועד": firstText(material?.usage, record?.description),
-    "מספר תעודה / אישור": firstText(docs.map((d) => attachmentCertificateNo(d)).find(Boolean), material?.certificateNo, material?.approvalNo, record?.certificateNo),
-    "סטטוס": firstText(record?.status, record?.approval?.status),
-    "תאריך": dateText(record?.date ?? record?.savedAt),
-    "הערות": firstText(material?.notes, record?.notes),
-  };
-};
-
-const extractNonconformanceNumber = (record: any, index: number): string => {
-  const raw = firstText(record?.ncrNumber, record?.number, record?.title, record?.subject);
-  const match = raw.match(/\d+/);
-  if (match) return match[0];
-  const id = cleanText(record?.id);
-  return looksLikeUuid(id) ? String(index + 1) : firstText(id, index + 1);
-};
-
-const yesNoText = (value: unknown): string => {
-  const text = cleanText(value);
-  if (!text) return "";
-  if (["true", "1", "yes", "כן"].includes(text.toLowerCase())) return "כן";
-  if (["false", "0", "no", "לא"].includes(text.toLowerCase())) return "לא";
-  return text;
-};
-
-const isClosedNonconformance = (record: any): boolean => {
-  const status = normalize(record?.status);
-  return Boolean(
-    status.includes("סגור") ||
-    status.includes("נסגר") ||
-    status.includes("closed") ||
-    cleanText(record?.closingDate) ||
-    cleanText(record?.closedAt)
-  );
-};
-
-const nonconformanceGrade = (record: any): string =>
-  firstText(record?.grade, record?.severity, record?.severityLevel, valueByKeyOrLabel(record, ["grade", "severity", "דרגה", "חומרה"]));
-
-const nonconformanceRow = (record: any, index: number): Row => {
-  const ncrNumber = extractNonconformanceNumber(record, index);
-  const grade = nonconformanceGrade(record);
-  const closed = isClosedNonconformance(record);
-  const closingBy = firstText(record?.closedBy, record?.closingRole, record?.closedName, record?.closedByName);
-  return {
-    "מס׳": index + 1,
-    "מס'": index + 1,
-    "מספר NCR": ncrNumber,
-    "מס' אי התאמה": ncrNumber,
-    "מסי אי התאמה בSAP": firstText(record?.sapNumber, record?.sapNo, record?.sapNcrNumber, record?.sap),
-    "מס סעיף במפרט": firstText(record?.specSection, record?.specNo, record?.spec, record?.specificationSection),
-    "תאריך פתיחת": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
-    "תאריך פתיחה": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
-    "נפתחה": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
-    "פותח/מדווח": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
-    "דרגת אי התאמה": grade,
-    "חומרה": grade,
-    "גורם אחראי לליקוי (תכנון, ביצוע, ספק)": firstText(record?.responsibleParty, record?.responsibleFactor, record?.responsible, record?.contractor),
-    "קטע (כביש, רמפה, גשר...)": firstText(record?.location, record?.section, record?.roadSection),
-    "מיקום": firstText(record?.fromSection, record?.stationSection, record?.location),
-    "מיקום עד": firstText(record?.toSection, record?.toStationSection),
-    "היסט": firstText(record?.offset, record?.side, record?.lane),
-    "חלק": firstText(record?.building, record?.part, record?.structure),
-    "אלמנט/ שכבה": firstText(record?.element, record?.layer),
-    "תת אלמנט": firstText(record?.subElement, record?.subelement),
-    "תאור אי התאמה": firstText(record?.description),
-    "תיאור אי התאמה": firstText(record?.description),
-    "טיפול הנדרש": firstText(record?.actionRequired, record?.requiredAction),
-    "פעולה נדרשת": firstText(record?.actionRequired, record?.requiredAction),
-    "גורם המטפל": firstText(record?.handler, record?.handledBy, record?.responsible),
-    "תאריך  סגירת אי התאמה משוער-מסוכם": firstDateText(record?.expectedCloseDate, record?.plannedCloseDate),
-    "תאריך  סגירה משוער על פי החלטת מנה״פ": firstDateText(record?.updatedExpectedCloseDate, record?.managerExpectedCloseDate),
-    "שבר": yesNoText(record?.breakage),
-    "השפעה על איכות": firstText(record?.qualityImpact),
-    "פירוט ביצוע פעולה מתקנת": firstText(record?.correctiveActionDetails, record?.correctiveAction, record?.actionTaken),
-    "נסגרה": firstText(closingBy, closed ? "כן" : ""),
-    "תאריך  סגירה": firstDateText(record?.closingDate, record?.closedAt, record?.closeDate),
-    "אישור מנהל ה״א לסגירת אי התאמה QC": firstText(record?.qcManagerApproval, record?.closeApproval, record?.approval?.status, closed ? "כן" : ""),
-    "סטטוס": firstText(record?.status, closed ? "סגור" : "פתוח"),
-    "נושא": firstText(record?.title, record?.subject),
-    "הערות": firstText(record?.notes),
-  };
-};
-
-const trialRow = (record: any, index: number): Row => ({
-  "מס׳": index + 1,
-  "שם קטע ניסוי": firstText(record?.title),
-  "מיקום": firstText(record?.location),
-  "תאריך": dateText(record?.date ?? record?.savedAt),
-  "סעיף מפרט": firstText(record?.specSection, record?.spec),
-  "סוג עבודה": firstText(record?.workType),
-  "תוצאה": firstText(record?.result),
-  "מאושר ע״י": firstText(record?.approvedBy),
-  "סטטוס": firstText(record?.status),
-  "הערות": firstText(record?.notes),
-});
-
-const checklistRows = (records: any[], keywords: string[], label: string): Row[] => {
-  const rows: Row[] = [];
-  records.forEach((checklist) => {
-    const checklistMatches = includesAny(recordText(checklist), keywords);
-    const items = Array.isArray(checklist?.items) ? checklist.items : [];
-
-    // ריכוזים המבוססים על רשימות תיוג יכללו רק סעיפים שאליהם צורף קובץ בפועל.
-    // לא נכניס סעיפים ריקים רק בגלל שהכותרת או התיאור שלהם מתאימים למילות החיפוש.
-    items.forEach((item: any) => {
-      const attachments = (Array.isArray(item?.attachments) ? item.attachments : []).filter(isRealAttachment);
-      if (!attachments.length) return;
-
-      const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
-      const relevant = checklistMatches || includesAny(itemText, keywords) || attachments.some((a: any) => includesAny([attachmentName(a), JSON.stringify(a?.results ?? a?.labResults ?? {})].join(" "), keywords));
-      if (!relevant) return;
-
-      attachments.forEach((attachment: any) => {
-        rows.push({
-          "מס׳": rows.length + 1,
-          "מספר רשימה": firstText(checklist?.checklistNo, checklist?.id),
-          "שם בדיקה/רשימה": firstText(checklist?.title, label),
-          "קטגוריה": firstText(checklist?.category),
-          "מיקום": firstText(checklist?.location),
-          "קבלן": firstText(checklist?.contractor),
-          "תאריך": dateText(item?.executionDate ?? checklist?.date ?? attachment?.uploadedAt ?? checklist?.savedAt),
-          "תיאור סעיף": firstText(item?.description),
-          "מבצע/אחראי": firstText(item?.responsible),
-          "בודק": firstText(item?.inspector),
-          "סטטוס": firstText(item?.status),
-          "מספר תעודה": attachmentCertificateNo(attachment, firstText(item?.certificateNo)),
-          "שם קובץ": attachmentName(attachment),
-          "תוצאות/הערות": firstText(item?.notes, JSON.stringify(attachment?.results ?? attachment?.labResults ?? item?.results ?? item?.labResults ?? {})),
-        });
-      });
-    });
-  });
-  return rows.map((row, index) => ({ ...row, "מס׳": index + 1 }));
-};
-
-const commonChecklistColumns = ["מס׳", "מספר רשימה", "שם בדיקה/רשימה", "קטגוריה", "מיקום", "קבלן", "תאריך", "תיאור סעיף", "מבצע/אחראי", "בודק", "סטטוס", "מספר תעודה", "שם קובץ", "תוצאות/הערות"];
-
-
-const controlProcessRow = (record: any, index: number): Row => {
-  const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
-  const referenceResults = Array.isArray(record?.referenceResults) ? record.referenceResults : [];
-  const certNo = firstText(
-    docs.map((d: any) => firstText(d?.certificateNo, d?.certificateNumber, d?.documentNo, d?.documentNumber, d?.approvalNo, d?.referenceNo, d?.fileName, d?.name)).find(Boolean),
-    referenceResults.map((r: any) => firstText(r?.certificateNo, r?.certificateNumber, r?.documentNo, r?.documentNumber, r?.referenceNo, r?.labCertificateNo)).find(Boolean)
-  );
-  const docTypes = Array.from(new Set(docs.map((d: any) => firstText(d?.type, d?.documentType, d?.title, d?.name)).filter(Boolean)));
-  return {
-    "מס׳": index + 1,
-    "שם/כותרת": firstText(record?.title, record?.processNo, record?.workType),
-    "מיקום": firstText(record?.location, record?.fromSection, record?.toSection),
-    "תאריך": dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt),
-    "סעיף מפרט": firstText(record?.specSection),
-    "סוג עבודה": firstText(record?.workType),
-    "מספר תעודה / רישיון / אישור": certNo,
-    "סוג תעודה": docTypes.join(", "),
-    "מס׳ מסמכים": docs.length || "",
-    "סטטוס": firstText(record?.status, record?.approval?.status),
-    "הערות": firstText(record?.notes, record?.description),
-  };
-};
-
-const rfiRow = (record: any, index: number): Row => ({
-  "מס׳": index + 1,
-  "מספר RFI": firstText(record?.rfiNumber, record?.referenceNo, record?.title),
-  "נושא": firstText(record?.title, record?.planName),
-  "מיקום": firstText(record?.location, record?.building, record?.fromSection, record?.toSection),
-  "תאריך פתיחה": dateText(record?.openDate ?? record?.savedAt),
-  "סטטוס": firstText(record?.status),
-  "תיאור הבקשה": firstText(record?.requestDescription),
-  "תשובה/טיפול": firstText(record?.response),
-  "נספחים": Array.isArray(record?.documents) ? record.documents.length : "",
-  "הערות": firstText(record?.notes),
-});
-
-
-const matzeaAColumns = [
-  "מס׳ סדורי",
-  "ביצוע ע״י",
-  "מס׳ תעודה",
-  "תאריך",
-  "מקור החומר",
-  "מקום נטילת מדגם לבדיקה",
-  "מקום הפיזור / מבנה",
-  "חתך התחלה",
-  "חתך סוף",
-  "3\"",
-  "1.5\"",
-  "3/4\"",
-  "#4",
-  "#10",
-  "#40",
-  "#200",
-  "LL",
-  "PL",
-  "PI",
-  "שע״ח (%)",
-  "צפיפות ממשית (ט/מ״ק)",
-  "ספיגות (%)",
-  "לוס אנג׳לס (%)",
-  "מיון AASHTO",
-  "צפיפות מעבדתית מקסימלית",
-  "רטיבות אופטימלית",
-  "מספר תעודה",
-  "מעמד החומר",
-  "הערות",
+const densityReportColumns: DensityReportColumn[] = [
+  { key: "performedBy", title: "ביצוע ע\"י", hint: "QC/QA" },
+  { key: "serialNo", title: "מס' סדורי", hint: "מס'" },
+  { key: "checklistNo", title: "רשימת תיוג", hint: "מס'" },
+  { key: "testDate", title: "תאריך הבדיקה", hint: "תאריך" },
+  { key: "roadAxis", title: "כביש\\ציר \\רמפה", hint: "מס'" },
+  { key: "fromChainage", title: "מחתך", hint: "מס'" },
+  { key: "toChainage", title: "עד חתך", hint: "מס'" },
+  { key: "side", title: "צד", hint: "" },
+  { key: "sampleLocation", title: "מקום נטילה", hint: "" },
+  { key: "area", title: "שטח", hint: "מ\"ר" },
+  { key: "layerNo", title: "שכבה מס'", hint: "מס'" },
+  { key: "layerThickness", title: "עובי השכבה", hint: "ס\"מ" },
+  { key: "workType", title: "סוג העבודה", hint: "קרקע יסוד, מילוי, חפירה" },
+  { key: "materialDescription", title: "תאור החומר", hint: "" },
+  { key: "materialClass", title: "מיון החומר", hint: "AASHTO" },
+  { key: "materialSource", title: "מקור החומר", hint: "" },
+  { key: "regularCompactionCertificate", title: "מס' תעודת בדיקההידוק רגיל", hint: "" },
+  { key: "rollerPasses", title: "מעברי מכבש", hint: "כמות מעברי מכבש" },
+  { key: "rollerStatus", title: "מעמד", hint: "OK / NC" },
+  { key: "fieldDensityCertificate", title: "מס' תעודת בדיקה צפיפות/ רטיבות שדה", hint: "מס' תעודה" },
+  { key: "nuclearGaugePoints", title: "הידוק מבוקר (צפיפות מד גרעיני)", hint: "כמות נקודות בדיקה" },
+  { key: "nuclearGaugeStatus", title: "מעמד", hint: "OK / NC" },
+  { key: "sandConeBatch", title: "מנת בדיקה (חרוט חול / שלבי)", hint: "כמות נקודות בדיקה" },
+  { key: "sandConeStatus", title: "מעמד", hint: "OK / NC" },
+  { key: "measurementCount", title: "מדידה", hint: "כמות (1,2,3...)" },
+  { key: "measurementStatus", title: "מעמד", hint: "OK / NC" },
 ];
 
-const metricValue = (record: any, aliases: string[]): string => {
-  const normalizedAliases = aliases.map(normalize).filter(Boolean);
-  const rows = Array.isArray(record?.referenceResults) ? record.referenceResults : [];
-  for (const row of rows) {
-    const metric = normalize(firstText(row?.metric, row?.name, row?.label, row?.measure));
-    if (normalizedAliases.some((alias) => metric === alias || metric.includes(alias) || alias.includes(metric))) {
-      const value = firstText(row?.resultValue, row?.value, row?.result);
-      if (value) return value;
-    }
+const normalizeText = (value: unknown) => String(value ?? "").trim();
+const normalizeLoose = (value: unknown) => normalizeText(value).replace(/[׳`’']/g, "").replace(/\s+/g, " ");
+const firstFilled = (...values: unknown[]) => values.map(normalizeText).find(Boolean) || "";
+const valueFrom = (source: any, keys: string[]) => {
+  if (!source || typeof source !== "object") return "";
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && normalizeText(source[key]) !== "") return source[key];
   }
   return "";
 };
 
-const referenceDocNo = (record: any): string => {
-  const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
-  return firstText(
-    metricValue(record, ["מספר תעודת מעבדה", "מס תעודת מעבדה", "מספר תעודה", "תעודה"]),
-    docs.map((d: any) => certificateNumberFromAttachment(d)).find(Boolean),
-    docs.map((d: any) => firstText(d?.certificateNo, d?.certificateNumber, d?.documentNo, d?.documentNumber, d?.referenceNo, d?.attachmentName, d?.name)).find(Boolean),
-  );
-};
-
-const isMatzeaAProcess = (record: any): boolean => {
-  const text = recordText(record);
-  return includesAny(text, ["מצע א", "מצע א׳", "אפיון מצע", "תעודת ייחוס", "24403"]);
-};
-
-const matzeaAProcessRow = (record: any, index: number): Row => ({
-  "מס׳ סדורי": index + 1,
-  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
-  "מס׳ תעודה": referenceDocNo(record),
-  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
-  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
-  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
-  "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
-  "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
-  "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
-  "3\"": metricValue(record, ["3\"", "3'", "3 אינץ", "3”"]),
-  "1.5\"": metricValue(record, ["1.5\"", "1.5'", "1.5 אינץ", "1.5”"]),
-  "3/4\"": metricValue(record, ["3/4\"", "3/4'", "3/4", "מקטע 3/4"]),
-  "#4": metricValue(record, ["#4", "נפה 4"]),
-  "#10": metricValue(record, ["#10", "נפה 10"]),
-  "#40": metricValue(record, ["#40", "נפה 40"]),
-  "#200": metricValue(record, ["#200", "נפה 200"]),
-  "LL": metricValue(record, ["LL", "גבול נזילות"]),
-  "PL": metricValue(record, ["PL", "גבול פלסטיות"]),
-  "PI": metricValue(record, ["PI", "אינדקס פלסטיות"]),
-  "שע״ח (%)": metricValue(record, ["שווה ערך חול", "שעח"]),
-  "צפיפות ממשית (ט/מ״ק)": metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית"]),
-  "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
-  "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
-  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
-  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
-  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
-  "מספר תעודה": referenceDocNo(record),
-  "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
-  "הערות": firstText(record?.notes, record?.description),
-});
-
-const matzeaAChecklistRow = (row: Row, index: number): Row => ({
-  "מס׳ סדורי": index + 1,
-  "ביצוע ע״י": firstText(row["מבצע/אחראי"], "QC"),
-  "מס׳ תעודה": firstText(row["מספר תעודה"]),
-  "תאריך": firstText(row["תאריך"]),
-  "מקור החומר": "",
-  "מקום נטילת מדגם לבדיקה": firstText(row["מיקום"]),
-  "מקום הפיזור / מבנה": "",
-  "חתך התחלה": "",
-  "חתך סוף": "",
-  "3\"": "",
-  "1.5\"": "",
-  "3/4\"": "",
-  "#4": "",
-  "#10": "",
-  "#40": "",
-  "#200": "",
-  "LL": "",
-  "PL": "",
-  "PI": "",
-  "שע״ח (%)": "",
-  "צפיפות ממשית (ט/מ״ק)": "",
-  "ספיגות (%)": "",
-  "לוס אנג׳לס (%)": "",
-  "מיון AASHTO": "",
-  "צפיפות מעבדתית מקסימלית": "",
-  "רטיבות אופטימלית": "",
-  "מספר תעודה": firstText(row["מספר תעודה"]),
-  "מעמד החומר": firstText(row["סטטוס"]),
-  "הערות": firstText(row["תוצאות/הערות"]),
-});
-
-const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
-  const checklist = checklistRows(checklists, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה", "תעודת ייחוס", "24403"], "אפיון מצע א׳")
-    .map((row, index) => matzeaAChecklistRow(row, index));
-  const process = processes
-    .filter(isMatzeaAProcess)
-    .map((record, index) => matzeaAProcessRow(record, checklist.length + index));
-  return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
-};
-
-const selectedMaterialColumns = matzeaAColumns;
-
-const isSelectedMaterialProcess = (record: any): boolean => {
-  const text = recordText(record);
-  return includesAny(text, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4"]);
-};
-
-const selectedMaterialProcessRow = (record: any, index: number): Row => ({
-  "מס׳ סדורי": index + 1,
-  "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
-  "מס׳ תעודה": referenceDocNo(record),
-  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
-  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
-  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
-  "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
-  "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
-  "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
-  '3"': metricValue(record, ['3"', "3'", "3 אינץ", "3”"]),
-  '1.5"': metricValue(record, ['1.5"', "1.5'", "1.5 אינץ", "1.5”"]),
-  '3/4"': metricValue(record, ['3/4"', "3/4'", "3/4", "מקטע 3/4"]),
-  "#4": metricValue(record, ["#4", "נפה 4"]),
-  "#10": metricValue(record, ["#10", "נפה 10"]),
-  "#40": metricValue(record, ["#40", "נפה 40"]),
-  "#200": metricValue(record, ["#200", "נפה 200"]),
-  "LL": metricValue(record, ["LL", "גבול נזילות"]),
-  "PL": metricValue(record, ["PL", "גבול פלסטיות"]),
-  "PI": metricValue(record, ["PI", "אינדקס פלסטיות"]),
-  "שע״ח (%)": metricValue(record, ["שווה ערך חול", "שעח"]),
-  "צפיפות ממשית (ט/מ״ק)": metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית"]),
-  "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
-  "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
-  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
-  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
-  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
-  "מספר תעודה": referenceDocNo(record),
-  "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
-  "הערות": firstText(metricValue(record, ["מיון אחיד"]), record?.notes, record?.description),
-});
-
-const buildSelectedMaterialConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
-  const checklist = checklistRows(checklists, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4", "cbr", "גרדציה"], "אפיון נברר")
-    .map((row, index) => matzeaAChecklistRow(row, index));
-  const process = processes
-    .filter(isSelectedMaterialProcess)
-    .map((record, index) => selectedMaterialProcessRow(record, checklist.length + index));
-  return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
-};
-
-
-const earthworksFieldColumns = [
-  "ביצוע ע\"י",
-  "מס׳ סדורי",
-  "רשימת תיוג",
-  "תאריך הבדיקה",
-  "כביש\\ציר \\רמפה",
-  "מחתך",
-  "עד חתך",
-  "צד",
-  "מקום נטילה",
-  "שטח",
-  "שכבה מס׳",
-  "עובי השכבה",
-  "סוג העבודה",
-  "תאור החומר",
-  "מיון החומר",
-  "מקור החומר",
-  "מס׳ תעודת בדיקה הידוק רגיל",
-  "מעברי מכבש",
-  "מעמד הידוק רגיל",
-  "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה",
-  "הידוק מבוקר (צפיפות מד גרעיני)",
-  "מעמד הידוק מבוקר",
-  "מנת בדיקה (חרוט חול / שלבי)",
-  "מעמד מנת בדיקה",
-  "מדידה",
-  "מעמד מדידה",
-  "מספר תעודת בדיקה אפיון - 100%",
-  "HWD",
-  "מעמד HWD",
-  "צפיפות מחושבת",
-  "גבול תחתון",
-  "גבול עליון",
-  "ממוצע",
-  "מעמד תוצאות",
-  "בדיקה חוזרת לתעודה",
-  "מתאריך",
-  "מספר אי התאמה",
-  "הערות",
-];
-
-const earthworksIncludeKeywords = [
-  "עבודות עפר",
-  "עפר",
-  "חפירה",
-  "מילוי",
-  "מילוי מבוקר",
-  "הידוק מבוקר",
-  "הידוק רגיל",
-  "קרקע יסוד",
-  "שתית",
-  "החלפת קרקע",
-  "צפיפות שדה",
-  "רטיבות שדה",
-  "מד גרעיני",
-  "חרוט חול",
-  "מעברי מכבש",
-];
-
-const earthworksExcludeKeywords = [
-  "מצע א",
-  "מצע א׳",
-  "מצעים",
-  "בדיקת שדה למצעים",
-  "אפיון מצע",
-  "מצע סוג א",
-];
-
-const aliasesValue = (record: any, aliases: string[]): string =>
-  firstText(valueByKeyOrLabel(record, aliases), valueByLabel(record, aliases));
-
-const firstFromRecords = (records: any[], aliases: string[]): string => {
-  for (const record of records) {
-    const value = aliasesValue(record, aliases);
+const findChecklistAnswer = (checklist: any, labels: string[]) => {
+  const items = Array.isArray(checklist?.items) ? checklist.items : [];
+  const normalizedLabels = labels.map(normalizeLoose);
+  for (const item of items) {
+    const itemText = normalizeLoose([item?.title, item?.label, item?.description, item?.name, item?.question].filter(Boolean).join(" "));
+    if (!normalizedLabels.some((label) => itemText.includes(label))) continue;
+    const value = firstFilled(item?.value, item?.answer, item?.result, item?.notes, item?.comment, item?.status);
     if (value) return value;
   }
   return "";
 };
 
-const firstDateFromRecords = (records: any[], aliases: string[], ...fallbacks: unknown[]): string =>
-  firstDateText(...records.map((record) => aliasesValue(record, aliases)), ...fallbacks);
-
-const numericLike = (value: unknown): string => {
-  const text = cleanText(value);
-  if (!text) return "";
-  const match = text.match(/-?\d+(?:[.,]\d+)?/);
-  return match?.[0] ?? text;
-};
-
-
-const safeStringify = (value: unknown): string => {
-  try {
-    return JSON.stringify(value ?? "");
-  } catch {
-    return "";
+const formatChecklistDate = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("he-IL");
   }
-};
-
-const normalizeDensityNumber = (value: unknown): string => {
-  const text = cleanText(value).replace(/,/g, ".");
+  const text = normalizeText(value);
   if (!text) return "";
-  const dotPrefix = text.match(/(^|[^0-9])(\.\d{1,3})(?=\D|$)/);
-  if (dotPrefix?.[2]) return String(Number(dotPrefix[2]) * 100).replace(/\.0$/, "");
-  const match = text.match(/-?\d+(?:\.\d+)?/);
-  return match?.[0] ?? "";
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toLocaleDateString("he-IL");
 };
 
-const firstRegexGroup = (text: string, patterns: RegExp[]): string => {
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const value = match?.[1] ?? match?.[2] ?? "";
-    if (value) return normalizeDensityNumber(value);
-  }
+const resolveOkNc = (...values: unknown[]) => {
+  const text = normalizeLoose(values.filter(Boolean).join(" ")).toUpperCase();
+  if (!text) return "";
+  if (text.includes("NC") || text.includes("לא תקין") || text.includes("נדחה") || text.includes("נכשל")) return "NC";
+  if (text.includes("OK") || text.includes("תקין") || text.includes("מאושר") || text.includes("הושלם")) return "OK";
   return "";
 };
 
-const parseEarthworksDensityText = (value: unknown): Record<string, string> => {
-  const text = cleanText(value)
-    .replace(/\u200f|\u200e/g, " ")
-    .replace(/\s+/g, " ");
-  if (!text) return {};
-  const parsed: Record<string, string> = {};
-  parsed.certificateNo = firstRegexGroup(text, [
-    /(?:דו[״\"']?ח|דוח|מספר תעודה|תעודת בדיקה|דוח מספר|בדיקה מספר)\s*(?:בדיקה)?\s*(?:מספר|מס׳|:)?\s*([0-9]{4,})/i,
-    /(?:pdf\.|pdf|תעודה\s*)\s*([0-9]{4,})/i,
-  ]);
-  parsed.testDate = firstText(
-    firstRegexGroup(text, [/(?:תאריך הבדיקה|תאריך הדגימה|תאריך)\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]),
-    firstRegexGroup(text, [/(\d{1,2}[./-]\d{1,2}[./-]\d{4})/])
-  );
-  parsed.computedDensity = firstRegexGroup(text, [
-    /צפיפות\s+מחושבת[^0-9]{0,30}([0-9]{3,5}(?:[.,][0-9]+)?)/i,
-    /צפיפות\s+מעבדתית\s+מקסימלית[^0-9]{0,30}([0-9]{3,5}(?:[.,][0-9]+)?)/i,
-  ]);
-  parsed.lowerLimit = firstRegexGroup(text, [
-    /La\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*%?/i,
-    /גבול\s+תחתון[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
-    /אחוז\s+דרישה[^0-9.]{0,40}(?:\.\s*)?([0-9]{2,3}(?:[.,][0-9]+)?)/i,
-  ]);
-  parsed.average = firstRegexGroup(text, [
-    /x\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*%?/i,
-    /ממוצע[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
-    /שיעור\s+הידוק\s+ממוצע[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
-  ]);
-  parsed.upperLimit = firstRegexGroup(text, [
-    /גבול\s+עליון[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i,
-  ]);
-  parsed.optimalMoisture = firstRegexGroup(text, [/רטיבות\s+אופטימלית[^0-9]{0,30}([0-9]+(?:[.,][0-9]+)?)/i]);
-  parsed.status = includesAny(text, ["הבדיקה עוברת", "מסקנה מתאים", "מתאים", "OK", "תקין"]) ? "OK" : includesAny(text, ["לא מתאים", "לא תקין", "נכשל", "NC"]) ? "NC" : "";
-  parsed.points = firstRegexGroup(text, [
-    /כמות\s+נקודות[^0-9]{0,20}([0-9]{1,3})/i,
-    /(?:בדיקה\s+מספר|מספר\s+בדיקה)[^0-9]{0,20}([0-9]{1,3})/i,
-  ]);
-  parsed.layer = firstRegexGroup(text, [/(?:שכבה\s+מספר|שכבה\s+מס|מס׳\s+שכבה)[^0-9]{0,20}([0-9]{1,3})/i]);
-  return parsed;
-};
-
-const parsedDensityFromSources = (sources: any[]): Record<string, string> => {
-  const text = sources
-    .map((source) => [
-      source?.extractedText,
-      source?.pdfText,
-      source?.text,
-      source?.summary,
-      source?.notes,
-      source?.remarks,
-      source?.attachmentName,
-      source?.name,
-      source?.fileName,
-      source?.certificateText,
-      source?.densitySummary,
-      source?.densityExtractionSummary,
-      source?.description,
-      safeStringify(source?.densityResults ?? source?.labResults ?? source?.results ?? source),
-    ].map(cleanText).filter(Boolean).join(" "))
-    .filter(Boolean)
-    .join(" ");
-  return parseEarthworksDensityText(text);
-};
-
-const attachmentOrMetricCertificate = (records: any[], attachment: any, aliases: string[] = []): string =>
-  firstText(
-    attachmentCertificateNo(attachment),
-    firstFromRecords(records, [
-      ...aliases,
-      "certificateNo",
-      "certificateNumber",
-      "documentNo",
-      "documentNumber",
-      "מספר תעודה",
-      "מספר תעודת בדיקה",
-      "מס תעודת בדיקה",
-      "מספר תעודת מעבדה",
-    ]),
-  );
-
-const isEarthworksRecord = (record: any): boolean => {
-  const text = recordText(record);
-  return includesAny(text, earthworksIncludeKeywords) && !includesAny(text, earthworksExcludeKeywords);
-};
-
-const earthworksStatus = (...values: unknown[]): string => {
-  const text = firstText(...values);
-  if (!text) return "";
-  if (includesAny(text, ["לא תקין", "נכשל", "NC", "נדחה", "פסול"])) return "NC";
-  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר"])) return "OK";
-  return text;
-};
-
-const earthworksRowFromSources = (sources: any[], attachment: any, serial: number): Row => {
-  const checklist = sources[0] ?? {};
-  const item = sources[1] ?? {};
-  const resultsSource = {
-    ...(item?.results ?? {}),
-    ...(item?.labResults ?? {}),
-    ...(item?.densityResults ?? {}),
-    ...(attachment?.results ?? {}),
-    ...(attachment?.labResults ?? {}),
-    ...(attachment?.densityResults ?? {}),
-    ...(attachment?.details ?? {}),
-  };
-  const allSources = [resultsSource, attachment, item, checklist].filter(Boolean);
-  const parsedDensity = parsedDensityFromSources(allSources);
-  const workType = firstText(
-    firstFromRecords(allSources, ["סוג העבודה", "סוג עבודה", "workType", "work_type", "activity", "פעילות", "קטגוריה"]),
-    item?.description,
+const isDensityChecklist = (checklist: any) => {
+  const text = normalizeLoose([
     checklist?.title,
-  );
-  const materialDesc = firstFromRecords(allSources, ["תאור החומר", "תיאור החומר", "חומר", "material", "materialDescription"]);
-  const certificate = firstText(parsedDensity.certificateNo, attachmentOrMetricCertificate(allSources, attachment));
-  const controlledDensityCert = firstText(
-    firstFromRecords(allSources, ["מספר תעודת בדיקה צפיפות", "מספר תעודת בדיקה צפיפות רטיבות שדה", "תעודת צפיפות", "fieldDensityCertificate", "densityCertificateNo"]),
-    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["צפיפות", "רטיבות", "מד גרעיני"]) ? certificate : "",
-  );
-  const regularCompactionCert = firstText(
-    firstFromRecords(allSources, ["מספר תעודת בדיקה הידוק רגיל", "תעודת הידוק רגיל", "regularCompactionCertificateNo"]),
-    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["הידוק רגיל", "מעברי מכבש"]) ? certificate : "",
-  );
-  const controlledPoints = firstText(
-    firstFromRecords(allSources, ["כמות נקודות בדיקה", "נקודות בדיקה", "testPoints", "pointsCount"]),
-    includesAny([attachmentName(attachment), JSON.stringify(resultsSource)].join(" "), ["צפיפות", "רטיבות", "מד גרעיני"]) ? "1" : "",
-  );
-  const measurementQty = firstText(firstFromRecords(allSources, ["מדידה", "כמות", "quantity", "measurementCount"]));
+    checklist?.category,
+    checklist?.workType,
+    checklist?.type,
+    checklist?.location,
+    checklist?.notes,
+    checklist?.description,
+    ...(Array.isArray(checklist?.items) ? checklist.items.map((item: any) => [item?.title, item?.label, item?.description, item?.question].join(" ")) : []),
+  ].filter(Boolean).join(" "));
+  return ["צפיפות", "הידוק", "עבודות עפר", "מצע", "שתית", "מילוי", "חפירה", "חרוט חול", "מד גרעיני"].some((keyword) => text.includes(keyword));
+};
+
+const buildDensityReportRow = (checklist: any, index: number, relatedProcess?: any) => {
+  const location = firstFilled(valueFrom(checklist, ["sampleLocation", "takingPlace", "place", "location"]), relatedProcess?.location);
+  const workType = firstFilled(valueFrom(checklist, ["workType", "category", "type", "title"]), relatedProcess?.workType);
   return {
-    "ביצוע ע\"י": firstText(firstFromRecords(allSources, ["ביצוע עי", "ביצוע ע\"י", "performedBy", "qaQc", "QC/QA"]), "QC"),
-    "מס׳ סדורי": serial,
-    "רשימת תיוג": firstText(checklist?.checklistNo, checklist?.number, checklist?.id, serial),
-    "תאריך הבדיקה": firstText(parsedDensity.testDate, firstDateFromRecords(allSources, ["תאריך הבדיקה", "תאריך", "date", "executionDate", "testDate"], item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt)),
-    "כביש\\ציר \\רמפה": firstText(firstFromRecords(allSources, ["כביש", "ציר", "רמפה", "road", "axis", "ramp", "section"]), checklist?.location),
-    "מחתך": firstText(firstFromRecords(allSources, ["מחתך", "חתך התחלה", "fromSection", "from_station", "from"]), checklist?.fromSection),
-    "עד חתך": firstText(firstFromRecords(allSources, ["עד חתך", "חתך סוף", "toSection", "to_station", "to"]), checklist?.toSection),
-    "צד": firstFromRecords(allSources, ["צד", "side"]),
-    "מקום נטילה": firstText(firstFromRecords(allSources, ["מקום נטילה", "מקום דיגום", "מקום הדגם", "sampleLocation", "samplingLocation"]), checklist?.location),
-    "שטח": numericLike(firstFromRecords(allSources, ["שטח", "area", "מ\"ר", "sqm"])),
-    "שכבה מס׳": firstText(firstFromRecords(allSources, ["שכבה", "שכבה מס", "שכבה מס׳", "layer", "layerNo"]), parsedDensity.layer),
-    "עובי השכבה": numericLike(firstFromRecords(allSources, ["עובי השכבה", "עובי", "thickness"])),
-    "סוג העבודה": workType,
-    "תאור החומר": materialDesc,
-    "מיון החומר": firstFromRecords(allSources, ["מיון החומר", "AASHTO", "aashto", "classification", "soilClassification"]),
-    "מקור החומר": firstFromRecords(allSources, ["מקור החומר", "מקור", "source", "materialSource"]),
-    "מס׳ תעודת בדיקה הידוק רגיל": regularCompactionCert,
-    "מעברי מכבש": numericLike(firstFromRecords(allSources, ["מעברי מכבש", "מספר מעברי מכבש", "כמות מעברי מכבש", "rollerPasses"])),
-    "מעמד הידוק רגיל": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק רגיל", "סטטוס הידוק רגיל", "regularCompactionStatus"]), item?.status),
-    "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": firstText(controlledDensityCert, parsedDensity.certificateNo),
-    "הידוק מבוקר (צפיפות מד גרעיני)": numericLike(firstText(firstFromRecords(allSources, ["הידוק מבוקר", "צפיפות מד גרעיני", "כמות נקודות בדיקה", "densityPoints", "nuclearGaugePoints"]), parsedDensity.points, controlledPoints)),
-    "מעמד הידוק מבוקר": earthworksStatus(firstFromRecords(allSources, ["מעמד הידוק מבוקר", "סטטוס צפיפות", "densityStatus", "qualityStatus"]), parsedDensity.status, item?.status),
-    "מנת בדיקה (חרוט חול / שלבי)": numericLike(firstFromRecords(allSources, ["מנת בדיקה", "חרוט חול", "שלבי", "sandCone", "batch"])),
-    "מעמד מנת בדיקה": earthworksStatus(firstFromRecords(allSources, ["מעמד מנת בדיקה", "סטטוס מנת בדיקה", "sandConeStatus"])),
-    "מדידה": numericLike(measurementQty),
-    "מעמד מדידה": earthworksStatus(firstFromRecords(allSources, ["מעמד מדידה", "סטטוס מדידה", "measurementStatus"]), measurementQty ? item?.status : ""),
-    "מספר תעודת בדיקה אפיון - 100%": firstFromRecords(allSources, ["מספר תעודת בדיקה אפיון", "אפיון 100", "100%", "proctorCertificateNo", "אפיון"]),
-    "HWD": firstFromRecords(allSources, ["HWD", "hwd"]),
-    "מעמד HWD": earthworksStatus(firstFromRecords(allSources, ["מעמד HWD", "סטטוס HWD"])),
-    "צפיפות מחושבת": numericLike(firstText(firstFromRecords(allSources, ["צפיפות מחושבת", "צפיפות", "density", "computedDensity", "maxLabDensity", "maximumDryDensity"]), parsedDensity.computedDensity)),
-    "גבול תחתון": numericLike(firstText(firstFromRecords(allSources, ["גבול תחתון", "lowerLimit", "minValue", "minimum", "La"]), parsedDensity.lowerLimit)),
-    "גבול עליון": numericLike(firstText(firstFromRecords(allSources, ["גבול עליון", "upperLimit", "maxValue", "maximum"]), parsedDensity.upperLimit)),
-    "ממוצע": numericLike(firstText(firstFromRecords(allSources, ["ממוצע", "average", "avg", "x", "compactionAverage"]), parsedDensity.average)),
-    "מעמד תוצאות": earthworksStatus(firstFromRecords(allSources, ["מעמד", "מעמד תוצאות", "סטטוס", "qualityStatus", "status"]), parsedDensity.status, item?.status),
-    "בדיקה חוזרת לתעודה": firstFromRecords(allSources, ["בדיקה חוזרת לתעודה", "תעודת בדיקה חוזרת", "retestCertificateNo"]),
-    "מתאריך": firstDateFromRecords(allSources, ["מתאריך", "תאריך תעודה NC", "retestDate"]),
-    "מספר אי התאמה": firstFromRecords(allSources, ["מספר אי התאמה", "NCR", "ncr", "ncrNumber"]),
-    "הערות": firstText(item?.notes, attachment?.notes, firstFromRecords(allSources, ["הערות", "notes", "remarks"])),
+    performedBy: firstFilled(valueFrom(checklist, ["performedBy", "executionBy", "qcQa", "responsibleRole"]), "QC"),
+    serialNo: index + 1,
+    checklistNo: firstFilled(valueFrom(checklist, ["checklistNo", "checklistNumber", "number", "serialNo"]), index + 1),
+    testDate: formatChecklistDate(firstFilled(valueFrom(checklist, ["testDate", "inspectionDate", "date", "createdAt", "savedAt"]))),
+    roadAxis: firstFilled(valueFrom(checklist, ["roadAxis", "road", "axis", "route", "roadNo", "projectRoad"]), findChecklistAnswer(checklist, ["כביש", "ציר", "רמפה"])),
+    fromChainage: firstFilled(valueFrom(checklist, ["fromChainage", "fromSection", "from", "startChainage"]), relatedProcess?.fromChainage, relatedProcess?.fromSection),
+    toChainage: firstFilled(valueFrom(checklist, ["toChainage", "toSection", "to", "endChainage"]), relatedProcess?.toChainage, relatedProcess?.toSection),
+    side: firstFilled(valueFrom(checklist, ["side"]), findChecklistAnswer(checklist, ["צד"])),
+    sampleLocation: location,
+    area: firstFilled(valueFrom(checklist, ["area", "quantity", "surfaceArea"]), findChecklistAnswer(checklist, ["שטח"])),
+    layerNo: firstFilled(valueFrom(checklist, ["layerNo", "layer", "layerNumber"]), findChecklistAnswer(checklist, ["שכבה"])),
+    layerThickness: firstFilled(valueFrom(checklist, ["layerThickness", "thickness"]), findChecklistAnswer(checklist, ["עובי"])),
+    workType,
+    materialDescription: firstFilled(valueFrom(checklist, ["materialDescription", "material", "materialType"]), findChecklistAnswer(checklist, ["תאור החומר", "תיאור החומר", "חומר"])),
+    materialClass: firstFilled(valueFrom(checklist, ["materialClass", "materialClassification", "aashto"]), findChecklistAnswer(checklist, ["מיון", "AASHTO"])),
+    materialSource: firstFilled(valueFrom(checklist, ["materialSource", "source"]), findChecklistAnswer(checklist, ["מקור"])),
+    regularCompactionCertificate: firstFilled(valueFrom(checklist, ["regularCompactionCertificate", "regularCompactionCertificateNo"]), findChecklistAnswer(checklist, ["תעודת בדיקההידוק", "הידוק רגיל"])),
+    rollerPasses: firstFilled(valueFrom(checklist, ["rollerPasses", "passes"]), findChecklistAnswer(checklist, ["מעברי מכבש"])),
+    rollerStatus: resolveOkNc(findChecklistAnswer(checklist, ["מעברי מכבש", "הידוק רגיל"]), checklist?.status),
+    fieldDensityCertificate: firstFilled(valueFrom(checklist, ["fieldDensityCertificate", "densityCertificate", "certificateNo", "labCertificateNo"]), findChecklistAnswer(checklist, ["תעודת בדיקה צפיפות", "רטיבות שדה", "מספר תעודה", "מס' תעודה"])),
+    nuclearGaugePoints: firstFilled(valueFrom(checklist, ["nuclearGaugePoints", "densityPoints", "testPoints"]), findChecklistAnswer(checklist, ["מד גרעיני", "נקודות בדיקה", "צפיפות"])),
+    nuclearGaugeStatus: resolveOkNc(findChecklistAnswer(checklist, ["צפיפות", "רטיבות", "מד גרעיני"]), checklist?.status),
+    sandConeBatch: firstFilled(valueFrom(checklist, ["sandConeBatch", "sandConePoints"]), findChecklistAnswer(checklist, ["חרוט חול", "שלבי"])),
+    sandConeStatus: resolveOkNc(findChecklistAnswer(checklist, ["חרוט חול", "שלבי"]), checklist?.status),
+    measurementCount: firstFilled(valueFrom(checklist, ["measurementCount", "measurements"]), findChecklistAnswer(checklist, ["מדידה", "רשימת מדידה"])),
+    measurementStatus: resolveOkNc(findChecklistAnswer(checklist, ["מדידה", "גבהים", "חתכים", "עובי"]), checklist?.status),
   };
 };
 
-const buildEarthworksFieldRows = (checklists: any[]): Row[] => {
-  const rows: Row[] = [];
-  checklists.forEach((checklist) => {
-    if (!isEarthworksRecord(checklist)) return;
-    const items = Array.isArray(checklist?.items) ? checklist.items : [];
-    items.forEach((item: any) => {
-      const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
-      if (includesAny(itemText, earthworksExcludeKeywords)) return;
-      if (!includesAny(itemText, earthworksIncludeKeywords)) return;
-      const attachments = (Array.isArray(item?.attachments) ? item.attachments : []).filter(isRealAttachment);
-      if (!attachments.length) return;
-      attachments.forEach((attachment: any) => {
-        rows.push(earthworksRowFromSources([checklist, item], attachment, rows.length + 1));
-      });
+const densityTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", tableLayout: "fixed", direction: "rtl", fontSize: 12 };
+const densityCellStyle: React.CSSProperties = { border: "1px solid #94a3b8", padding: "6px 8px", verticalAlign: "middle", textAlign: "center", minWidth: 96, overflowWrap: "break-word" };
+const densityHeaderStyle: React.CSSProperties = { ...densityCellStyle, background: "#d9ead3", fontWeight: 900 };
+const densityHintStyle: React.CSSProperties = { ...densityCellStyle, background: "#f8fafc", color: "#475569", fontWeight: 800 };
+
+export function ControlProcessesSection({ guardedBody, currentProjectId, processes, setProcesses, projectChecklists = [], projectRFIs = [], projectNonconformances = [] }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<any>({ processNo: "", workType: "", specSection: "", location: "", fromChainage: "", toChainage: "", status: "טיוטה" });
+
+  const projectProcesses = useMemo(() => processes.filter((p) => !currentProjectId || p.projectId === currentProjectId), [processes, currentProjectId]);
+  const densityReportRows = useMemo(() => {
+    const projectChecklistRows = projectChecklists.filter((checklist: any) => !currentProjectId || checklist.projectId === currentProjectId || checklist.project_id === currentProjectId);
+    const densityChecklists = projectChecklistRows.filter(isDensityChecklist);
+    const sourceRows = densityChecklists.length ? densityChecklists : projectChecklistRows;
+    return sourceRows.map((checklist: any, index: number) => {
+      const relatedProcess = projectProcesses.find((process: any) =>
+        (Array.isArray(process.checklistIds) && process.checklistIds.includes(checklist.id)) ||
+        (process.location && checklist.location && process.location === checklist.location) ||
+        (process.workType && checklist.category && normalizeLoose(process.workType).includes(normalizeLoose(checklist.category)))
+      );
+      return buildDensityReportRow(checklist, index, relatedProcess);
     });
-  });
-  return rows.map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
-};
+  }, [projectChecklists, currentProjectId, projectProcesses]);
+  const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
 
-const commonProcessColumns = ["מס׳", "שם/כותרת", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "מספר תעודה / רישיון / אישור", "סוג תעודה", "מס׳ מסמכים", "סטטוס", "הערות"];
-const combinedChecklistAndProcesses = (checklists: any[], processes: any[], keywords: string[], label: string): Row[] => {
-  const checklist = checklistRows(checklists, keywords, label);
-  const process = processes
-    .filter((r) => includesAny(recordText(r), keywords))
-    .map((r, i) => controlProcessRow(r, checklist.length + i));
-  return [...checklist, ...process];
-};
+  const reset = () => { setEditingId(null); setForm({ processNo: "", workType: "", specSection: "", location: "", fromChainage: "", toChainage: "", status: "טיוטה" }); };
 
-
-const supervisionReportAttachments = (record: any): any[] => {
-  const direct = getAttachments(record);
-  const legacy = record?.attachment ? [record.attachment].filter(isRealAttachment) : [];
-  return [...direct, ...legacy].filter(isRealAttachment);
-};
-
-const supervisionReportRow = (record: any, index: number): Row => {
-  const docs = supervisionReportAttachments(record);
-  return {
-    "מס׳": index + 1,
-    "מספר דוח": firstText(record?.reportNo, record?.report_no, index + 1),
-    "נושא הדוח": firstText(record?.title, record?.subject, record?.name),
-    "מיקום": firstText(record?.location),
-    "תאריך": firstDateText(record?.date, record?.savedAt, record?.createdAt),
-    "מבצע / עורך": firstText(record?.author, record?.createdBy, record?.editor, record?.approvedBy),
-    "סטטוס": firstText(record?.status),
-    "תאריך טיפול": firstDateText(record?.treatmentDate, record?.treatment_date, record?.closedAt),
-    "טיפול": firstText(record?.treatment, record?.response, record?.actionTaken),
-    "מס׳ קבצים": docs.length || "",
-    "שם קובץ": uniqueJoin(docs.map(attachmentName)),
-    "הערות": firstText(record?.notes, record?.remarks),
-  };
-};
-
-const definitions: ConcentrationDefinition[] = [
-  {
-    id: "nonconformances",
-    title: "דוח ריכוז אי התאמות",
-    fileName: "דוח ריכוז אי התאמות.xlsx",
-    description: "ריכוז מתוך טפסי אי־התאמות שנשמרו במערכת",
-    sourceLabel: "אי התאמות",
-    columns: [
-      "מס'",
-      "מס' אי התאמה",
-      "מסי אי התאמה בSAP",
-      "מס סעיף במפרט",
-      "תאריך פתיחת",
-      "נפתחה",
-      "דרגת אי התאמה",
-      "גורם אחראי לליקוי (תכנון, ביצוע, ספק)",
-      "קטע (כביש, רמפה, גשר...)",
-      "מיקום",
-      "מיקום עד",
-      "היסט",
-      "חלק",
-      "אלמנט/ שכבה",
-      "תת אלמנט",
-      "תאור אי התאמה",
-      "טיפול הנדרש",
-      "גורם המטפל",
-      "תאריך  סגירת אי התאמה משוער-מסוכם",
-      "תאריך  סגירה משוער על פי החלטת מנה״פ",
-      "שבר",
-      "השפעה על איכות",
-      "פירוט ביצוע פעולה מתקנת",
-      "נסגרה",
-      "תאריך  סגירה",
-      "אישור מנהל ה״א לסגירת אי התאמה QC",
-    ],
-    buildRows: ({ savedNonconformances }) => savedNonconformances.map(nonconformanceRow),
-  },
-  {
-    id: "suppliers",
-    title: "ריכוז ספקים",
-    fileName: "ריכוז ספקים.xlsx",
-    description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
-    sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת״ת/רישיון", "סטטוס", "תוקף", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
-  },
-  {
-    id: "contractors",
-    title: "ריכוז קבלנים",
-    fileName: "ריכוז קבלנים.xlsx",
-    description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה",
-    sourceLabel: "בקרה מקדימה / קבלנים",
-    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "subcontractors").map(contractorRow),
-  },
-  {
-    id: "asphalt",
-    title: "ריכוז בדיקות אספלט",
-    fileName: "ריכוז בדיקות אספלט.xlsx",
-    description: "בדיקות אספלט מתוך רשימות תיוג ותעודות מצורפות",
-    sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["אספלט", "fwd", "מישוריות", "שכבה סופית", "מרשל"], "בדיקות אספלט"),
-  },
-  {
-    id: "density",
-    title: "ריכוז בדיקות צפיפות",
-    fileName: "ריכוז בדיקות צפיפות.xlsx",
-    description: "צפיפות / הידוק / רטיבות / מצעים מתוך רשימות תיוג",
-    sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["צפיפות", "הידוק", "רטיבות", "מצע", "מצעים", "דרגת הידוק"], "בדיקות צפיפות"),
-  },
-  {
-    id: "concrete",
-    title: "ריכוז בטון",
-    fileName: "ריכוז בטון.xlsx",
-    description: "בדיקות בטון מתוך רשימות תיוג ותעודות מצורפות",
-    sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["בטון", "יציקה", "קוביות", "חוזק", "ב-30", "ב-40", "ב-50", "ב-60"], "בדיקות בטון"),
-  },
-  {
-    id: "supervision",
-    title: "ריכוז דוחות פיקוח עליון",
-    fileName: "ריכוז דוחות פיקוח עליון.xlsx",
-    description: "",
-    sourceLabel: "דוחות פיקוח עליון",
-    columns: ["מס׳", "מספר דוח", "נושא הדוח", "מיקום", "תאריך", "מבצע / עורך", "סטטוס", "תאריך טיפול", "טיפול", "מס׳ קבצים", "שם קובץ", "הערות"],
-    buildRows: ({ savedSupervisionReports }) => savedSupervisionReports.map(supervisionReportRow),
-  },
-  {
-    id: "materials",
-    title: "ריכוז חומרים",
-    fileName: "ריכוז חומרים.xlsx",
-    description: "ריכוז אישורי חומרים מתוך בקרה מקדימה",
-    sourceLabel: "בקרה מקדימה / חומרים",
-    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "materials").map(materialRow),
-  },
-  {
-    id: "trial-sections",
-    title: "ריכוז קטעי ניסוי",
-    fileName: "ריכוז קטעי ניסוי.xlsx",
-    description: "ריכוז מתוך טפסי קטעי ניסוי שנשמרו במערכת",
-    sourceLabel: "קטעי ניסוי",
-    columns: ["מס׳", "שם קטע ניסוי", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "תוצאה", "מאושר ע״י", "סטטוס", "הערות"],
-    buildRows: ({ savedTrialSections }) => savedTrialSections.map(trialRow),
-  },
-  {
-    id: "subbase-a",
-    title: "ריכוז אפיון מצע א׳",
-    fileName: "ריכוז אפיון מצע א.xlsx",
-    description: "אפיון מצע א׳ מתוך תעודות/רשימות תיוג רלוונטיות",
-    sourceLabel: "בקרה מקדימה / תעודות ייחוס",
-    columns: matzeaAColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => buildMatzeaAConcentrationRows(savedChecklists, savedControlProcesses),
-  },
-  {
-    id: "selected-material",
-    title: "ריכוז אפיון נברר",
-    fileName: "ריכוז אפיון נברר.xlsx",
-    description: "אפיון חומר נברר מתוך תעודות/רשימות תיוג רלוונטיות",
-    sourceLabel: "רשימות תיוג / תעודות",
-    columns: selectedMaterialColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses),
-  },
-  {
-    id: "earthworks",
-    title: "בדיקות שדה - עבודות עפר",
-    fileName: "בדיקות שדה - עבודות עפר.xlsx",
-    description: "ריכוז בדיקות צפיפות/רטיבות שדה לעבודות עפר בלבד: חפירה, קרקע יסוד, מילוי והידוק רגיל/מבוקר. לא כולל מצע א׳.",
-    sourceLabel: "רשימות תיוג / עבודות עפר",
-    columns: earthworksFieldColumns,
-    buildRows: ({ savedChecklists }) => buildEarthworksFieldRows(savedChecklists),
-  },
-  {
-    id: "rfi",
-    title: "RFI",
-    fileName: "RFI.xlsx",
-    description: "ריכוז RFI מתוך הרשומות שנשמרו במערכת",
-    sourceLabel: "RFI",
-    columns: ["מס׳", "מספר RFI", "נושא", "מיקום", "תאריך פתיחה", "סטטוס", "תיאור הבקשה", "תשובה/טיפול", "נספחים", "הערות"],
-    buildRows: ({ savedRfis }) => savedRfis.map(rfiRow),
-  },
-];
-
-const xmlEscape = (value: unknown): string =>
-  cleanText(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-
-const colName = (n: number) => {
-  let s = "";
-  while (n > 0) {
-    const m = (n - 1) % 26;
-    s = String.fromCharCode(65 + m) + s;
-    n = Math.floor((n - m) / 26);
-  }
-  return s;
-};
-
-const cell = (r: number, c: number, v: unknown, style = 0) => {
-  const ref = `${colName(c)}${r}`;
-  if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}" s="${style}"><v>${v}</v></c>`;
-  return `<c r="${ref}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;
-};
-
-const rowXml = (r: number, values: unknown[], style = 0, height?: number) => `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, i + 1, v, style)).join("")}</row>`;
-
-const emptyRowXml = (r: number, height?: number) =>
-  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}/>`;
-
-const rowXmlFromColumn = (r: number, startCol: number, values: unknown[], style = 0, height?: number) =>
-  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${values.map((v, i) => cell(r, startCol + i, v, style)).join("")}</row>`;
-
-const sparseRowXml = (r: number, cells: Array<[number, unknown, number?]>, height?: number) =>
-  `<row r="${r}"${height ? ` ht="${height}" customHeight="1"` : ""}>${cells.map(([c, v, style]) => cell(r, c, v, style ?? 0)).join("")}</row>`;
-
-const rangeCells = (startCol: number, values: unknown[], style = 0): Array<[number, unknown, number]> =>
-  values.map((value, index) => [startCol + index, value, style]);
-
-
-const matzeaASpecHeaderRows = [
-  ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
-  ["", "", "", "", "", "", "", "", "", "3\"", "1.5\"", "3/4\"", "#4", "#10", "#40", "#200", "LL", "PL", "PI", "", "צפיפות ממשית (ט/מ״ק)", "ספיגות (%)", "", "", "", "", "", "", ""],
-  ["", "", "", "", "", "", "", "", "", "דרישות המפרט", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-  ["", "QC/QA", "", "", "", "", "מבנה", "חתכים", "", "", "100", "85", "55", "40", "", "15", "25", "", "6", "27", "2.3", "", "35 max", "", "", "", "", "", ""],
-  ["", "", "", "", "", "", "", "התחלה", "סוף", "100", "80", "60", "30", "20", "", "5", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-];
-
-const matzeaAExportColumns = [
-  "מס׳ סדורי",
-  "ביצוע ע״י",
-  "מס׳ תעודה",
-  "תאריך",
-  "מקור החומר",
-  "מקום נטילת מדגם לבדיקה",
-  "מקום הפיזור / מבנה",
-  "חתך התחלה",
-  "חתך סוף",
-  "3\"",
-  "1.5\"",
-  "3/4\"",
-  "#4",
-  "#10",
-  "#40",
-  "#200",
-  "LL",
-  "PL",
-  "PI",
-  "שע״ח (%)",
-  "צפיפות ממשית (ט/מ״ק)",
-  "ספיגות (%)",
-  "לוס אנג׳לס (%)",
-  "מיון AASHTO",
-  "צפיפות מעבדתית מקסימלית",
-  "רטיבות אופטימלית",
-  "מספר תעודה",
-  "מעמד החומר",
-  "הערות",
-];
-
-const buildMatzeaAWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
-  let r = 1;
-  const sheetRows: string[] = [];
-  const widthCount = 29;
-
-  sheetRows.push(emptyRowXml(r++, 14));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["דו״ח ריכוז בדיקות איפיון למצע סוג א׳", "", "", "", "", "", "", ""], 1, 20));
-  sheetRows.push(emptyRowXml(r++, 18));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
-  sheetRows.push(emptyRowXml(r++, 16));
-  sheetRows.push(emptyRowXml(r++, 16));
-
-  matzeaASpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
-
-  if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, matzeaAExportColumns.map((column) => item[column] ?? ""), 6, 24)));
-  } else {
-    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
-  }
-
-  const cols = Array.from({ length: widthCount }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i >= 9 && i <= 22 ? 11 : 18}" customWidth="1"/>`).join("");
-  const mergeRefs = [
-    "H2:O2",
-    "H4:I4", "J4:O4",
-    "H5:I5", "J5:O5",
-    "H6:I6", "J6:O6",
-    "H7:K7", "L7:O7",
-    "A10:A14", "B10:B12", "B13:B14", "C10:C14", "D10:D14", "E10:E14", "F10:F14",
-    "G10:I12", "G13:G14", "H13:I13",
-    "J10:P10", "Q10:S10", "T10:T11", "U10:V10", "W10:W11",
-    "J12:W12", "Q13:Q14", "R13:R14", "S13:S14", "T13:T14", "U13:U14", "V13:V14", "W13:W14",
-    "X10:X14", "Y10:Y14", "Z10:Z14", "AA10:AA14", "AB10:AB14", "AC10:AC14",
-  ];
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
-</worksheet>`;
-};
-
-const selectedMaterialSpecHeaderRows = [
-  ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
-  ["", "QC/QA", "", "", "", "", "", "", "", '3"', '1.5"', '3/4"', "#4", "#10", "#40", "#200", "LL", "PL", "PI", "", "צפיפות ממשית (ט/מ״ק)", "ספיגות (%)", "", "", "", "", "", "", ""],
-  ["", "", "", "", "", "", "", "", "", "דרישות המפרט", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-  ["", "", "", "", "", "", "מבנה", "חתכים", "", "100", "100", "100", "", "", "", "35", "40", "", "10", "", "", "", "", "", "", "", "", "", ""],
-  ["", "", "", "", "", "", "", "התחלה", "סוף", "", "", "", "", "", "", "0", "0", "", "0", "", "", "", "", "", "", "", "", "", ""],
-];
-
-const selectedMaterialExportColumns = selectedMaterialColumns;
-
-const buildSelectedMaterialWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
-  let r = 1;
-  const sheetRows: string[] = [];
-  const widthCount = 29;
-
-  sheetRows.push(emptyRowXml(r++, 14));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["דו״ח ריכוז בדיקות איפיון לחומר נברר", "", "", "", "", "", "", ""], 1, 20));
-  sheetRows.push(emptyRowXml(r++, 18));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
-  sheetRows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
-  sheetRows.push(emptyRowXml(r++, 16));
-  sheetRows.push(emptyRowXml(r++, 16));
-
-  selectedMaterialSpecHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index <= 1 ? 32 : 24)));
-
-  if (rows.length) {
-    rows.forEach((item) => sheetRows.push(rowXml(r++, selectedMaterialExportColumns.map((column) => item[column] ?? ""), 6, 24)));
-  } else {
-    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
-  }
-
-  const cols = Array.from({ length: widthCount }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i >= 9 && i <= 22 ? 11 : 18}" customWidth="1"/>`).join("");
-  const mergeRefs = [
-    "H2:O2",
-    "H4:I4", "J4:O4",
-    "H5:I5", "J5:O5",
-    "H6:I6", "J6:O6",
-    "H7:K7", "L7:O7",
-    "A10:A14", "B10:B12", "B13:B14", "C10:C14", "D10:D14", "E10:E14", "F10:F14",
-    "G10:I12", "G13:G14", "H13:I13",
-    "J10:P10", "Q10:S10", "T10:T11", "U10:V10", "W10:W11",
-    "J12:W12", "Q13:Q14", "R13:R14", "S13:S14", "T13:T14", "U13:U14", "V13:V14", "W13:W14",
-    "X10:X14", "Y10:Y14", "Z10:Z14", "AA10:AA14", "AB10:AB14", "AC10:AC14",
-  ];
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
-</worksheet>`;
-};
-
-
-const buildStandardHeaderRows = (
-  definition: ConcentrationDefinition,
-  meta: Required<ProjectConcentrationMeta>,
-): { rows: string[]; nextRow: number; merges: string[] } => {
-  let r = 1;
-  const rows: string[] = [];
-  const merges: string[] = [];
-
-  // כותרת עליונה אחידה לכל הריכוזים — זהה לפריסת ריכוז איפיון מצע א׳.
-  // מתחילה בעמודה H ומסתיימת בעמודה O כדי שלא תימתח לפי מספר עמודות הריכוז.
-  rows.push(emptyRowXml(r++, 14));
-  rows.push(rowXmlFromColumn(r++, 8, [definition.title, "", "", "", "", "", "", ""], 1, 20));
-  rows.push(emptyRowXml(r++, 18));
-  rows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
-  rows.push(emptyRowXml(r++, 16));
-  rows.push(emptyRowXml(r++, 16));
-
-  merges.push("H2:O2");
-  merges.push("H4:I4", "J4:O4");
-  merges.push("H5:I5", "J5:O5");
-  merges.push("H6:I6", "J6:O6");
-  merges.push("H7:K7", "L7:O7");
-
-  return { rows, nextRow: r, merges };
-};
-
-const buildStandardWorksheetXml = (
-  definition: ConcentrationDefinition,
-  rows: Row[],
-  meta: Required<ProjectConcentrationMeta>,
-) => {
-  // רק טבלת פרטי הפרויקט זהה לריכוז איפיון מצע א׳.
-  // טבלת הריכוז עצמה נשארת לפי מספר העמודות האמיתי שלה, בלי למתוח אותה ל-A:AC.
-  const tableStartCol = 8; // H — מיושר מתחת לטבלת פרטי הפרויקט.
-  const header = buildStandardHeaderRows(definition, meta);
-  let r = header.nextRow;
-  const sheetRows: string[] = [...header.rows];
-  const visibleColumns = definition.columns;
-  const maxCol = Math.max(15, tableStartCol + visibleColumns.length - 1);
-
-  sheetRows.push(rowXmlFromColumn(r++, tableStartCol, visibleColumns, 3, 30));
-
-  if (rows.length) {
-    rows.forEach((item) =>
-      sheetRows.push(rowXmlFromColumn(
-        r++,
-        tableStartCol,
-        visibleColumns.map((column) => item[column] ?? ""),
-        6,
-        24,
-      )),
-    );
-  } else {
-    sheetRows.push(rowXmlFromColumn(r++, tableStartCol, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
-  }
-
-  const cols = Array.from({ length: maxCol }, (_, i) =>
-    `<col min="${i + 1}" max="${i + 1}" width="18" customWidth="1"/>`,
-  ).join("");
-
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${header.merges.length}">${header.merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
-</worksheet>`;
-};
-
-const buildNonconformanceWorksheetXml = (
-  definition: ConcentrationDefinition,
-  rows: Row[],
-  meta: Required<ProjectConcentrationMeta>,
-) => {
-  const openRows = rows.filter((row) => !includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]));
-  const closedRows = rows.filter((row) => includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]));
-  const grade3Rows = rows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
-  const grade3OpenRows = openRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
-  const grade3ClosedRows = closedRows.filter((row) => cleanText(row["דרגת אי התאמה"]).includes("3"));
-
-  // פריסת כותרת עליונה לפי קובץ הדוגמה: רק בלוקים מוגדרים עם גבולות,
-  // ללא צביעה/גבולות על כל העמודות הריקות של הגיליון.
-  const sheetRows: string[] = [
-    emptyRowXml(1, 16),
-    sparseRowXml(2, [
-      ...rangeCells(3, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "", ""], 2),
-    ], 20),
-    sparseRowXml(3, [
-      ...rangeCells(3, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2),
-      ...rangeCells(12, [definition.title, "", "", "", ""], 1),
-      ...rangeCells(22, ["סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", "", grade3OpenRows.length], 2),
-    ], 20),
-    sparseRowXml(4, [
-      ...rangeCells(3, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", "", grade3ClosedRows.length], 2),
-    ], 20),
-    sparseRowXml(5, [
-      ...rangeCells(3, ["בקרת איכות", "", meta.qualityControl, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", "", grade3Rows.length], 2),
-    ], 20),
-    emptyRowXml(6, 16),
-    rowXml(7, [
-      "מס'",
-      "מס' אי התאמה",
-      "מסי אי התאמה בSAP",
-      "מס סעיף במפרט",
-      "תאריך פתיחת",
-      "נפתחה",
-      "דרגת אי התאמה",
-      "גורם אחראי לליקוי (תכנון, ביצוע, ספק)",
-      "קטע (כביש, רמפה, גשר...)",
-      "מיקום",
-      "",
-      "היסט",
-      "חלק",
-      "אלמנט/ שכבה",
-      "תת אלמנט",
-      "תאור אי התאמה",
-      "טיפול הנדרש",
-      "גורם המטפל",
-      "תאריך  סגירת אי התאמה משוער-מסוכם",
-      "תאריך  סגירה משוער על פי החלטת מנה״פ",
-      "שבר",
-      "השפעה על איכות",
-      "פירוט ביצוע פעולה מתקנת",
-      "נסגרה",
-      "תאריך  סגירה",
-      "אישור מנהל ה״א לסגירת אי התאמה QC",
-    ], 3, 34),
-    rowXml(8, ["", "", "", "", "", "על ידי QA/QC", "", "", "", "מחתך", "לחתך", "", "מבנה", "", "", "", "", "", "", "", "", "", "", "על ידי QA/QC", "", ""], 3, 24),
-  ];
-
-  let r = 9;
-  if (rows.length) {
-    rows.forEach((item) => {
-      sheetRows.push(rowXml(r++, definition.columns.map((column) => item[column] ?? ""), 6, 36));
-    });
-  } else {
-    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
-  }
-
-  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 16, 14, 16, 14];
-  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
-  const merges = [
-    "C2:D2", "E2:J2", "V2:X2", "Y2:AA2",
-    "C3:D3", "E3:J3", "L3:P3", "V3:W3", "Y3:Z3",
-    "C4:D4", "E4:J4", "V4:W4", "Y4:Z4",
-    "C5:D5", "E5:J5", "V5:W5", "Y5:Z5",
-    "A7:A8", "B7:B8", "C7:C8", "D7:D8", "E7:E8", "G7:G8", "H7:H8", "I7:I8",
-    "J7:K7", "L7:L8", "N7:N8", "O7:O8", "P7:P8", "Q7:Q8", "R7:R8", "S7:S8", "T7:T8", "U7:U8", "V7:V8", "W7:W8", "Y7:Y8", "Z7:Z8",
-  ];
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
-</worksheet>`;
-};
-
-
-const earthworksFieldHeaderRows = [
-  ["ביצוע ע\"י", "מס׳ סדורי", "רשימת תיוג", "תאריך הבדיקה", "כביש\\ציר \\רמפה", "מחתך", "עד חתך", "צד", "מקום נטילה", "שטח", "שכבה מס׳", "עובי השכבה", "סוג העבודה", "תאור החומר", "מיון החומר", "מקור החומר", "מס׳ תעודת בדיקה הידוק רגיל", "מעברי מכבש", "מעמד", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "הידוק מבוקר (צפיפות מד גרעיני)", "מעמד", "מנת בדיקה (חרוט חול / שלבי)", "מעמד", "מדידה", "מעמד", "מספר תעודת בדיקה אפיון - 100%", "HWD", "מעמד", "תוצאות בדיקה", "", "", "", "", "בדיקה חוזרת לתעודה", "מתאריך", "מספר אי התאמה", "הערות"],
-  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "צפיפות מחושבת", "צפיפות סטטיסטיקה", "", "", "מעמד", "", "", "", ""],
-  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "גבול תחתון", "גבול עליון", "ממוצע", "", "", "", "", ""],
-  ["QC/QA", "מס׳", "מס׳", "תאריך", "מס׳", "מס׳", "מס׳", "", "", "מ״ר", "מס׳", "ס״מ", "קרקע יסוד, מילוי, חפירה", "", "AASHTO", "", "מס׳ תעודה", "כמות מעברי מכבש", "OK / NC", "מס׳ תעודה", "כמות נקודות בדיקה", "OK / NC", "כמות נקודות בדיקה", "OK / NC", "כמות (1,2,3...)", "OK / NC", "מס׳ תעודה", "מס׳ תעודה", "OK / NC", "(קג/מ״ק)", "(%)", "(%)", "(%)", "OK / NC", "מס׳ תעודה NC", "תאריך תעודה NC", "", ""],
-];
-
-const buildEarthworksWorksheetXml = (
-  definition: ConcentrationDefinition,
-  rows: Row[],
-  meta: Required<ProjectConcentrationMeta>,
-) => {
-  const sheetRows: string[] = [
-    emptyRowXml(1, 14),
-    sparseRowXml(2, [
-      ...rangeCells(3, ["שם פרויקט:", "", meta.projectName, "", "", ""], 2),
-    ], 20),
-    sparseRowXml(3, [
-      ...rangeCells(3, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", ""], 2),
-      ...rangeCells(13, [definition.title, "", "", "", "", "", ""], 1),
-    ], 22),
-    sparseRowXml(4, [
-      ...rangeCells(3, ["שם הקבלן", "", meta.contractor, "", "", ""], 2),
-    ], 20),
-    sparseRowXml(5, [
-      ...rangeCells(3, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", ""], 2),
-      ...rangeCells(7, [`הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2),
-    ], 20),
-  ];
-
-  let r = 6;
-  earthworksFieldHeaderRows.forEach((values, index) => sheetRows.push(rowXml(r++, values, index <= 1 ? 3 : 2, index === 0 ? 34 : 24)));
-
-  if (rows.length) {
-    rows.forEach((item) => {
-      sheetRows.push(rowXml(r++, earthworksFieldColumns.map((column) => item[column] ?? ""), 6, 32));
-    });
-  } else {
-    sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי", ...Array.from({ length: earthworksFieldColumns.length - 1 }, () => "")], 4, 24));
-  }
-
-  const widths = [12, 10, 12, 14, 18, 10, 10, 8, 18, 10, 10, 12, 20, 18, 14, 16, 18, 14, 10, 20, 18, 10, 18, 10, 12, 10, 20, 12, 10, 14, 12, 12, 12, 10, 18, 14, 16, 24];
-  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
-  const merges = [
-    "C2:D2", "E2:J2",
-    "C3:D3", "E3:J3", "M3:S3",
-    "C4:D4", "E4:J4",
-    "C5:F5", "G5:J5",
-    "A6:A9", "B6:B9", "C6:C9", "D6:D9", "E6:E9", "F6:F9", "G6:G9", "H6:H9", "I6:I9", "J6:J9", "K6:K9", "L6:L9", "M6:M9", "N6:N9", "O6:O9", "P6:P9",
-    "Q6:Q8", "R6:R8", "S6:S8", "T6:T8", "U6:U8", "V6:V8", "W6:W8", "X6:X8", "Y6:Y8", "Z6:Z8", "AA6:AA8", "AB6:AB8", "AC6:AC8",
-    "AD6:AH6", "AD7:AD9", "AE7:AG7", "AE8:AE9", "AF8:AF9", "AG8:AG9", "AH7:AH9",
-    "AI6:AI8", "AJ6:AJ8", "AK6:AK8", "AL6:AL9",
-  ];
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
-  <cols>${cols}</cols>
-  <sheetData>${sheetRows.join("")}</sheetData>
-  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
-</worksheet>`;
-};
-
-const buildWorksheetXml = (
-  definition: ConcentrationDefinition,
-  rows: Row[],
-  meta: Required<ProjectConcentrationMeta>,
-) => {
-  if (definition.id === "nonconformances") return buildNonconformanceWorksheetXml(definition, rows, meta);
-  if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
-  if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
-  if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
-  return buildStandardWorksheetXml(definition, rows, meta);
-};
-
-const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="4">
-    <font><sz val="11"/><name val="Arial"/></font>
-    <font><b/><sz val="16"/><name val="Arial"/></font>
-    <font><b/><sz val="11"/><name val="Arial"/></font>
-    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
-  </fonts>
-  <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill></fills>
-  <borders count="3"><border/><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom></border><border><left style="medium"><color rgb="FF000000"/></left><right style="medium"><color rgb="FF000000"/></right><top style="medium"><color rgb="FF000000"/></top><bottom style="medium"><color rgb="FF000000"/></bottom></border></borders>
-  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="7">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-  </cellXfs>
-</styleSheet>`;
-
-const buildWorkbookBlob = async (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
-  const zip = new JSZip();
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
-  zip.folder("_rels")?.file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`);
-  zip.folder("docProps")?.file("core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEscape(definition.title)}</dc:title><dc:creator>מערכת בקרת איכות</dc:creator></cp:coreProperties>`);
-  zip.folder("docProps")?.file("app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>ControlEng Prime</Application></Properties>`);
-  zip.folder("xl")?.file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlEscape(definition.title).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto"/></workbook>`);
-  zip.folder("xl")?.folder("_rels")?.file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
-  zip.folder("xl")?.folder("worksheets")?.file("sheet1.xml", buildWorksheetXml(definition, rows, meta));
-  zip.folder("xl")?.file("styles.xml", stylesXml);
-  return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-};
-
-const downloadBlob = (blob: Blob, fileName: string) => {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
-const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
-
-export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta }: Props) {
-  const [search, setSearch] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<ConcentrationId | null>(null);
-
-  const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
-  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, meta]);
-
-  const rowsById = useMemo(() => {
-    const result: Record<string, Row[]> = {};
-    definitions.forEach((definition) => {
-      try {
-        result[definition.id] = definition.buildRows(ctx);
-      } catch (error) {
-        console.error(`Failed building concentration ${definition.id}`, error);
-        result[definition.id] = [];
-      }
-    });
-    return result;
-  }, [ctx]);
-
-  const visibleDefinitions = useMemo(() => {
-    const q = normalize(search);
-    return definitions.filter((definition) => !q || normalize(`${definition.title} ${definition.description}`).includes(q));
-  }, [search]);
-
-  const exportOne = async (definition: ConcentrationDefinition) => {
-    setBusyId(definition.id);
-    try {
-      const rows = rowsById[definition.id] ?? [];
-      const blob = await buildWorkbookBlob(definition, rows, meta);
-      downloadBlob(blob, definition.fileName);
-    } catch (error) {
-      console.error(error);
-      alert(error instanceof Error ? error.message : "אירעה שגיאה ביצוא הריכוז");
-    } finally {
-      setBusyId(null);
-    }
+  const save = () => {
+    if (!currentProjectId) { alert("יש לבחור פרויקט לפני פתיחת תהליך בקרה."); return; }
+    if (!String(form.workType || "").trim() || !String(form.location || "").trim()) { alert("יש למלא לפחות סוג עבודה ומיקום."); return; }
+    const now = new Date().toISOString();
+    const next = {
+      id: editingId || crypto.randomUUID(),
+      projectId: currentProjectId,
+      processNo: form.processNo || `CP-${projectProcesses.length + 1}`,
+      workType: form.workType || "",
+      specSection: form.specSection || "",
+      location: form.location || "",
+      fromChainage: form.fromChainage || "",
+      toChainage: form.toChainage || "",
+      checklistIds: form.checklistIds || [],
+      rfiIds: form.rfiIds || [],
+      nonconformanceIds: form.nonconformanceIds || [],
+      requiredDocuments: form.requiredDocuments || defaultRequiredDocuments.map((doc, index) => ({ id: `${index + 1}`, type: doc.type, required: doc.required, attached: false })),
+      status: form.status || "טיוטה",
+      createdAt: form.createdAt || now,
+      updatedAt: now,
+    } as ControlProcess;
+    setProcesses((prev) => editingId ? prev.map((p) => p.id === editingId ? next : p) : [next, ...prev]);
+    reset();
   };
 
-  return (
-    <section dir="rtl" style={{ display: "grid", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+  const approve = (process: ControlProcess) => {
+    const missing = ((process as any).requiredDocuments || []).filter((doc: any) => doc.required && !doc.attached);
+    if (missing.length) { alert(`לא ניתן לאשר. חסרים מסמכי חובה: ${missing.map((d: any) => d.type).join(", ")}`); return; }
+    setProcesses((prev) => prev.map((p) => p.id === process.id ? { ...p, status: "מאושר", updatedAt: new Date().toISOString() } : p));
+  };
+
+  const lock = (process: ControlProcess) => {
+    if ((process as any).status !== "מאושר") { alert("ניתן לנעול רק תהליך שאושר."); return; }
+    setProcesses((prev) => prev.map((p) => p.id === process.id ? { ...p, status: "נעול", updatedAt: new Date().toISOString() } : p));
+  };
+
+  if (guardedBody) return <>{guardedBody}</>;
+
+  return <div>
+    <h2 style={styles.sectionTitle}>תהליכי בקרה</h2>
+    <div style={{ ...styles.rowCard, background: "#eff6ff", borderColor: "#bfdbfe" }}>
+      <div style={{ fontWeight: 900, color: "#1e3a8a" }}>מרכז ניהול תהליך בקרה לפי דרישות נת״י</div>
+      <div style={{ color: "#334155", marginTop: 6 }}>כאן מחברים מיקום, סוג עבודה, סעיף מפרט, רשימות תיוג, RFI, אי־התאמות ומסמכי חובה לתהליך אחד.</div>
+    </div>
+
+    <div style={{ ...styles.rowCard, marginTop: 14, overflowX: "auto", borderColor: "#86efac", background: "#f0fdf4" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
-          <div style={{ color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>
-            מנוע ריכוזים חדש: הקבצים נוצרים ישירות מהנתונים השמורים במערכת, ללא תבניות Excel חיצוניות וללא XML Patch.
-          </div>
-          <div style={{ color: "#0f172a", fontWeight: 800, marginTop: 6 }}>פרויקט נוכחי: {meta.projectName || "-"}</div>
+          <div style={{ fontWeight: 950, color: "#14532d" }}>ריכוז בדיקות שדה — עבודות עפר / מצעים</div>
+          <div style={{ color: "#334155", marginTop: 4 }}>מבנה הכותרות נלקח משורות 6–9 בקובץ הדוגמה של כביש 807. הנתונים נאספים אוטומטית מרשימות התיוג של הפרויקט.</div>
         </div>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="חיפוש ריכוז..." style={{ width: 260, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 700 }} />
+        <div style={{ color: "#166534", fontWeight: 900 }}>סה״כ רשומות: {densityReportRows.length}</div>
       </div>
+      <table style={densityTableStyle}>
+        <thead>
+          <tr>{densityReportColumns.map((column) => <th key={column.key} style={densityHeaderStyle}>{column.title}</th>)}</tr>
+          <tr>{densityReportColumns.map((column) => <th key={`${column.key}-hint`} style={densityHintStyle}>{column.hint || "—"}</th>)}</tr>
+        </thead>
+        <tbody>
+          {densityReportRows.length === 0 ? <tr><td colSpan={densityReportColumns.length} style={{ ...densityCellStyle, background: "#fff" }}>אין עדיין רשימות תיוג מתאימות לריכוז צפיפות בפרויקט.</td></tr> : densityReportRows.map((row: any, rowIndex: number) => <tr key={`density-${rowIndex}`}>
+            {densityReportColumns.map((column) => <td key={column.key} style={{ ...densityCellStyle, background: rowIndex % 2 ? "#f8fafc" : "#fff" }}>{normalizeText(row[column.key]) || ""}</td>)}
+          </tr>)}
+        </tbody>
+      </table>
+    </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-        {visibleDefinitions.map((definition) => {
-          const rows = rowsById[definition.id] ?? [];
-          const isOpen = openId === definition.id;
-          return (
-            <div key={definition.id} style={cardStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
-                </div>
-                <span style={{ borderRadius: 999, background: rows.length ? "#dcfce7" : "#f1f5f9", color: rows.length ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length} רשומות</span>
-              </div>
-
-              <div style={{ marginTop: 12, color: rows.length ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
-              </div>
-
-              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-                <button type="button" disabled={busyId === definition.id} onClick={() => exportOne(definition)} style={{ ...btnStyle, cursor: busyId === definition.id ? "wait" : "pointer" }}>
-                  {busyId === definition.id ? "מפיק Excel..." : "הורד Excel חדש"}
-                </button>
-                <button type="button" onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}>
-                  {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
-                </button>
-              </div>
-
-              {isOpen && (
-                <div style={{ marginTop: 14, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 12, maxHeight: 260 }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        {definition.columns.slice(0, 8).map((column) => (
-                          <th key={column} style={{ position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{column}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length ? rows.slice(0, 20).map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                          {definition.columns.slice(0, 8).map((column) => (
-                            <td key={column} style={{ padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{cleanText(row[column])}</td>
-                          ))}
-                        </tr>
-                      )) : (
-                        <tr><td colSpan={Math.min(definition.columns.length, 8)} style={{ padding: 12, textAlign: "center", color: "#64748b", fontWeight: 800 }}>אין נתונים להצגה</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
+    <div style={styles.formGrid}>
+      <Field label="מספר תהליך"><input style={styles.input} value={form.processNo || ""} onChange={(e) => setField("processNo", e.target.value)} /></Field>
+      <Field label="סוג עבודה"><input style={styles.input} value={form.workType || ""} onChange={(e) => setField("workType", e.target.value)} placeholder="לדוגמה: מצע א׳ / אספלט / ניקוז" /></Field>
+      <Field label="סעיף מפרט"><input style={styles.input} value={form.specSection || ""} onChange={(e) => setField("specSection", e.target.value)} placeholder="לדוגמה: 51.04.02" /></Field>
+      <Field label="מיקום / קטע"><input style={styles.input} value={form.location || ""} onChange={(e) => setField("location", e.target.value)} /></Field>
+      <Field label="מחתך"><input style={styles.input} value={form.fromChainage || ""} onChange={(e) => setField("fromChainage", e.target.value)} /></Field>
+      <Field label="עד חתך"><input style={styles.input} value={form.toChainage || ""} onChange={(e) => setField("toChainage", e.target.value)} /></Field>
+      <Field label="סטטוס"><select style={styles.input} value={form.status || "טיוטה"} onChange={(e) => setField("status", e.target.value)}><option>טיוטה</option><option>בביצוע</option><option>ממתין לאישור</option><option>מאושר</option><option>נדחה</option><option>נעול</option></select></Field>
+    </div>
+    <div style={styles.buttonRow}><button style={styles.primaryBtn} onClick={save}>{editingId ? "עדכן תהליך" : "פתח תהליך בקרה"}</button><button style={styles.secondaryBtn} onClick={reset}>נקה</button></div>
+    <div style={{ ...styles.cardGrid, marginTop: 18 }}>
+      {projectProcesses.length === 0 ? <div style={styles.emptyBox}>אין עדיין תהליכי בקרה בפרויקט.</div> : projectProcesses.map((p: any) => {
+        const linkedChecklists = projectChecklists.filter((c: any) => c.controlProcessId === p.id || c.location === p.location);
+        const linkedRFIs = projectRFIs.filter((r: any) => r.controlProcessId === p.id || r.location === p.location);
+        const linkedNcr = projectNonconformances.filter((n: any) => n.controlProcessId === p.id || n.location === p.location);
+        return <div key={p.id} style={styles.recordCard}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><div style={{ fontWeight: 900 }}>{p.processNo} · {p.workType}</div><span style={{ background: p.status === "נעול" ? "#e2e8f0" : "#dcfce7", color: "#166534", padding: "4px 10px", borderRadius: 999 }}>{p.status}</span></div>
+          <div style={{ color: "#475569", marginTop: 8 }}>מיקום: {p.location || "-"} · סעיף מפרט: {p.specSection || "-"}</div>
+          <div style={{ color: "#475569", marginTop: 4 }}>רשימות: {linkedChecklists.length} · RFI: {linkedRFIs.length} · אי־התאמות: {linkedNcr.length}</div>
+          <div style={{ marginTop: 8, fontWeight: 800 }}>מסמכי חובה</div>
+          <ul>{(p.requiredDocuments || []).map((doc: any) => <li key={doc.id}>{doc.attached ? "✅" : doc.required ? "❌" : "▫️"} {doc.type}{doc.required ? " — חובה" : ""}</li>)}</ul>
+          <div style={styles.buttonRow}><button style={styles.secondaryBtn} onClick={() => { setEditingId(p.id); setForm(p); }}>פתח / ערוך</button><button style={styles.primaryBtn} onClick={() => approve(p)}>אשר</button><button style={styles.secondaryBtn} onClick={() => lock(p)}>נעל</button></div>
+        </div>;
+      })}
+    </div>
+  </div>;
 }
-
-export default ConcentrationsSection;

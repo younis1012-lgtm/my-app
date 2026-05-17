@@ -4540,38 +4540,31 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
   ];
   return (
-    <div style={{ display: "grid", gap: 10 }}>
-      <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
-            <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
-          </div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "260px minmax(0, 1fr)",
+        gap: 12,
+        alignItems: "start",
+        direction: "ltr",
+      }}
+    >
+      <aside
+        style={{
+          ...dashboardCardStyle,
+          direction: "rtl",
+          position: "sticky",
+          top: 12,
+          padding: 10,
+          maxHeight: "calc(100vh - 24px)",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 950 }}>תיקיות המערכת</h3>
+          <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>{homeModules.length}</span>
         </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
-        {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 92, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
-          <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
-        </button>; })}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
-        <div style={dashboardCardStyle}>
-          <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-          {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
-        </div>
-        <div style={dashboardCardStyle}>
-          <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
-          <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
-        </div>
-      </div>
-
-      <div style={dashboardCardStyle}>
-        <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>תיקיות המערכת</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(175px,1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gap: 7 }}>
           {homeModules.map((module) => (
             <button
               key={String(module.key)}
@@ -4581,14 +4574,15 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
                 border: "1px solid #e2e8f0",
                 background: "#fff",
                 borderRadius: 14,
-                padding: "8px 10px",
-                minHeight: 76,
+                padding: "9px 10px",
+                minHeight: 62,
+                textAlign: "right",
                 cursor: "pointer",
-                boxShadow: "0 6px 16px rgba(15,23,42,0.025)",
-                display: "flex",
+                boxShadow: "0 5px 14px rgba(15,23,42,0.025)",
+                display: "grid",
+                gridTemplateColumns: "42px 1fr auto",
+                gap: 9,
                 alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
                 direction: "ltr",
               }}
             >
@@ -4598,60 +4592,57 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
                   height: 38,
                   borderRadius: 12,
                   background: "#f1f5f9",
-                  display: "flex",
+                  display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 20,
-                  flexShrink: 0,
+                  fontSize: 19,
                 }}
               >
                 {module.icon}
               </span>
-
-              <div style={{ flex: 1, minWidth: 0, textAlign: "right", direction: "rtl" }}>
-                <div style={{ fontWeight: 950, color: "#0f172a", fontSize: 14, lineHeight: 1.2 }}>
-                  {module.title}
-                </div>
-                <div
-                  style={{
-                    color: "#64748b",
-                    marginTop: 3,
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                  title={module.description}
-                >
-                  {module.description}
-                </div>
-              </div>
-
-              <span
-                style={{
-                  borderRadius: 999,
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
-                  minWidth: 32,
-                  height: 32,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 950,
-                  fontSize: 14,
-                  color: "#0f172a",
-                  flexShrink: 0,
-                }}
-              >
-                {module.count}
+              <span style={{ minWidth: 0, direction: "rtl" }}>
+                <span style={{ display: "block", fontWeight: 950, color: "#0f172a", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.title}</span>
+                <span style={{ display: "block", color: "#64748b", marginTop: 2, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.description}</span>
               </span>
+              <span style={{ borderRadius: 999, background: "#f8fafc", border: "1px solid #e2e8f0", minWidth: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 950, fontSize: 12, color: "#0f172a" }}>{module.count}</span>
             </button>
           ))}
         </div>
-      </div>
+      </aside>
+
+      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl" }}>
+        <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
+              <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
+            </div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
+          {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 88, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
+            <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
+          </button>; })}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
+          <div style={dashboardCardStyle}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
+            {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
+          </div>
+          <div style={dashboardCardStyle}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
+            <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
+
 
 function getPreliminaryNested(record: any) {
   return record?.supplier || record?.subcontractor || record?.material || {};
