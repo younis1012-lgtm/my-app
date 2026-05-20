@@ -12054,6 +12054,48 @@ ${invalidRecipients.join("\n")}`);
     const selectedFiles = Array.from(files ?? []);
     if (!selectedFiles.length) return;
     selectedFiles.forEach((file) => {
+      const maxSizeMb = 20;
+      if (file.size > maxSizeMb * 1024 * 1024) {
+        alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
+        return;
+      }
+      const appendAttachment = (attachment: StoredAttachment) => {
+        setSupervisionReportForm((prev) => ({
+          ...prev,
+          attachment,
+          attachments: [...(prev.attachments ?? (prev.attachment ? [prev.attachment] : [])), attachment],
+        }));
+      };
+
+      if (cloudEnabled && supabase) {
+        void (async () => {
+          try {
+            const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+            const filePath = `supervision-reports/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+            const uploadResult = await supabase.storage
+              .from("attachments")
+              .upload(filePath, file, {
+                upsert: false,
+                contentType: file.type || undefined,
+              });
+            if (uploadResult.error) throw uploadResult.error;
+            const { data } = supabase.storage
+              .from("attachments")
+              .getPublicUrl(filePath);
+            appendAttachment({
+              name: file.name,
+              type: file.type,
+              dataUrl: data.publicUrl,
+              uploadedAt: nowLocal(),
+            });
+          } catch (error) {
+            console.error("Supervision report attachment upload failed", error);
+            alert("העלאת הקובץ לענן נכשלה. הדוח לא יצורף לקובץ עד שהעלאה תצליח.");
+          }
+        })();
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         const attachment: StoredAttachment = {
@@ -12062,15 +12104,41 @@ ${invalidRecipients.join("\n")}`);
           dataUrl: String(reader.result ?? ""),
           uploadedAt: nowLocal(),
         };
-        setSupervisionReportForm((prev) => ({
-          ...prev,
-          attachment,
-          attachments: [...(prev.attachments ?? (prev.attachment ? [prev.attachment] : [])), attachment],
-        }));
+        appendAttachment(attachment);
       };
       reader.onerror = () => alert(`לא ניתן לקרוא את הקובץ: ${file.name}`);
       reader.readAsDataURL(file);
     });
+  };
+
+  const uploadInlineSupervisionAttachmentToCloud = async (attachment: StoredAttachment) => {
+    if (!cloudEnabled || !supabase || !String(attachment.dataUrl || "").startsWith("data:")) {
+      return attachment;
+    }
+    const parsed = dataUrlToBytes(attachment.dataUrl);
+    if (!parsed) return attachment;
+    const safeName = String(attachment.name || "supervision-report.pdf").replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+    const filePath = `supervision-reports/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+    const blob = new Blob([parsed.bytes], { type: attachment.type || parsed.mimeType || "application/octet-stream" });
+    const uploadResult = await supabase.storage
+      .from("attachments")
+      .upload(filePath, blob, {
+        upsert: false,
+        contentType: attachment.type || parsed.mimeType || undefined,
+      });
+    if (uploadResult.error) throw uploadResult.error;
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+    return { ...attachment, dataUrl: data.publicUrl };
+  };
+
+  const prepareSupervisionAttachmentsForCloud = async (attachments: StoredAttachment[]) => {
+    const uploaded: StoredAttachment[] = [];
+    for (const attachment of attachments) {
+      uploaded.push(await uploadInlineSupervisionAttachmentToCloud(attachment));
+    }
+    return uploaded;
   };
 
   const saveSupervisionReport = async () => {
@@ -12093,7 +12161,7 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     const id = editingSupervisionReportId ?? crypto.randomUUID();
-    const attachments = currentAttachments;
+    const attachments = cloudEnabled ? await prepareSupervisionAttachmentsForCloud(currentAttachments) : currentAttachments;
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
     const record: SupervisionReportRecord = {
       ...supervisionReportForm,
