@@ -2086,6 +2086,23 @@ const rangeCells = (startCol: number, values: unknown[], style = 0): Array<[numb
   values.map((value, index) => [startCol + index, value, style]);
 
 
+const excelTextLength = (value: unknown) => String(value ?? "").replace(/<[^>]*>/g, "").length;
+
+const excelColumnWidth = (values: unknown[], min = 12, max = 46) => {
+  const longest = values.reduce((current, value) => Math.max(current, excelTextLength(value)), 0);
+  return Math.max(min, Math.min(max, Math.ceil(longest * 1.15) + 2));
+};
+
+const excelRowHeight = (values: unknown[], base = 24, max = 84) => {
+  const longest = values.reduce((current, value) => Math.max(current, excelTextLength(value)), 0);
+  if (longest <= 22) return base;
+  return Math.min(max, base + Math.ceil((longest - 22) / 24) * 14);
+};
+
+const colsXmlFromWidths = (widths: number[]) =>
+  widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+
+
 const matzeaASpecHeaderRows = [
   ["מס׳ סדורי", "ביצוע ע״י", "מס׳ תעודה", "תאריך", "מקור החומר", "מקום נטילת מדגם לבדיקה", "מקום הפיזור", "", "", "דירוג ( % עובר )", "", "", "", "", "", "", "גבולות פלסטיות וסומך (%)", "", "", "שע״ח (%)", "אגרגט גס", "", "לוס אנג׳לס (%)", "מיון AASHTO", "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "מספר תעודה", "מעמד החומר", "הערות"],
   ["", "", "", "", "", "", "", "", "", "3\"", "1.5\"", "3/4\"", "#4", "#10", "#40", "#200", "LL", "PL", "PI", "", "צפיפות ממשית (ט/מ״ק)", "ספיגות (%)", "", "", "", "", "", "", ""],
@@ -2235,23 +2252,22 @@ const buildStandardHeaderRows = (
   const rows: string[] = [];
   const merges: string[] = [];
 
-  // כותרת עליונה אחידה לכל הריכוזים — זהה לפריסת ריכוז איפיון מצע א׳.
-  // מתחילה בעמודה H ומסתיימת בעמודה O כדי שלא תימתח לפי מספר עמודות הריכוז.
+  // כותרת עליונה אחידה לכל הריכוזים הסטנדרטיים, מיושרת לימין בגיליון RTL.
   rows.push(emptyRowXml(r++, 14));
-  rows.push(rowXmlFromColumn(r++, 8, [definition.title, "", "", "", "", "", "", ""], 1, 20));
+  rows.push(rowXml(r++, [definition.title, "", "", "", "", "", "", ""], 1, 20));
   rows.push(emptyRowXml(r++, 18));
-  rows.push(rowXmlFromColumn(r++, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
-  rows.push(rowXmlFromColumn(r++, 8, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
+  rows.push(rowXml(r++, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
+  rows.push(rowXml(r++, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
+  rows.push(rowXml(r++, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
+  rows.push(rowXml(r++, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
   rows.push(emptyRowXml(r++, 16));
   rows.push(emptyRowXml(r++, 16));
 
-  merges.push("H2:O2");
-  merges.push("H4:I4", "J4:O4");
-  merges.push("H5:I5", "J5:O5");
-  merges.push("H6:I6", "J6:O6");
-  merges.push("H7:K7", "L7:O7");
+  merges.push("A2:H2");
+  merges.push("A4:B4", "C4:H4");
+  merges.push("A5:B5", "C5:H5");
+  merges.push("A6:B6", "C6:H6");
+  merges.push("A7:D7", "E7:H7");
 
   return { rows, nextRow: r, merges };
 };
@@ -2261,34 +2277,40 @@ const buildStandardWorksheetXml = (
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
 ) => {
-  // רק טבלת פרטי הפרויקט זהה לריכוז איפיון מצע א׳.
-  // טבלת הריכוז עצמה נשארת לפי מספר העמודות האמיתי שלה, בלי למתוח אותה ל-A:AC.
-  const tableStartCol = 8; // H — מיושר מתחת לטבלת פרטי הפרויקט.
+  // הריכוזים הסטנדרטיים מתחילים בעמודה A, שבגיליון RTL היא העמודה הימנית ביותר.
+  const tableStartCol = 1;
   const header = buildStandardHeaderRows(definition, meta);
   let r = header.nextRow;
   const sheetRows: string[] = [...header.rows];
   const visibleColumns = definition.columns;
-  const maxCol = Math.max(15, tableStartCol + visibleColumns.length - 1);
+  const maxCol = Math.max(8, visibleColumns.length);
 
-  sheetRows.push(rowXmlFromColumn(r++, tableStartCol, visibleColumns, 3, 30));
+  sheetRows.push(rowXmlFromColumn(r++, tableStartCol, visibleColumns, 3, 34));
 
   if (rows.length) {
-    rows.forEach((item) =>
-      sheetRows.push(rowXmlFromColumn(
-        r++,
-        tableStartCol,
-        visibleColumns.map((column) => item[column] ?? ""),
-        6,
-        24,
-      )),
-    );
+    rows.forEach((item) => {
+      const values = visibleColumns.map((column) => item[column] ?? "");
+      sheetRows.push(rowXmlFromColumn(r++, tableStartCol, values, 6, excelRowHeight(values, 28)));
+    });
   } else {
-    sheetRows.push(rowXmlFromColumn(r++, tableStartCol, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
+    sheetRows.push(rowXmlFromColumn(r++, tableStartCol, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 28));
   }
 
-  const cols = Array.from({ length: maxCol }, (_, i) =>
-    `<col min="${i + 1}" max="${i + 1}" width="18" customWidth="1"/>`,
-  ).join("");
+  const columnWidthValues = Array.from({ length: maxCol }, (_, index) => {
+    if (index < visibleColumns.length) {
+      const column = visibleColumns[index];
+      return [
+        column,
+        ...rows.map((item) => item[column] ?? ""),
+        index === 0 ? definition.title : "",
+        index === 2 ? meta.projectName : "",
+        index === 4 ? meta.qualityAssurance : "",
+      ];
+    }
+
+    return [definition.title, meta.projectName, meta.contractor, meta.qualityControl, meta.qualityAssurance];
+  });
+  const cols = colsXmlFromWidths(columnWidthValues.map((values) => excelColumnWidth(values, 14, 48)));
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
