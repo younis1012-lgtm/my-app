@@ -24,7 +24,7 @@ const first = (...values: unknown[]) => {
 };
 
 const hasDensityKeywords = (text: string) =>
-  /צפיפות|רטיבות|מד גרעיני|דרגת צפיפות|La\s*=|צפיפות מחושבת|מילוי|חפירה|הידוק/i.test(text);
+  /צפיפות|רטיבות|מד גרעיני|דרגת צפיפות|La\s*=|צפיפות מחושבת|מילוי|חפירה|הידוק|מעברי מכבש|מכבש|AASHTO|מספר תעודת מעבדה|דו["״']?ח בדיקה מספר/i.test(text);
 
 const waitForScript = (script: HTMLScriptElement) =>
   new Promise<void>((resolve, reject) => {
@@ -130,12 +130,73 @@ const normalizeDate = (value: string) => {
   return match[0].replace(/\./g, "/").replace(/-/g, "/");
 };
 
+
+const pickText = (text: string, patterns: RegExp[]) => {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const value = clean(match?.[1] ?? "");
+    if (value) return value;
+  }
+  return "";
+};
+
+const pickFirstNumber = (text: string, patterns: RegExp[]) => {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const value = cleanNumber(match?.[1] ?? "");
+    if (value) return value;
+  }
+  return "";
+};
+
+const normalizeSide = (value: unknown) => {
+  const text = clean(value).replace(/\s+/g, "").toUpperCase();
+  const match = text.match(/(?:צד)?([LR](?:\+[LR])?|ימין|שמאל|שני)/i);
+  if (!match) return "";
+  const side = match[1].toUpperCase();
+  if (side === "ימין") return "R";
+  if (side === "שמאל") return "L";
+  if (side === "שני") return "L+R";
+  return side;
+};
+
+const extractChainage = (text: string) => {
+  const normalized = clean(text);
+  const match = normalized.match(/חתך\s*(\d{2,5})\s*[-–]\s*(\d{2,5})([^\n\r]{0,120})/i);
+  if (!match) return { from: "", to: "", side: "", location: "" };
+  const a = Number(match[1]);
+  const b = Number(match[2]);
+  const tail = clean(match[3] ?? "");
+  const side = normalizeSide(tail);
+  return {
+    from: String(Math.min(a, b)),
+    to: String(Math.max(a, b)),
+    side,
+    location: clean(match[0]),
+  };
+};
+
+const extractItemAfterColonBlock = (text: string, label: string) => {
+  const lines = text.split(/\n|\r/).map(clean).filter(Boolean);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].includes(label)) {
+      for (let j = i + 1; j < Math.min(lines.length, i + 8); j += 1) {
+        const line = lines[j];
+        if (!line || line.includes(":")) continue;
+        if (/^(שם|מספר|תאריך|עמוד|דו)/.test(line)) continue;
+        return line;
+      }
+    }
+  }
+  return "";
+};
+
 export const parseEarthworksDensityText = (fileName: string, rawText: string): DensityCertificateResults => {
   const text = clean(`${fileName}\n${rawText}`);
   if (!hasDensityKeywords(text)) return {};
 
   const fileNumber = (fileName.match(/\d{4,}/g) ?? []).find((value) => value.length >= 5) ?? "";
-  const section = /חתך\s*(\d+)\s*[-–]\s*(\d+)[^א-תA-Za-z0-9]{0,40}([^\n\r]{0,90}?)(?:צד\s*([A-Za-z+]+))?/i.exec(text);
+  const chainage = extractChainage(text);
   const date = normalizeDate(
     first(
       pickRegex(text, [/תאריך הבדיקה[^0-9]{0,80}(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i], false),
@@ -144,52 +205,104 @@ export const parseEarthworksDensityText = (fileName: string, rawText: string): D
     ),
   );
 
+  const certificateNo = first(
+    pickRegex(text, [/דו["״']?ח בדיקה מספר\s*(\d{4,})/i, /דוח מספר[:\s]*(\d{4,})/i, /דוח\s+מספר[:\s]*(\d{4,})/i]),
+    fileNumber,
+  );
+  const isRollerPassCertificate = /מעברי\s*מכבש|מס['׳]?\s*מעברים/i.test(text);
+  const isDensityCertificate = /צפיפות|רטיבות|מד\s*גרעיני|דרגת\s*צפיפות/i.test(text) && !isRollerPassCertificate;
+
   const compaction = first(
     pickRegex(text, [/x\s*=\s*(\d+(?:[.,]\d+)?)/i]),
     averageFromLabelRow(text, "אחוז דרגת צפיפות"),
   );
   const lowerLimit = first(pickRegex(text, [/La\s*=\s*(\d+(?:[.,]\d+)?)/i, /L'a\s*=\s*(\d+(?:[.,]\d+)?)/i]), "");
-  const upperLimit = "100";
+  const upperLimit = lowerLimit || compaction ? "100" : "";
   const calculatedDensity = first(
-    pickRegex(text, [/צפיפות מעבדתית מקסימלית[:\s.]+(\d{3,5})/i, /צפיפות מחושבת[^0-9]{0,80}(\d{3,5})/i]),
+    pickRegex(text, [/צפיפות מעבדתית מקסימלית[:\s.)]+(\d{3,5})/i, /צפיפות מחושבת[^0-9]{0,80}(\d{3,5})/i]),
     (text.match(/צפיפות מחושבת[^\n\r]*?(\d{3,5})/) ?? ["", ""])[1],
   );
   const moisture = first(
     averageFromLabelRow(text, "אחוז הרטיבות בבדיקה"),
-    pickRegex(text, [/רטיבות אופטימלית[:\s.]+(\d+(?:[.,]\d+)?)/i]),
+    pickRegex(text, [/רטיבות אופטימלית[:\s.)]+(\d+(?:[.,]\d+)?)/i]),
   );
-  const certificateNo = first(
-    pickRegex(text, [/דו["״']?ח בדיקה מספר\s*(\d{4,})/i, /דוח מספר[:\s]*(\d{4,})/i]),
-    fileNumber,
+  const pointRows = Array.from(text.matchAll(/בדיקה מספר\s+((?:\d{1,2}\s+){1,24}\d{1,2})/g));
+  const pointNumbers = pointRows
+    .flatMap((row) => Array.from(String(row[1]).matchAll(/\d{1,2}/g)).map((item) => Number(item[0])))
+    .filter((item) => Number.isFinite(item));
+  const points = first(
+    pointNumbers.length ? String(Math.max(...pointNumbers)) : "",
+    pickRegex(text, [
+      /(?:כמות|מספר)\s*נקודות\s*בדיקה\s*[:\-]?\s*(\d{1,3})/i,
+      /(\d{1,3})\s*נקודות\s*בדיקה/i,
+    ]),
+    text.includes("12 11 10 9 8 7") && text.includes("6 5 4 3 2 1") ? "12" : "",
   );
-  const points = text.includes("12 11 10 9 8 7") && text.includes("6 5 4 3 2 1") ? "12" : "";
-  const status = /הבדיקה עוברת|מסקנה:\s*מתאים/i.test(text) ? "OK" : compaction && lowerLimit && Number(compaction) >= Number(lowerLimit) ? "OK" : "";
+  const rollerPasses = first(
+    pickRegex(text, [/מס['׳]?\s*מעברים\s*בוצעו\s*(\d+)/i, /(\d+)\s*מעברי\s*מכבש/i]),
+  );
+  const status = /הבדיקה עוברת|מסקנה:\s*מתאים|מתאים/i.test(text)
+    ? "OK"
+    : compaction && lowerLimit && Number(compaction) >= Number(lowerLimit)
+      ? "OK"
+      : "";
+
+  const workType = first(
+    pickText(text, [/:\s*(מילוי נברר|קרקע יסוד|שתית|חפירה|מילוי רגיל|מילוי מבוקר|הידוק רגיל|הידוק מבוקר)/i]),
+    firstTextAfter(text, "הפריט הנבדק", ["שם האתר", "תאור החומר", "צפיפות באתר", "מעברי מכבש"]),
+    extractItemAfterColonBlock(rawText, "הפריט הנבדק"),
+  );
+  const material = first(
+    firstTextAfter(text, "תאור החומר", ["הפריט הנבדק", "צפיפות באתר", "שם המזמין"]),
+    extractItemAfterColonBlock(rawText, "תאור החומר"),
+  );
+  const aashto = first(
+    pickText(text, [/מיון לפי AASHTO\s*([A-Za-z0-9\-\(\)]+)/i, /\b(A-\d-[A-Za-z](?:\(\d+\))?)\b/i]),
+  );
+  const referenceCertificate = pickRegex(text, [/מדו["״']?ח מספר[:\s.]+(\d{4,})/i, /מספר תעודת מעבדה[:\s.]+(\d{4,})/i]);
+  const layer = first(
+    pickRegex(text, [
+      /שכבה\s*(?:מס(?:פר)?['׳]?)?\s*[:\-]?\s*([0-9]{1,3})/i,
+      /(שתית|קרקע\s*יסוד)(?=\s*(?:שכבה|חתך|מקום|$))/i,
+    ], false),
+    pickRegex(text, [/שכבה מספר\/סוג שכבה[^0-9]{0,50}(\d+)/i]),
+    pickRegex(text, /(?:^|\s)(\d+)\s+שכבה מספר\/סוג שכבה/i.exec(text)?.[0] ? [/(?:^|\s)(\d+)\s+שכבה מספר\/סוג שכבה/i] : []),
+    /\n\s*1\s*\n\s*שכבה מספר\/סוג שכבה/i.test(rawText) ? "1" : "",
+  );
 
   const results: DensityCertificateResults = {};
   if (date) results["תאריך הבדיקה"] = date;
-  if (section?.[1]) results["מחתך"] = section[1];
-  if (section?.[2]) results["עד חתך"] = section[2];
-  if (section?.[4]) results["צד"] = section[4];
-  if (section?.[0]) results["מקום נטילה"] = clean(section[0]);
-  const layer = pickRegex(text, [/שכבה מספר\/סוג שכבה[^0-9]{0,50}(\d+)/i]);
+  if (chainage.from) results["מחתך"] = chainage.from;
+  if (chainage.to) results["עד חתך"] = chainage.to;
+  if (chainage.side) results["צד"] = chainage.side;
+  if (chainage.location) results["מקום נטילה"] = chainage.location;
   if (layer) results["שכבה מס׳"] = layer;
-  const workType = firstTextAfter(text, "הפריט הנבדק", ["שם האתר", "תאור החומר", "צפיפות באתר"]);
   if (workType) results["סוג העבודה"] = workType;
-  const material = firstTextAfter(text, "תאור החומר", ["הפריט הנבדק", "צפיפות באתר", "שם המזמין"]);
   if (material) results["תאור החומר"] = material;
-  const aashto = pickRegex(text, [/מיון לפי AASHTO\s*([A-Za-z0-9\-]+)/i], false);
   if (aashto) results["מיון החומר"] = aashto;
-  if (certificateNo) results["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] = certificateNo;
-  if (points) results["הידוק מבוקר (צפיפות מד גרעיני)"] = points;
-  if (status) {
-    results["מעמד הידוק מבוקר"] = status;
-    results["מעמד תוצאות"] = status;
+  if (referenceCertificate) results["מספר תעודת בדיקה אפיון - 100%"] = referenceCertificate;
+
+  if (isRollerPassCertificate) {
+    if (certificateNo) results["מס' תעודת בדיקההידוק רגיל"] = certificateNo;
+    if (rollerPasses) results["מעברי מכבש"] = rollerPasses;
+    if (status || rollerPasses) results["מעמד הידוק רגיל"] = first(status, "OK");
+    results["מעמד תוצאות"] = first(status, "OK");
+  } else if (isDensityCertificate) {
+    if (certificateNo) results["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] = certificateNo;
+    if (points) results["הידוק מבוקר (צפיפות מד גרעיני)"] = points;
+    if (status) {
+      results["מעמד צפיפות/רטיבות"] = status;
+      results["מעמד תוצאות"] = status;
+    }
+    if (calculatedDensity) results["צפיפות מחושבת"] = calculatedDensity;
+    if (lowerLimit) results["גבול תחתון"] = lowerLimit;
+    if (upperLimit) results["גבול עליון"] = upperLimit;
+    if (compaction) results["ממוצע"] = compaction;
+    if (moisture) results["רטיבות ממוצעת"] = moisture;
+  } else if (certificateNo) {
+    results["מספר תעודת בדיקה"] = certificateNo;
   }
-  if (calculatedDensity) results["צפיפות מחושבת"] = calculatedDensity;
-  if (lowerLimit) results["גבול תחתון"] = lowerLimit;
-  if (upperLimit) results["גבול עליון"] = upperLimit;
-  if (compaction) results["ממוצע"] = compaction;
-  if (moisture) results["רטיבות ממוצעת"] = moisture;
+
   results["הערות"] = first(results["הערות"], "נקלט אוטומטית מתעודת PDF");
 
   return Object.keys(results).length >= 3 ? results : {};

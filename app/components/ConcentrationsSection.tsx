@@ -1492,6 +1492,43 @@ const earthworksAllText = (sources: any[]): string =>
     safeStringify(source?.results ?? source?.labResults ?? source?.densityResults ?? source?.parsedResults ?? source),
   ].map(cleanText).filter(Boolean).join(" ")).join(" ");
 
+const firstRegexText = (text: string, patterns: RegExp[]): string => {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match?.[1] ?? match?.[2] ?? "";
+    if (value) return cleanText(value);
+  }
+  return "";
+};
+
+const earthworksParsedLocation = (sources: any[]) => {
+  const text = earthworksAllText(sources)
+    .replace(/\u200f|\u200e/g, " ")
+    .replace(/\s+/g, " ");
+  const fromTo = text.match(/(?:מחתך|חתך)\s*(\d{1,5})\s*[-–]\s*(\d{1,5})/i);
+  const side = firstRegexText(text, [
+    /(?:צד|נתיב)\s*[:\-]?\s*(R|L|ימין|שמאל|שני\s*צדדים|ימני|שמאלי)\b/i,
+    /\b(R|L)\b(?=\s*(?:שתית|שכבה|קרקע|$))/i,
+  ]);
+  const layer = firstRegexText(text, [
+    /שכבה\s*(?:מס(?:פר)?['׳]?)?\s*[:\-]?\s*([0-9]{1,3})/i,
+    /(שתית|קרקע\s*יסוד)(?=\s*(?:שכבה|חתך|מקום|$))/i,
+  ]);
+  const aashto = firstRegexText(text, [/\b(A-\d-[A-Za-z](?:\(\d+\))?)\b/i]);
+  const points = firstRegexText(text, [
+    /(?:כמות|מספר)\s*נקודות\s*בדיקה\s*[:\-]?\s*(\d{1,3})/i,
+    /(\d{1,3})\s*נקודות\s*בדיקה/i,
+  ]);
+  return {
+    from: fromTo?.[1] ?? "",
+    to: fromTo?.[2] ?? "",
+    side: side.replace("ימין", "R").replace("ימני", "R").replace("שמאל", "L").replace("שמאלי", "L"),
+    layer,
+    aashto,
+    points,
+  };
+};
+
 const hasAnyExactField = (source: any, aliases: string[]): boolean => Boolean(exactResultValue(source, aliases));
 
 const normalizeEarthworksDocKind = (sources: any[]): EarthworksTestKind => {
@@ -1565,6 +1602,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const fieldSources = [resultsSource, item, checklist].filter(Boolean);
   const certificateSources = [resultsSource, attachment, item, checklist].filter(Boolean);
   const parsedDensity = parsedDensityFromSources([resultsSource, attachment]);
+  const parsedLocation = earthworksParsedLocation([resultsSource, attachment, item, checklist]);
 
   const checklistNo = earthworksChecklistNumber(checklist, checklistIndex);
   const workType = firstText(
@@ -1598,13 +1636,13 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(fieldSources, ["תאריך הבדיקה", "תאריך בדיקה", "testDate"]),
     parsedDensity.testDate,
   );
-  const exactFrom = exactFirstFromSources(fieldSources, ["מחתך", "חתך התחלה", "fromSection", "stationFrom", "chainageFrom"]);
-  const exactTo = exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo"]);
-  const exactSide = exactFirstFromSources(fieldSources, ["צד", "side", "roadSide", "lane"]);
+  const exactFrom = firstText(exactFirstFromSources(fieldSources, ["מחתך", "חתך התחלה", "fromSection", "stationFrom", "chainageFrom"]), parsedLocation.from);
+  const exactTo = firstText(exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo"]), parsedLocation.to);
+  const exactSide = firstText(exactFirstFromSources(fieldSources, ["צד", "side", "roadSide", "lane"]), parsedLocation.side);
   const exactLocation = exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]);
-  const exactLayer = exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "שכבה", "layer", "layerNo", "layerNumber"]);
+  const exactLayer = firstText(exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "שכבה", "layer", "layerNo", "layerNumber"]), parsedLocation.layer);
   const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "חומר", "materialDescription", "material"]);
-  const exactAashto = exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]);
+  const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
   const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה"]);
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
   const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "proctorCertificate"]);
@@ -1614,12 +1652,18 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const densityPoints = firstText(
     earthworksDirectValue(fieldSources, ["כמות נקודות בדיקה", "מספר נקודות בדיקה", "נקודות בדיקה", "testPoints", "points"]),
     numericLike(earthworksDirectValue(fieldSources, ["נקודות", "quantity"])),
+    parsedLocation.points,
   );
   const rollerPasses = firstText(
     earthworksDirectValue(fieldSources, ["מעברי מכבש", "כמות מעברי מכבש", "rollerPasses", "passes"]),
     numericLike(earthworksDirectValue(fieldSources, ["מעברים"])),
   );
   const surveyQuantity = firstText(earthworksDirectValue(fieldSources, ["כמות", "מדידה", "quantity", "surveyQuantity"]));
+  const densityResultValue = firstText(parsedDensity.density, exactFirstFromSources(fieldSources, ["צפיפות מחושבת", "תוצאה", "result", "resultValue", "density"]));
+  const densityLowerLimit = firstText(exactFirstFromSources(fieldSources, ["גבול תחתון", "lowerLimit", "lowerDensity", "צפיפות גבול תחתון"]));
+  const densityAverage = firstText(exactFirstFromSources(fieldSources, ["ממוצע", "average", "avg", "צפיפות ממוצע"]));
+  const densityUpperLimit = firstText(exactFirstFromSources(fieldSources, ["גבול עליון", "upperLimit", "upperDensity", "צפיפות גבול עליון"]));
+  const hasDensityStatistics = Boolean(densityLowerLimit || densityAverage || densityResultValue);
 
   const row: Row = {
     'ביצוע ע"י ': firstText(earthworksDirectValue(fieldSources, ["ביצוע עי", 'ביצוע ע"י', "performedBy", "מבצע"]), "QC"),
@@ -1654,10 +1698,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'מספר תעודת בדיקה אפיון - 100%': firstText(exactReferenceCert, kind === "characterization" ? certificate : ""),
     'HWD': "",
     'מעמד HWD': "",
-    'תוצאות בדיקה': densityCertificate ? firstText(parsedDensity.density, exactFirstFromSources(fieldSources, ["צפיפות מחושבת", "תוצאה", "result", "resultValue", "density"])) : "",
-    'צפיפות סטטיסטיקה גבול תחתון': densityCertificate ? firstText(exactFirstFromSources(fieldSources, ["גבול תחתון", "lowerLimit", "lowerDensity", "צפיפות גבול תחתון"])) : "",
-    'צפיפות סטטיסטיקה גבול עליון': densityCertificate ? firstText(exactFirstFromSources(fieldSources, ["גבול עליון", "upperLimit", "upperDensity", "צפיפות גבול עליון"])) : "",
-    'צפיפות סטטיסטיקה ממוצע': densityCertificate ? firstText(exactFirstFromSources(fieldSources, ["ממוצע", "average", "avg", "צפיפות ממוצע"])) : "",
+    'תוצאות בדיקה': densityCertificate ? densityResultValue : "",
+    'צפיפות סטטיסטיקה גבול תחתון': densityCertificate ? densityLowerLimit : "",
+    'צפיפות סטטיסטיקה גבול עליון': densityCertificate && hasDensityStatistics ? densityUpperLimit : "",
+    'צפיפות סטטיסטיקה ממוצע': densityCertificate ? densityAverage : "",
     'מעמד תוצאות': firstText(densityCertificate ? firstText(status, "OK") : status),
     'בדיקה חוזרת לתעודה ': isNc ? earthworksDirectValue(fieldSources, ["בדיקה חוזרת לתעודה", "retestCertificate", "repeatCertificate"]) : "",
     'מתאריך': isNc ? earthworksDirectDate(fieldSources, ["מתאריך", "תאריך תעודה NC", "retestDate", "repeatDate"]) : "",
