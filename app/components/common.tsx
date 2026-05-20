@@ -6,7 +6,7 @@ export const styles: Record<string, CSSProperties> = {
   headerCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
   navRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 },
   navBtn: { border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', fontWeight: 700 },
-  layout: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 360px', gap: 18, alignItems: 'start' },
+  layout: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 18, alignItems: 'start' },
   mainCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: 20, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
   sideCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: 16, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
   sectionTitle: { fontSize: 26, fontWeight: 800, margin: '0 0 18px' },

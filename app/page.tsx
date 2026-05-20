@@ -285,6 +285,7 @@ const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
 const CONTROL_PROCESS_STORAGE_KEY = `${STORAGE_KEY}-control-processes`;
 const SUPERVISION_REPORTS_STORAGE_KEY = `${STORAGE_KEY}-supervision-reports`;
 const CONTROL_PROCESS_TABLE = "control_processes";
+const SUPERVISION_REPORTS_TABLE = "supervision_reports";
 
 type ControlProcessStatus =
   | "טיוטה"
@@ -1042,6 +1043,41 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
   };
 };
+
+const supervisionReportRowToRecord = (row: any): SupervisionReportRecord | null =>
+  normalizeSupervisionReport({
+    id: row?.id,
+    projectId: row?.project_id,
+    title: row?.title,
+    reportNo: row?.report_no,
+    date: row?.date,
+    location: row?.location,
+    author: row?.author,
+    status: row?.status,
+    treatment: row?.treatment,
+    treatmentDate: row?.treatment_date,
+    notes: row?.notes,
+    attachments: row?.attachments,
+    savedAt: row?.saved_at
+      ? new Date(row.saved_at).toLocaleString("he-IL")
+      : "",
+  });
+
+const supervisionReportRecordToRow = (record: SupervisionReportRecord) => ({
+  id: record.id,
+  project_id: normalizeStoredProjectId(record.projectId),
+  title: record.title,
+  report_no: record.reportNo,
+  date: record.date || null,
+  location: record.location,
+  author: record.author,
+  status: record.status,
+  treatment: record.treatment,
+  treatment_date: record.treatmentDate || null,
+  notes: record.notes,
+  attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
+  saved_at: nowIso(),
+});
 
 const SUPERVISION_REPORTS_DB_NAME = "yk-quality-supervision-reports-db";
 const SUPERVISION_REPORTS_DB_STORE = "reports";
@@ -2225,6 +2261,8 @@ const isMissingColumnError = (error: unknown, columnName: string) =>
   errorText(error).toLowerCase().includes("does not exist");
 const shouldIgnoreCloudError = (error: unknown) =>
   /relation .* does not exist/i.test(errorText(error));
+const isOptionalCloudTable = (table: string) =>
+  table === CONTROL_PROCESS_TABLE || table === SUPERVISION_REPORTS_TABLE;
 const readLocalCurrentProjectId = () => {
   if (typeof window === "undefined") return null;
   const normalized = normalizeStoredProjectId(
@@ -2254,7 +2292,7 @@ async function selectTable(table: string, orderColumn?: string) {
     if (
       result.error &&
       isMissingRelation(result.error) &&
-      table === CONTROL_PROCESS_TABLE
+      isOptionalCloudTable(table)
     )
       return empty;
     return result;
@@ -2264,14 +2302,14 @@ async function selectTable(table: string, orderColumn?: string) {
     .select("*")
     .order(orderColumn, { ascending: false });
   if (!ordered.error) return ordered;
-  if (isMissingRelation(ordered.error) && table === CONTROL_PROCESS_TABLE)
+  if (isMissingRelation(ordered.error) && isOptionalCloudTable(table))
     return empty;
   if (isMissingColumnError(ordered.error, orderColumn)) {
     const result = await baseQuery;
     if (
       result.error &&
       isMissingRelation(result.error) &&
-      table === CONTROL_PROCESS_TABLE
+      isOptionalCloudTable(table)
     )
       return empty;
     return result;
@@ -4568,28 +4606,24 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "260px minmax(0, 1fr)",
-        gap: 12,
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: 14,
         alignItems: "start",
-        direction: "ltr",
+        direction: "rtl",
       }}
     >
       <aside
         style={{
           ...dashboardCardStyle,
           direction: "rtl",
-          position: "sticky",
-          top: 12,
-          padding: 10,
-          maxHeight: "calc(100vh - 24px)",
-          overflowY: "auto",
+          padding: 12,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 950 }}>תיקיות המערכת</h3>
           <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>{homeModules.length}</span>
         </div>
-        <div style={{ display: "grid", gap: 7 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
           {homeModules.map((module) => (
             <button
               key={String(module.key)}
@@ -4605,10 +4639,10 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
                 cursor: "pointer",
                 boxShadow: "0 5px 14px rgba(15,23,42,0.025)",
                 display: "grid",
-                gridTemplateColumns: "42px 1fr auto",
+                gridTemplateColumns: "auto 1fr auto",
                 gap: 9,
                 alignItems: "center",
-                direction: "ltr",
+                direction: "rtl",
               }}
             >
               <span
@@ -4625,7 +4659,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
               >
                 {module.icon}
               </span>
-              <span style={{ minWidth: 0, direction: "rtl" }}>
+              <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontWeight: 950, color: "#0f172a", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.title}</span>
                 <span style={{ display: "block", color: "#64748b", marginTop: 2, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.description}</span>
               </span>
@@ -8128,6 +8162,10 @@ export default function Page() {
 
 
   useEffect(() => {
+    if (cloudEnabled) {
+      setSupervisionReportsLoaded(true);
+      return;
+    }
     const loadReports = async () => {
       try {
         const reports = await readSupervisionReportsFromBrowser();
@@ -8150,7 +8188,7 @@ export default function Page() {
     };
 
     void loadReports();
-  }, []);
+  }, [cloudEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !supervisionReportsLoaded) return;
@@ -8392,6 +8430,7 @@ export default function Page() {
     preliminaryRows: any[] | null,
     rfiRows: any[] | null = [],
     controlProcessRows: any[] | null = [],
+    supervisionReportRows: any[] | null = [],
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
@@ -8531,6 +8570,11 @@ export default function Page() {
         .map(normalizeControlProcess)
         .filter(Boolean) as ControlProcessRecord[],
     );
+    setSavedSupervisionReports(
+      (supervisionReportRows ?? [])
+        .map(supervisionReportRowToRecord)
+        .filter(Boolean) as SupervisionReportRecord[],
+    );
   };
 
   useEffect(() => {
@@ -8549,6 +8593,7 @@ export default function Page() {
           prelimRes,
           rfiRes,
           controlRes,
+          supervisionRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectTable("checklists", "saved_at"),
@@ -8557,6 +8602,7 @@ export default function Page() {
           selectTable("preliminary_records", "saved_at"),
           selectTable("rfi_records", "created_at"),
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
+          selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
         ]);
         const fatal = [
           projectsRes.error,
@@ -8566,6 +8612,7 @@ export default function Page() {
           prelimRes.error,
           rfiRes.error,
           controlRes.error,
+          supervisionRes.error,
         ].filter((item) => item && !shouldIgnoreCloudError(item));
         if (fatal.length) throw fatal[0];
         loadFromCloudResults(
@@ -8576,6 +8623,7 @@ export default function Page() {
           prelimRes.data,
           rfiRes.data,
           controlRes.data,
+          supervisionRes.data,
         );
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
@@ -8640,6 +8688,7 @@ export default function Page() {
       prelimRes,
       rfiRes,
       controlRes,
+      supervisionRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectTable("checklists", "saved_at"),
@@ -8648,6 +8697,7 @@ export default function Page() {
       selectTable("preliminary_records", "saved_at"),
       selectTable("rfi_records", "created_at"),
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
+      selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
     ]);
     const fatal = [
       projectsRes.error,
@@ -8657,6 +8707,7 @@ export default function Page() {
       prelimRes.error,
       rfiRes.error,
       controlRes.error,
+      supervisionRes.error,
     ].filter((item) => item && !shouldIgnoreCloudError(item));
     if (fatal.length) throw fatal[0];
     loadFromCloudResults(
@@ -8667,6 +8718,7 @@ export default function Page() {
       prelimRes.data,
       rfiRes.data,
       controlRes.data,
+      supervisionRes.data,
     );
   };
 
@@ -12054,6 +12106,19 @@ ${invalidRecipients.join("\n")}`);
     const nextReports = savedSupervisionReports.some((item) => item.id === id)
       ? savedSupervisionReports.map((item) => item.id === id ? record : item)
       : [record, ...savedSupervisionReports];
+    if (cloudEnabled) {
+      await withSaving(async () => {
+        const { error } = await supabase!
+          .from(SUPERVISION_REPORTS_TABLE)
+          .upsert(supervisionReportRecordToRow(record), { onConflict: "id" });
+        if (error) throw error;
+        setSavedSupervisionReports(nextReports);
+        void writeSupervisionReportsToBrowser(nextReports);
+        setEditingSupervisionReportId(id);
+        alert("דוח פיקוח עליון נשמר בהצלחה בענן.");
+      });
+      return;
+    }
     const saved = await writeSupervisionReportsToBrowser(nextReports);
     if (!saved) {
       alert("\u05d4\u05d3\u05d5\u05d7 \u05dc\u05d0 \u05e0\u05e9\u05de\u05e8. \u05d4\u05d3\u05e4\u05d3\u05e4\u05df \u05d7\u05e1\u05dd \u05e9\u05de\u05d9\u05e8\u05d4 \u05d0\u05d5 \u05e9\u05e0\u05d2\u05de\u05e8 \u05de\u05e7\u05d5\u05dd \u05d4\u05d0\u05d7\u05e1\u05d5\u05df.");
@@ -12090,8 +12155,22 @@ ${invalidRecipients.join("\n")}`);
     updateSupervisionReportForm("treatmentDate", new Date().toISOString().slice(0, 10));
   };
 
-  const deleteSupervisionReport = (id: string) => {
+  const deleteSupervisionReport = async (id: string) => {
     if (!window.confirm("למחוק את דוח הפיקוח?")) return;
+    if (cloudEnabled) {
+      await withSaving(async () => {
+        const { error } = await supabase!
+          .from(SUPERVISION_REPORTS_TABLE)
+          .delete()
+          .eq("id", id);
+        if (error) throw error;
+        const next = savedSupervisionReports.filter((item) => item.id !== id);
+        setSavedSupervisionReports(next);
+        void writeSupervisionReportsToBrowser(next);
+        if (editingSupervisionReportId === id) resetSupervisionReportForm();
+      });
+      return;
+    }
     setSavedSupervisionReports((prev) => {
       const next = prev.filter((item) => item.id !== id);
       void writeSupervisionReportsToBrowser(next);
@@ -12099,7 +12178,6 @@ ${invalidRecipients.join("\n")}`);
     });
     if (editingSupervisionReportId === id) resetSupervisionReportForm();
   };
-
   const supervisionReportAttachments = (record: SupervisionReportRecord) =>
     normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : []));
 

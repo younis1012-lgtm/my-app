@@ -65,11 +65,28 @@ create table if not exists preliminary_records (
   saved_at timestamptz default now()
 );
 
+create table if not exists supervision_reports (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references projects(id) on delete cascade,
+  title text default '',
+  report_no text default '',
+  date text,
+  location text default '',
+  author text default '',
+  status text default 'פתוח',
+  treatment text default '',
+  treatment_date text,
+  notes text default '',
+  attachments jsonb default '[]'::jsonb,
+  saved_at timestamptz default now()
+);
+
 alter table projects enable row level security;
 alter table checklists enable row level security;
 alter table nonconformances enable row level security;
 alter table trial_sections enable row level security;
 alter table preliminary_records enable row level security;
+alter table supervision_reports enable row level security;
 
 drop policy if exists "Allow all projects" on projects;
 create policy "Allow all projects" on projects for all using (true) with check (true);
@@ -81,3 +98,5 @@ drop policy if exists "Allow all trial_sections" on trial_sections;
 create policy "Allow all trial_sections" on trial_sections for all using (true) with check (true);
 drop policy if exists "Allow all preliminary_records" on preliminary_records;
 create policy "Allow all preliminary_records" on preliminary_records for all using (true) with check (true);
+drop policy if exists "Allow all supervision_reports" on supervision_reports;
+create policy "Allow all supervision_reports" on supervision_reports for all using (true) with check (true);
