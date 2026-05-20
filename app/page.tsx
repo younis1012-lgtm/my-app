@@ -1098,18 +1098,20 @@ const readSupervisionReportsFromBrowser = async (): Promise<SupervisionReportRec
 };
 
 const writeSupervisionReportsToBrowser = async (reports: SupervisionReportRecord[]) => {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") return false;
   try {
     const db = await openSupervisionReportsDb();
     if (db) {
-      await new Promise<void>((resolve) => {
+      const saved = await new Promise<boolean>((resolve) => {
         const tx = db.transaction(SUPERVISION_REPORTS_DB_STORE, "readwrite");
-        tx.objectStore(SUPERVISION_REPORTS_DB_STORE).put(reports, SUPERVISION_REPORTS_DB_KEY);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-        tx.onabort = () => resolve();
+        const request = tx.objectStore(SUPERVISION_REPORTS_DB_STORE).put(reports, SUPERVISION_REPORTS_DB_KEY);
+        request.onerror = () => resolve(false);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
       });
       db.close();
+      if (saved) return true;
     }
   } catch {
     // IndexedDB נכשל — ננסה לשמור לפחות את המטא-דאטה ב-LocalStorage.
@@ -1117,6 +1119,7 @@ const writeSupervisionReportsToBrowser = async (reports: SupervisionReportRecord
 
   try {
     window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(reports));
+    return true;
   } catch {
     const metadataOnly = reports.map((report) => ({
       ...report,
@@ -1125,10 +1128,12 @@ const writeSupervisionReportsToBrowser = async (reports: SupervisionReportRecord
     }));
     try {
       window.localStorage.setItem(SUPERVISION_REPORTS_STORAGE_KEY, JSON.stringify(metadataOnly));
+      return true;
     } catch {
       // לא מפילים את הדף אם הדפדפן חסם שמירה.
     }
   }
+  return false;
 };
 type ProjectLegend = {
   projectName: string;
@@ -1552,6 +1557,11 @@ type StoredAttachment = {
   type: string;
   dataUrl: string;
   uploadedAt: string;
+  results?: Record<string, string>;
+  labResults?: Record<string, string>;
+  densityResults?: Record<string, string>;
+  certificateNo?: string;
+  densityExtractionSummary?: string;
 };
 
 const normalizeAttachments = (value: unknown): StoredAttachment[] =>
@@ -1563,6 +1573,11 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
           type: String(item.type ?? ""),
           dataUrl: String(item.dataUrl ?? ""),
           uploadedAt: String(item.uploadedAt ?? ""),
+          results: item.results ?? {},
+          labResults: item.labResults ?? item.densityResults ?? item.results ?? {},
+          densityResults: item.densityResults ?? item.labResults ?? item.results ?? {},
+          certificateNo: String(item.certificateNo ?? item.documentNo ?? ""),
+          densityExtractionSummary: String(item.densityExtractionSummary ?? ""),
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -1572,6 +1587,11 @@ type ChecklistAttachmentKind = "lab" | "measurement" | "other";
 type ChecklistAttachment = StoredAttachment & {
   id: string;
   kind: ChecklistAttachmentKind;
+  results?: Record<string, string>;
+  labResults?: Record<string, string>;
+  densityResults?: Record<string, string>;
+  certificateNo?: string;
+  densityExtractionSummary?: string;
 };
 
 const normalizeChecklistAttachments = (
@@ -1590,6 +1610,11 @@ const normalizeChecklistAttachments = (
             item.kind === "lab" || item.kind === "measurement"
               ? item.kind
               : "other",
+          results: item.results ?? {},
+          labResults: item.labResults ?? item.densityResults ?? item.results ?? {},
+          densityResults: item.densityResults ?? item.labResults ?? item.results ?? {},
+          certificateNo: String(item.certificateNo ?? item.documentNo ?? ""),
+          densityExtractionSummary: String(item.densityExtractionSummary ?? ""),
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -8103,21 +8128,28 @@ export default function Page() {
 
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    let cancelled = false;
-    readSupervisionReportsFromBrowser()
-      .then((reports) => {
-        if (!cancelled) setSavedSupervisionReports(reports);
-      })
-      .catch(() => {
-        if (!cancelled) setSavedSupervisionReports([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSupervisionReportsLoaded(true);
-      });
-    return () => {
-      cancelled = true;
+    const loadReports = async () => {
+      try {
+        const reports = await readSupervisionReportsFromBrowser();
+
+        if (Array.isArray(reports) && reports.length > 0) {
+          setSavedSupervisionReports(
+            reports
+              .map((r) => normalizeSupervisionReport(r))
+              .filter(Boolean) as SupervisionReportRecord[],
+          );
+        } else {
+          setSavedSupervisionReports([]);
+        }
+      } catch (err) {
+        console.error("Failed loading supervision reports", err);
+        setSavedSupervisionReports([]);
+      } finally {
+        setSupervisionReportsLoaded(true);
+      }
     };
+
+    void loadReports();
   }, []);
 
   useEffect(() => {
@@ -9345,7 +9377,7 @@ export default function Page() {
   const projectSupervisionReports = useMemo(
     () =>
       savedSupervisionReports
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(currentProjectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9888,6 +9920,8 @@ export default function Page() {
             autoDensityResults["גבול תחתון"] ? `La: ${autoDensityResults["גבול תחתון"]}` : "",
             autoDensityResults["צפיפות מחושבת"] ? `צפיפות: ${autoDensityResults["צפיפות מחושבת"]}` : "",
             autoDensityResults["רטיבות ממוצעת"] ? `רטיבות: ${autoDensityResults["רטיבות ממוצעת"]}` : "",
+            autoDensityResults["מעברי מכבש"] ? `מעברי מכבש: ${autoDensityResults["מעברי מכבש"]}` : "",
+            autoDensityResults["מספר תעודת בדיקה אפיון - 100%"] ? `תעודת ייחוס: ${autoDensityResults["מספר תעודת בדיקה אפיון - 100%"]}` : "",
           ].filter(Boolean).join(" | ")
         : "";
 
@@ -9917,12 +9951,10 @@ export default function Page() {
                   ? {
                       labResults: { ...(item.labResults ?? {}), ...autoDensityResults },
                       densityResults: { ...(item.densityResults ?? {}), ...autoDensityResults },
-                      certificateNo: autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] || item.certificateNo,
-                      notes: densitySummary ? `${item.notes ? `${item.notes}\n` : ""}✅ נקלטו תוצאות צפיפות אוטומטית: ${densitySummary}` : item.notes,
+                      certificateNo: autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] || autoDensityResults["מס' תעודת בדיקההידוק רגיל"] || autoDensityResults["מספר תעודת בדיקה"] || item.certificateNo,
+                      densityExtractionSummary: densitySummary || item.densityExtractionSummary,
                     }
-                  : {
-                      notes: item.notes || "⚠️ התעודה צורפה, אך לא נקלטו ממנה תוצאות צפיפות אוטומטית.",
-                    }),
+                  : {}),
               }
             : item,
         ),
@@ -11989,7 +12021,7 @@ ${invalidRecipients.join("\n")}`);
     });
   };
 
-  const saveSupervisionReport = () => {
+  const saveSupervisionReport = async () => {
     if (!currentProjectId) {
       alert("יש לבחור פרויקט לפני שמירה.");
       return;
@@ -12010,18 +12042,26 @@ ${invalidRecipients.join("\n")}`);
     }
     const id = editingSupervisionReportId ?? crypto.randomUUID();
     const attachments = currentAttachments;
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
     const record: SupervisionReportRecord = {
       ...supervisionReportForm,
       attachment: attachments.at(0) ?? null,
       attachments,
       id,
-      projectId: currentProjectId,
+      projectId: normalizedProjectId,
       savedAt: nowLocal(),
     };
+    const nextReports = savedSupervisionReports.some((item) => item.id === id)
+      ? savedSupervisionReports.map((item) => item.id === id ? record : item)
+      : [record, ...savedSupervisionReports];
+    const saved = await writeSupervisionReportsToBrowser(nextReports);
+    if (!saved) {
+      alert("\u05d4\u05d3\u05d5\u05d7 \u05dc\u05d0 \u05e0\u05e9\u05de\u05e8. \u05d4\u05d3\u05e4\u05d3\u05e4\u05df \u05d7\u05e1\u05dd \u05e9\u05de\u05d9\u05e8\u05d4 \u05d0\u05d5 \u05e9\u05e0\u05d2\u05de\u05e8 \u05de\u05e7\u05d5\u05dd \u05d4\u05d0\u05d7\u05e1\u05d5\u05df.");
+      return;
+    }
     setSavedSupervisionReports((prev) => {
       const exists = prev.some((item) => item.id === id);
       const next = exists ? prev.map((item) => item.id === id ? record : item) : [record, ...prev];
-      void writeSupervisionReportsToBrowser(next);
       return next;
     });
     setEditingSupervisionReportId(id);
