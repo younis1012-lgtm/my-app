@@ -4448,6 +4448,23 @@ function getChecklistDerivedApprovalStatus(record: any) {
   return allApproved ? "approved" : null;
 }
 
+function hasCompletedApprovalSignatures(record: any) {
+  const signatures = Array.isArray(record?.approval?.signatures)
+    ? record.approval.signatures
+    : [];
+  if (!signatures.length) return false;
+  const requiredSignatures = signatures.filter(
+    (signature: any) => signature?.required !== false,
+  );
+  const signaturesToCheck = requiredSignatures.length ? requiredSignatures : signatures;
+  return signaturesToCheck.every(
+    (signature: any) =>
+      String(signature?.signerName ?? "").trim() &&
+      String(signature?.signature ?? "").trim() &&
+      String(signature?.signedAt ?? "").trim(),
+  );
+}
+
 function normalizeApprovalDisplayStatus(status?: unknown) {
   const value = String(status ?? "").trim().toLowerCase();
   if (value === "מאושר" || value === "approved" || value === "נעול") return "מאושר";
@@ -4458,6 +4475,7 @@ function getApprovalDisplayStatus(record: any) {
   const rawStatus = record?.approval?.status || record?.status || record?.result;
   const normalizedStatus = normalizeApprovalStatusValue(rawStatus);
   if (normalizedStatus === "approved") return "מאושר";
+  if (hasCompletedApprovalSignatures(record)) return "מאושר";
   const derivedChecklistStatus = getChecklistDerivedApprovalStatus(record);
   if (derivedChecklistStatus === "approved") return "מאושר";
   return normalizeApprovalDisplayStatus(rawStatus);
