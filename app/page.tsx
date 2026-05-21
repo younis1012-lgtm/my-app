@@ -9508,20 +9508,19 @@ export default function Page() {
         ),
     [savedTrialSections, currentProjectIdNormalized, normalizedSearchTerm],
   );
-  const projectPreliminary = useMemo(
-    () =>
-      savedPreliminary
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.subtype, item.status]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
-    [savedPreliminary, currentProjectIdNormalized, normalizedSearchTerm],
-  );
+  const projectPreliminary = useMemo(() => {
+    const matchesSearch = (item: PreliminaryRecord) =>
+      !normalizedSearchTerm ||
+      [item.title, item.subtype, item.status]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearchTerm);
+    const matchingProject = savedPreliminary.filter((item) =>
+      recordMatchesCurrentProject(item.projectId),
+    );
+    const visibleSource = matchingProject.length ? matchingProject : savedPreliminary;
+    return visibleSource.filter(matchesSearch);
+  }, [savedPreliminary, currentProjectIdNormalized, normalizedSearchTerm]);
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? "");
