@@ -1746,16 +1746,22 @@ const createNonconformanceApproval = (): ApprovalFlow =>
     { role: "בקר איכות - פתיחה / סגירה", required: true },
   ]);
 
+const normalizeApprovalStatusValue = (
+  status: unknown,
+): ApprovalFlow["status"] => {
+  const value = String(status ?? "").trim().toLowerCase();
+  if (["approved", "מאושר", "אושר", "נעול"].includes(value)) return "approved";
+  if (["rejected", "נדחה", "לא מאושר"].includes(value)) return "rejected";
+  return "draft";
+};
+
 const normalizeApproval = (value: unknown): ApprovalFlow => {
   const base = createDefaultApproval();
   if (!value || typeof value !== "object") return base;
   const raw = value as Partial<ApprovalFlow>;
   const signatures = Array.isArray(raw.signatures) ? raw.signatures : [];
   return {
-    status:
-      raw.status === "approved" || raw.status === "rejected"
-        ? raw.status
-        : "draft",
+    status: normalizeApprovalStatusValue(raw.status),
     remarks: typeof raw.remarks === "string" ? raw.remarks : "",
     signatures: (signatures.length ? signatures : base.signatures).map(
       (entry: any) => {
@@ -4422,6 +4428,26 @@ function getRecordStatus(record: any) {
   return record?.status || record?.approval?.status || record?.result || "";
 }
 
+function getChecklistDerivedApprovalStatus(record: any) {
+  const items = normalizeChecklistItems(record?.items);
+  const relevantItems = items.filter((item: any) => !item?.excludedFromPrint);
+  if (!relevantItems.length) return null;
+  const positiveStatuses = ["תקין", "מאושר", "אושר", "לא רלוונטי", "approved", "ok"];
+  const negativeStatuses = ["לא תקין", "לא נבדק", "נדחה", "rejected"];
+  const allApproved = relevantItems.every((item: any) => {
+    const status = String(item?.status ?? "").trim().toLowerCase();
+    const hasSignature = Boolean(
+      item?.signature?.signature ||
+        item?.signature?.signerName ||
+        item?.signature?.signedAt,
+    );
+    if (positiveStatuses.includes(status)) return true;
+    if (negativeStatuses.includes(status)) return false;
+    return hasSignature;
+  });
+  return allApproved ? "approved" : null;
+}
+
 function normalizeApprovalDisplayStatus(status?: unknown) {
   const value = String(status ?? "").trim().toLowerCase();
   if (value === "מאושר" || value === "approved" || value === "נעול") return "מאושר";
@@ -4429,7 +4455,12 @@ function normalizeApprovalDisplayStatus(status?: unknown) {
 }
 
 function getApprovalDisplayStatus(record: any) {
-  return normalizeApprovalDisplayStatus(record?.approval?.status || record?.status || record?.result);
+  const rawStatus = record?.approval?.status || record?.status || record?.result;
+  const normalizedStatus = normalizeApprovalStatusValue(rawStatus);
+  if (normalizedStatus === "approved") return "מאושר";
+  const derivedChecklistStatus = getChecklistDerivedApprovalStatus(record);
+  if (derivedChecklistStatus === "approved") return "מאושר";
+  return normalizeApprovalDisplayStatus(rawStatus);
 }
 
 function getChecklistDisplayNumber(record: any, index: number) {
