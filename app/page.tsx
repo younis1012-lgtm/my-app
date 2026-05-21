@@ -709,6 +709,30 @@ const normalizeRequiredDocuments = (value: unknown): RequiredDocument[] =>
       }))
     : [];
 
+
+// Supabase times out when a full PDF/image is saved as a Base64 data URL inside a JSON column.
+// Keep files locally/browser-side and never send inline data URLs to the DB JSON payload.
+const isInlineDataUrl = (value: unknown) => String(value ?? "").trim().startsWith("data:");
+
+const stripInlineDataUrl = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  return isInlineDataUrl(text) ? "" : text;
+};
+
+const compactAttachmentForCloud = (attachment: StoredAttachment): StoredAttachment => ({
+  ...attachment,
+  dataUrl: stripInlineDataUrl(attachment.dataUrl),
+});
+
+const compactRequiredDocumentForCloud = (doc: RequiredDocument): RequiredDocument => ({
+  ...doc,
+  attachmentDataUrl: stripInlineDataUrl(doc.attachmentDataUrl),
+  attachments: normalizeAttachments(doc.attachments).map(compactAttachmentForCloud),
+});
+
+const compactRequiredDocumentsForCloud = (documents: unknown): RequiredDocument[] =>
+  normalizeRequiredDocuments(documents).map(compactRequiredDocumentForCloud);
+
 const normalizeStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
 
@@ -762,7 +786,7 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
   checklist_ids: record.checklistIds,
   rfi_ids: record.rfiIds,
   nonconformance_ids: record.nonconformanceIds,
-  required_documents: record.requiredDocuments,
+  required_documents: compactRequiredDocumentsForCloud(record.requiredDocuments),
   audit_log: [
     ...auditWithoutReferenceResults(record.auditTrail),
     {
@@ -8931,7 +8955,7 @@ export default function Page() {
       String(projectAccess.projectName ?? "").trim() || "פרויקט " + code;
     return [
       {
-        id: "project-" + code,
+        id: normalizeStoredProjectId("project-" + code),
         name: fallbackName,
         description: "פרויקט עבודה לפי הרשאת משתמש " + code,
         manager: "",
@@ -8947,42 +8971,49 @@ export default function Page() {
   }, [loaded, projectAccess, projects.length]);
 
   // תיקון בחירת פרויקט פעיל:
-  // גם אם בדף מוצג פרויקט כברירת מחדל, כל הרשומות מסוננות לפי currentProjectId.
-  // לכן חייבים להציב projectId אמיתי מיד לאחר טעינת הרשאות/פרויקטים.
-  useEffect(() => {
-    if (!loaded || !projectAccess || !accessibleProjects.length) return;
-    const savedId = readLocalCurrentProjectId();
-    const savedProject = savedId
-      ? accessibleProjects.find((project) => project.id === savedId)
-      : null;
-    const activeProject = accessibleProjects.find(
-      (project) => project.isActive,
-    );
-    const selectedProject = accessibleProjects.find(
-      (project) => project.id === currentProjectId,
-    );
-    const nextProjectId =
-      selectedProject?.id ??
-      savedProject?.id ??
-      activeProject?.id ??
-      accessibleProjects[0]?.id ??
-      null;
-    if (nextProjectId && currentProjectId !== nextProjectId) {
-      setCurrentProjectId(nextProjectId);
-      writeLocalCurrentProjectId(nextProjectId);
-    }
-  }, [loaded, projectAccess, accessibleProjects, currentProjectId]);
+  // מונע לולאת React: בחירת הפרויקט מתבצעת פעם אחת לאחר טעינת הנתונים.
+  const projectSelectionResolvedRef = useRef(false);
 
   useEffect(() => {
-    if (!loaded || !projectAccess || isAdminAccess(projectAccess)) return;
-    const allowedProject = effectiveProjects.find((project) =>
-      projectMatchesAccess(project, projectAccess),
+    if (projectSelectionResolvedRef.current) return;
+    if (!loaded || !projectAccess) return;
+
+    const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
+    if (!sourceProjects.length) return;
+
+    const savedId = normalizeStoredProjectId(readLocalCurrentProjectId());
+    const selectedId = normalizeStoredProjectId(currentProjectId);
+
+    const selectedProject = selectedId
+      ? sourceProjects.find((project) => normalizeStoredProjectId(project.id) === selectedId)
+      : null;
+    const savedProject = savedId
+      ? sourceProjects.find((project) => normalizeStoredProjectId(project.id) === savedId)
+      : null;
+    const allowedProject = isAdminAccess(projectAccess)
+      ? null
+      : sourceProjects.find((project) => projectMatchesAccess(project, projectAccess));
+    const activeProject = sourceProjects.find((project) => project.isActive);
+
+    const nextProjectId = normalizeStoredProjectId(
+      selectedProject?.id ??
+        savedProject?.id ??
+        allowedProject?.id ??
+        activeProject?.id ??
+        sourceProjects[0]?.id ??
+        "",
     );
-    if (allowedProject && currentProjectId !== allowedProject.id) {
-      setCurrentProjectId(allowedProject.id);
-      writeLocalCurrentProjectId(allowedProject.id);
-    }
-  }, [loaded, projectAccess, effectiveProjects, currentProjectId]);
+
+    if (!nextProjectId) return;
+    projectSelectionResolvedRef.current = true;
+
+    setCurrentProjectId((prev) => {
+      const normalizedPrev = normalizeStoredProjectId(prev);
+      if (normalizedPrev === nextProjectId) return prev;
+      writeLocalCurrentProjectId(nextProjectId);
+      return nextProjectId;
+    });
+  }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId]);
 
   const currentProject = useMemo(
     () =>

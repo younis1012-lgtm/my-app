@@ -19,6 +19,9 @@ export type ChecklistAttachment = {
   kind: 'lab' | 'measurement' | 'other';
   labResults?: any;
   results?: any;
+  densityResults?: any;
+  certificateNo?: string;
+  densityExtractionSummary?: string;
 };
 
 export type ChecklistItem = {
@@ -35,7 +38,7 @@ export type ChecklistItem = {
 };
 
 export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; };
-export type StoredAttachment = { name: string; type: string; dataUrl: string; uploadedAt: string; };
+export type StoredAttachment = { name: string; type: string; dataUrl: string; uploadedAt: string; results?: any; labResults?: any; densityResults?: any; certificateNo?: string; densityExtractionSummary?: string; };
 export type RFIStatus = 'טיוטה' | 'פתוח' | 'נשלח למתכנן' | 'התקבלה התייחסות מתכנן' | 'סגור';
 export type RFIRecord = {
   id: string; projectId: string; rfiNumber: string; subject: string; structure: string; location: string; activity: string; relevantPlans: string; fromSection: string; toSection: string; dateOpened: string; requestedBy: string; description: string; costImpact: string; scheduleImpact: string; designerResponse: string; responseDate: string; closingSummary: string; closedAt: string; status: RFIStatus; images?: StoredAttachment[]; approval: ApprovalFlow; savedAt: string;
