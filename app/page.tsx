@@ -2283,7 +2283,9 @@ const errorText = (error: unknown) =>
     : String(error ?? "");
 const isMissingColumnError = (error: unknown, columnName: string) =>
   errorText(error).toLowerCase().includes(columnName.toLowerCase()) &&
-  errorText(error).toLowerCase().includes("does not exist");
+  (errorText(error).toLowerCase().includes("does not exist") ||
+    errorText(error).toLowerCase().includes("schema cache") ||
+    errorText(error).toLowerCase().includes("could not find"));
 const isStorageBucketMissingError = (error: unknown) => {
   const text = errorText(error).toLowerCase();
   return text.includes("bucket not found") || text.includes("storage bucket not found");
