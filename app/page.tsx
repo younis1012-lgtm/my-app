@@ -2284,6 +2284,10 @@ const errorText = (error: unknown) =>
 const isMissingColumnError = (error: unknown, columnName: string) =>
   errorText(error).toLowerCase().includes(columnName.toLowerCase()) &&
   errorText(error).toLowerCase().includes("does not exist");
+const isStorageBucketMissingError = (error: unknown) => {
+  const text = errorText(error).toLowerCase();
+  return text.includes("bucket not found") || text.includes("storage bucket not found");
+};
 const shouldIgnoreCloudError = (error: unknown) =>
   /relation .* does not exist/i.test(errorText(error));
 const isOptionalCloudTable = (table: string) =>
@@ -2373,6 +2377,13 @@ async function saveWithApprovalFallback(
       mode === "insert"
         ? await supabase!.from(table).insert(withoutDetails)
         : await supabase!.from(table).update(withoutDetails).eq("id", id);
+  }
+  if (result.error && isMissingColumnError(result.error, "status")) {
+    const { status, ...withoutStatus } = payload;
+    result =
+      mode === "insert"
+        ? await supabase!.from(table).insert(withoutStatus)
+        : await supabase!.from(table).update(withoutStatus).eq("id", id);
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
@@ -4495,9 +4506,13 @@ function hasApprovalSignatureEvidence(value: unknown) {
 }
 
 function hasCompletedApprovalSignatures(record: any) {
-  const signatures = Array.isArray(record?.approval?.signatures)
-    ? record.approval.signatures
-    : [];
+  const signatureSources = [
+    record?.approval?.signatures,
+    record?.details?.approval?.signatures,
+    record?.form?.approval?.signatures,
+    record?.data?.approval?.signatures,
+  ];
+  const signatures = signatureSources.find(Array.isArray) ?? [];
   if (!signatures.length) return false;
   const requiredSignatures = signatures.filter(
     (signature: any) => signature?.required !== false,
@@ -4525,11 +4540,27 @@ function hasChecklistApprovalEvidence(record: any) {
     record?.approval?.approvedAt,
     record?.approval?.approvalDate,
     record?.approval?.signature,
+    record?.details?.approval?.approvedBy,
+    record?.details?.approval?.approvedAt,
+    record?.details?.approval?.approvalDate,
+    record?.details?.approval?.signature,
+    record?.form?.approval?.approvedBy,
+    record?.form?.approval?.approvedAt,
+    record?.form?.approval?.approvalDate,
+    record?.form?.approval?.signature,
+    record?.data?.approval?.approvedBy,
+    record?.data?.approval?.approvedAt,
+    record?.data?.approval?.approvalDate,
+    record?.data?.approval?.signature,
   ];
   if (directEvidence.some(hasApprovalSignatureEvidence)) return true;
-  const signatures = Array.isArray(record?.approval?.signatures)
-    ? record.approval.signatures
-    : [];
+  const signatureSources = [
+    record?.approval?.signatures,
+    record?.details?.approval?.signatures,
+    record?.form?.approval?.signatures,
+    record?.data?.approval?.signatures,
+  ];
+  const signatures = signatureSources.find(Array.isArray) ?? [];
   return signatures.some(hasApprovalSignatureEvidence);
 }
 
@@ -4548,6 +4579,9 @@ function getApprovalStatusCandidates(record: any) {
     record?.approval_status,
     record?.details?.status,
     record?.details?.approvalStatus,
+    record?.details?.approval?.status,
+    record?.form?.approval?.status,
+    record?.data?.approval?.status,
     record?.metadata?.status,
     record?.metadata?.approvalStatus,
   ];
@@ -10341,14 +10375,34 @@ export default function Page() {
       revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
     };
+    const items = normalizeChecklistItems(checklistForm.items);
+    const normalizedApproval = normalizeApproval(checklistForm.approval);
+    const approvalDerivedRecord = {
+      ...checklistForm,
+      ...checklistDetails,
+      items,
+      approval: normalizedApproval,
+    };
+    const shouldPersistApprovedStatus =
+      normalizeApprovalStatusValue(normalizedApproval.status) === "approved" ||
+      hasCompletedApprovalSignatures(approvalDerivedRecord) ||
+      hasChecklistApprovalEvidence(approvalDerivedRecord) ||
+      getChecklistDerivedApprovalStatus(approvalDerivedRecord) === "approved";
+    const approval = shouldPersistApprovedStatus
+      ? { ...normalizedApproval, status: "approved" as const }
+      : normalizedApproval;
+    const recordStatus = shouldPersistApprovedStatus
+      ? "approved"
+      : String((checklistForm as any).status || "");
     const record: ChecklistRecord = {
       id,
       projectId: normalizedProjectId,
       checklistNo: Number(checklistNo),
       ...checklistForm,
       ...checklistDetails,
-      items: normalizeChecklistItems(checklistForm.items),
-      approval: normalizeApproval(checklistForm.approval),
+      items,
+      approval,
+      status: recordStatus,
       savedAt: nowLocal(),
     } as any;
     await withSaving(async () => {
@@ -10370,10 +10424,11 @@ export default function Page() {
           location: record.location,
           date: record.date,
           contractor: record.contractor,
+          status: (record as any).status,
           notes: record.notes,
           items: record.items,
           approval: record.approval,
-          details: checklistDetails,
+          details: { ...checklistDetails, status: (record as any).status, approval: record.approval },
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -12265,7 +12320,13 @@ ${invalidRecipients.join("\n")}`);
         upsert: false,
         contentType: attachment.type || parsed.mimeType || undefined,
       });
-    if (uploadResult.error) throw uploadResult.error;
+    if (uploadResult.error) {
+      if (isStorageBucketMissingError(uploadResult.error)) {
+        console.warn("Supabase storage bucket missing; saving supervision attachment metadata without inline data.", uploadResult.error);
+        return { ...attachment, dataUrl: "" };
+      }
+      throw uploadResult.error;
+    }
     const { data } = supabase.storage
       .from("attachments")
       .getPublicUrl(filePath);
@@ -12313,7 +12374,13 @@ ${invalidRecipients.join("\n")}`);
         upsert: false,
         contentType: attachment.type || parsed.mimeType || undefined,
       });
-    if (uploadResult.error) throw uploadResult.error;
+    if (uploadResult.error) {
+      if (isStorageBucketMissingError(uploadResult.error)) {
+        console.warn("Supabase storage bucket missing; saving preliminary attachment metadata without inline data.", uploadResult.error);
+        return { ...attachment, dataUrl: "" };
+      }
+      throw uploadResult.error;
+    }
     const { data } = supabase.storage
       .from("attachments")
       .getPublicUrl(filePath);
