@@ -1750,8 +1750,27 @@ const normalizeApprovalStatusValue = (
   status: unknown,
 ): ApprovalFlow["status"] => {
   const value = String(status ?? "").trim().toLowerCase();
-  if (["approved", "מאושר", "אושר", "נעול"].includes(value)) return "approved";
-  if (["rejected", "נדחה", "לא מאושר"].includes(value)) return "rejected";
+  if (
+    [
+      "approved",
+      "approve",
+      "completed",
+      "complete",
+      "done",
+      "closed",
+      "signed",
+      "מאושר",
+      "מאושרת",
+      "אושר",
+      "אושרה",
+      "נעול",
+      "חתום",
+      "נחתם",
+      "סגור",
+      "הושלם",
+    ].includes(value)
+  ) return "approved";
+  if (["rejected", "reject", "declined", "נדחה", "נדחתה", "לא מאושר"].includes(value)) return "rejected";
   return "draft";
 };
 
@@ -4432,20 +4451,47 @@ function getChecklistDerivedApprovalStatus(record: any) {
   const items = normalizeChecklistItems(record?.items);
   const relevantItems = items.filter((item: any) => !item?.excludedFromPrint);
   if (!relevantItems.length) return null;
-  const positiveStatuses = ["תקין", "מאושר", "אושר", "לא רלוונטי", "approved", "ok"];
-  const negativeStatuses = ["לא תקין", "לא נבדק", "נדחה", "rejected"];
+  const positiveStatuses = [
+    "תקין",
+    "מאושר",
+    "מאושרת",
+    "אושר",
+    "אושרה",
+    "לא רלוונטי",
+    "approved",
+    "ok",
+  ];
+  const negativeStatuses = ["לא תקין", "לא נבדק", "נדחה", "נדחתה", "rejected"];
   const allApproved = relevantItems.every((item: any) => {
     const status = String(item?.status ?? "").trim().toLowerCase();
-    const hasSignature = Boolean(
-      item?.signature?.signature ||
-        item?.signature?.signerName ||
-        item?.signature?.signedAt,
-    );
+    const hasSignature = hasApprovalSignatureEvidence(item?.signature);
     if (positiveStatuses.includes(status)) return true;
     if (negativeStatuses.includes(status)) return false;
     return hasSignature;
   });
   return allApproved ? "approved" : null;
+}
+
+function hasApprovalText(value: unknown) {
+  return String(value ?? "").trim().length > 0;
+}
+
+function hasApprovalSignatureEvidence(value: unknown) {
+  if (!value) return false;
+  if (typeof value === "string") return hasApprovalText(value);
+  if (typeof value !== "object") return false;
+  const signature = value as any;
+  return [
+    signature.signature,
+    signature.signatureDataUrl,
+    signature.dataUrl,
+    signature.signedAt,
+    signature.signerName,
+    signature.name,
+    signature.approvedBy,
+    signature.approverName,
+    signature.approvalDate,
+  ].some(hasApprovalText);
 }
 
 function hasCompletedApprovalSignatures(record: any) {
@@ -4457,27 +4503,64 @@ function hasCompletedApprovalSignatures(record: any) {
     (signature: any) => signature?.required !== false,
   );
   const signaturesToCheck = requiredSignatures.length ? requiredSignatures : signatures;
-  return signaturesToCheck.every(
-    (signature: any) =>
-      String(signature?.signerName ?? "").trim() &&
-      String(signature?.signature ?? "").trim() &&
-      String(signature?.signedAt ?? "").trim(),
-  );
+  return signaturesToCheck.every(hasApprovalSignatureEvidence);
+}
+
+function hasChecklistApprovalEvidence(record: any) {
+  const directEvidence = [
+    record?.approvedBy,
+    record?.approvedAt,
+    record?.approvalDate,
+    record?.closedAt,
+    record?.signedAt,
+    record?.signerName,
+    record?.signature,
+    record?.approver,
+    record?.approverName,
+    record?.qualityControlSignature,
+    record?.qualityManagerSignature,
+    record?.contractorSignature,
+    record?.managerSignature,
+    record?.approval?.approvedBy,
+    record?.approval?.approvedAt,
+    record?.approval?.approvalDate,
+    record?.approval?.signature,
+  ];
+  if (directEvidence.some(hasApprovalSignatureEvidence)) return true;
+  const signatures = Array.isArray(record?.approval?.signatures)
+    ? record.approval.signatures
+    : [];
+  return signatures.some(hasApprovalSignatureEvidence);
 }
 
 function normalizeApprovalDisplayStatus(status?: unknown) {
   const value = String(status ?? "").trim().toLowerCase();
-  if (value === "מאושר" || value === "approved" || value === "נעול") return "מאושר";
+  if (normalizeApprovalStatusValue(value) === "approved") return "מאושר";
   return "בטיפול";
 }
 
+function getApprovalStatusCandidates(record: any) {
+  return [
+    record?.approval?.status,
+    record?.status,
+    record?.result,
+    record?.approvalStatus,
+    record?.approval_status,
+    record?.details?.status,
+    record?.details?.approvalStatus,
+    record?.metadata?.status,
+    record?.metadata?.approvalStatus,
+  ];
+}
+
 function getApprovalDisplayStatus(record: any) {
-  const rawStatus = record?.approval?.status || record?.status || record?.result;
-  const normalizedStatus = normalizeApprovalStatusValue(rawStatus);
-  if (normalizedStatus === "approved") return "מאושר";
+  const statusCandidates = getApprovalStatusCandidates(record);
+  if (statusCandidates.some((status) => normalizeApprovalStatusValue(status) === "approved")) return "מאושר";
   if (hasCompletedApprovalSignatures(record)) return "מאושר";
+  if (hasChecklistApprovalEvidence(record)) return "מאושר";
   const derivedChecklistStatus = getChecklistDerivedApprovalStatus(record);
   if (derivedChecklistStatus === "approved") return "מאושר";
+  const rawStatus = statusCandidates.find(hasApprovalText);
   return normalizeApprovalDisplayStatus(rawStatus);
 }
 
