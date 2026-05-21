@@ -10853,7 +10853,7 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    const record = {
+    const draftRecord = {
       id,
       projectId: normalizedProjectId,
       ...form,
@@ -10862,6 +10862,9 @@ export default function Page() {
       savedAt: nowLocal(),
     } as PreliminaryRecord;
     await withSaving(async () => {
+      const record = cloudEnabled
+        ? await preparePreliminaryAttachmentsForCloud(draftRecord)
+        : draftRecord;
       if (cloudEnabled) {
         const payload = {
           id: record.id,
@@ -12193,6 +12196,89 @@ ${invalidRecipients.join("\n")}`);
       uploaded.push(await uploadInlineSupervisionAttachmentToCloud(attachment));
     }
     return uploaded;
+  };
+
+  const preliminaryRecordKey = (
+    subtype: PreliminaryTab,
+  ): "supplier" | "subcontractor" | "material" =>
+    subtype === "suppliers"
+      ? "supplier"
+      : subtype === "subcontractors"
+        ? "subcontractor"
+        : "material";
+
+  const uploadInlinePreliminaryAttachmentToCloud = async (
+    attachment: StoredAttachment,
+    recordId: string,
+    subtype: PreliminaryTab,
+    certificateId: string,
+  ) => {
+    if (!cloudEnabled || !supabase || !String(attachment.dataUrl || "").startsWith("data:")) {
+      return attachment;
+    }
+    const parsed = dataUrlToBytes(attachment.dataUrl);
+    if (!parsed) return attachment;
+    const safeName = String(attachment.name || "certificate.pdf")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .slice(-140);
+    const filePath = `preliminary-records/${recordId}/${subtype}/${certificateId}/${Date.now()}-${crypto.randomUUID()}-${safeName || "certificate.pdf"}`;
+    const blob = new Blob([parsed.bytes], {
+      type: attachment.type || parsed.mimeType || "application/octet-stream",
+    });
+    const uploadResult = await supabase.storage
+      .from("attachments")
+      .upload(filePath, blob, {
+        upsert: false,
+        contentType: attachment.type || parsed.mimeType || undefined,
+      });
+    if (uploadResult.error) throw uploadResult.error;
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+    return { ...attachment, dataUrl: data.publicUrl, storagePath: filePath };
+  };
+
+  const preparePreliminaryAttachmentsForCloud = async (
+    record: PreliminaryRecord,
+  ) => {
+    const dataKey = preliminaryRecordKey(record.subtype);
+    const nestedData = ((record as any)[dataKey] ?? {}) as Record<string, any>;
+    const sourceCertificates = Array.isArray(nestedData.certificates)
+      ? nestedData.certificates
+      : Array.isArray((record as any).certificates)
+        ? (record as any).certificates
+        : [];
+
+    const certificates = [];
+    for (let index = 0; index < sourceCertificates.length; index += 1) {
+      const certificate = sourceCertificates[index] ?? {};
+      const certificateId = String(certificate.id ?? `certificate-${index + 1}`);
+      const sourceAttachments = normalizeAttachments(certificate.attachments);
+      const attachments = [];
+      for (const attachment of sourceAttachments) {
+        attachments.push(
+          await uploadInlinePreliminaryAttachmentToCloud(
+            attachment,
+            record.id,
+            record.subtype,
+            certificateId,
+          ),
+        );
+      }
+      certificates.push({ ...certificate, attachments });
+    }
+
+    const nextRecord = {
+      ...record,
+      [dataKey]: {
+        ...nestedData,
+        certificates,
+      },
+    } as PreliminaryRecord;
+    if (Array.isArray((record as any).certificates)) {
+      (nextRecord as any).certificates = certificates;
+    }
+    return nextRecord;
   };
 
   const saveSupervisionReport = async () => {
