@@ -9370,11 +9370,16 @@ export default function Page() {
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
+  const currentProjectIdNormalized = normalizeStoredProjectId(currentProjectId);
+  const recordMatchesCurrentProject = (projectId: unknown) => {
+    const recordProjectId = normalizeStoredProjectId(projectId);
+    return !recordProjectId || !currentProjectIdNormalized || recordProjectId === currentProjectIdNormalized;
+  };
 
   const projectNonconformances = useMemo(
     () =>
       savedNonconformances
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9383,12 +9388,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedNonconformances, currentProjectId, normalizedSearchTerm],
+    [savedNonconformances, currentProjectIdNormalized, normalizedSearchTerm],
   );
   const projectRfis = useMemo(
     () =>
       savedRfis
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9403,12 +9408,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedRfis, currentProjectId, normalizedSearchTerm],
+    [savedRfis, currentProjectIdNormalized, normalizedSearchTerm],
   );
   const projectControlProcesses = useMemo(
     () =>
       savedControlProcesses
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9424,12 +9429,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedControlProcesses, currentProjectId, normalizedSearchTerm],
+    [savedControlProcesses, currentProjectIdNormalized, normalizedSearchTerm],
   );
   const projectSupervisionReports = useMemo(
     () =>
       savedSupervisionReports
-        .filter((item) => normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(currentProjectId))
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9438,12 +9443,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedSupervisionReports, currentProjectId, normalizedSearchTerm],
+    [savedSupervisionReports, currentProjectIdNormalized, normalizedSearchTerm],
   );
   const projectTrialSections = useMemo(
     () =>
       savedTrialSections
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9452,12 +9457,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedTrialSections, currentProjectId, normalizedSearchTerm],
+    [savedTrialSections, currentProjectIdNormalized, normalizedSearchTerm],
   );
   const projectPreliminary = useMemo(
     () =>
       savedPreliminary
-        .filter((item) => item.projectId === currentProjectId)
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -9466,7 +9471,7 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedPreliminary, currentProjectId, normalizedSearchTerm],
+    [savedPreliminary, currentProjectIdNormalized, normalizedSearchTerm],
   );
 
   const extractSequentialNo = (title: unknown) => {
