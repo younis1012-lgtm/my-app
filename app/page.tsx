@@ -789,16 +789,6 @@ const createSelectedMaterialReferenceResults = (): ReferenceResultRow[] =>
     allowedDeviation: row.allowedDeviation,
   }));
 
-const createAsphaltJmfReferenceResults = (): ReferenceResultRow[] =>
-  ASPHALT_JMF_REFERENCE_RESULT_DEFS.map((row) => ({
-    id: `asphalt-jmf-${row.metric}`.replace(/\s+/g, "-"),
-    metric: row.metric,
-    resultValue: "",
-    qualityStatus: "",
-    minValue: row.minValue,
-    maxValue: row.maxValue,
-    allowedDeviation: row.allowedDeviation,
-  }));
 
 const normalizeReferenceResults = (value: unknown): ReferenceResultRow[] => {
   if (!Array.isArray(value)) return [];
