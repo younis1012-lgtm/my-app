@@ -495,6 +495,43 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   { metric: "מבנה", minValue: "", maxValue: "" },
 ];
 
+const ASPHALT_JMF_REFERENCE_RESULT_DEFS: Array<{
+  metric: string;
+  minValue: string;
+  maxValue: string;
+}> = [
+  { metric: "מספר דגימה", minValue: "", maxValue: "" },
+  { metric: "סוג תערובת", minValue: "", maxValue: "" },
+  { metric: "תאריך בדיקה", minValue: "", maxValue: "" },
+  { metric: "שם דגימה", minValue: "", maxValue: "" },
+  { metric: "הזמנה מקורית של הדגימה", minValue: "", maxValue: "" },
+  { metric: '1.5"', minValue: "", maxValue: "" },
+  { metric: '1"', minValue: "95", maxValue: "105" },
+  { metric: '3/4"', minValue: "85", maxValue: "95" },
+  { metric: "mm 14", minValue: "", maxValue: "" },
+  { metric: '1/2"', minValue: "68", maxValue: "78" },
+  { metric: '3/8"', minValue: "58", maxValue: "68" },
+  { metric: "mm 8", minValue: "", maxValue: "" },
+  { metric: "#4", minValue: "44", maxValue: "54" },
+  { metric: "#10", minValue: "28", maxValue: "36" },
+  { metric: "#20", minValue: "16", maxValue: "24" },
+  { metric: "#40", minValue: "11", maxValue: "17" },
+  { metric: "#80", minValue: "6", maxValue: "12" },
+  { metric: "#200", minValue: "4", maxValue: "7" },
+  { metric: "תכולת ביטומן", minValue: "4.1", maxValue: "4.7" },
+  { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+  { metric: "יחס מלאן - ביטומן", minValue: "0.95", maxValue: "1.55" },
+  { metric: "צפיפות בשיטת וואקום", minValue: "2265", maxValue: "2365" },
+  { metric: "יציבות", minValue: "1800", maxValue: "6000" },
+  { metric: "נזילות", minValue: "8", maxValue: "16" },
+  { metric: "חוזק משתייר", minValue: "75", maxValue: "100" },
+  { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5" },
+  { metric: "V.M.A", minValue: "15.1", maxValue: "17.1" },
+  { metric: "צפיפות בשיטת ריפ", minValue: "", maxValue: "" },
+  { metric: "התנגדות", minValue: "", maxValue: "" },
+  { metric: "שחיקה קנטברו", minValue: "", maxValue: "" },
+];
+
 const isMatzeaAReference = (value: unknown) => {
   const text = normalizeHebrewProjectName(value);
   return text.includes("מצע א") || text.includes("מצע א׳");
@@ -518,6 +555,16 @@ const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
 const createSelectedMaterialReferenceResults = (): ReferenceResultRow[] =>
   SELECTED_MATERIAL_REFERENCE_RESULT_DEFS.map((row) => ({
     id: `selected-material-${row.metric}`.replace(/\s+/g, "-"),
+    metric: row.metric,
+    resultValue: "",
+    qualityStatus: "",
+    minValue: row.minValue,
+    maxValue: row.maxValue,
+  }));
+
+const createAsphaltJmfReferenceResults = (): ReferenceResultRow[] =>
+  ASPHALT_JMF_REFERENCE_RESULT_DEFS.map((row) => ({
+    id: `asphalt-jmf-${row.metric}`.replace(/\s+/g, "-"),
     metric: row.metric,
     resultValue: "",
     qualityStatus: "",
@@ -607,6 +654,12 @@ const ensureReferenceResultsForMaterial = (
   if (isSelectedMaterialReference(workType)) {
     return mergeReferenceResultsWithTemplate(
       createSelectedMaterialReferenceResults(),
+      normalized,
+    );
+  }
+  if (isAsphaltReference(workType)) {
+    return mergeReferenceResultsWithTemplate(
+      createAsphaltJmfReferenceResults(),
       normalized,
     );
   }
@@ -6588,6 +6641,75 @@ const applyQtestSelectedMaterialFallback = (
   return next;
 };
 
+const applyAsphaltJmfFallbackFromText = (
+  rowsValue: ReferenceResultRow[],
+  textValue: string,
+): ReferenceResultRow[] => {
+  const text = normalizeReferencePdfText(textValue);
+  if (!text) return rowsValue;
+
+  let next = rowsValue;
+  const set = (aliases: string[], value: unknown) => {
+    next = setReferenceMetricValue(next, aliases, value);
+  };
+  const textAfter = (labels: string[], maxChars = 120) => {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const match = text.match(new RegExp(`${escaped}\\s*[:\\-]?\\s*([^\\n|]{1,${maxChars}})`, "i"));
+      const value = match?.[1]?.trim();
+      if (value) return value;
+    }
+    return "";
+  };
+  const numberNear = (labels: string[]) => {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const after = text.match(new RegExp(`${escaped}[\\s\\S]{0,100}?(-?\\d+(?:\\.\\d+)?)`, "i"))?.[1];
+      if (after) return after;
+      const before = text.match(new RegExp(`(-?\\d+(?:\\.\\d+)?)[\\s\\S]{0,100}?${escaped}`, "i"))?.[1];
+      if (before) return before;
+    }
+    return "";
+  };
+
+  set(["מספר דגימה", "מספר סידורי של דגימה"], firstText(numberNear(["מספר דגימה", "מספר סידורי של דגימה"]), "1"));
+  set(["סוג תערובת"], firstText(textAfter(["סוג תערובת", "סוג החומר"]), firstRegexGroup(text, [/(תא["״']?צ\s*\d+[^\s]*)/i, /(PG68[^\s]*)/i])));
+  set(["תאריך בדיקה"], extractReferencePdfDate(text));
+  set(["שם דגימה"], textAfter(["שם דגימה"]));
+  set(["הזמנה מקורית של הדגימה"], textAfter(["הזמנה מקורית של הדגימה"]));
+  set(["מפעל אספקה"], textAfter(["מפעל אספקה"]));
+
+  const asphaltPairs: Array<[string[], string[]]> = [
+    [['1.5"', "1.5"], ['1.5"', "1.5"]],
+    [['1"', "1 אינץ"], ['1"', "1 אינץ"]],
+    [['3/4"', "3/4"], ['3/4"', "3/4"]],
+    [["mm 14", "14 mm"], ["mm 14", "14 mm"]],
+    [['1/2"', "1/2"], ['1/2"', "1/2"]],
+    [['3/8"', "3/8"], ['3/8"', "3/8"]],
+    [["mm 8", "8 mm"], ["mm 8", "8 mm"]],
+    [["#4", "4#"], ["#4", "4#"]],
+    [["#10", "10#"], ["#10", "10#"]],
+    [["#20", "20#"], ["#20", "20#"]],
+    [["#40", "40#"], ["#40", "40#"]],
+    [["#80", "80#"], ["#80", "80#"]],
+    [["#200", "200#"], ["#200", "200#"]],
+    [["תכולת ביטומן"], ["תכולת ביטומן", "ביטומן"]],
+    [["יחס מלאן - ביטומן"], ["יחס מלאן - ביטומן", "יחס מלאן", "יחס ביטומן"]],
+    [["צפיפות בשיטת וואקום"], ["צפיפות בשיטת וואקום", "וואקום"]],
+    [["יציבות"], ["יציבות"]],
+    [["נזילות"], ["נזילות"]],
+    [["חוזק משתייר"], ["חוזק משתייר"]],
+    [["אחוז חלל"], ["אחוז חלל"]],
+    [["V.M.A"], ["V.M.A", "VMA"]],
+    [["צפיפות בשיטת ריפ"], ["צפיפות בשיטת ריפ", "ריפ"]],
+    [["התנגדות"], ["התנגדות"]],
+    [["שחיקה קנטברו"], ["שחיקה קנטברו", "קנטברו"]],
+  ];
+  asphaltPairs.forEach(([aliases, labels]) => set(aliases, numberNear(labels)));
+
+  return next;
+};
+
 const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: string): ReferenceResultRow[] => {
   const text = normalizeReferencePdfText(rawText);
   if (!text) return [];
@@ -6600,6 +6722,10 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   const setMetric = (aliases: string[], value: string) => {
     rows = upsertParsedReferenceMetric(rows, aliases, value);
   };
+
+  if (isAsphaltReference(workType)) {
+    return applyAsphaltJmfFallbackFromText(rows, rawText);
+  }
 
   const certNo = extractReferencePdfNumber(text);
   const certDate = extractReferencePdfDate(text);
@@ -6846,7 +6972,10 @@ function ControlProcessesSection({
     selectedMaterial,
     form.referenceResults,
   );
-  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial);
+  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial) || isAsphaltReference(selectedMaterial);
+  const referenceResultsTitle = isAsphaltReference(selectedMaterial)
+    ? "תוצאות JMF מפורטות - אספלט"
+    : "תוצאות הזמנה מפורטות - מצע א׳";
 
   const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. לשמור עכשיו את תעודת הייחוס?") => {
     if (typeof window === "undefined") return;
@@ -6892,6 +7021,42 @@ function ControlProcessesSection({
       }
       setForm((prev: any) => ({
         ...prev,
+        ...(isAsphaltReference(prev.workType)
+          ? {
+              asphaltMixType: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
+                prev.asphaltMixType,
+              ),
+              labCertificateNo: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("מספר דגימה"))?.resultValue,
+                prev.labCertificateNo,
+              ),
+              optimumBitumen: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
+                prev.optimumBitumen,
+              ),
+              referenceDensity: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue,
+                prev.referenceDensity,
+              ),
+              airVoids: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue,
+                prev.airVoids,
+              ),
+              stability: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue,
+                prev.stability,
+              ),
+              flow: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue,
+                prev.flow,
+              ),
+              vma: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue,
+                prev.vma,
+              ),
+            }
+          : {}),
         referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
           const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
           return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
@@ -7366,7 +7531,7 @@ function ControlProcessesSection({
       {showReferenceResultsTable ? (
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-            תוצאות הזמנה מפורטות - מצע א׳
+            {referenceResultsTitle}
           </h3>
           <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
             מדד תוצאה, ערך מינימלי וערך מקסימלי קבועים. המשתמש מזין ערך
