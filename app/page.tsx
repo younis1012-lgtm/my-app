@@ -6531,6 +6531,9 @@ const normalizeReferencePdfText = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const firstText = (...values: unknown[]) =>
+  values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
+
 const firstRegexGroup = (text: string, patterns: RegExp[]) => {
   for (const pattern of patterns) {
     const match = text.match(pattern);
