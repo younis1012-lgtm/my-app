@@ -7,7 +7,7 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf';
 };
 
 const emptyData = {
@@ -43,6 +43,63 @@ const jsonSchema = {
     notes: { type: 'string' },
   },
   required: Object.keys(emptyData),
+};
+
+const asphaltJmfEmptyData = {
+  rows: [] as Array<{ metric: string; resultValue: string }>,
+  fields: {
+    sampleNo: '',
+    mixType: '',
+    testDate: '',
+    plant: '',
+    bitumenContent: '',
+    vacuumDensity: '',
+    stability: '',
+    flow: '',
+    airVoids: '',
+    vma: '',
+  },
+  confidence: 0,
+  notes: '',
+};
+
+const asphaltJmfJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          metric: { type: 'string' },
+          resultValue: { type: 'string' },
+        },
+        required: ['metric', 'resultValue'],
+      },
+    },
+    fields: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        sampleNo: { type: 'string' },
+        mixType: { type: 'string' },
+        testDate: { type: 'string' },
+        plant: { type: 'string' },
+        bitumenContent: { type: 'string' },
+        vacuumDensity: { type: 'string' },
+        stability: { type: 'string' },
+        flow: { type: 'string' },
+        airVoids: { type: 'string' },
+        vma: { type: 'string' },
+      },
+      required: ['sampleNo', 'mixType', 'testDate', 'plant', 'bitumenContent', 'vacuumDensity', 'stability', 'flow', 'airVoids', 'vma'],
+    },
+    confidence: { type: 'number' },
+    notes: { type: 'string' },
+  },
+  required: ['rows', 'fields', 'confidence', 'notes'],
 };
 
 function normalizeDataUrl(dataUrl: string, mimeType: string) {
@@ -157,6 +214,56 @@ export async function POST(req: NextRequest) {
     const subtype = body.subtype ?? 'suppliers';
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
+
+    if (subtype === 'asphalt-jmf') {
+      const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const prompt = `You are extracting an asphalt JMF / Marshall mix design lab certificate for Israeli QA/QC.
+Return JSON only. Read the attached PDF/image visually if needed.
+Extract result values for these metrics when visible:
+מספר דגימה, סוג תערובת, תאריך בדיקה, שם דגימה, הזמנה מקורית של הדגימה,
+1.5", 1", 3/4", mm 14, 1/2", 3/8", mm 8, #4, #10, #20, #40, #80, #200,
+תכולת ביטומן, מפעל אספקה, יחס מלאן - ביטומן, צפיפות בשיטת וואקום, יציבות, נזילות,
+חוזק משתייר, אחוז חלל, V.M.A, צפיפות בשיטת ריפ, התנגדות, שחיקה קנטברו.
+Use the exact Hebrew metric names from this list in rows[].metric.
+For dates, return yyyy-mm-dd when possible. Do not invent values.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (isImage(mimeType)) {
+        content.push({ type: 'input_image', image_url: normalizedFileData });
+      } else {
+        content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+      }
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'asphalt_jmf_extract',
+              schema: asphaltJmfJsonSchema,
+              strict: true,
+            },
+          },
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI asphalt JMF OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Asphalt JMF OCR failed' }, { status: 500 });
+      }
+
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      const parsed = { ...asphaltJmfEmptyData, ...(safeJsonParse(outputText) ?? {}) };
+      return NextResponse.json({ data: parsed });
+    }
 
     const prompt = `אתה OCR מקצועי למסמכי בקרת איכות בפרויקטי תשתיות בישראל.
 קרא את הקובץ המצורף חזותית והחזר JSON בלבד.

@@ -6516,6 +6516,14 @@ const extractTextFromReferenceFile = async (file: File): Promise<string> => {
   return pages.join("\n");
 };
 
+const readReferenceFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const normalizeReferencePdfText = (value: unknown) =>
   String(value ?? "")
     .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
@@ -6910,6 +6918,60 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   return rows;
 };
 
+const extractAsphaltJmfRowsByOcr = async (
+  file: File,
+  workType: unknown,
+): Promise<ReferenceResultRow[]> => {
+  if (!isAsphaltReference(workType)) return [];
+  try {
+    const dataUrl = await readReferenceFileAsDataUrl(file);
+    const response = await fetch("/api/ocr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subtype: "asphalt-jmf",
+        fileName: file.name,
+        mimeType: file.type || "application/pdf",
+        dataUrl,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn("Asphalt JMF OCR failed", payload);
+      return [];
+    }
+
+    const data = payload?.data ?? {};
+    let rows = ensureReferenceResultsForMaterial(workType, []);
+    const set = (aliases: string[], value: unknown) => {
+      rows = setReferenceMetricValue(rows, aliases, value);
+    };
+
+    (Array.isArray(data.rows) ? data.rows : []).forEach((row: any) => {
+      const metric = String(row?.metric ?? "").trim();
+      const resultValue = String(row?.resultValue ?? "").trim();
+      if (metric && resultValue) set([metric], resultValue);
+    });
+
+    const fields = data.fields ?? {};
+    set(["מספר דגימה", "מספר סידורי של דגימה"], fields.sampleNo);
+    set(["סוג תערובת"], fields.mixType);
+    set(["תאריך בדיקה"], fields.testDate);
+    set(["מפעל אספקה"], fields.plant);
+    set(["תכולת ביטומן"], fields.bitumenContent);
+    set(["צפיפות בשיטת וואקום"], fields.vacuumDensity);
+    set(["יציבות"], fields.stability);
+    set(["נזילות"], fields.flow);
+    set(["אחוז חלל"], fields.airVoids);
+    set(["V.M.A"], fields.vma);
+
+    return rows.filter((row) => String(row.resultValue ?? "").trim());
+  } catch (error) {
+    console.warn("Asphalt JMF OCR fallback failed", error);
+    return [];
+  }
+};
+
 function ControlProcessesSection({
   guardedBody,
   form,
@@ -7007,9 +7069,18 @@ function ControlProcessesSection({
   const autoFillReferenceResultsFromFile = async (file: File): Promise<number> => {
     if (readOnly || !showReferenceResultsTable) return 0;
     try {
-      const text = await extractTextFromReferenceFile(file);
-      const parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
-      const filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+      let parsedRows: ReferenceResultRow[] = [];
+      try {
+        const text = await extractTextFromReferenceFile(file);
+        parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
+      } catch (error) {
+        console.warn("Reference certificate text parsing failed", error);
+      }
+      let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+      if (!filledRows.length && isAsphaltReference(selectedMaterial)) {
+        parsedRows = await extractAsphaltJmfRowsByOcr(file, selectedMaterial);
+        filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+      }
       if (!filledRows.length) return 0;
       const currentRows = ensureReferenceResultsForMaterial(selectedMaterial, form.referenceResults);
       const hasExistingValues = currentRows.some((row) => String(row.resultValue ?? "").trim());
@@ -7066,6 +7137,7 @@ function ControlProcessesSection({
       return filledRows.length;
     } catch (error) {
       console.warn("Reference certificate auto parsing failed", error);
+      if (isAsphaltReference(selectedMaterial)) return 0;
       alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית ולשמור.");
       return 0;
     }
@@ -7188,8 +7260,7 @@ function ControlProcessesSection({
         );
         return;
       } catch (error) {
-        console.error("Control process document upload failed", error);
-        alert("העלאת הקובץ ל-Supabase נכשלה. הקובץ יישמר מקומית בטופס.");
+        console.warn("Control process document upload failed; falling back to local attachment", error);
       }
     }
 
