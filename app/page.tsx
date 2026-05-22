@@ -4642,12 +4642,11 @@ function getChecklistDisplayLocation(record: any) {
 
 function getChecklistDisplayLayer(record: any) {
   return (
-    record?.stationSection ||
+    record?.location ||
+    record?.details?.location ||
     record?.layerNo ||
     record?.layerNumber ||
     record?.layer ||
-    record?.details?.stationSection ||
-    record?.details?.station_section ||
     record?.details?.layerNo ||
     record?.details?.layerNumber ||
     record?.details?.layer ||
