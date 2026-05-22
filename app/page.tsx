@@ -47,7 +47,7 @@ const isRoad806Value = (value: unknown) => {
 
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
-const APP_VERSION = "2026-05-22-asphalt-top-fields-persist-v3";
+const APP_VERSION = "2026-05-22-control-process-keep-attachment-after-confirm-v1";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 
 type AppSection =
@@ -361,19 +361,6 @@ type ControlProcessRecord = {
   approval: ApprovalFlow;
   lockedAt: string;
   savedAt: string;
-  // Asphalt/JMF top-form fields must be persisted separately from referenceResults.
-  asphaltMixType?: string;
-  asphaltLayer?: string;
-  supplier?: string;
-  bitumenGrade?: string;
-  optimumBitumen?: string;
-  referenceDensity?: string;
-  maxTheoreticalDensity?: string;
-  airVoids?: string;
-  stability?: string;
-  flow?: string;
-  vma?: string;
-  labCertificateNo?: string;
 };
 
 const CONTROL_PROCESS_STATUS_OPTIONS: ControlProcessStatus[] = [
@@ -436,47 +423,6 @@ const isAsphaltReference = (value: unknown) =>
   String(value ?? "").includes("אספלט") || String(value ?? "").includes("מרשל");
 
 const REFERENCE_RESULTS_AUDIT_ACTION = "__reference_results__";
-const ASPHALT_TOP_FIELDS_AUDIT_ACTION = "__asphalt_top_fields__";
-const ASPHALT_TOP_FIELD_KEYS = [
-  "asphaltMixType",
-  "asphaltLayer",
-  "supplier",
-  "bitumenGrade",
-  "optimumBitumen",
-  "referenceDensity",
-  "maxTheoreticalDensity",
-  "airVoids",
-  "stability",
-  "flow",
-  "vma",
-  "labCertificateNo",
-] as const;
-type AsphaltTopFieldKey = (typeof ASPHALT_TOP_FIELD_KEYS)[number];
-
-const pickAsphaltTopFields = (value: any): Partial<Record<AsphaltTopFieldKey, string>> => {
-  const result: Partial<Record<AsphaltTopFieldKey, string>> = {};
-  ASPHALT_TOP_FIELD_KEYS.forEach((key) => {
-    const text = String(value?.[key] ?? "");
-    if (text.trim()) result[key] = text;
-  });
-  return result;
-};
-
-const extractAsphaltTopFieldsFromAudit = (value: any): Partial<Record<AsphaltTopFieldKey, string>> => {
-  const audit = Array.isArray(value?.auditTrail ?? value?.audit_log)
-    ? (value.auditTrail ?? value.audit_log)
-    : [];
-  const entry = [...audit]
-    .reverse()
-    .find((item: any) => item?.action === ASPHALT_TOP_FIELDS_AUDIT_ACTION);
-  if (!entry?.note) return {};
-  try {
-    return pickAsphaltTopFields(JSON.parse(String(entry.note)));
-  } catch {
-    return {};
-  }
-};
-
 
 const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   metric: string;
@@ -748,7 +694,7 @@ const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
 const auditWithoutReferenceResults = (value: unknown): AuditEntry[] =>
   Array.isArray(value)
     ? value
-        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION && entry?.action !== ASPHALT_TOP_FIELDS_AUDIT_ACTION)
+        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION)
         .map((entry: any) => ({
           action: String(entry?.action ?? ""),
           by: String(entry?.by ?? ""),
@@ -886,10 +832,6 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
-    ...pickAsphaltTopFields({
-      ...extractAsphaltTopFieldsFromAudit(value),
-      ...value,
-    }),
   };
 };
 
@@ -916,16 +858,6 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
       at: nowIso(),
       note: JSON.stringify(normalizeReferenceResults(record.referenceResults)),
     },
-    ...(isAsphaltReference(record.workType)
-      ? [
-          {
-            action: ASPHALT_TOP_FIELDS_AUDIT_ACTION,
-            by: "system",
-            at: nowIso(),
-            note: JSON.stringify(pickAsphaltTopFields(record)),
-          },
-        ]
-      : []),
   ],
   approval: record.approval,
   locked_at: record.lockedAt || null,
@@ -7257,10 +7189,9 @@ function ControlProcessesSection({
     if (readOnly || !showReferenceResultsTable) return 0;
     try {
       let parsedRows: ReferenceResultRow[] = [];
-      let parsedText = "";
       try {
-        parsedText = await extractTextFromReferenceFile(file);
-        parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, parsedText);
+        const text = await extractTextFromReferenceFile(file);
+        parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
       } catch (error) {
         console.warn("Reference certificate text parsing failed", error);
       }
@@ -7282,26 +7213,38 @@ function ControlProcessesSection({
         setForm((prev: any) => ({
           ...prev,
           ...(isAsphaltReference(prev.workType)
-            ? (() => {
-              const rowValue = (metric: string) =>
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(metric))?.resultValue;
-              const isTaatz25 = /תא[״"']?צ\s*25|תאצ\s*25/i.test(parsedText) || String(rowValue("סוג תערובת") ?? "").includes("25");
-              return {
-                asphaltMixType: firstText(rowValue("סוג תערובת"), isTaatz25 ? "תא״צ 25" : "", prev.asphaltMixType),
-                asphaltLayer: firstText(prev.asphaltLayer, prev.location),
-                supplier: firstText(rowValue("מפעל אספקה"), /מחצבת\s+עמיעד/.test(parsedText) ? "מחצבת עמיעד" : "", prev.supplier),
-                bitumenGrade: firstText(/PG\s*70\s*-\s*10/i.test(parsedText) ? "PG70-10" : "", /PG\s*68/i.test(parsedText) ? "PG68-10" : "", prev.bitumenGrade),
-                optimumBitumen: firstText(rowValue("תכולת ביטומן"), prev.optimumBitumen),
-                referenceDensity: firstText(rowValue("צפיפות בשיטת וואקום"), prev.referenceDensity),
-                maxTheoreticalDensity: firstText(/צפיפות\s+תיאורטית|צפיפות\s+תאורטית/.test(parsedText) ? "2591" : "", prev.maxTheoreticalDensity),
-                airVoids: firstText(rowValue("אחוז חלל"), prev.airVoids),
-                stability: firstText(rowValue("יציבות"), prev.stability),
-                flow: firstText(rowValue("נזילות"), prev.flow),
-                vma: firstText(rowValue("V.M.A"), rowValue("VMA"), prev.vma),
-                // לפי בקשתך: מס׳ תעודה / ר״ת לא מתמלא אוטומטית, נשאר ידני.
-                labCertificateNo: String(prev.labCertificateNo ?? ""),
-              };
-            })()
+            ? {
+              asphaltMixType: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
+                prev.asphaltMixType,
+              ),
+              // מס׳ תעודה / ר״ת נשאר ידני בלבד — לא ממלאים אוטומטית מה-PDF או מ-RFI.
+              labCertificateNo: prev.labCertificateNo ?? "",
+              optimumBitumen: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
+                prev.optimumBitumen,
+              ),
+              referenceDensity: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue,
+                prev.referenceDensity,
+              ),
+              airVoids: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue,
+                prev.airVoids,
+              ),
+              stability: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue,
+                prev.stability,
+              ),
+              flow: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue,
+                prev.flow,
+              ),
+              vma: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue,
+                prev.vma,
+              ),
+            }
             : {}),
           referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
             const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
@@ -7443,7 +7386,7 @@ function ControlProcessesSection({
         const { data } = supabase.storage
           .from("attachments")
           .getPublicUrl(filePath);
-        applyAttachment(data.publicUrl);
+        applyAttachment(data.publicUrl, true);
         const parsedCount = await autoFillReferenceResultsFromFile(file);
         askToSaveReferenceCertificate(
           parsedCount
@@ -10728,18 +10671,18 @@ export default function Page() {
       location: controlProcessLayer,
       ...(isAsphaltReference(controlProcessForm.workType)
         ? {
-            asphaltLayer: String(controlProcessForm.asphaltLayer ?? controlProcessLayer ?? ""),
-            asphaltMixType: String(controlProcessForm.asphaltMixType ?? ""),
-            supplier: String(controlProcessForm.supplier ?? ""),
-            bitumenGrade: String(controlProcessForm.bitumenGrade ?? ""),
-            optimumBitumen: String(controlProcessForm.optimumBitumen ?? ""),
-            referenceDensity: String(controlProcessForm.referenceDensity ?? ""),
-            maxTheoreticalDensity: String(controlProcessForm.maxTheoreticalDensity ?? ""),
-            airVoids: String(controlProcessForm.airVoids ?? ""),
-            stability: String(controlProcessForm.stability ?? ""),
-            flow: String(controlProcessForm.flow ?? ""),
-            vma: String(controlProcessForm.vma ?? ""),
-            labCertificateNo: String(controlProcessForm.labCertificateNo ?? ""),
+            asphaltLayer: controlProcessLayer,
+            asphaltMixType: String((controlProcessForm as any).asphaltMixType ?? ""),
+            supplier: String((controlProcessForm as any).supplier ?? ""),
+            bitumenGrade: String((controlProcessForm as any).bitumenGrade ?? ""),
+            optimumBitumen: String((controlProcessForm as any).optimumBitumen ?? ""),
+            referenceDensity: String((controlProcessForm as any).referenceDensity ?? ""),
+            maxTheoreticalDensity: String((controlProcessForm as any).maxTheoreticalDensity ?? ""),
+            airVoids: String((controlProcessForm as any).airVoids ?? ""),
+            stability: String((controlProcessForm as any).stability ?? ""),
+            flow: String((controlProcessForm as any).flow ?? ""),
+            vma: String((controlProcessForm as any).vma ?? ""),
+            labCertificateNo: String((controlProcessForm as any).labCertificateNo ?? ""),
           }
         : {}),
       fromSection: String(controlProcessForm.fromSection ?? ""),
@@ -10795,7 +10738,13 @@ export default function Page() {
       );
     });
     setEditingControlProcessId(id);
-    setControlProcessForm((prev: any) => ({ ...prev, ...record }));
+    setControlProcessForm((prev: any) => ({
+      ...prev,
+      ...record,
+      // משאירים את הטופס פתוח אחרי שמירה כדי שהנתונים שנקלטו והקובץ המצורף לא ייעלמו מהמסך.
+      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      referenceResults: ensureReferenceResultsForMaterial(record.workType, record.referenceResults),
+    }));
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
@@ -10821,7 +10770,18 @@ export default function Page() {
       auditTrail: record.auditTrail,
       approval: normalizeApproval(record.approval),
       lockedAt: record.lockedAt,
-      ...pickAsphaltTopFields(record),
+      asphaltLayer: (record as any).asphaltLayer ?? record.location ?? "",
+      asphaltMixType: (record as any).asphaltMixType ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue ?? "",
+      supplier: (record as any).supplier ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("מפעל אספקה"))?.resultValue ?? "",
+      bitumenGrade: (record as any).bitumenGrade ?? "",
+      optimumBitumen: (record as any).optimumBitumen ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue ?? "",
+      referenceDensity: (record as any).referenceDensity ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue ?? "",
+      maxTheoreticalDensity: (record as any).maxTheoreticalDensity ?? "",
+      airVoids: (record as any).airVoids ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue ?? "",
+      stability: (record as any).stability ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue ?? "",
+      flow: (record as any).flow ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue ?? "",
+      vma: (record as any).vma ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue ?? "",
+      labCertificateNo: (record as any).labCertificateNo ?? "",
     });
   };
 
