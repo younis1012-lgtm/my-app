@@ -47,7 +47,7 @@ const isRoad806Value = (value: unknown) => {
 
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
-const APP_VERSION = "2026-05-22-control-process-keep-attachment-after-confirm-v1";
+const APP_VERSION = "2026-05-22-attachments-persist-fix-v1";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 
 type AppSection =
@@ -795,6 +795,86 @@ const compactRequiredDocumentForCloud = (doc: RequiredDocument): RequiredDocumen
 
 const compactRequiredDocumentsForCloud = (documents: unknown): RequiredDocument[] =>
   normalizeRequiredDocuments(documents).map(compactRequiredDocumentForCloud);
+
+const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+  const response = await fetch(dataUrl);
+  if (!response.ok) throw new Error("לא ניתן להכין את הקובץ להעלאה לענן");
+  return response.blob();
+};
+
+const safeStorageFileName = (value: unknown, fallback = "attachment") =>
+  String(value ?? fallback)
+    .trim()
+    .replace(/[^a-zA-Z0-9.א-ת_-]/g, "_")
+    .slice(0, 160) || fallback;
+
+const uploadInlineDataUrlToStorage = async (
+  dataUrl: string,
+  fileName: string,
+  mimeType: string,
+  folder: string,
+): Promise<string> => {
+  if (!isSupabaseConfigured || !supabase || !isInlineDataUrl(dataUrl)) return dataUrl;
+  const blob = await dataUrlToBlob(dataUrl);
+  const safeName = safeStorageFileName(fileName);
+  const filePath = `${folder}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabase.storage.from("attachments").upload(filePath, blob, {
+    upsert: false,
+    contentType: mimeType || blob.type || undefined,
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from("attachments").getPublicUrl(filePath);
+  return data.publicUrl;
+};
+
+const uploadRequiredDocumentsForCloud = async (
+  documents: RequiredDocument[],
+  recordId: string,
+): Promise<RequiredDocument[]> => {
+  if (!isSupabaseConfigured || !supabase) return documents;
+  const folder = `control-processes/${recordId}`;
+  return Promise.all(
+    documents.map(async (doc) => {
+      const next: RequiredDocument = { ...doc };
+      if (isInlineDataUrl(next.attachmentDataUrl)) {
+        try {
+          next.attachmentDataUrl = await uploadInlineDataUrlToStorage(
+            String(next.attachmentDataUrl),
+            next.attachmentName || next.documentNo || next.certificateNo || "attachment",
+            next.attachmentType || "",
+            folder,
+          );
+          next.attached = true;
+        } catch (error) {
+          console.warn("Required document upload failed", error);
+        }
+      }
+      const attachedFiles = normalizeAttachments(next.attachments);
+      if (attachedFiles.length) {
+        next.attachments = await Promise.all(
+          attachedFiles.map(async (attachment) => {
+            if (!isInlineDataUrl(attachment.dataUrl)) return attachment;
+            try {
+              return {
+                ...attachment,
+                dataUrl: await uploadInlineDataUrlToStorage(
+                  attachment.dataUrl,
+                  attachment.name,
+                  attachment.type,
+                  folder,
+                ),
+              };
+            } catch (error) {
+              console.warn("Required document nested attachment upload failed", error);
+              return attachment;
+            }
+          }),
+        );
+      }
+      return next;
+    }),
+  );
+};
 
 const normalizeStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
@@ -7218,8 +7298,10 @@ function ControlProcessesSection({
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
                 prev.asphaltMixType,
               ),
-              // מס׳ תעודה / ר״ת נשאר ידני בלבד — לא ממלאים אוטומטית מה-PDF או מ-RFI.
-              labCertificateNo: prev.labCertificateNo ?? "",
+              labCertificateNo: firstText(
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("מספר דגימה"))?.resultValue,
+                prev.labCertificateNo,
+              ),
               optimumBitumen: firstText(
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
                 prev.optimumBitumen,
@@ -10661,6 +10743,14 @@ export default function Page() {
     const id = editingControlProcessId ?? crypto.randomUUID();
     const nextStatus: ControlProcessStatus =
       controlProcessForm.status === "נעול" ? "נעול" : controlProcessForm.status;
+    const requiredDocumentsForSave = await uploadRequiredDocumentsForCloud(
+      normalizeRequiredDocuments(controlProcessForm.requiredDocuments),
+      id,
+    );
+    setControlProcessForm((prev: any) => ({
+      ...prev,
+      requiredDocuments: requiredDocumentsForSave,
+    }));
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
@@ -10670,20 +10760,7 @@ export default function Page() {
       specSection: String(controlProcessForm.specSection ?? ""),
       location: controlProcessLayer,
       ...(isAsphaltReference(controlProcessForm.workType)
-        ? {
-            asphaltLayer: controlProcessLayer,
-            asphaltMixType: String((controlProcessForm as any).asphaltMixType ?? ""),
-            supplier: String((controlProcessForm as any).supplier ?? ""),
-            bitumenGrade: String((controlProcessForm as any).bitumenGrade ?? ""),
-            optimumBitumen: String((controlProcessForm as any).optimumBitumen ?? ""),
-            referenceDensity: String((controlProcessForm as any).referenceDensity ?? ""),
-            maxTheoreticalDensity: String((controlProcessForm as any).maxTheoreticalDensity ?? ""),
-            airVoids: String((controlProcessForm as any).airVoids ?? ""),
-            stability: String((controlProcessForm as any).stability ?? ""),
-            flow: String((controlProcessForm as any).flow ?? ""),
-            vma: String((controlProcessForm as any).vma ?? ""),
-            labCertificateNo: String((controlProcessForm as any).labCertificateNo ?? ""),
-          }
+        ? { asphaltLayer: controlProcessLayer }
         : {}),
       fromSection: String(controlProcessForm.fromSection ?? ""),
       toSection: String(controlProcessForm.toSection ?? ""),
@@ -10693,9 +10770,7 @@ export default function Page() {
       nonconformanceIds: normalizeStringArray(
         controlProcessForm.nonconformanceIds,
       ),
-      requiredDocuments: normalizeRequiredDocuments(
-        controlProcessForm.requiredDocuments,
-      ),
+      requiredDocuments: requiredDocumentsForSave,
       referenceResults: ensureReferenceResultsForMaterial(
         controlProcessForm.workType,
         controlProcessForm.referenceResults,
@@ -10737,14 +10812,6 @@ export default function Page() {
           : [record, ...prev],
       );
     });
-    setEditingControlProcessId(id);
-    setControlProcessForm((prev: any) => ({
-      ...prev,
-      ...record,
-      // משאירים את הטופס פתוח אחרי שמירה כדי שהנתונים שנקלטו והקובץ המצורף לא ייעלמו מהמסך.
-      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
-      referenceResults: ensureReferenceResultsForMaterial(record.workType, record.referenceResults),
-    }));
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
@@ -10770,18 +10837,6 @@ export default function Page() {
       auditTrail: record.auditTrail,
       approval: normalizeApproval(record.approval),
       lockedAt: record.lockedAt,
-      asphaltLayer: (record as any).asphaltLayer ?? record.location ?? "",
-      asphaltMixType: (record as any).asphaltMixType ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue ?? "",
-      supplier: (record as any).supplier ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("מפעל אספקה"))?.resultValue ?? "",
-      bitumenGrade: (record as any).bitumenGrade ?? "",
-      optimumBitumen: (record as any).optimumBitumen ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue ?? "",
-      referenceDensity: (record as any).referenceDensity ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue ?? "",
-      maxTheoreticalDensity: (record as any).maxTheoreticalDensity ?? "",
-      airVoids: (record as any).airVoids ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue ?? "",
-      stability: (record as any).stability ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue ?? "",
-      flow: (record as any).flow ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue ?? "",
-      vma: (record as any).vma ?? (record.referenceResults ?? []).find((row: any) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue ?? "",
-      labCertificateNo: (record as any).labCertificateNo ?? "",
     });
   };
 
