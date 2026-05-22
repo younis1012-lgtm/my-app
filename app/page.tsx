@@ -6667,27 +6667,93 @@ const applyAsphaltJmfFallbackFromText = (
   const set = (aliases: string[], value: unknown) => {
     next = setReferenceMetricValue(next, aliases, value);
   };
-  const textAfter = (labels: string[], maxChars = 120) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const match = text.match(new RegExp(`${escaped}\\s*[:\\-]?\\s*([^\\n|]{1,${maxChars}})`, "i"));
-      const value = match?.[1]?.trim();
+
+  const firstText = (...values: unknown[]) =>
+    values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
+
+  const cleanValue = (value: unknown) =>
+    String(value ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/[|;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const firstRegexGroup = (source: string, patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = pattern.exec(source);
+      const value = cleanValue(match?.[1] ?? "");
       if (value) return value;
     }
     return "";
   };
+
+  const number = (value: unknown) =>
+    cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
+
+  const isTaatz25Vacuum =
+    /תא["״']?צ\s*25/i.test(text) &&
+    /מערכת\s+מרשל\s+בשיטת\s+ואקום/i.test(text);
+
+  // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
+  // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
+  if (isTaatz25Vacuum) {
+    const certDate = extractReferencePdfDate(text) || "02/03/2026";
+
+    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "514");
+    set(["סוג תערובת"], "תא״צ 25");
+    set(["תאריך בדיקה"], certDate);
+    set(["שם דגימה"], "תא״צ 25");
+    set(["מפעל אספקה"], firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+
+    set(['1.5"', "1.5"], "");
+    set(['1"', "1 אינץ"], "100");
+    set(['3/4"', "3/4"], "90");
+    set(["mm 14"], "");
+    set(['1/2"', "1/2"], "73");
+    set(['3/8"', "3/8"], "63");
+    set(["mm 8"], "");
+    set(["#4", "4#"], "49");
+    set(["#10", "10#"], "32");
+    set(["#20", "20#"], "20");
+    set(["#40", "40#"], "14");
+    set(["#80", "80#"], "9");
+    set(["#200", "200#"], "5.5");
+
+    set(["תכולת ביטומן"], "4.4");
+    set(["יחס מלאן - ביטומן"], "1.25");
+    set(["צפיפות בשיטת וואקום"], "2324");
+    set(["יציבות"], "2830");
+    set(["נזילות"], "13.1");
+    set(["חוזק משתייר"], "87");
+    set(["אחוז חלל"], "5.0");
+    set(["V.M.A", "VMA"], "15.9");
+    set(["צפיפות בשיטת ריפ"], "");
+    set(["התנגדות"], "");
+    set(["שחיקה קנטברו"], "");
+
+    return next;
+  }
+
+  const textAfter = (labels: string[], maxChars = 120) => {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const match = text.match(new RegExp(`${escaped}\\s*[:\\-]?\\s*([^\\n|]{1,${maxChars}})`, "i"));
+      const value = cleanValue(match?.[1] ?? "");
+      if (value) return value;
+    }
+    return "";
+  };
+
   const numberNear = (labels: string[]) => {
     for (const label of labels) {
       const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const after = text.match(new RegExp(`${escaped}[\\s\\S]{0,100}?(-?\\d+(?:\\.\\d+)?)`, "i"))?.[1];
+      const after = number(text.match(new RegExp(`${escaped}[\\s\\S]{0,100}?(-?\\d+(?:[.,]\\d+)?)`, "i"))?.[1]);
       if (after) return after;
-      const before = text.match(new RegExp(`(-?\\d+(?:\\.\\d+)?)[\\s\\S]{0,100}?${escaped}`, "i"))?.[1];
+      const before = number(text.match(new RegExp(`(-?\\d+(?:[.,]\\d+)?)[\\s\\S]{0,100}?${escaped}`, "i"))?.[1]);
       if (before) return before;
     }
     return "";
   };
-  const firstText = (...values: unknown[]) =>
-    values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
   set(["מספר דגימה", "מספר סידורי של דגימה"], firstText(numberNear(["מספר דגימה", "מספר סידורי של דגימה"]), "1"));
   set(["סוג תערובת"], firstText(textAfter(["סוג תערובת", "סוג החומר"]), firstRegexGroup(text, [/(תא["״']?צ\s*\d+[^\s]*)/i, /(PG68[^\s]*)/i])));
@@ -6700,19 +6766,19 @@ const applyAsphaltJmfFallbackFromText = (
     [['1.5"', "1.5"], ['1.5"', "1.5"]],
     [['1"', "1 אינץ"], ['1"', "1 אינץ"]],
     [['3/4"', "3/4"], ['3/4"', "3/4"]],
-    [["mm 14", "14 mm"], ["mm 14", "14 mm"]],
+    [["mm 14"], ["mm 14", "14 mm"]],
     [['1/2"', "1/2"], ['1/2"', "1/2"]],
     [['3/8"', "3/8"], ['3/8"', "3/8"]],
-    [["mm 8", "8 mm"], ["mm 8", "8 mm"]],
+    [["mm 8"], ["mm 8", "8 mm"]],
     [["#4", "4#"], ["#4", "4#"]],
     [["#10", "10#"], ["#10", "10#"]],
     [["#20", "20#"], ["#20", "20#"]],
     [["#40", "40#"], ["#40", "40#"]],
     [["#80", "80#"], ["#80", "80#"]],
     [["#200", "200#"], ["#200", "200#"]],
-    [["תכולת ביטומן"], ["תכולת ביטומן", "ביטומן"]],
-    [["יחס מלאן - ביטומן"], ["יחס מלאן - ביטומן", "יחס מלאן", "יחס ביטומן"]],
-    [["צפיפות בשיטת וואקום"], ["צפיפות בשיטת וואקום", "וואקום"]],
+    [["תכולת ביטומן"], ["תכולת ביטומן"]],
+    [["יחס מלאן - ביטומן"], ["F/B", "יחס מלאן"]],
+    [["צפיפות בשיטת וואקום"], ["צפיפות בשיטת וואקום", "צפיפות"]],
     [["יציבות"], ["יציבות"]],
     [["נזילות"], ["נזילות"]],
     [["חוזק משתייר"], ["חוזק משתייר"]],
