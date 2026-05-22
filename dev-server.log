@@ -1,0 +1,32 @@
+
+> my-app@0.1.0 dev
+> next dev -p 3000
+
+▲ Next.js 16.2.1 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.68.61:3000
+- Environments: .env.local
+✓ Ready in 501ms
+
+ GET / 200 in 3.3s (next.js: 3.0s, application-code: 286ms)
+ GET / 200 in 56ms (next.js: 5ms, application-code: 51ms)
+ POST /api/ocr 500 in 246ms (next.js: 229ms, application-code: 17ms)
+ POST /api/ocr 500 in 9ms (next.js: 4ms, application-code: 5ms)
+✓ Compiled in 518ms
+✓ Compiled in 282ms
+✓ Compiled in 495ms
+ GET / 200 in 288ms (next.js: 85ms, application-code: 203ms)
+ GET / 200 in 43ms (next.js: 5ms, application-code: 38ms)
+✓ Compiled in 473ms
+ GET / 200 in 271ms (next.js: 78ms, application-code: 193ms)
+ GET / 200 in 46ms (next.js: 5ms, application-code: 41ms)
+ GET / 200 in 49ms (next.js: 5ms, application-code: 44ms)
+✓ Compiled in 393ms
+✓ Compiled in 530ms
+✓ Compiled in 555ms
+✓ Compiled in 520ms
+ GET / 200 in 282ms (next.js: 81ms, application-code: 201ms)
+✓ Compiled in 578ms
+✓ Compiled in 672ms
+✓ Compiled in 304ms
+✓ Compiled in 576ms
