@@ -47,7 +47,7 @@ const isRoad806Value = (value: unknown) => {
 
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
-const APP_VERSION = "2026-05-22-attachments-persist-fix-v1";
+const APP_VERSION = "2026-05-04-checklist-top-editable-cache-refresh-v2";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 
 type AppSection =
@@ -361,6 +361,18 @@ type ControlProcessRecord = {
   approval: ApprovalFlow;
   lockedAt: string;
   savedAt: string;
+  asphaltMixType?: string;
+  asphaltLayer?: string;
+  supplier?: string;
+  bitumenGrade?: string;
+  optimumBitumen?: string;
+  referenceDensity?: string;
+  maxTheoreticalDensity?: string;
+  airVoids?: string;
+  stability?: string;
+  flow?: string;
+  vma?: string;
+  labCertificateNo?: string;
 };
 
 const CONTROL_PROCESS_STATUS_OPTIONS: ControlProcessStatus[] = [
@@ -423,6 +435,32 @@ const isAsphaltReference = (value: unknown) =>
   String(value ?? "").includes("אספלט") || String(value ?? "").includes("מרשל");
 
 const REFERENCE_RESULTS_AUDIT_ACTION = "__reference_results__";
+const ASPHALT_TOP_FIELDS_AUDIT_ACTION = "__asphalt_top_fields__";
+const ASPHALT_TOP_FIELD_KEYS = [
+  "asphaltMixType",
+  "asphaltLayer",
+  "supplier",
+  "bitumenGrade",
+  "optimumBitumen",
+  "referenceDensity",
+  "maxTheoreticalDensity",
+  "airVoids",
+  "stability",
+  "flow",
+  "vma",
+  "labCertificateNo",
+] as const;
+
+type AsphaltTopFields = Partial<Record<(typeof ASPHALT_TOP_FIELD_KEYS)[number], string>>;
+
+const pickAsphaltTopFields = (value: any): AsphaltTopFields => {
+  const result: AsphaltTopFields = {};
+  ASPHALT_TOP_FIELD_KEYS.forEach((key) => {
+    const text = String(value?.[key] ?? "").trim();
+    if (text) result[key] = text;
+  });
+  return result;
+};
 
 const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   metric: string;
@@ -691,10 +729,25 @@ const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
   }
 };
 
+const extractAsphaltTopFieldsFromAudit = (value: any): AsphaltTopFields => {
+  const audit = Array.isArray(value?.auditTrail ?? value?.audit_log)
+    ? (value.auditTrail ?? value.audit_log)
+    : [];
+  const entry = [...audit]
+    .reverse()
+    .find((item: any) => item?.action === ASPHALT_TOP_FIELDS_AUDIT_ACTION);
+  if (!entry?.note) return {};
+  try {
+    return pickAsphaltTopFields(JSON.parse(String(entry.note)));
+  } catch {
+    return {};
+  }
+};
+
 const auditWithoutReferenceResults = (value: unknown): AuditEntry[] =>
   Array.isArray(value)
     ? value
-        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION)
+        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION && entry?.action !== ASPHALT_TOP_FIELDS_AUDIT_ACTION)
         .map((entry: any) => ({
           action: String(entry?.action ?? ""),
           by: String(entry?.by ?? ""),
@@ -796,91 +849,15 @@ const compactRequiredDocumentForCloud = (doc: RequiredDocument): RequiredDocumen
 const compactRequiredDocumentsForCloud = (documents: unknown): RequiredDocument[] =>
   normalizeRequiredDocuments(documents).map(compactRequiredDocumentForCloud);
 
-const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-  const response = await fetch(dataUrl);
-  if (!response.ok) throw new Error("לא ניתן להכין את הקובץ להעלאה לענן");
-  return response.blob();
-};
-
-const safeStorageFileName = (value: unknown, fallback = "attachment") =>
-  String(value ?? fallback)
-    .trim()
-    .replace(/[^a-zA-Z0-9.א-ת_-]/g, "_")
-    .slice(0, 160) || fallback;
-
-const uploadInlineDataUrlToStorage = async (
-  dataUrl: string,
-  fileName: string,
-  mimeType: string,
-  folder: string,
-): Promise<string> => {
-  if (!isSupabaseConfigured || !supabase || !isInlineDataUrl(dataUrl)) return dataUrl;
-  const blob = await dataUrlToBlob(dataUrl);
-  const safeName = safeStorageFileName(fileName);
-  const filePath = `${folder}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-  const { error } = await supabase.storage.from("attachments").upload(filePath, blob, {
-    upsert: false,
-    contentType: mimeType || blob.type || undefined,
-  });
-  if (error) throw error;
-  const { data } = supabase.storage.from("attachments").getPublicUrl(filePath);
-  return data.publicUrl;
-};
-
-const uploadRequiredDocumentsForCloud = async (
-  documents: RequiredDocument[],
-  recordId: string,
-): Promise<RequiredDocument[]> => {
-  if (!isSupabaseConfigured || !supabase) return documents;
-  const folder = `control-processes/${recordId}`;
-  return Promise.all(
-    documents.map(async (doc) => {
-      const next: RequiredDocument = { ...doc };
-      if (isInlineDataUrl(next.attachmentDataUrl)) {
-        try {
-          next.attachmentDataUrl = await uploadInlineDataUrlToStorage(
-            String(next.attachmentDataUrl),
-            next.attachmentName || next.documentNo || next.certificateNo || "attachment",
-            next.attachmentType || "",
-            folder,
-          );
-          next.attached = true;
-        } catch (error) {
-          console.warn("Required document upload failed", error);
-        }
-      }
-      const attachedFiles = normalizeAttachments(next.attachments);
-      if (attachedFiles.length) {
-        next.attachments = await Promise.all(
-          attachedFiles.map(async (attachment) => {
-            if (!isInlineDataUrl(attachment.dataUrl)) return attachment;
-            try {
-              return {
-                ...attachment,
-                dataUrl: await uploadInlineDataUrlToStorage(
-                  attachment.dataUrl,
-                  attachment.name,
-                  attachment.type,
-                  folder,
-                ),
-              };
-            } catch (error) {
-              console.warn("Required document nested attachment upload failed", error);
-              return attachment;
-            }
-          }),
-        );
-      }
-      return next;
-    }),
-  );
-};
-
 const normalizeStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
 
 const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
   if (!value || typeof value !== "object") return null;
+  const asphaltTopFields = {
+    ...extractAsphaltTopFieldsFromAudit(value),
+    ...pickAsphaltTopFields(value),
+  };
   return {
     id: String(value.id ?? crypto.randomUUID()),
     projectId: String(value.projectId ?? value.project_id ?? ""),
@@ -912,6 +889,7 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
+    ...asphaltTopFields,
   };
 };
 
@@ -937,6 +915,12 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
       by: "system",
       at: nowIso(),
       note: JSON.stringify(normalizeReferenceResults(record.referenceResults)),
+    },
+    {
+      action: ASPHALT_TOP_FIELDS_AUDIT_ACTION,
+      by: "system",
+      at: nowIso(),
+      note: JSON.stringify(pickAsphaltTopFields(record)),
     },
   ],
   approval: record.approval,
@@ -7468,7 +7452,7 @@ function ControlProcessesSection({
         const { data } = supabase.storage
           .from("attachments")
           .getPublicUrl(filePath);
-        applyAttachment(data.publicUrl, true);
+        applyAttachment(data.publicUrl);
         const parsedCount = await autoFillReferenceResultsFromFile(file);
         askToSaveReferenceCertificate(
           parsedCount
@@ -10743,14 +10727,6 @@ export default function Page() {
     const id = editingControlProcessId ?? crypto.randomUUID();
     const nextStatus: ControlProcessStatus =
       controlProcessForm.status === "נעול" ? "נעול" : controlProcessForm.status;
-    const requiredDocumentsForSave = await uploadRequiredDocumentsForCloud(
-      normalizeRequiredDocuments(controlProcessForm.requiredDocuments),
-      id,
-    );
-    setControlProcessForm((prev: any) => ({
-      ...prev,
-      requiredDocuments: requiredDocumentsForSave,
-    }));
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
@@ -10760,7 +10736,10 @@ export default function Page() {
       specSection: String(controlProcessForm.specSection ?? ""),
       location: controlProcessLayer,
       ...(isAsphaltReference(controlProcessForm.workType)
-        ? { asphaltLayer: controlProcessLayer }
+        ? {
+            ...pickAsphaltTopFields(controlProcessForm),
+            asphaltLayer: controlProcessLayer,
+          }
         : {}),
       fromSection: String(controlProcessForm.fromSection ?? ""),
       toSection: String(controlProcessForm.toSection ?? ""),
@@ -10770,7 +10749,9 @@ export default function Page() {
       nonconformanceIds: normalizeStringArray(
         controlProcessForm.nonconformanceIds,
       ),
-      requiredDocuments: requiredDocumentsForSave,
+      requiredDocuments: normalizeRequiredDocuments(
+        controlProcessForm.requiredDocuments,
+      ),
       referenceResults: ensureReferenceResultsForMaterial(
         controlProcessForm.workType,
         controlProcessForm.referenceResults,
@@ -10812,6 +10793,15 @@ export default function Page() {
           : [record, ...prev],
       );
     });
+    setEditingControlProcessId(id);
+    setControlProcessForm((prev: any) => ({
+      ...prev,
+      ...pickAsphaltTopFields(record),
+      processNo: record.processNo,
+      status: record.status,
+      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      referenceResults: ensureReferenceResultsForMaterial(record.workType, record.referenceResults),
+    }));
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
@@ -10829,6 +10819,7 @@ export default function Page() {
       checklistIds: record.checklistIds,
       rfiIds: record.rfiIds,
       nonconformanceIds: record.nonconformanceIds,
+      ...pickAsphaltTopFields(record),
       requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
       referenceResults: ensureReferenceResultsForMaterial(
         record.workType,
@@ -12147,7 +12138,7 @@ export default function Page() {
     return `<h2>תוצאות הזמנה מפורטות</h2><table><thead><tr><th>מדד תוצאה</th><th>ערך תוצאה</th><th>סטטוס איכות</th><th>ערך מינימלי</th><th>ערך מקסימלי</th><th>סטייה מותרת</th></tr></thead><tbody>${rows
       .map(
         (row) =>
-          `<tr><td>${safeText(row.metric)}</td><td>${safeText(row.resultValue)}</td><td>${safeText(row.qualityStatus)}</td><td>${safeText(row.minValue)}</td><td>${safeText(row.maxValue)}</td></tr>`,
+          `<tr><td>${safeText(row.metric)}</td><td>${safeText(row.resultValue)}</td><td>${safeText(row.qualityStatus)}</td><td>${safeText(row.minValue)}</td><td>${safeText(row.maxValue)}</td><td>${safeText((row as any).allowedDeviation ?? "")}</td></tr>`,
       )
       .join("")}</tbody></table>`;
   };
