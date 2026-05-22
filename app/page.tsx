@@ -4640,6 +4640,21 @@ function getChecklistDisplayLocation(record: any) {
   );
 }
 
+function getChecklistDisplayLayer(record: any) {
+  return (
+    record?.stationSection ||
+    record?.layerNo ||
+    record?.layerNumber ||
+    record?.layer ||
+    record?.details?.stationSection ||
+    record?.details?.station_section ||
+    record?.details?.layerNo ||
+    record?.details?.layerNumber ||
+    record?.details?.layer ||
+    ""
+  );
+}
+
 function normalizeDateValue(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -13135,6 +13150,7 @@ ${invalidRecipients.join("\n")}`);
                   { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
+                  { label: "מס׳ שכבה", value: (record) => getChecklistDisplayLayer(record) },
                   { label: "מיקום", value: (record) => getChecklistDisplayLocation(record) },
                   { label: "תאריך", value: (record) => getRecordDate(record) },
                   { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
