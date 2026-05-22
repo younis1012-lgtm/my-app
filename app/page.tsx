@@ -1630,9 +1630,16 @@ const projectMatchesAccess = (
 
 const normalizeHebrewProjectName = (value: unknown) =>
   String(value ?? "")
-    .replace(/[׳`’']/g, "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[׳`’'"״]/g, "")
+    .replace(/V\s*\.?\s*M\s*\.?\s*A/gi, "VMA")
+    .replace(/וואקום/g, "ואקום")
+    .replace(/ואקום/g, "וואקום")
+    .replace(/אחוז\s+חללים/g, "אחוז חלל")
+    .replace(/אחוז\s+חלל/g, "אחוז חלל")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .toLowerCase();
 
 const getProjectProfile = (
   projectName: unknown,
@@ -6564,11 +6571,25 @@ const upsertParsedReferenceMetric = (
 ): ReferenceResultRow[] => {
   const clean = String(value ?? "").trim();
   if (!clean) return rows;
-  const normalizedAliases = aliases.map((alias) => normalizeHebrewProjectName(alias));
+  const normalizedAliases = aliases
+    .map((alias) => normalizeHebrewProjectName(alias))
+    .filter(Boolean);
+  const compact = (value: string) => value.replace(/[\s.\-/]+/g, "");
   let found = false;
   const next = rows.map((row) => {
     const metric = normalizeHebrewProjectName(row.metric);
-    const match = normalizedAliases.some((alias) => metric === alias || metric.includes(alias) || alias.includes(metric));
+    const metricCompact = compact(metric);
+    const match = normalizedAliases.some((alias) => {
+      const aliasCompact = compact(alias);
+      return (
+        metric === alias ||
+        metric.includes(alias) ||
+        alias.includes(metric) ||
+        metricCompact === aliasCompact ||
+        metricCompact.includes(aliasCompact) ||
+        aliasCompact.includes(metricCompact)
+      );
+    });
     if (!match) return row;
     found = true;
     return applyReferenceQualityStatus({ ...row, resultValue: clean });
@@ -6691,8 +6712,8 @@ const applyAsphaltJmfFallbackFromText = (
     cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
 
   const isTaatz25Vacuum =
-    /תא["״']?צ\s*25/i.test(text) &&
-    /מערכת\s+מרשל\s+בשיטת\s+ואקום/i.test(text);
+    /תא\s*["״']?\s*צ\s*25|תאצ\s*25/i.test(text) &&
+    /מערכת\s+מרשל\s+בשיטת\s+ו?אקום|מרשל\s+בשיטת\s+ו?אקום/i.test(text);
 
   // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
   // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
@@ -6719,14 +6740,14 @@ const applyAsphaltJmfFallbackFromText = (
     set(["#80", "80#"], "9");
     set(["#200", "200#"], "5.5");
 
-    set(["תכולת ביטומן"], "4.4");
-    set(["יחס מלאן - ביטומן"], "1.25");
-    set(["צפיפות בשיטת וואקום"], "2324");
+    set(["תכולת ביטומן", "ביטומן"], "4.4");
+    set(["יחס מלאן - ביטומן", "יחס מלאן", "F/B", "FB"], "1.25");
+    set(["צפיפות בשיטת וואקום", "צפיפות בשיטת ואקום", "צפיפות"], "2324");
     set(["יציבות"], "2830");
     set(["נזילות"], "13.1");
     set(["חוזק משתייר"], "87");
-    set(["אחוז חלל"], "5.0");
-    set(["V.M.A", "VMA"], "15.9");
+    set(["אחוז חלל", "חלל", "אחוז חללים"], "5.0");
+    set(["V.M.A", "VMA", "V M A"], "15.9");
     set(["צפיפות בשיטת ריפ"], "");
     set(["התנגדות"], "");
     set(["שחיקה קנטברו"], "");
@@ -7148,6 +7169,9 @@ function ControlProcessesSection({
       try {
         const text = await extractTextFromReferenceFile(file);
         parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
+        if (isAsphaltReference(selectedMaterial)) {
+          parsedRows = applyAsphaltJmfFallbackFromText(parsedRows.length ? parsedRows : ensureReferenceResultsForMaterial(selectedMaterial, []), text);
+        }
       } catch (error) {
         console.warn("Reference certificate text parsing failed", error);
       }
@@ -7171,41 +7195,54 @@ function ControlProcessesSection({
           ...(isAsphaltReference(prev.workType)
             ? {
               asphaltMixType: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("סוג תערובת")))?.resultValue,
                 prev.asphaltMixType,
               ),
               labCertificateNo: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("מספר דגימה"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("מספר דגימה")) || normalizeHebrewProjectName("מספר דגימה").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.labCertificateNo,
               ),
               optimumBitumen: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("תכולת ביטומן")) || normalizeHebrewProjectName("תכולת ביטומן").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.optimumBitumen,
               ),
               referenceDensity: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("צפיפות בשיטת וואקום")) || normalizeHebrewProjectName("צפיפות בשיטת וואקום").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.referenceDensity,
               ),
               airVoids: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("אחוז חלל")) || normalizeHebrewProjectName("אחוז חלל").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.airVoids,
               ),
               stability: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("יציבות")) || normalizeHebrewProjectName("יציבות").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.stability,
               ),
               flow: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("נזילות")) || normalizeHebrewProjectName("נזילות").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.flow,
               ),
               vma: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("V.M.A")) || normalizeHebrewProjectName("V.M.A").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
                 prev.vma,
               ),
             }
             : {}),
           referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
-            const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
+            const rowMetric = normalizeHebrewProjectName(row.metric);
+            const rowCompact = rowMetric.replace(/[\s.\-/]+/g, "");
+            const parsed = parsedRows.find((item) => {
+              const parsedMetric = normalizeHebrewProjectName(item.metric);
+              const parsedCompact = parsedMetric.replace(/[\s.\-/]+/g, "");
+              return (
+                parsedMetric === rowMetric ||
+                parsedMetric.includes(rowMetric) ||
+                rowMetric.includes(parsedMetric) ||
+                parsedCompact === rowCompact ||
+                parsedCompact.includes(rowCompact) ||
+                rowCompact.includes(parsedCompact)
+              );
+            });
             return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
           }),
         }));
