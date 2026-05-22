@@ -2368,7 +2368,10 @@ const isStorageBucketMissingError = (error: unknown) => {
   return text.includes("bucket not found") || text.includes("storage bucket not found");
 };
 const shouldIgnoreCloudError = (error: unknown) =>
-  /relation .* does not exist/i.test(errorText(error));
+  /relation .* does not exist/i.test(errorText(error)) ||
+  errorText(error).includes("57014") ||
+  errorText(error).toLowerCase().includes("statement timeout") ||
+  errorText(error).toLowerCase().includes("canceling statement due to statement timeout");
 const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE || table === SUPERVISION_REPORTS_TABLE;
 const readLocalCurrentProjectId = () => {
@@ -7239,6 +7242,19 @@ function ControlProcessesSection({
         attachmentType: file.type,
         required: false,
       });
+
+    try {
+      const localDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ""));
+        reader.onerror = () => reject(new Error("לא ניתן לקרוא את הקובץ שנבחר"));
+        reader.readAsDataURL(file);
+      });
+      applyAttachment(localDataUrl);
+    } catch (error) {
+      alert(errorText(error) || "לא ניתן לקרוא את הקובץ שנבחר");
+      return;
+    }
 
     if (isSupabaseConfigured && supabase) {
       try {
