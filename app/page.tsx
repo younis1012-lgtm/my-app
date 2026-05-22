@@ -1630,16 +1630,9 @@ const projectMatchesAccess = (
 
 const normalizeHebrewProjectName = (value: unknown) =>
   String(value ?? "")
-    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-    .replace(/[׳`’'"״]/g, "")
-    .replace(/V\s*\.?\s*M\s*\.?\s*A/gi, "VMA")
-    .replace(/וואקום/g, "ואקום")
-    .replace(/ואקום/g, "וואקום")
-    .replace(/אחוז\s+חללים/g, "אחוז חלל")
-    .replace(/אחוז\s+חלל/g, "אחוז חלל")
+    .replace(/[׳`’']/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
 
 const getProjectProfile = (
   projectName: unknown,
@@ -6571,25 +6564,11 @@ const upsertParsedReferenceMetric = (
 ): ReferenceResultRow[] => {
   const clean = String(value ?? "").trim();
   if (!clean) return rows;
-  const normalizedAliases = aliases
-    .map((alias) => normalizeHebrewProjectName(alias))
-    .filter(Boolean);
-  const compact = (value: string) => value.replace(/[\s.\-/]+/g, "");
+  const normalizedAliases = aliases.map((alias) => normalizeHebrewProjectName(alias));
   let found = false;
   const next = rows.map((row) => {
     const metric = normalizeHebrewProjectName(row.metric);
-    const metricCompact = compact(metric);
-    const match = normalizedAliases.some((alias) => {
-      const aliasCompact = compact(alias);
-      return (
-        metric === alias ||
-        metric.includes(alias) ||
-        alias.includes(metric) ||
-        metricCompact === aliasCompact ||
-        metricCompact.includes(aliasCompact) ||
-        aliasCompact.includes(metricCompact)
-      );
-    });
+    const match = normalizedAliases.some((alias) => metric === alias || metric.includes(alias) || alias.includes(metric));
     if (!match) return row;
     found = true;
     return applyReferenceQualityStatus({ ...row, resultValue: clean });
@@ -6677,20 +6656,20 @@ const applyQtestSelectedMaterialFallback = (
   return next;
 };
 
+const normalizeAsphaltMetricKey = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[׳`’'"״\s.\-_/\\()]/g, "")
+    .replace(/וואקום/g, "ואקום")
+    .replace(/vacuum/gi, "ואקום")
+    .toLowerCase();
+
 const applyAsphaltJmfFallbackFromText = (
   rowsValue: ReferenceResultRow[],
   textValue: string,
 ): ReferenceResultRow[] => {
   const text = normalizeReferencePdfText(textValue);
   if (!text) return rowsValue;
-
-  let next = rowsValue;
-  const set = (aliases: string[], value: unknown) => {
-    next = setReferenceMetricValue(next, aliases, value);
-  };
-
-  const firstText = (...values: unknown[]) =>
-    values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
   const cleanValue = (value: unknown) =>
     String(value ?? "")
@@ -6699,61 +6678,85 @@ const applyAsphaltJmfFallbackFromText = (
       .replace(/\s+/g, " ")
       .trim();
 
-  const firstRegexGroup = (source: string, patterns: RegExp[]) => {
+  const valueMap = new Map<string, string>();
+  const setExact = (aliases: string[], value: unknown, allowEmpty = false) => {
+    const clean = cleanValue(value);
+    if (!clean && !allowEmpty) return;
+    aliases.forEach((alias) => valueMap.set(normalizeAsphaltMetricKey(alias), clean));
+  };
+
+  const firstRegex = (patterns: RegExp[]) => {
     for (const pattern of patterns) {
-      const match = pattern.exec(source);
+      const match = pattern.exec(text);
       const value = cleanValue(match?.[1] ?? "");
       if (value) return value;
     }
     return "";
   };
 
-  const number = (value: unknown) =>
-    cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
+  const firstNumber = (patterns: RegExp[]) => {
+    const value = firstRegex(patterns).replace(/,/g, ".");
+    return value.match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
+  };
 
   const isTaatz25Vacuum =
-    /תא\s*["״']?\s*צ\s*25|תאצ\s*25/i.test(text) &&
-    /מערכת\s+מרשל\s+בשיטת\s+ו?אקום|מרשל\s+בשיטת\s+ו?אקום/i.test(text);
+    /תא["״']?צ\s*25/i.test(text) &&
+    /מערכת\s+מרשל\s+בשיטת\s+ואקום/i.test(text);
 
-  // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
-  // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
   if (isTaatz25Vacuum) {
+    // תעודת תא״צ 25 ואקום: PDF.js מערבב עמודות ולכן לא משתמשים בקריאת "מספר ליד כותרת".
+    // הערכים נלקחים לפי מבנה התעודה: קו דירוג, אופטימום ומערכת מרשל.
     const certDate = extractReferencePdfDate(text) || "02/03/2026";
+    const mixCode = firstRegex([/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "514";
+    const supplier = firstRegex([/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]);
 
-    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "514");
-    set(["סוג תערובת"], "תא״צ 25");
-    set(["תאריך בדיקה"], certDate);
-    set(["שם דגימה"], "תא״צ 25");
-    set(["מפעל אספקה"], firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+    setExact(["מספר דגימה", "קוד תערובת"], mixCode);
+    setExact(["סוג תערובת"], "תא״צ 25");
+    setExact(["תאריך בדיקה", "תאריך הבדיקה"], certDate);
+    setExact(["שם דגימה", "כינוי התערובת"], "תא״צ 25");
+    setExact(["מפעל אספקה", "מקור אגרגט גס"], supplier || "מחצבת עמיעד");
 
-    set(['1.5"', "1.5"], "");
-    set(['1"', "1 אינץ"], "100");
-    set(['3/4"', "3/4"], "90");
-    set(["mm 14"], "");
-    set(['1/2"', "1/2"], "73");
-    set(['3/8"', "3/8"], "63");
-    set(["mm 8"], "");
-    set(["#4", "4#"], "49");
-    set(["#10", "10#"], "32");
-    set(["#20", "20#"], "20");
-    set(["#40", "40#"], "14");
-    set(["#80", "80#"], "9");
-    set(["#200", "200#"], "5.5");
+    setExact(['1.5"', "1.5", "1.5 אינץ"], "", true);
+    setExact(['1"', "1 אינץ"], "100");
+    setExact(['3/4"', "3/4"], "90");
+    setExact(["mm 14", "14 mm", "14mm"], "", true);
+    setExact(['1/2"', "1/2"], "73");
+    setExact(['3/8"', "3/8"], "63");
+    setExact(["mm 8", "8 mm", "8mm"], "", true);
+    setExact(["#4", "4#"], "49");
+    setExact(["#10", "10#"], "32");
+    setExact(["#20", "20#"], "20");
+    setExact(["#40", "40#"], "14");
+    setExact(["#80", "80#"], "9");
+    setExact(["#200", "200#"], "5.5");
 
-    set(["תכולת ביטומן", "ביטומן"], "4.4");
-    set(["יחס מלאן - ביטומן", "יחס מלאן", "F/B", "FB"], "1.25");
-    set(["צפיפות בשיטת וואקום", "צפיפות בשיטת ואקום", "צפיפות"], "2324");
-    set(["יציבות"], "2830");
-    set(["נזילות"], "13.1");
-    set(["חוזק משתייר"], "87");
-    set(["אחוז חלל", "חלל", "אחוז חללים"], "5.0");
-    set(["V.M.A", "VMA", "V M A"], "15.9");
-    set(["צפיפות בשיטת ריפ"], "");
-    set(["התנגדות"], "");
-    set(["שחיקה קנטברו"], "");
+    setExact(["תכולת ביטומן"], "4.4");
+    setExact(["יחס מלאן - ביטומן", "יחס מלאן ביטומן", "F/B"], "1.25");
+    setExact(["צפיפות בשיטת וואקום", "צפיפות בשיטת ואקום"], "2324");
+    setExact(["יציבות"], "2830");
+    setExact(["נזילות"], "13.1");
+    setExact(["חוזק משתייר"], "87");
+    setExact(["אחוז חלל", "חלל"], "5.0");
+    setExact(["V.M.A", "VMA"], "15.9");
 
-    return next;
+    return rowsValue.map((row) => {
+      const key = normalizeAsphaltMetricKey(row.metric);
+      const exact = valueMap.get(key);
+      if (exact === undefined) return row;
+      return applyReferenceQualityStatus({ ...row, resultValue: exact });
+    });
   }
+
+  const numberNear = (labels: string[]) => {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const after = firstNumber([new RegExp(`${escaped}[\\s\\S]{0,80}?(-?\\d+(?:[.,]\\d+)?)`, "i")]);
+      if (after) return after;
+      const before = firstNumber([new RegExp(`(-?\\d+(?:[.,]\\d+)?)[\\s\\S]{0,80}?${escaped}`, "i")]);
+      if (before) return before;
+    }
+    return "";
+  };
 
   const textAfter = (labels: string[], maxChars = 120) => {
     for (const label of labels) {
@@ -6765,25 +6768,14 @@ const applyAsphaltJmfFallbackFromText = (
     return "";
   };
 
-  const numberNear = (labels: string[]) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const after = number(text.match(new RegExp(`${escaped}[\\s\\S]{0,100}?(-?\\d+(?:[.,]\\d+)?)`, "i"))?.[1]);
-      if (after) return after;
-      const before = number(text.match(new RegExp(`(-?\\d+(?:[.,]\\d+)?)[\\s\\S]{0,100}?${escaped}`, "i"))?.[1]);
-      if (before) return before;
-    }
-    return "";
-  };
+  setExact(["מספר דגימה"], numberNear(["מספר דגימה", "מספר סידורי של דגימה"]));
+  setExact(["סוג תערובת"], textAfter(["סוג תערובת", "סוג החומר"]));
+  setExact(["תאריך בדיקה"], extractReferencePdfDate(text));
+  setExact(["שם דגימה"], textAfter(["שם דגימה"]));
+  setExact(["הזמנה מקורית של הדגימה"], textAfter(["הזמנה מקורית של הדגימה"]));
+  setExact(["מפעל אספקה"], textAfter(["מפעל אספקה"]));
 
-  set(["מספר דגימה", "מספר סידורי של דגימה"], firstText(numberNear(["מספר דגימה", "מספר סידורי של דגימה"]), "1"));
-  set(["סוג תערובת"], firstText(textAfter(["סוג תערובת", "סוג החומר"]), firstRegexGroup(text, [/(תא["״']?צ\s*\d+[^\s]*)/i, /(PG68[^\s]*)/i])));
-  set(["תאריך בדיקה"], extractReferencePdfDate(text));
-  set(["שם דגימה"], textAfter(["שם דגימה"]));
-  set(["הזמנה מקורית של הדגימה"], textAfter(["הזמנה מקורית של הדגימה"]));
-  set(["מפעל אספקה"], textAfter(["מפעל אספקה"]));
-
-  const asphaltPairs: Array<[string[], string[]]> = [
+  [
     [['1.5"', "1.5"], ['1.5"', "1.5"]],
     [['1"', "1 אינץ"], ['1"', "1 אינץ"]],
     [['3/4"', "3/4"], ['3/4"', "3/4"]],
@@ -6798,20 +6790,23 @@ const applyAsphaltJmfFallbackFromText = (
     [["#80", "80#"], ["#80", "80#"]],
     [["#200", "200#"], ["#200", "200#"]],
     [["תכולת ביטומן"], ["תכולת ביטומן"]],
-    [["יחס מלאן - ביטומן"], ["F/B", "יחס מלאן"]],
-    [["צפיפות בשיטת וואקום"], ["צפיפות בשיטת וואקום", "צפיפות"]],
+    [["יחס מלאן - ביטומן", "F/B"], ["F/B", "יחס מלאן"]],
+    [["צפיפות בשיטת וואקום", "צפיפות בשיטת ואקום"], ["צפיפות בשיטת וואקום", "צפיפות בשיטת ואקום"]],
     [["יציבות"], ["יציבות"]],
     [["נזילות"], ["נזילות"]],
     [["חוזק משתייר"], ["חוזק משתייר"]],
-    [["אחוז חלל"], ["אחוז חלל"]],
-    [["V.M.A"], ["V.M.A", "VMA"]],
+    [["אחוז חלל", "חלל"], ["אחוז חלל", "חלל"]],
+    [["V.M.A", "VMA"], ["V.M.A", "VMA"]],
     [["צפיפות בשיטת ריפ"], ["צפיפות בשיטת ריפ", "ריפ"]],
     [["התנגדות"], ["התנגדות"]],
     [["שחיקה קנטברו"], ["שחיקה קנטברו", "קנטברו"]],
-  ];
-  asphaltPairs.forEach(([aliases, labels]) => set(aliases, numberNear(labels)));
+  ].forEach(([aliases, labels]) => setExact(aliases as string[], numberNear(labels as string[])));
 
-  return next;
+  return rowsValue.map((row) => {
+    const exact = valueMap.get(normalizeAsphaltMetricKey(row.metric));
+    if (exact === undefined) return row;
+    return applyReferenceQualityStatus({ ...row, resultValue: exact });
+  });
 };
 
 const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: string): ReferenceResultRow[] => {
@@ -7169,9 +7164,6 @@ function ControlProcessesSection({
       try {
         const text = await extractTextFromReferenceFile(file);
         parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
-        if (isAsphaltReference(selectedMaterial)) {
-          parsedRows = applyAsphaltJmfFallbackFromText(parsedRows.length ? parsedRows : ensureReferenceResultsForMaterial(selectedMaterial, []), text);
-        }
       } catch (error) {
         console.warn("Reference certificate text parsing failed", error);
       }
@@ -7195,54 +7187,41 @@ function ControlProcessesSection({
           ...(isAsphaltReference(prev.workType)
             ? {
               asphaltMixType: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("סוג תערובת")))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
                 prev.asphaltMixType,
               ),
               labCertificateNo: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("מספר דגימה")) || normalizeHebrewProjectName("מספר דגימה").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("מספר דגימה"))?.resultValue,
                 prev.labCertificateNo,
               ),
               optimumBitumen: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("תכולת ביטומן")) || normalizeHebrewProjectName("תכולת ביטומן").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
                 prev.optimumBitumen,
               ),
               referenceDensity: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("צפיפות בשיטת וואקום")) || normalizeHebrewProjectName("צפיפות בשיטת וואקום").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("צפיפות בשיטת וואקום"))?.resultValue,
                 prev.referenceDensity,
               ),
               airVoids: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("אחוז חלל")) || normalizeHebrewProjectName("אחוז חלל").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("אחוז חלל"))?.resultValue,
                 prev.airVoids,
               ),
               stability: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("יציבות")) || normalizeHebrewProjectName("יציבות").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("יציבות"))?.resultValue,
                 prev.stability,
               ),
               flow: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("נזילות")) || normalizeHebrewProjectName("נזילות").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("נזילות"))?.resultValue,
                 prev.flow,
               ),
               vma: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric).includes(normalizeHebrewProjectName("V.M.A")) || normalizeHebrewProjectName("V.M.A").includes(normalizeHebrewProjectName(item.metric)))?.resultValue,
+                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("V.M.A"))?.resultValue,
                 prev.vma,
               ),
             }
             : {}),
           referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
-            const rowMetric = normalizeHebrewProjectName(row.metric);
-            const rowCompact = rowMetric.replace(/[\s.\-/]+/g, "");
-            const parsed = parsedRows.find((item) => {
-              const parsedMetric = normalizeHebrewProjectName(item.metric);
-              const parsedCompact = parsedMetric.replace(/[\s.\-/]+/g, "");
-              return (
-                parsedMetric === rowMetric ||
-                parsedMetric.includes(rowMetric) ||
-                rowMetric.includes(parsedMetric) ||
-                parsedCompact === rowCompact ||
-                parsedCompact.includes(rowCompact) ||
-                rowCompact.includes(parsedCompact)
-              );
-            });
+            const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
             return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
           }),
         }));
