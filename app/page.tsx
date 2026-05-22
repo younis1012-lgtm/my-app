@@ -6679,6 +6679,8 @@ const applyAsphaltJmfFallbackFromText = (
     }
     return "";
   };
+  const firstText = (...values: unknown[]) =>
+    values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
   set(["מספר דגימה", "מספר סידורי של דגימה"], firstText(numberNear(["מספר דגימה", "מספר סידורי של דגימה"]), "1"));
   set(["סוג תערובת"], firstText(textAfter(["סוג תערובת", "סוג החומר"]), firstRegexGroup(text, [/(תא["״']?צ\s*\d+[^\s]*)/i, /(PG68[^\s]*)/i])));
@@ -7496,8 +7498,14 @@ function ControlProcessesSection({
               שכבה
               <input
                 disabled={readOnly}
-                value={form.asphaltLayer ?? ""}
-                onChange={(e) => setField("asphaltLayer", e.target.value)}
+                value={form.asphaltLayer ?? form.location ?? ""}
+                onChange={(e) =>
+                  setForm((prev: any) => ({
+                    ...prev,
+                    asphaltLayer: e.target.value,
+                    location: e.target.value,
+                  }))
+                }
                 placeholder="עליונה / מקשרת / תחתונה"
                 style={inputStyle}
               />
@@ -10501,7 +10509,10 @@ export default function Page() {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     if (!String(controlProcessForm.title ?? "").trim())
       return alert("יש להזין שם תהליך בקרה");
-    if (!String(controlProcessForm.location ?? "").trim())
+    const controlProcessLayer = isAsphaltReference(controlProcessForm.workType)
+      ? String((controlProcessForm as any).asphaltLayer ?? controlProcessForm.location ?? "").trim()
+      : String(controlProcessForm.location ?? "").trim();
+    if (!controlProcessLayer)
       return alert("יש להזין מס׳ שכבה");
     const actor =
       projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
@@ -10520,7 +10531,10 @@ export default function Page() {
       title: String(controlProcessForm.title ?? ""),
       workType: String(controlProcessForm.workType ?? ""),
       specSection: String(controlProcessForm.specSection ?? ""),
-      location: String(controlProcessForm.location ?? ""),
+      location: controlProcessLayer,
+      ...(isAsphaltReference(controlProcessForm.workType)
+        ? { asphaltLayer: controlProcessLayer }
+        : {}),
       fromSection: String(controlProcessForm.fromSection ?? ""),
       toSection: String(controlProcessForm.toSection ?? ""),
       status: nextStatus,
