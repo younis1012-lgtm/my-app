@@ -2372,6 +2372,18 @@ async function selectTable(table: string, orderColumn?: string) {
   return ordered;
 }
 
+function cloudRowsOrFallback<T = any>(
+  result: { data?: T[] | null; error?: unknown } | null | undefined,
+  fallback: T[] = [],
+) {
+  if (!result) return fallback;
+  if (result.error && !shouldIgnoreCloudError(result.error)) {
+    console.warn("Cloud table load failed; keeping available data.", result.error);
+    return fallback;
+  }
+  return result.data ?? fallback;
+}
+
 async function saveWithApprovalFallback(
   table: string,
   payload: Record<string, any>,
@@ -8810,30 +8822,28 @@ export default function Page() {
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
           selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
         ]);
-        const fatal = [
-          projectsRes.error,
-          checklistsRes.error,
-          nonconRes.error,
-          trialsRes.error,
-          prelimRes.error,
-          rfiRes.error,
-          controlRes.error,
-          supervisionRes.error,
-        ].filter((item) => item && !shouldIgnoreCloudError(item));
-        if (fatal.length) throw fatal[0];
         loadFromCloudResults(
-          projectsRes.data,
-          checklistsRes.data,
-          nonconRes.data,
-          trialsRes.data,
-          prelimRes.data,
-          rfiRes.data,
-          controlRes.data,
-          supervisionRes.data,
+          cloudRowsOrFallback(projectsRes, projects),
+          cloudRowsOrFallback(checklistsRes, savedChecklists),
+          cloudRowsOrFallback(nonconRes, savedNonconformances),
+          cloudRowsOrFallback(trialsRes, savedTrialSections),
+          cloudRowsOrFallback(prelimRes, savedPreliminary),
+          cloudRowsOrFallback(rfiRes, savedRfis),
+          cloudRowsOrFallback(controlRes, savedControlProcesses),
+          cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
         );
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
-        loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
+        const beforeLocalFallback =
+          savedChecklists.length ||
+          savedNonconformances.length ||
+          savedTrialSections.length ||
+          savedPreliminary.length ||
+          savedRfis.length ||
+          savedControlProcesses.length ||
+          savedSupervisionReports.length;
+        if (!beforeLocalFallback)
+          loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
       } finally {
         setLoaded(true);
       }
@@ -8905,26 +8915,15 @@ export default function Page() {
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
       selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
     ]);
-    const fatal = [
-      projectsRes.error,
-      checklistsRes.error,
-      nonconRes.error,
-      trialsRes.error,
-      prelimRes.error,
-      rfiRes.error,
-      controlRes.error,
-      supervisionRes.error,
-    ].filter((item) => item && !shouldIgnoreCloudError(item));
-    if (fatal.length) throw fatal[0];
     loadFromCloudResults(
-      projectsRes.data,
-      checklistsRes.data,
-      nonconRes.data,
-      trialsRes.data,
-      prelimRes.data,
-      rfiRes.data,
-      controlRes.data,
-      supervisionRes.data,
+      cloudRowsOrFallback(projectsRes, projects),
+      cloudRowsOrFallback(checklistsRes, savedChecklists),
+      cloudRowsOrFallback(nonconRes, savedNonconformances),
+      cloudRowsOrFallback(trialsRes, savedTrialSections),
+      cloudRowsOrFallback(prelimRes, savedPreliminary),
+      cloudRowsOrFallback(rfiRes, savedRfis),
+      cloudRowsOrFallback(controlRes, savedControlProcesses),
+      cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
     );
   };
 
