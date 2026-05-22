@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
   ApprovalFlow,
@@ -7098,10 +7099,11 @@ function ControlProcessesSection({
         );
         if (!shouldMerge) return 0;
       }
-      setForm((prev: any) => ({
-        ...prev,
-        ...(isAsphaltReference(prev.workType)
-          ? {
+      flushSync(() => {
+        setForm((prev: any) => ({
+          ...prev,
+          ...(isAsphaltReference(prev.workType)
+            ? {
               asphaltMixType: firstText(
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
                 prev.asphaltMixType,
@@ -7135,12 +7137,13 @@ function ControlProcessesSection({
                 prev.vma,
               ),
             }
-          : {}),
-        referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
-          const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
-          return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
-        }),
-      }));
+            : {}),
+          referenceResults: ensureReferenceResultsForMaterial(prev.workType, prev.referenceResults).map((row) => {
+            const parsed = parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric));
+            return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
+          }),
+        }));
+      });
       alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`);
       return filledRows.length;
     } catch (error) {
@@ -7216,14 +7219,17 @@ function ControlProcessesSection({
     }));
   };
 
-  const updateDocument = (id: string, patch: Partial<RequiredDocument>) => {
+  const updateDocument = (id: string, patch: Partial<RequiredDocument>, sync = false) => {
     if (readOnly) return;
-    setForm((prev: any) => ({
-      ...prev,
-      requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).map(
-        (doc) => (doc.id === id ? { ...doc, ...patch } : doc),
-      ),
-    }));
+    const applyUpdate = () =>
+      setForm((prev: any) => ({
+        ...prev,
+        requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).map(
+          (doc) => (doc.id === id ? { ...doc, ...patch } : doc),
+        ),
+      }));
+    if (sync) flushSync(applyUpdate);
+    else applyUpdate();
   };
   const attachDocument = async (id: string, file?: File) => {
     if (!file || readOnly) return;
@@ -7233,7 +7239,7 @@ function ControlProcessesSection({
       return;
     }
 
-    const applyAttachment = (dataUrl: string) =>
+    const applyAttachment = (dataUrl: string, sync = false) =>
       updateDocument(id, {
         attached: true,
         attachmentName: file.name,
@@ -7241,7 +7247,7 @@ function ControlProcessesSection({
         attachmentDataUrl: dataUrl,
         attachmentType: file.type,
         required: false,
-      });
+      }, sync);
 
     try {
       const localDataUrl = await new Promise<string>((resolve, reject) => {
@@ -7250,7 +7256,7 @@ function ControlProcessesSection({
         reader.onerror = () => reject(new Error("לא ניתן לקרוא את הקובץ שנבחר"));
         reader.readAsDataURL(file);
       });
-      applyAttachment(localDataUrl);
+      applyAttachment(localDataUrl, true);
     } catch (error) {
       alert(errorText(error) || "לא ניתן לקרוא את הקובץ שנבחר");
       return;
