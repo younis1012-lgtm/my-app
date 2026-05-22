@@ -728,7 +728,7 @@ const createDefaultRequiredDocuments = (): RequiredDocument[] => [
 ];
 
 const createDefaultControlProcess = (
-  processNo = "REF-1",
+  processNo = "",
 ): Omit<ControlProcessRecord, "id" | "projectId" | "savedAt"> => ({
   processNo,
   title: "אישור חומר / תעודת ייחוס חדשה",
@@ -7158,10 +7158,15 @@ function ControlProcessesSection({
     ? "תוצאות JMF מפורטות - אספלט"
     : "תוצאות הזמנה מפורטות - מצע א׳";
 
-  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. לשמור עכשיו את תעודת הייחוס?") => {
+  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס.") => {
     if (typeof window === "undefined") return;
     window.setTimeout(() => {
-      if (window.confirm(message)) void onSave();
+      window.alert(
+        message
+          .replace("לשמור עכשיו את תעודת הייחוס?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
+          .replace("לשמור עכשיו?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
+          .replace("לשמור את הטופס כפי שהוא?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
+      );
     }, 120);
   };
 
@@ -7218,10 +7223,8 @@ function ControlProcessesSection({
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
                 prev.asphaltMixType,
               ),
-              labCertificateNo: firstText(
-                parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("מספר דגימה"))?.resultValue,
-                prev.labCertificateNo,
-              ),
+              // מס׳ תעודה / ר״ת נשאר ריק/ידני — לא ממלאים אוטומטית מקוד תערובת, RFI או מספר דגימה.
+              labCertificateNo: prev.labCertificateNo ?? "",
               optimumBitumen: firstText(
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
                 prev.optimumBitumen,
@@ -10244,7 +10247,7 @@ export default function Page() {
     `REF-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, "")) || 0)) + 1}`;
   const resetControlProcessForm = () => {
     setEditingControlProcessId(null);
-    setControlProcessForm(createDefaultControlProcess(nextControlProcessNo()));
+    setControlProcessForm(createDefaultControlProcess(""));
   };
   const resetRfiForm = () => {
     setEditingRfiId(null);
@@ -10666,7 +10669,7 @@ export default function Page() {
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
-      processNo: String(controlProcessForm.processNo || nextControlProcessNo()),
+      processNo: String(controlProcessForm.processNo ?? ""),
       title: String(controlProcessForm.title ?? ""),
       workType: String(controlProcessForm.workType ?? ""),
       specSection: String(controlProcessForm.specSection ?? ""),
@@ -10726,7 +10729,31 @@ export default function Page() {
           : [record, ...prev],
       );
     });
-    resetControlProcessForm();
+
+    // לא מאפסים את הטופס אחרי שמירה: המשתמש צריך לראות שהנתונים שנקלטו מה-PDF נשארו.
+    // בנוסף הופכים רשומה חדשה לרשומה בעריכה כדי ששמירה נוספת תעדכן אותה ולא תיצור כפילות.
+    setEditingControlProcessId(id);
+    setControlProcessForm((prev: any) => ({
+      ...prev,
+      processNo: record.processNo,
+      title: record.title,
+      workType: record.workType,
+      specSection: record.specSection,
+      location: record.location,
+      ...(isAsphaltReference(record.workType) ? { asphaltLayer: record.location } : {}),
+      fromSection: record.fromSection,
+      toSection: record.toSection,
+      status: record.status,
+      checklistIds: record.checklistIds,
+      rfiIds: record.rfiIds,
+      nonconformanceIds: record.nonconformanceIds,
+      requiredDocuments: record.requiredDocuments,
+      referenceResults: record.referenceResults,
+      auditTrail: record.auditTrail,
+      approval: record.approval,
+      lockedAt: record.lockedAt,
+    }));
+    alert("נשמר בהצלחה. הנתונים נשארו בטופס לבדיקה.");
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
