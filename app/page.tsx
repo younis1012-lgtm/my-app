@@ -423,6 +423,30 @@ const isAsphaltReference = (value: unknown) =>
   String(value ?? "").includes("אספלט") || String(value ?? "").includes("מרשל");
 
 const REFERENCE_RESULTS_AUDIT_ACTION = "__reference_results__";
+const ASPHALT_FORM_AUDIT_ACTION = "__asphalt_form__";
+
+const ASPHALT_FORM_FIELDS = [
+  "asphaltMixType",
+  "asphaltLayer",
+  "supplier",
+  "bitumenGrade",
+  "optimumBitumen",
+  "referenceDensity",
+  "maxTheoreticalDensity",
+  "airVoids",
+  "stability",
+  "flow",
+  "vma",
+  "labCertificateNo",
+] as const;
+
+const pickAsphaltFormFields = (value: any): Record<string, string> => {
+  const result: Record<string, string> = {};
+  ASPHALT_FORM_FIELDS.forEach((key) => {
+    result[key] = String(value?.[key] ?? "");
+  });
+  return result;
+};
 
 const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   metric: string;
@@ -691,10 +715,26 @@ const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
   }
 };
 
+const extractAsphaltFormFromAudit = (value: any): Record<string, string> => {
+  const audit = Array.isArray(value?.auditTrail ?? value?.audit_log)
+    ? (value.auditTrail ?? value.audit_log)
+    : [];
+  const entry = [...audit]
+    .reverse()
+    .find((item: any) => item?.action === ASPHALT_FORM_AUDIT_ACTION);
+  if (!entry?.note) return {};
+  try {
+    const parsed = JSON.parse(String(entry.note));
+    return pickAsphaltFormFields(parsed);
+  } catch {
+    return {};
+  }
+};
+
 const auditWithoutReferenceResults = (value: unknown): AuditEntry[] =>
   Array.isArray(value)
     ? value
-        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION)
+        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION && entry?.action !== ASPHALT_FORM_AUDIT_ACTION)
         .map((entry: any) => ({
           action: String(entry?.action ?? ""),
           by: String(entry?.by ?? ""),
@@ -728,7 +768,7 @@ const createDefaultRequiredDocuments = (): RequiredDocument[] => [
 ];
 
 const createDefaultControlProcess = (
-  processNo = "",
+  processNo = "REF-1",
 ): Omit<ControlProcessRecord, "id" | "projectId" | "savedAt"> => ({
   processNo,
   title: "אישור חומר / תעודת ייחוס חדשה",
@@ -832,6 +872,22 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
+    ...pickAsphaltFormFields({
+      ...extractAsphaltFormFromAudit(value),
+      ...value,
+      asphaltLayer: value.asphaltLayer ?? value.asphalt_layer ?? value.location ?? "",
+      asphaltMixType: value.asphaltMixType ?? value.asphalt_mix_type ?? "",
+      supplier: value.supplier ?? value.asphalt_supplier ?? "",
+      bitumenGrade: value.bitumenGrade ?? value.bitumen_grade ?? "",
+      optimumBitumen: value.optimumBitumen ?? value.optimum_bitumen ?? "",
+      referenceDensity: value.referenceDensity ?? value.reference_density ?? "",
+      maxTheoreticalDensity: value.maxTheoreticalDensity ?? value.max_theoretical_density ?? "",
+      airVoids: value.airVoids ?? value.air_voids ?? "",
+      stability: value.stability ?? "",
+      flow: value.flow ?? "",
+      vma: value.vma ?? "",
+      labCertificateNo: value.labCertificateNo ?? value.lab_certificate_no ?? "",
+    }),
   };
 };
 
@@ -857,6 +913,12 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
       by: "system",
       at: nowIso(),
       note: JSON.stringify(normalizeReferenceResults(record.referenceResults)),
+    },
+    {
+      action: ASPHALT_FORM_AUDIT_ACTION,
+      by: "system",
+      at: nowIso(),
+      note: JSON.stringify(pickAsphaltFormFields(record)),
     },
   ],
   approval: record.approval,
@@ -7158,15 +7220,10 @@ function ControlProcessesSection({
     ? "תוצאות JMF מפורטות - אספלט"
     : "תוצאות הזמנה מפורטות - מצע א׳";
 
-  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס.") => {
+  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. לשמור עכשיו את תעודת הייחוס?") => {
     if (typeof window === "undefined") return;
     window.setTimeout(() => {
-      window.alert(
-        message
-          .replace("לשמור עכשיו את תעודת הייחוס?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
-          .replace("לשמור עכשיו?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
-          .replace("לשמור את הטופס כפי שהוא?", "הנתונים נשארים בטופס. יש לבדוק ואז ללחוץ שמירה.")
-      );
+      if (window.confirm(message)) void onSave();
     }, 120);
   };
 
@@ -7223,7 +7280,7 @@ function ControlProcessesSection({
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue,
                 prev.asphaltMixType,
               ),
-              // מס׳ תעודה / ר״ת נשאר ריק/ידני — לא ממלאים אוטומטית מקוד תערובת, RFI או מספר דגימה.
+              // מס׳ תעודה / ר״ת נשאר ידני — לא ממלאים אותו אוטומטית מה-PDF או מ-RFI.
               labCertificateNo: prev.labCertificateNo ?? "",
               optimumBitumen: firstText(
                 parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName("תכולת ביטומן"))?.resultValue,
@@ -10247,7 +10304,7 @@ export default function Page() {
     `REF-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, "")) || 0)) + 1}`;
   const resetControlProcessForm = () => {
     setEditingControlProcessId(null);
-    setControlProcessForm(createDefaultControlProcess(""));
+    setControlProcessForm(createDefaultControlProcess(nextControlProcessNo()));
   };
   const resetRfiForm = () => {
     setEditingRfiId(null);
@@ -10669,13 +10726,18 @@ export default function Page() {
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
-      processNo: String(controlProcessForm.processNo ?? ""),
+      processNo: String(controlProcessForm.processNo || nextControlProcessNo()),
       title: String(controlProcessForm.title ?? ""),
       workType: String(controlProcessForm.workType ?? ""),
       specSection: String(controlProcessForm.specSection ?? ""),
       location: controlProcessLayer,
       ...(isAsphaltReference(controlProcessForm.workType)
-        ? { asphaltLayer: controlProcessLayer }
+        ? {
+            ...pickAsphaltFormFields(controlProcessForm),
+            asphaltLayer: controlProcessLayer,
+            location: controlProcessLayer,
+            labCertificateNo: String((controlProcessForm as any).labCertificateNo ?? ""),
+          }
         : {}),
       fromSection: String(controlProcessForm.fromSection ?? ""),
       toSection: String(controlProcessForm.toSection ?? ""),
@@ -10729,31 +10791,16 @@ export default function Page() {
           : [record, ...prev],
       );
     });
-
-    // לא מאפסים את הטופס אחרי שמירה: המשתמש צריך לראות שהנתונים שנקלטו מה-PDF נשארו.
-    // בנוסף הופכים רשומה חדשה לרשומה בעריכה כדי ששמירה נוספת תעדכן אותה ולא תיצור כפילות.
     setEditingControlProcessId(id);
     setControlProcessForm((prev: any) => ({
       ...prev,
-      processNo: record.processNo,
-      title: record.title,
-      workType: record.workType,
-      specSection: record.specSection,
-      location: record.location,
-      ...(isAsphaltReference(record.workType) ? { asphaltLayer: record.location } : {}),
-      fromSection: record.fromSection,
-      toSection: record.toSection,
-      status: record.status,
-      checklistIds: record.checklistIds,
-      rfiIds: record.rfiIds,
-      nonconformanceIds: record.nonconformanceIds,
-      requiredDocuments: record.requiredDocuments,
-      referenceResults: record.referenceResults,
-      auditTrail: record.auditTrail,
-      approval: record.approval,
-      lockedAt: record.lockedAt,
+      ...record,
+      ...pickAsphaltFormFields(record),
+      referenceResults: ensureReferenceResultsForMaterial(record.workType, record.referenceResults),
+      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      approval: normalizeApproval(record.approval),
     }));
-    alert("נשמר בהצלחה. הנתונים נשארו בטופס לבדיקה.");
+    alert("נשמר בהצלחה. הנתונים נשארו בטופס לבדיקה והמשך עבודה.");
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
@@ -10779,6 +10826,9 @@ export default function Page() {
       auditTrail: record.auditTrail,
       approval: normalizeApproval(record.approval),
       lockedAt: record.lockedAt,
+      ...pickAsphaltFormFields(record),
+      asphaltLayer: String((record as any).asphaltLayer ?? record.location ?? ""),
+      labCertificateNo: String((record as any).labCertificateNo ?? ""),
     });
   };
 
