@@ -499,43 +499,263 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   { metric: "מבנה", minValue: "", maxValue: "" },
 ];
 
-const ASPHALT_JMF_REFERENCE_RESULT_DEFS: Array<{
-  metric: string;
-  minValue: string;
-  maxValue: string;
-  allowedDeviation?: string;
-}> = [
+type AsphaltMixTemplate = {
+  key: string;
+  aliases: string[];
+  label: string;
+  rows: Array<{
+    metric: string;
+    minValue: string;
+    maxValue: string;
+    allowedDeviation?: string;
+  }>;
+};
+
+const ASPHALT_METADATA_ROWS: AsphaltMixTemplate["rows"] = [
   { metric: "מספר דגימה", minValue: "", maxValue: "" },
   { metric: "סוג תערובת", minValue: "", maxValue: "" },
   { metric: "תאריך בדיקה", minValue: "", maxValue: "" },
   { metric: "שם דגימה", minValue: "", maxValue: "" },
   { metric: "הזמנה מקורית של הדגימה", minValue: "", maxValue: "" },
-  { metric: '1.5"', minValue: "", maxValue: "" },
-  { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
-  { metric: '3/4"', minValue: "85", maxValue: "95", allowedDeviation: "±5" },
-  { metric: "mm 14", minValue: "", maxValue: "" },
-  { metric: '1/2"', minValue: "68", maxValue: "78", allowedDeviation: "±5" },
-  { metric: '3/8"', minValue: "58", maxValue: "68", allowedDeviation: "±5" },
-  { metric: "mm 8", minValue: "", maxValue: "" },
-  { metric: "#4", minValue: "44", maxValue: "54", allowedDeviation: "±5" },
-  { metric: "#10", minValue: "28", maxValue: "36", allowedDeviation: "±4" },
-  { metric: "#20", minValue: "16", maxValue: "24", allowedDeviation: "±4" },
-  { metric: "#40", minValue: "11", maxValue: "17", allowedDeviation: "±3" },
-  { metric: "#80", minValue: "6", maxValue: "12", allowedDeviation: "±3" },
-  { metric: "#200", minValue: "4", maxValue: "7", allowedDeviation: "±1.5" },
-  { metric: "תכולת ביטומן", minValue: "4.1", maxValue: "4.7", allowedDeviation: "±0.3" },
-  { metric: "מפעל אספקה", minValue: "", maxValue: "" },
-  { metric: "יחס מלאן - ביטומן", minValue: "0.95", maxValue: "1.55", allowedDeviation: "0.95–1.55" },
-  { metric: "צפיפות בשיטת וואקום", minValue: "2265", maxValue: "2365", allowedDeviation: "±50" },
-  { metric: "יציבות", minValue: "1800", maxValue: "6000", allowedDeviation: "1800–6000" },
-  { metric: "נזילות", minValue: "8", maxValue: "16", allowedDeviation: "8–16" },
-  { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
-  { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5", allowedDeviation: "±1.0" },
-  { metric: "V.M.A", minValue: "15.1", maxValue: "17.1", allowedDeviation: "±1.0" },
+];
+
+const ASPHALT_EMPTY_TRAILING_ROWS: AsphaltMixTemplate["rows"] = [
   { metric: "צפיפות בשיטת ריפ", minValue: "", maxValue: "" },
   { metric: "התנגדות", minValue: "", maxValue: "" },
   { metric: "שחיקה קנטברו", minValue: "", maxValue: "" },
 ];
+
+const withAsphaltCommonRows = (
+  rows: AsphaltMixTemplate["rows"],
+): AsphaltMixTemplate["rows"] => [
+  ...ASPHALT_METADATA_ROWS,
+  ...rows,
+  ...ASPHALT_EMPTY_TRAILING_ROWS,
+];
+
+// תבניות קו דירוג/סטייה לפי המפרט הכללי של נת"י לעבודות אספלט.
+// המקור העיקרי: פרק 51.04.03 / 51.04.04 / 51.04.05 ונספחי ריכוז JMF.
+// כל תערובת עומדת בפני עצמה כדי שלא תהיה זליגת נתונים מתא"צ 25 לתא"צ 19 או להפך.
+const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
+  {
+    key: "TAATZ_25",
+    label: "תא״צ 25",
+    aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "25", "תאצ25", "תא״צ25"],
+    rows: withAsphaltCommonRows([
+      { metric: '1.5"', minValue: "", maxValue: "" },
+      { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
+      { metric: '3/4"', minValue: "85", maxValue: "95", allowedDeviation: "±5" },
+      { metric: "mm 14", minValue: "", maxValue: "" },
+      { metric: '1/2"', minValue: "68", maxValue: "78", allowedDeviation: "±5" },
+      { metric: '3/8"', minValue: "58", maxValue: "68", allowedDeviation: "±5" },
+      { metric: "mm 8", minValue: "", maxValue: "" },
+      { metric: "#4", minValue: "44", maxValue: "54", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "28", maxValue: "36", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "16", maxValue: "24", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "11", maxValue: "17", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "6", maxValue: "12", allowedDeviation: "±3" },
+      { metric: "#200", minValue: "4", maxValue: "7", allowedDeviation: "±1.5" },
+      { metric: "תכולת ביטומן", minValue: "4.1", maxValue: "4.7", allowedDeviation: "±0.3" },
+      { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+      { metric: "יחס מלאן - ביטומן", minValue: "0.95", maxValue: "1.55", allowedDeviation: "0.95–1.55" },
+      { metric: "צפיפות בשיטת וואקום", minValue: "2265", maxValue: "2365", allowedDeviation: "±50" },
+      { metric: "יציבות", minValue: "1800", maxValue: "6000", allowedDeviation: "1800–6000" },
+      { metric: "נזילות", minValue: "8", maxValue: "16", allowedDeviation: "8–16" },
+      { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
+      { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5", allowedDeviation: "±1.0" },
+      { metric: "V.M.A", minValue: "15.1", maxValue: "17.1", allowedDeviation: "±1.0" },
+    ]),
+  },
+  {
+    key: "TAATZ_19",
+    label: "תא״צ 19",
+    aliases: ["תאצ 19", "תא״צ 19", "תא צ 19", "19", "תאצ19", "תא״צ19", "PG70-10 19"],
+    rows: withAsphaltCommonRows([
+      { metric: '1.5"', minValue: "", maxValue: "" },
+      { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
+      { metric: '3/4"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
+      { metric: "mm 14", minValue: "", maxValue: "" },
+      { metric: '1/2"', minValue: "80", maxValue: "90", allowedDeviation: "±5" },
+      { metric: '3/8"', minValue: "68", maxValue: "78", allowedDeviation: "±5" },
+      { metric: "mm 8", minValue: "", maxValue: "" },
+      { metric: "#4", minValue: "47", maxValue: "57", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "31", maxValue: "39", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "18", maxValue: "26", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "12", maxValue: "18", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "6", maxValue: "12", allowedDeviation: "±3" },
+      { metric: "#200", minValue: "4", maxValue: "7", allowedDeviation: "±1.5" },
+      { metric: "תכולת ביטומן", minValue: "4.5", maxValue: "5.0", allowedDeviation: "+0.2/-0.3" },
+      { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+      { metric: "יחס מלאן - ביטומן", minValue: "0.87", maxValue: "1.47", allowedDeviation: "±0.3" },
+      { metric: "צפיפות בשיטת וואקום", minValue: "2265", maxValue: "2365", allowedDeviation: "±50" },
+      { metric: "יציבות", minValue: "1800", maxValue: "6000", allowedDeviation: "1800–6000" },
+      { metric: "נזילות", minValue: "8", maxValue: "16", allowedDeviation: "8–16" },
+      { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
+      { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5", allowedDeviation: "±1.0" },
+      { metric: "V.M.A", minValue: "14.0", maxValue: "17.5", allowedDeviation: "לפי מפרט" },
+    ]),
+  },
+  {
+    key: "TAATZ_12_5",
+    label: "תא״צ 12.5",
+    aliases: ["תאצ 12.5", "תא״צ 12.5", "12.5", "תאצ12.5", "תא״צ12.5"],
+    rows: withAsphaltCommonRows([
+      { metric: '1.5"', minValue: "", maxValue: "" },
+      { metric: '1"', minValue: "", maxValue: "" },
+      { metric: '3/4"', minValue: "95", maxValue: "100", allowedDeviation: "±5" },
+      { metric: "mm 14", minValue: "", maxValue: "" },
+      { metric: '1/2"', minValue: "100", maxValue: "100" },
+      { metric: '3/8"', minValue: "80", maxValue: "90", allowedDeviation: "±5" },
+      { metric: "mm 8", minValue: "", maxValue: "" },
+      { metric: "#4", minValue: "47", maxValue: "57", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "31", maxValue: "40", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "18", maxValue: "28", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "13", maxValue: "18", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "7", maxValue: "13", allowedDeviation: "±3" },
+      { metric: "#200", minValue: "5", maxValue: "9", allowedDeviation: "±1.5" },
+      { metric: "תכולת ביטומן", minValue: "", maxValue: "", allowedDeviation: "+0.2/-0.3" },
+      { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+      { metric: "יחס מלאן - ביטומן", minValue: "", maxValue: "", allowedDeviation: "±0.3" },
+      { metric: "צפיפות בשיטת וואקום", minValue: "", maxValue: "", allowedDeviation: "±50" },
+      { metric: "יציבות", minValue: "1800", maxValue: "6000", allowedDeviation: "1800–6000" },
+      { metric: "נזילות", minValue: "8", maxValue: "16", allowedDeviation: "8–16" },
+      { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
+      { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5", allowedDeviation: "±1.0" },
+      { metric: "V.M.A", minValue: "", maxValue: "", allowedDeviation: "לפי מפרט" },
+    ]),
+  },
+  {
+    key: "TAATZ_9_5",
+    label: "תא״צ 9.5",
+    aliases: ["תאצ 9.5", "תא״צ 9.5", "9.5", "תאצ9.5", "תא״צ9.5"],
+    rows: withAsphaltCommonRows([
+      { metric: '1.5"', minValue: "", maxValue: "" },
+      { metric: '1"', minValue: "", maxValue: "" },
+      { metric: '3/4"', minValue: "", maxValue: "" },
+      { metric: "mm 14", minValue: "", maxValue: "" },
+      { metric: '1/2"', minValue: "95", maxValue: "100", allowedDeviation: "±5" },
+      { metric: '3/8"', minValue: "100", maxValue: "100" },
+      { metric: "mm 8", minValue: "", maxValue: "" },
+      { metric: "#4", minValue: "55", maxValue: "70", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "30", maxValue: "45", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "20", maxValue: "30", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "15", maxValue: "22", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "8", maxValue: "14", allowedDeviation: "±3" },
+      { metric: "#200", minValue: "6", maxValue: "10", allowedDeviation: "±1.5" },
+      { metric: "תכולת ביטומן", minValue: "", maxValue: "", allowedDeviation: "+0.2/-0.3" },
+      { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+      { metric: "יחס מלאן - ביטומן", minValue: "", maxValue: "", allowedDeviation: "±0.3" },
+      { metric: "צפיפות בשיטת וואקום", minValue: "", maxValue: "", allowedDeviation: "±50" },
+      { metric: "יציבות", minValue: "1800", maxValue: "6000", allowedDeviation: "1800–6000" },
+      { metric: "נזילות", minValue: "8", maxValue: "16", allowedDeviation: "8–16" },
+      { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
+      { metric: "אחוז חלל", minValue: "3.5", maxValue: "5.5", allowedDeviation: "±1.0" },
+      { metric: "V.M.A", minValue: "", maxValue: "", allowedDeviation: "לפי מפרט" },
+    ]),
+  },
+  {
+    key: "SMA",
+    label: "SMA",
+    aliases: ["SMA", "סמא", "אספלט מסטיק"],
+    rows: withAsphaltCommonRows([
+      { metric: '1.5"', minValue: "", maxValue: "" },
+      { metric: '1"', minValue: "", maxValue: "" },
+      { metric: '3/4"', minValue: "95", maxValue: "100", allowedDeviation: "±5" },
+      { metric: "mm 14", minValue: "", maxValue: "" },
+      { metric: '1/2"', minValue: "100", maxValue: "100" },
+      { metric: '3/8"', minValue: "45", maxValue: "60", allowedDeviation: "±5" },
+      { metric: "mm 8", minValue: "", maxValue: "" },
+      { metric: "#4", minValue: "20", maxValue: "30", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "15", maxValue: "25", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "12", maxValue: "20", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "10", maxValue: "16", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "8", maxValue: "13", allowedDeviation: "±3" },
+      { metric: "#200", minValue: "7", maxValue: "11", allowedDeviation: "±1.5" },
+      { metric: "תכולת ביטומן", minValue: "", maxValue: "", allowedDeviation: "+0.2/-0.3" },
+      { metric: "מפעל אספקה", minValue: "", maxValue: "" },
+      { metric: "יחס מלאן - ביטומן", minValue: "", maxValue: "", allowedDeviation: "±0.3" },
+      { metric: "צפיפות בשיטת וואקום", minValue: "", maxValue: "", allowedDeviation: "±50" },
+      { metric: "יציבות", minValue: "", maxValue: "", allowedDeviation: "" },
+      { metric: "נזילות", minValue: "", maxValue: "", allowedDeviation: "" },
+      { metric: "חוזק משתייר", minValue: "75", maxValue: "100", allowedDeviation: "75–100" },
+      { metric: "אחוז חלל", minValue: "", maxValue: "", allowedDeviation: "לפי מפרט" },
+      { metric: "V.M.A", minValue: "", maxValue: "", allowedDeviation: "לפי מפרט" },
+    ]),
+  },
+];
+
+const ASPHALT_MIX_TYPE_OPTIONS = ASPHALT_MIX_TEMPLATES.map((template) => template.label);
+
+const normalizeAsphaltMixText = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[״"׳'`’]/g, "")
+    .replace(/תא\s*צ/g, "תאצ")
+    .replace(/תאמ/g, "תאצ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const extractAsphaltMixValueFromRows = (rows: ReferenceResultRow[]) =>
+  rows.find((row) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue ?? "";
+
+const resolveAsphaltMixTemplate = (
+  value: unknown,
+  rows: ReferenceResultRow[] = [],
+): AsphaltMixTemplate => {
+  const candidates = [
+    value,
+    extractAsphaltMixValueFromRows(rows),
+    rows.map((row) => `${row.metric} ${row.resultValue}`).join(" "),
+  ];
+  const normalizedCandidates = candidates.map(normalizeAsphaltMixText).filter(Boolean);
+  const found = ASPHALT_MIX_TEMPLATES.find((template) =>
+    template.aliases.some((alias) => {
+      const normalizedAlias = normalizeAsphaltMixText(alias);
+      return normalizedCandidates.some((candidate) => candidate === normalizedAlias || candidate.includes(normalizedAlias));
+    }),
+  );
+  return found ?? ASPHALT_MIX_TEMPLATES[0];
+};
+
+const createAsphaltJmfReferenceResults = (mixType?: unknown): ReferenceResultRow[] => {
+  const template = resolveAsphaltMixTemplate(mixType);
+  return template.rows.map((row) => ({
+    id: `asphalt-jmf-${template.key}-${row.metric}`.replace(/\s+/g, "-"),
+    metric: row.metric,
+    resultValue: row.metric === "סוג תערובת" && mixType ? String(mixType) : "",
+    qualityStatus: "",
+    minValue: row.minValue,
+    maxValue: row.maxValue,
+    allowedDeviation: row.allowedDeviation,
+  }));
+};
+
+const buildAsphaltRowsForMix = (
+  mixType: unknown,
+  current: ReferenceResultRow[] = [],
+  preserveValues = false,
+): ReferenceResultRow[] => {
+  const template = resolveAsphaltMixTemplate(mixType, current);
+  const currentByMetric = new Map(current.map((row) => [normalizeHebrewProjectName(row.metric), row]));
+  return template.rows.map((fixed) => {
+    const existing = currentByMetric.get(normalizeHebrewProjectName(fixed.metric));
+    const value =
+      fixed.metric === "סוג תערובת"
+        ? String(mixType || template.label)
+        : preserveValues
+          ? String(existing?.resultValue ?? "")
+          : "";
+    return applyReferenceQualityStatus({
+      id: existing?.id || `asphalt-jmf-${template.key}-${fixed.metric}`.replace(/\s+/g, "-"),
+      metric: fixed.metric,
+      resultValue: value,
+      qualityStatus: preserveValues ? String(existing?.qualityStatus ?? "") : "",
+      minValue: fixed.minValue,
+      maxValue: fixed.maxValue,
+      allowedDeviation: fixed.allowedDeviation,
+    });
+  });
+};
 
 const isMatzeaAReference = (value: unknown) => {
   const text = normalizeHebrewProjectName(value);
@@ -668,8 +888,9 @@ const ensureReferenceResultsForMaterial = (
     );
   }
   if (isAsphaltReference(workType)) {
+    const mixType = extractAsphaltMixValueFromRows(normalized) || workType;
     return mergeReferenceResultsWithTemplate(
-      createAsphaltJmfReferenceResults(),
+      createAsphaltJmfReferenceResults(mixType),
       normalized,
     );
   }
@@ -6653,7 +6874,11 @@ const applyQtestSelectedMaterialFallback = (
     /\bA-1-b\b/i.test(text);
   if (!isQtestSelected) return rowsValue;
 
-  let next = rowsValue;
+  const rawDetectedMixMatch = text.match(/(תא["״']?\s*צ\s*\d+(?:[.,]\d+)?|SMA)/i);
+  const rawDetectedMixType =
+    String(rawDetectedMixMatch?.[1] ?? "").trim() ||
+    (text.includes("25") && text.includes("ואקום") && text.includes("מרשל") ? "תא״צ 25" : "");
+  let next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || "תא״צ 25", rowsValue, false);
   const set = (aliases: string[], value: unknown) => {
     next = setReferenceMetricValue(next, aliases, value);
   };
@@ -6721,6 +6946,14 @@ const applyAsphaltJmfFallbackFromText = (
       .replace(/[|;]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+
+  const rawDetectedMixMatch = text.match(/(תא["״']?\s*צ\s*\d+(?:[.,]\d+)?|SMA)/i);
+  const rawDetectedMixType =
+    cleanValue(rawDetectedMixMatch?.[1] ?? "") ||
+    (text.includes("25") && text.includes("ואקום") && text.includes("מרשל") ? "תא״צ 25" : "");
+  if (rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue)) {
+    next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || "תא״צ 25", rowsValue, false);
+  }
 
   const firstRegexGroup = (source: string, patterns: RegExp[]) => {
     for (const pattern of patterns) {
@@ -7208,29 +7441,36 @@ function ControlProcessesSection({
         ).trim();
 
       flushSync(() => {
-        setForm((prev: any) => ({
-          ...prev,
-          // קובץ חדש מחליף את נתוני התעודה הקודמת. לא ממזגים עם תוצאות ישנות.
-          ...(isAsphaltReference(prev.workType)
-            ? {
-                asphaltMixType: parsedValue("סוג תערובת"),
-                // מס׳ תעודה / ר״ת נשאר ידני — לא ממלאים אותו ממספר דגימה/RFI.
-                labCertificateNo: "",
-                optimumBitumen: parsedValue("תכולת ביטומן"),
-                referenceDensity: parsedValue("צפיפות בשיטת וואקום"),
-                airVoids: parsedValue("אחוז חלל"),
-                stability: parsedValue("יציבות"),
-                flow: parsedValue("נזילות"),
-                vma: parsedValue("V.M.A"),
-              }
-            : {}),
-          referenceResults: ensureReferenceResultsForMaterial(prev.workType, []).map((row) => {
+        setForm((prev: any) => {
+          const parsedMixType = parsedValue("סוג תערובת") || prev.asphaltMixType || prev.workType;
+          const templateRows = isAsphaltReference(prev.workType)
+            ? buildAsphaltRowsForMix(parsedMixType, [], false)
+            : ensureReferenceResultsForMaterial(prev.workType, []);
+          const mergedRows = templateRows.map((row) => {
             const parsed = parsedRows.find(
               (item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric),
             );
             return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
-          }),
-        }));
+          });
+          return {
+            ...prev,
+            // קובץ חדש מחליף את נתוני התעודה הקודמת. לא ממזגים עם תוצאות ישנות.
+            ...(isAsphaltReference(prev.workType)
+              ? {
+                  asphaltMixType: String(parsedMixType ?? ""),
+                  // מס׳ תעודה / ר״ת נשאר ידני — לא ממלאים אותו ממספר דגימה/RFI.
+                  labCertificateNo: "",
+                  optimumBitumen: parsedValue("תכולת ביטומן"),
+                  referenceDensity: parsedValue("צפיפות בשיטת וואקום"),
+                  airVoids: parsedValue("אחוז חלל"),
+                  stability: parsedValue("יציבות"),
+                  flow: parsedValue("נזילות"),
+                  vma: parsedValue("V.M.A"),
+                }
+              : {}),
+            referenceResults: mergedRows,
+          };
+        });
       });
       alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`);
       return filledRows.length;
@@ -7300,10 +7540,25 @@ function ControlProcessesSection({
   };
 
   const updateWorkType = (value: string) => {
+    setForm((prev: any) => {
+      const nextIsAsphalt = isAsphaltReference(value);
+      const previousIsAsphalt = isAsphaltReference(prev.workType);
+      return {
+        ...prev,
+        workType: value,
+        referenceResults: nextIsAsphalt
+          ? buildAsphaltRowsForMix(prev.asphaltMixType || "תא״צ 25", previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
+          : ensureReferenceResultsForMaterial(value, prev.referenceResults),
+      };
+    });
+  };
+
+  const updateAsphaltMixType = (value: string) => {
+    if (readOnly) return;
     setForm((prev: any) => ({
       ...prev,
-      workType: value,
-      referenceResults: ensureReferenceResultsForMaterial(value, prev.referenceResults),
+      asphaltMixType: value,
+      referenceResults: buildAsphaltRowsForMix(value, prev.referenceResults, false),
     }));
   };
 
@@ -7602,10 +7857,16 @@ function ControlProcessesSection({
               <input
                 disabled={readOnly}
                 value={form.asphaltMixType ?? ""}
-                onChange={(e) => setField("asphaltMixType", e.target.value)}
-                placeholder="לדוגמה: תא״מ 19 מ״מ"
+                onChange={(e) => updateAsphaltMixType(e.target.value)}
+                placeholder="לדוגמה: תא״צ 19 / תא״צ 25"
+                list="asphalt-mix-template-options"
                 style={inputStyle}
               />
+              <datalist id="asphalt-mix-template-options">
+                {ASPHALT_MIX_TYPE_OPTIONS.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
             </label>
             <label style={labelStyle}>
               שכבה
