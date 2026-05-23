@@ -1676,6 +1676,9 @@ const earthworksParsedLocation = (sources: any[]) => {
     /(?:כמות|מספר)\s*נקודות\s*בדיקה\s*[:\-]?\s*(\d{1,3})/i,
     /(\d{1,3})\s*נקודות\s*בדיקה/i,
   ]);
+  const location = firstRegexText(text, [
+    /(חתך\s*\d{1,5}\s*[-–]\s*\d{1,5}(?:\s+[^.\n\r]{0,80}?)?(?:צד\s*(?:R\+L|R|L|ימין|שמאל))?)/i,
+  ]);
   return {
     from: fromTo?.[1] ?? "",
     to: fromTo?.[2] ?? "",
@@ -1683,6 +1686,7 @@ const earthworksParsedLocation = (sources: any[]) => {
     layer,
     aashto,
     points,
+    location,
   };
 };
 
@@ -1796,7 +1800,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const exactFrom = firstText(exactFirstFromSources(fieldSources, ["מחתך", "חתך התחלה", "fromSection", "stationFrom", "chainageFrom"]), parsedLocation.from);
   const exactTo = firstText(exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo"]), parsedLocation.to);
   const exactSide = firstText(exactFirstFromSources(fieldSources, ["צד", "side", "roadSide", "lane"]), parsedLocation.side);
-  const exactLocation = exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]);
+  const exactLocation = firstText(
+    parsedLocation.location,
+    exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
+  );
   const exactLayer = firstText(exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "שכבה", "layer", "layerNo", "layerNumber"]), parsedLocation.layer);
   const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "חומר", "materialDescription", "material"]);
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
@@ -2063,6 +2070,22 @@ const subbaseFieldColumns = [
   'הערות',
 ];
 
+const isUsefulSubbaseText = (value: unknown): boolean => {
+  const text = cleanText(value);
+  if (!text) return false;
+  if (text.length > 90) return false;
+  if (includesAny(text, ["הפריט הנבדק", "מקום הבדיקה", "שכבה מספר", "סוג שכבה"])) return false;
+  return true;
+};
+
+const subbaseWorkType = (value: unknown): string =>
+  includesAny(value, subbaseFieldKeywords) && isUsefulSubbaseText(value) ? cleanText(value) : "מצעים";
+
+const subbaseMaterialDescription = (value: unknown): string =>
+  isUsefulSubbaseText(value) && !includesAny(value, ["צפיפות באתר", "מד גרעיני", "בדיקה לפי"])
+    ? cleanText(value)
+    : "מצע א׳";
+
 const subbaseFieldRowFromEarthworks = (row: Row): Row => ({
   'ביצוע ע"י ': row['ביצוע ע"י '] ?? '',
   "מס' סדורי": row["מס' סדורי"] ?? '',
@@ -2076,8 +2099,8 @@ const subbaseFieldRowFromEarthworks = (row: Row): Row => ({
   'שטח ': row['שטח '] ?? '',
   "שכבה מס'": row["שכבה מס'"] ?? '',
   'עובי השכבה': row['עובי השכבה'] ?? '',
-  'סוג העבודה ': firstText(row['סוג העבודה '], 'מצעים'),
-  'תאור החומר ': firstText(row['תאור החומר '], 'מצע א׳'),
+  'סוג העבודה ': subbaseWorkType(row['סוג העבודה ']),
+  'תאור החומר ': subbaseMaterialDescription(row['תאור החומר ']),
   'מיון החומר ': row['מיון החומר '] ?? '',
   'מקור החומר': row['מקור החומר'] ?? '',
   'הידוק רגיל ': row['מעברי מכבש'] ?? '',
@@ -2130,10 +2153,7 @@ const buildSubbaseFieldRows = (checklists: any[]): Row[] => {
 
       const attachments = itemAttachments(item)
         .filter((attachment: any) => isSubbaseFieldItem(checklist, item, attachment))
-        .filter((attachment: any) =>
-          isEarthworksLabCertificateAttachment(attachment, item) ||
-          isEarthworksMeasurementAttachment(attachment, item)
-        )
+        .filter((attachment: any) => isEarthworksLabCertificateAttachment(attachment, item))
         .filter(rememberAttachment);
 
       if (!attachments.length) return;
@@ -2147,10 +2167,7 @@ const buildSubbaseFieldRows = (checklists: any[]): Row[] => {
 
     const checklistAttachments = directRecordAttachments(checklist)
       .filter((attachment: any) => isSubbaseFieldItem(checklist, {}, attachment))
-      .filter((attachment: any) =>
-        isEarthworksLabCertificateAttachment(attachment, checklist) ||
-        isEarthworksMeasurementAttachment(attachment, checklist)
-      )
+      .filter((attachment: any) => isEarthworksLabCertificateAttachment(attachment, checklist))
       .filter(rememberAttachment);
 
     if (checklistAttachments.length) {
@@ -2396,12 +2413,12 @@ const rangeCells = (startCol: number, values: unknown[], style = 0): Array<[numb
 const excelTextLength = (value: unknown) => String(value ?? "").replace(/<[^>]*>/g, "").length;
 
 const excelColumnWidth = (values: unknown[], min = 12, max = 46) => {
-  const longest = values.reduce((current, value) => Math.max(current, excelTextLength(value)), 0);
+  const longest = values.reduce<number>((current, value) => Math.max(current, excelTextLength(value)), 0);
   return Math.max(min, Math.min(max, Math.ceil(longest * 1.15) + 2));
 };
 
 const excelRowHeight = (values: unknown[], base = 24, max = 84) => {
-  const longest = values.reduce((current, value) => Math.max(current, excelTextLength(value)), 0);
+  const longest = values.reduce<number>((current, value) => Math.max(current, excelTextLength(value)), 0);
   if (longest <= 22) return base;
   return Math.min(max, base + Math.ceil((longest - 22) / 24) * 14);
 };

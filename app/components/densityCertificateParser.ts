@@ -16,6 +16,14 @@ const clean = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const cleanMultiline = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .split(/\r?\n/)
+    .map(clean)
+    .filter(Boolean)
+    .join("\n");
+
 const cleanNumber = (value: unknown) => {
   const match = String(value ?? "")
     .replace(/,/g, ".")
@@ -148,6 +156,11 @@ const pickValueNearLabel = (
       const number = cleanNumber(tail);
 
       if (number) return number;
+
+      const head = line.slice(Math.max(0, index - maxDistance), index);
+      const numberBefore = cleanNumber(head.split(/\s+/).slice(-4).join(" "));
+
+      if (numberBefore) return numberBefore;
     }
   }
 
@@ -171,7 +184,12 @@ const pickTextNearLabel = (
         line.slice(index + label.length, index + label.length + maxDistance)
       );
 
-      if (tail) return tail;
+      const value = tail
+        .replace(/^(הפריט הנבדק|מיון לפי AASHTO|מקום הבדיקה|תאריך הבדיקה|תאור החומר|תיאור החומר)\b.*$/i, "")
+        .replace(/\b(הפריט הנבדק|מיון לפי AASHTO|מקום הבדיקה|תאריך הבדיקה)\b.*$/i, "")
+        .trim();
+
+      if (value && !/^(הפריט הנבדק|מקום הבדיקה|מיון לפי AASHTO)$/i.test(value)) return value;
     }
   }
 
@@ -181,16 +199,18 @@ const pickTextNearLabel = (
 const calculateAverageOnlyFromDecimalValues = (text: string, label: string) => {
   const lines = text.split("\n");
 
-  const target = lines.find((line) => line.includes(label));
+  const targetIndex = lines.findIndex((line) => line.includes(label));
 
-  if (!target) return "";
+  if (targetIndex < 0) return "";
+
+  const target = lines.slice(targetIndex, targetIndex + 3).join(" ");
 
   const values = Array.from(
     target.matchAll(/\d+(?:[.,]\d+)?/g)
   )
     .map((m) => Number(cleanNumber(m[0])))
     .filter((n) => Number.isFinite(n))
-    .filter((n) => n > 0 && n < 100);
+    .filter((n) => n > 0 && n < 130);
 
   if (!values.length) return "";
 
@@ -218,20 +238,50 @@ const extractChainage = (text: string) => {
   };
 };
 
+const extractShortLocation = (text: string) => {
+  const match = text.match(
+    /(חתך\s*\d{2,5}\s*[-–]\s*\d{2,5}(?:\s+[^.\n\r]{0,80}?)?(?:צד\s*(?:R\+L|R|L|ימין|שמאל))?)/i
+  );
+
+  return clean(match?.[1] ?? "");
+};
+
+const extractSide = (text: string) => {
+  const match = text.match(/(?:צד|נתיב)\s*[:\-]?\s*(R\+L|R|L|ימין|שמאל|ימני|שמאלי)/i);
+  if (!match) return "";
+  return match[1]
+    .replace("ימין", "R")
+    .replace("ימני", "R")
+    .replace("שמאל", "L")
+    .replace("שמאלי", "L");
+};
+
+const certificateNumberFromFileName = (fileName: string) => {
+  const match = clean(fileName).match(/(?:^|[^0-9])([0-9]{4,})(?:[^0-9]|$)/);
+  return match?.[1] ?? "";
+};
+
 export const parseEarthworksDensityText = (
   fileName: string,
   rawText: string
 ): DensityCertificateResults => {
-  const text = clean(rawText);
+  const text = cleanMultiline(rawText);
+  const flatText = clean(text);
 
   const results: DensityCertificateResults = {};
 
-  const chainage = extractChainage(text);
+  const chainage = extractChainage(flatText);
 
   if (chainage.from) results["מחתך"] = chainage.from;
   if (chainage.to) results["עד חתך"] = chainage.to;
 
-  const dateMatch = text.match(
+  const shortLocation = extractShortLocation(flatText);
+  if (shortLocation) results["מקום נטילה"] = shortLocation;
+
+  const side = extractSide(flatText);
+  if (side) results["צד"] = side;
+
+  const dateMatch = flatText.match(
     /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/
   );
 
@@ -244,25 +294,17 @@ export const parseEarthworksDensityText = (
     "דוח בדיקה מספר",
     "דוח מספר",
     "מספר תעודה",
-  ]);
+  ]) || certificateNumberFromFileName(fileName);
 
   if (certificateNo) {
     results["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] =
       certificateNo;
   }
 
-  const density = pickValueNearLabel(text, [
-    "צפיפות מחושבת",
-    "צפיפות מעבדתית מקסימלית",
-  ]);
-
-  if (density) {
-    results["צפיפות מחושבת"] = density;
-  }
-
   const lowerLimit = pickValueNearLabel(text, [
     "La =",
     "L'a =",
+    "גבול תחתון",
   ]);
 
   if (lowerLimit) {
@@ -278,6 +320,7 @@ export const parseEarthworksDensityText = (
 
   if (avgCompaction) {
     results["ממוצע"] = avgCompaction;
+    results["צפיפות מחושבת"] = avgCompaction;
   }
 
   const moisture =
@@ -303,7 +346,7 @@ export const parseEarthworksDensityText = (
     "הפריט הנבדק",
   ]);
 
-  if (workType) {
+  if (workType && !includesAnyText(workType, ["צפיפות באתר", "מד גרעיני", "בדיקה לפי"])) {
     results["סוג העבודה"] = workType;
   }
 
@@ -333,6 +376,11 @@ export const parseEarthworksDensityText = (
     "נקלט אוטומטית מתעודת PDF";
 
   return results;
+};
+
+const includesAnyText = (value: string, keywords: string[]) => {
+  const text = clean(value).toLowerCase();
+  return keywords.some((keyword) => text.includes(clean(keyword).toLowerCase()));
 };
 
 export const extractEarthworksDensityFromFile = async (
