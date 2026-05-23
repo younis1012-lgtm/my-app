@@ -540,7 +540,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_25",
     label: "תא״צ 25",
-    aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "תאצ25", "תא״צ25", "taatz 25", "taatz25"],
+    aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "25", "תאצ25", "תא״צ25"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
@@ -569,7 +569,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_19",
     label: "תא״צ 19",
-    aliases: ["תאצ 19", "תא״צ 19", "תא צ 19", "תאצ19", "תא״צ19", "PG70-10 תאצ 19", "PG70-10 תא״צ 19", "taatz 19", "taatz19"],
+    aliases: ["תאצ 19", "תא״צ 19", "תא צ 19", "19", "תאצ19", "תא״צ19", "PG70-10 19"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
@@ -598,7 +598,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_12_5",
     label: "תא״צ 12.5",
-    aliases: ["תאצ 12.5", "תא״צ 12.5", "תא צ 12.5", "תאצ12.5", "תא״צ12.5", "taatz 12.5", "taatz12.5"],
+    aliases: ["תאצ 12.5", "תא״צ 12.5", "12.5", "תאצ12.5", "תא״צ12.5"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "", maxValue: "" },
@@ -627,7 +627,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_9_5",
     label: "תא״צ 9.5",
-    aliases: ["תאצ 9.5", "תא״צ 9.5", "תא צ 9.5", "תאצ9.5", "תא״צ9.5", "taatz 9.5", "taatz9.5"],
+    aliases: ["תאצ 9.5", "תא״צ 9.5", "9.5", "תאצ9.5", "תא״צ9.5"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "", maxValue: "" },
@@ -684,7 +684,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   },
 ];
 
-const ASPHALT_MIX_TYPE_OPTIONS = ASPHALT_MIX_TEMPLATES.map((template) => template.label);
+const ASPHALT_MIX_TYPE_OPTIONS = ["תא״צ 19", "תא״צ 25", "תא״צ 12.5", "תא״צ 9.5", "SMA"];
 
 const normalizeAsphaltMixText = (value: unknown) =>
   String(value ?? "")
@@ -698,61 +698,38 @@ const normalizeAsphaltMixText = (value: unknown) =>
 const extractAsphaltMixValueFromRows = (rows: ReferenceResultRow[]) =>
   rows.find((row) => normalizeHebrewProjectName(row.metric) === normalizeHebrewProjectName("סוג תערובת"))?.resultValue ?? "";
 
+const getDefaultAsphaltMixTemplate = () =>
+  ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_19") ?? ASPHALT_MIX_TEMPLATES[0];
+
+const findAsphaltMixTemplateInText = (value: unknown): AsphaltMixTemplate | null => {
+  const candidate = normalizeAsphaltMixText(value);
+  if (!candidate) return null;
+  return (
+    ASPHALT_MIX_TEMPLATES.find((template) =>
+      template.aliases.some((alias) => {
+        const normalizedAlias = normalizeAsphaltMixText(alias);
+        return candidate === normalizedAlias || candidate.includes(normalizedAlias);
+      }),
+    ) ?? null
+  );
+};
+
 const resolveAsphaltMixTemplate = (
   value: unknown,
   rows: ReferenceResultRow[] = [],
 ): AsphaltMixTemplate => {
-  // חשוב: בחירת סוג תערובת מפורשת חייבת לגבור על כל נתונים ישנים שכבר נמצאים בטבלה.
-  // בעבר המערכת חיפשה גם בכל שורות התוצאות, וכך מספרים כמו 25 מתוך תעודה קודמת
-  // גרמו לכך שגם לאחר בחירת תא"צ 19 נטען Template של תא"צ 25.
-  const explicitValue = normalizeAsphaltMixText(value);
-  const rowMixValue = normalizeAsphaltMixText(extractAsphaltMixValueFromRows(rows));
+  // בחירה/הקלדה ידנית של סוג תערובת חייבת לגבור על נתוני תעודה קודמת.
+  // לכן קודם מחפשים רק בערך שנשלח מהשדה העליון, ורק אם אין ערך כזה עוברים לשורות קיימות.
+  const direct = findAsphaltMixTemplateInText(value);
+  if (direct) return direct;
 
-  const matchByText = (textValue: string) => {
-    if (!textValue) return null;
-    return (
-      ASPHALT_MIX_TEMPLATES.find((template) =>
-        template.aliases.some((alias) => {
-          const normalizedAlias = normalizeAsphaltMixText(alias);
-          return (
-            textValue === normalizedAlias ||
-            textValue.includes(normalizedAlias) ||
-            normalizedAlias.includes(textValue)
-          );
-        }),
-      ) ?? null
-    );
-  };
+  const rowMix = findAsphaltMixTemplateInText(extractAsphaltMixValueFromRows(rows));
+  if (rowMix) return rowMix;
 
-  // זיהוי קשיח לפי מספר תערובת, כדי למנוע בלבול בין 19 ל-25.
-  const hardMatch = (textValue: string) => {
-    if (!textValue) return null;
-    if (/תאצ\s*19\b/.test(textValue) || /taatz\s*19\b/.test(textValue)) {
-      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_19") ?? null;
-    }
-    if (/תאצ\s*25\b/.test(textValue) || /taatz\s*25\b/.test(textValue)) {
-      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_25") ?? null;
-    }
-    if (/תאצ\s*12\.5\b/.test(textValue) || /taatz\s*12\.5\b/.test(textValue)) {
-      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_12_5") ?? null;
-    }
-    if (/תאצ\s*9\.5\b/.test(textValue) || /taatz\s*9\.5\b/.test(textValue)) {
-      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_9_5") ?? null;
-    }
-    if (/\bsma\b/.test(textValue) || textValue.includes("סמא")) {
-      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "SMA") ?? null;
-    }
-    return null;
-  };
+  const rowText = findAsphaltMixTemplateInText(rows.map((row) => `${row.metric} ${row.resultValue}`).join(" "));
+  if (rowText) return rowText;
 
-  return (
-    hardMatch(explicitValue) ||
-    matchByText(explicitValue) ||
-    hardMatch(rowMixValue) ||
-    matchByText(rowMixValue) ||
-    ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_19") ||
-    ASPHALT_MIX_TEMPLATES[0]
-  );
+  return getDefaultAsphaltMixTemplate();
 };
 
 const createAsphaltJmfReferenceResults = (mixType?: unknown): ReferenceResultRow[] => {
@@ -773,13 +750,14 @@ const buildAsphaltRowsForMix = (
   current: ReferenceResultRow[] = [],
   preserveValues = false,
 ): ReferenceResultRow[] => {
-  const template = resolveAsphaltMixTemplate(mixType || extractAsphaltMixValueFromRows(current), []);
+  const template = resolveAsphaltMixTemplate(mixType, current);
+  const selectedMixLabel = String(mixType || template.label);
   const currentByMetric = new Map(current.map((row) => [normalizeHebrewProjectName(row.metric), row]));
   return template.rows.map((fixed) => {
     const existing = currentByMetric.get(normalizeHebrewProjectName(fixed.metric));
     const value =
       fixed.metric === "סוג תערובת"
-        ? String(mixType || template.label)
+        ? selectedMixLabel
         : preserveValues
           ? String(existing?.resultValue ?? "")
           : "";
@@ -916,7 +894,7 @@ const ensureReferenceResultsForMaterial = (
     );
   }
   if (isAsphaltReference(workType)) {
-    const mixType = extractAsphaltMixValueFromRows(normalized) || workType;
+    const mixType = extractAsphaltMixValueFromRows(normalized) || workType || getDefaultAsphaltMixTemplate().label;
     return mergeReferenceResultsWithTemplate(
       createAsphaltJmfReferenceResults(mixType),
       normalized,
@@ -6906,7 +6884,7 @@ const applyQtestSelectedMaterialFallback = (
   const rawDetectedMixType =
     String(rawDetectedMixMatch?.[1] ?? "").trim() ||
     (text.includes("25") && text.includes("ואקום") && text.includes("מרשל") ? "תא״צ 25" : "");
-  let next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || "תא״צ 25", rowsValue, false);
+  let next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || getDefaultAsphaltMixTemplate().label, rowsValue, false);
   const set = (aliases: string[], value: unknown) => {
     next = setReferenceMetricValue(next, aliases, value);
   };
@@ -6980,7 +6958,7 @@ const applyAsphaltJmfFallbackFromText = (
     cleanValue(rawDetectedMixMatch?.[1] ?? "") ||
     (text.includes("25") && text.includes("ואקום") && text.includes("מרשל") ? "תא״צ 25" : "");
   if (rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue)) {
-    next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || "תא״צ 25", rowsValue, false);
+    next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || getDefaultAsphaltMixTemplate().label, rowsValue, false);
   }
 
   const firstRegexGroup = (source: string, patterns: RegExp[]) => {
@@ -7410,10 +7388,16 @@ function ControlProcessesSection({
   const selectedMaterial = String(form.workType ?? "");
   const showAsphaltForm = isAsphaltReference(selectedMaterial);
   const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
-  const referenceResults = ensureReferenceResultsForMaterial(
-    selectedMaterial,
-    form.referenceResults,
-  );
+  const referenceResults = isAsphaltReference(selectedMaterial)
+    ? buildAsphaltRowsForMix(
+        form.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(form.referenceResults)) || getDefaultAsphaltMixTemplate().label,
+        normalizeReferenceResults(form.referenceResults),
+        true,
+      )
+    : ensureReferenceResultsForMaterial(
+        selectedMaterial,
+        form.referenceResults,
+      );
   const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial) || isAsphaltReference(selectedMaterial);
   const referenceResultsTitle = isAsphaltReference(selectedMaterial)
     ? "תוצאות JMF מפורטות - אספלט"
@@ -7470,7 +7454,7 @@ function ControlProcessesSection({
 
       flushSync(() => {
         setForm((prev: any) => {
-          const parsedMixType = parsedValue("סוג תערובת") || prev.asphaltMixType || prev.workType;
+          const parsedMixType = prev.asphaltMixType || parsedValue("סוג תערובת") || prev.workType || getDefaultAsphaltMixTemplate().label;
           const templateRows = isAsphaltReference(prev.workType)
             ? buildAsphaltRowsForMix(parsedMixType, [], false)
             : ensureReferenceResultsForMaterial(prev.workType, []);
@@ -7558,9 +7542,12 @@ function ControlProcessesSection({
     if (readOnly) return;
     setForm((prev: any) => ({
       ...prev,
-      referenceResults: ensureReferenceResultsForMaterial(
-        prev.workType,
-        prev.referenceResults,
+      referenceResults: (isAsphaltReference(prev.workType)
+        ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, prev.referenceResults, true)
+        : ensureReferenceResultsForMaterial(
+            prev.workType,
+            prev.referenceResults,
+          )
       ).map((row) =>
         row.id === id ? applyReferenceQualityStatus({ ...row, ...patch }) : row,
       ),
@@ -7575,7 +7562,7 @@ function ControlProcessesSection({
         ...prev,
         workType: value,
         referenceResults: nextIsAsphalt
-          ? buildAsphaltRowsForMix(prev.asphaltMixType || extractAsphaltMixValueFromRows(prev.referenceResults) || "תא״צ 19", previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
+          ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
           : ensureReferenceResultsForMaterial(value, prev.referenceResults),
       };
     });
@@ -7882,19 +7869,18 @@ function ControlProcessesSection({
           >
             <label style={labelStyle}>
               סוג תערובת
-              <input
+              <select
                 disabled={readOnly}
-                value={form.asphaltMixType ?? ""}
+                value={form.asphaltMixType || (isAsphaltReference(selectedMaterial) ? getDefaultAsphaltMixTemplate().label : "")}
                 onChange={(e) => updateAsphaltMixType(e.target.value)}
-                placeholder="לדוגמה: תא״צ 19 / תא״צ 25"
-                list="asphalt-mix-template-options"
                 style={inputStyle}
-              />
-              <datalist id="asphalt-mix-template-options">
+              >
                 {ASPHALT_MIX_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option} />
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </label>
             <label style={labelStyle}>
               שכבה
