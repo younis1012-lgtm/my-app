@@ -543,17 +543,17 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
     aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "25", "תאצ25", "תא״צ25"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
-      { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
-      { metric: '3/4"', minValue: "85", maxValue: "95", allowedDeviation: "±5" },
+      { metric: '1"', minValue: "100", maxValue: "100", allowedDeviation: "±5" },
+      { metric: '3/4"', minValue: "84", maxValue: "94", allowedDeviation: "±5" },
       { metric: "mm 14", minValue: "", maxValue: "" },
       { metric: '1/2"', minValue: "68", maxValue: "78", allowedDeviation: "±5" },
-      { metric: '3/8"', minValue: "58", maxValue: "68", allowedDeviation: "±5" },
+      { metric: '3/8"', minValue: "60", maxValue: "70", allowedDeviation: "±5" },
       { metric: "mm 8", minValue: "", maxValue: "" },
       { metric: "#4", minValue: "44", maxValue: "54", allowedDeviation: "±5" },
-      { metric: "#10", minValue: "28", maxValue: "36", allowedDeviation: "±4" },
-      { metric: "#20", minValue: "16", maxValue: "24", allowedDeviation: "±4" },
-      { metric: "#40", minValue: "11", maxValue: "17", allowedDeviation: "±3" },
-      { metric: "#80", minValue: "6", maxValue: "12", allowedDeviation: "±3" },
+      { metric: "#10", minValue: "28", maxValue: "38", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "18", maxValue: "26", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "12", maxValue: "20", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "7", maxValue: "12", allowedDeviation: "±3" },
       { metric: "#200", minValue: "4", maxValue: "7", allowedDeviation: "±1.5" },
       { metric: "תכולת ביטומן", minValue: "4.1", maxValue: "4.7", allowedDeviation: "±0.3" },
       { metric: "מפעל אספקה", minValue: "", maxValue: "" },
@@ -573,16 +573,16 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
-      { metric: '3/4"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
+      { metric: '3/4"', minValue: "100", maxValue: "100", allowedDeviation: "±5" },
       { metric: "mm 14", minValue: "", maxValue: "" },
       { metric: '1/2"', minValue: "80", maxValue: "90", allowedDeviation: "±5" },
       { metric: '3/8"', minValue: "68", maxValue: "78", allowedDeviation: "±5" },
       { metric: "mm 8", minValue: "", maxValue: "" },
       { metric: "#4", minValue: "47", maxValue: "57", allowedDeviation: "±5" },
-      { metric: "#10", minValue: "31", maxValue: "39", allowedDeviation: "±4" },
+      { metric: "#10", minValue: "31", maxValue: "40", allowedDeviation: "±4" },
       { metric: "#20", minValue: "18", maxValue: "26", allowedDeviation: "±4" },
-      { metric: "#40", minValue: "12", maxValue: "18", allowedDeviation: "±3" },
-      { metric: "#80", minValue: "6", maxValue: "12", allowedDeviation: "±3" },
+      { metric: "#40", minValue: "13", maxValue: "18", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "7", maxValue: "11", allowedDeviation: "±3" },
       { metric: "#200", minValue: "4", maxValue: "7", allowedDeviation: "±1.5" },
       { metric: "תכולת ביטומן", minValue: "4.5", maxValue: "5.0", allowedDeviation: "+0.2/-0.3" },
       { metric: "מפעל אספקה", minValue: "", maxValue: "" },
@@ -602,16 +602,16 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "", maxValue: "" },
-      { metric: '3/4"', minValue: "95", maxValue: "100", allowedDeviation: "±5" },
+      { metric: '3/4"', minValue: "", maxValue: "" },
       { metric: "mm 14", minValue: "", maxValue: "" },
       { metric: '1/2"', minValue: "100", maxValue: "100" },
-      { metric: '3/8"', minValue: "80", maxValue: "90", allowedDeviation: "±5" },
+      { metric: '3/8"', minValue: "82", maxValue: "94", allowedDeviation: "±5" },
       { metric: "mm 8", minValue: "", maxValue: "" },
-      { metric: "#4", minValue: "47", maxValue: "57", allowedDeviation: "±5" },
-      { metric: "#10", minValue: "31", maxValue: "40", allowedDeviation: "±4" },
-      { metric: "#20", minValue: "18", maxValue: "28", allowedDeviation: "±4" },
-      { metric: "#40", minValue: "13", maxValue: "18", allowedDeviation: "±3" },
-      { metric: "#80", minValue: "7", maxValue: "13", allowedDeviation: "±3" },
+      { metric: "#4", minValue: "56", maxValue: "72", allowedDeviation: "±5" },
+      { metric: "#10", minValue: "36", maxValue: "50", allowedDeviation: "±4" },
+      { metric: "#20", minValue: "22", maxValue: "32", allowedDeviation: "±4" },
+      { metric: "#40", minValue: "14", maxValue: "24", allowedDeviation: "±3" },
+      { metric: "#80", minValue: "8", maxValue: "15", allowedDeviation: "±3" },
       { metric: "#200", minValue: "5", maxValue: "9", allowedDeviation: "±1.5" },
       { metric: "תכולת ביטומן", minValue: "", maxValue: "", allowedDeviation: "+0.2/-0.3" },
       { metric: "מפעל אספקה", minValue: "", maxValue: "" },
@@ -708,7 +708,10 @@ const findAsphaltMixTemplateInText = (value: unknown): AsphaltMixTemplate | null
     ASPHALT_MIX_TEMPLATES.find((template) =>
       template.aliases.some((alias) => {
         const normalizedAlias = normalizeAsphaltMixText(alias);
-        return candidate === normalizedAlias || candidate.includes(normalizedAlias);
+        const isBareNumericAlias = /^\d+(?:[.,]\d+)?$/.test(normalizedAlias);
+        if (candidate === normalizedAlias) return true;
+        if (isBareNumericAlias) return false;
+        return candidate.includes(normalizedAlias);
       }),
     ) ?? null
   );
@@ -6954,9 +6957,7 @@ const applyAsphaltJmfFallbackFromText = (
       .trim();
 
   const rawDetectedMixMatch = text.match(/(תא["״']?\s*צ\s*\d+(?:[.,]\d+)?|SMA)/i);
-  const rawDetectedMixType =
-    cleanValue(rawDetectedMixMatch?.[1] ?? "") ||
-    (text.includes("25") && text.includes("ואקום") && text.includes("מרשל") ? "תא״צ 25" : "");
+  const rawDetectedMixType = cleanValue(rawDetectedMixMatch?.[1] ?? "");
   if (rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue)) {
     next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || getDefaultAsphaltMixTemplate().label, rowsValue, false);
   }
@@ -6973,9 +6974,7 @@ const applyAsphaltJmfFallbackFromText = (
   const number = (value: unknown) =>
     cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
 
-  const isTaatz25Vacuum =
-    /תא["״']?\s*צ\s*25/i.test(text) ||
-    (text.includes("25") && text.includes("ואקום") && text.includes("מרשל"));
+  const isTaatz25Vacuum = findAsphaltMixTemplateInText(rawDetectedMixType)?.key === "TAATZ_25";
 
   // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
   // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
