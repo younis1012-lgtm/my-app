@@ -197,20 +197,7 @@ const pickTextNearLabel = (
 };
 
 const calculateAverageOnlyFromDecimalValues = (text: string, label: string) => {
-  const lines = text.split("\n");
-
-  const targetIndex = lines.findIndex((line) => line.includes(label));
-
-  if (targetIndex < 0) return "";
-
-  const target = lines.slice(targetIndex, targetIndex + 3).join(" ");
-
-  const values = Array.from(
-    target.matchAll(/\d+(?:[.,]\d+)?/g)
-  )
-    .map((m) => Number(cleanNumber(m[0])))
-    .filter((n) => Number.isFinite(n))
-    .filter((n) => n > 0 && n < 130);
+  const values = decimalValuesNearLabel(text, label);
 
   if (!values.length) return "";
 
@@ -218,6 +205,23 @@ const calculateAverageOnlyFromDecimalValues = (text: string, label: string) => {
     values.reduce((sum, n) => sum + n, 0) / values.length;
 
   return avg.toFixed(1).replace(/\.0$/, "");
+};
+
+const decimalValuesNearLabel = (text: string, label: string) => {
+  const lines = text.split("\n");
+
+  const targetIndex = lines.findIndex((line) => line.includes(label));
+
+  if (targetIndex < 0) return [];
+
+  const target = lines.slice(targetIndex, targetIndex + 3).join(" ");
+
+  return Array.from(
+    target.matchAll(/\d+(?:[.,]\d+)?/g)
+  )
+    .map((m) => Number(cleanNumber(m[0])))
+    .filter((n) => Number.isFinite(n))
+    .filter((n) => n > 0 && n < 130);
 };
 
 const extractChainage = (text: string) => {
@@ -256,6 +260,19 @@ const extractSide = (text: string) => {
     .replace("שמאלי", "L");
 };
 
+const extractLayer = (text: string) => {
+  const match = text.match(
+    /(?:שכבה\s*(?:מס(?:פר)?['׳]?)?|מספר\s*שכבה)\s*[:\-]?\s*(\d{1,3})|(\d{1,3})\s*שכבה\s*מספר/i
+  );
+
+  return clean(match?.[1] ?? match?.[2] ?? "");
+};
+
+const extractAashto = (text: string) => {
+  const match = text.match(/\b(A-\d-[A-Za-z](?:\(\d+\))?)\b/i);
+  return clean(match?.[1] ?? "");
+};
+
 const certificateNumberFromFileName = (fileName: string) => {
   const match = clean(fileName).match(/(?:^|[^0-9])([0-9]{4,})(?:[^0-9]|$)/);
   return match?.[1] ?? "";
@@ -280,6 +297,9 @@ export const parseEarthworksDensityText = (
 
   const side = extractSide(flatText);
   if (side) results["צד"] = side;
+
+  const layer = extractLayer(flatText);
+  if (layer) results["שכבה מס'"] = layer;
 
   const dateMatch = flatText.match(
     /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/
@@ -318,6 +338,12 @@ export const parseEarthworksDensityText = (
       "אחוז דרגת צפיפות"
     );
 
+  const compactionValues = decimalValuesNearLabel(text, "אחוז דרגת צפיפות");
+  if (compactionValues.length) {
+    results["כמות נקודות בדיקה"] = String(compactionValues.length);
+    results["הידוק מבוקר (צפיפות מד גרעיני)"] = String(compactionValues.length);
+  }
+
   if (avgCompaction) {
     results["ממוצע"] = avgCompaction;
     results["צפיפות מחושבת"] = avgCompaction;
@@ -350,7 +376,7 @@ export const parseEarthworksDensityText = (
     results["סוג העבודה"] = workType;
   }
 
-  const aashto = pickTextNearLabel(text, [
+  const aashto = extractAashto(flatText) || pickTextNearLabel(text, [
     "מיון לפי AASHTO",
   ]);
 
