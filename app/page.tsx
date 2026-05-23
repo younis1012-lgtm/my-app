@@ -6946,6 +6946,16 @@ const applyAsphaltJmfFallbackFromText = (
     next = setReferenceMetricValue(next, aliases, value);
   };
 
+  const setExactMetric = (metric: string, value: unknown) => {
+    const clean = String(value ?? "").trim();
+    const wanted = normalizeReferenceMetricKey(metric);
+    next = next.map((row) =>
+      normalizeReferenceMetricKey(row.metric) === wanted
+        ? applyReferenceQualityStatus({ ...row, resultValue: clean })
+        : row,
+    );
+  };
+
   const firstText = (...values: unknown[]) =>
     values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
@@ -7046,42 +7056,44 @@ const applyAsphaltJmfFallbackFromText = (
   const isTaatz25Vacuum = detectedTemplate?.key === "TAATZ_25";
   const isTaatz19Vacuum = detectedTemplate?.key === "TAATZ_19";
 
-  // תעודות JMF של תא"צ 19 מגיעות מ-PDF.js בסדר טקסט שבור.
-  // כדי שלא ייקלטו מספרי נפה/מינימום במקום ערכי JMF, כאשר מזוהה תא"צ 19 ממלאים לפי שורת JMF.
+  // תעודות JMF מאושרות של תא"צ 19: מיפוי מפורש לפי שורת JMF המאושרת
+  // כדי למנוע ערבוב בין #20/#200 או #4/#40 בעקבות סדר RTL שבור ב-PDF.
   if (isTaatz19Vacuum) {
     const certDate = extractReferencePdfDate(text) || "";
 
-    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "1");
-    set(["סוג תערובת"], "תא״צ 19");
-    set(["תאריך בדיקה"], certDate);
-    set(["שם דגימה"], "תא״צ 19");
-    set(["מפעל אספקה"], firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+    setExactMetric("מספר דגימה", firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "1");
+    setExactMetric("סוג תערובת", "תא״צ 19");
+    setExactMetric("תאריך בדיקה", certDate);
+    setExactMetric("שם דגימה", "תא״צ 19");
+    setExactMetric("הזמנה מקורית של הדגימה", "");
+    setExactMetric("מפעל אספקה", firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
 
-    set(['1.5"', "1.5"], "");
-    set(['1"', "1 אינץ"], "");
-    set(['3/4"', "3/4"], "100");
-    set(["mm 14"], "");
-    set(['1/2"', "1/2"], "85");
-    set(['3/8"', "3/8"], "73");
-    set(["mm 8"], "");
-    set(["#4", "4#", "#4.75"], "52");
-    set(["#10", "10#"], "35");
-    set(["#20", "20#"], "22");
-    set(["#40", "40#"], "15");
-    set(["#80", "80#"], "9");
-    set(["#200", "200#"], "5.5");
+    // קו דירוג JMF מאושר לתא״צ 19 לפי התעודה / ריכוז האספלט שצורף.
+    setExactMetric('1.5"', "");
+    setExactMetric('1"', "");
+    setExactMetric('3/4"', "100");
+    setExactMetric("mm 14", "");
+    setExactMetric('1/2"', "85");
+    setExactMetric('3/8"', "73");
+    setExactMetric("mm 8", "");
+    setExactMetric("#4", "51");
+    setExactMetric("#10", "33");
+    setExactMetric("#20", "22");
+    setExactMetric("#40", "15");
+    setExactMetric("#80", "9");
+    setExactMetric("#200", "5.5");
 
-    set(["תכולת ביטומן"], "4.8");
-    set(["יחס מלאן - ביטומן", "F/B"], "1.17");
-    set(["צפיפות בשיטת וואקום"], "2315");
-    set(["יציבות"], "3160");
-    set(["נזילות"], "12.5");
-    set(["חוזק משתייר"], "83");
-    set(["אחוז חלל"], "4.5");
-    set(["V.M.A", "VMA"], "14.8");
-    set(["צפיפות בשיטת ריפ"], "");
-    set(["התנגדות"], "");
-    set(["שחיקה קנטברו"], "");
+    setExactMetric("תכולת ביטומן", "4.8");
+    setExactMetric("יחס מלאן - ביטומן", "1.17");
+    setExactMetric("צפיפות בשיטת וואקום", "2315");
+    setExactMetric("יציבות", "3160");
+    setExactMetric("נזילות", "12.5");
+    setExactMetric("חוזק משתייר", "83");
+    setExactMetric("אחוז חלל", "4.5");
+    setExactMetric("V.M.A", "14.8");
+    setExactMetric("צפיפות בשיטת ריפ", "");
+    setExactMetric("התנגדות", "");
+    setExactMetric("שחיקה קנטברו", "");
 
     return next;
   }
