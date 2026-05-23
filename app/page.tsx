@@ -7003,6 +7003,42 @@ const applyAsphaltJmfFallbackFromText = (
     return grading;
   };
 
+  const extractMarshallOptimumValues = () => {
+    const cleanLine = (value: unknown) => cleanValue(value).replace(/[]/g, "").trim();
+    const rawLines = String(textValue ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .split(/\r?\n/)
+      .map(cleanLine)
+      .filter(Boolean);
+    const numericLines = (startIndex: number) => {
+      const values: string[] = [];
+      for (let index = startIndex + 1; index < rawLines.length && values.length < 8; index += 1) {
+        if (/^---PAGE/i.test(rawLines[index])) break;
+        const value = number(rawLines[index]);
+        if (value) values.push(value);
+      }
+      return values;
+    };
+    const lastFlowIndex = rawLines.reduce(
+      (found, line, index) => (normalizeHebrewProjectName(line) === normalizeHebrewProjectName("נזילות") ? index : found),
+      -1,
+    );
+    const optimumValues = lastFlowIndex >= 0 ? numericLines(lastFlowIndex) : [];
+    const fvbVmaMatch = String(textValue ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .match(/VMA\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)[\s\S]{0,80}?F\/B/i);
+
+    return {
+      bitumen: optimumValues[0] ?? "",
+      density: optimumValues[1] ?? "",
+      airVoids: optimumValues[2] ?? "",
+      stability: optimumValues[3] ?? "",
+      flow: optimumValues[4] ?? "",
+      fvb: fvbVmaMatch?.[2]?.replace(",", ".") ?? "",
+      vma: fvbVmaMatch?.[1]?.replace(",", ".") ?? "",
+    };
+  };
+
   const isTaatz25Vacuum = findAsphaltMixTemplateInText(rawDetectedMixType)?.key === "TAATZ_25";
 
   // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
@@ -7103,6 +7139,18 @@ const applyAsphaltJmfFallbackFromText = (
 
   const plannedGrading = extractPlannedGradingValues();
   plannedGrading.forEach((value, metric) => set([metric], value));
+
+  const marshallOptimum = extractMarshallOptimumValues();
+  const setIfValue = (aliases: string[], value: unknown) => {
+    if (String(value ?? "").trim()) set(aliases, value);
+  };
+  setIfValue(["תכולת ביטומן"], marshallOptimum.bitumen);
+  setIfValue(["צפיפות בשיטת וואקום"], marshallOptimum.density);
+  setIfValue(["אחוז חלל"], marshallOptimum.airVoids);
+  setIfValue(["יציבות"], marshallOptimum.stability);
+  setIfValue(["נזילות"], marshallOptimum.flow);
+  setIfValue(["יחס מלאן - ביטומן", "F/B"], marshallOptimum.fvb);
+  setIfValue(["V.M.A", "VMA"], marshallOptimum.vma);
 
   return next;
 };
