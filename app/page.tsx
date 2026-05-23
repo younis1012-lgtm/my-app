@@ -6974,6 +6974,35 @@ const applyAsphaltJmfFallbackFromText = (
   const number = (value: unknown) =>
     cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
 
+  const extractPlannedGradingValues = () => {
+    const rawTextWithLines = String(textValue ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/[|;]/g, " ");
+    const match = rawTextWithLines.match(/קו\s+דירוג\s+([^\n\r]{10,120})/i);
+    if (!match) return new Map<string, string>();
+    const tokens = cleanValue(match[1])
+      .match(/\d+(?:[.,]\d+)?|--|-/g)
+      ?.map((item) => item.replace(",", "."))
+      .filter(Boolean) ?? [];
+    const values = [...tokens];
+    const lastValue = values[values.length - 1] ?? "";
+    // Some Marshall PDFs extract the #80 and #200 cells as a single token,
+    // for example "95.5" instead of "9 5.5".
+    if (values.length === 9 && /^\d{2}\.\d+$/.test(lastValue)) {
+      values.splice(values.length - 1, 1, lastValue.slice(0, 1), lastValue.slice(1));
+    }
+    const metricOrder =
+      values.length >= 11
+        ? ['1.5"', '1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"]
+        : ['1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"];
+    const grading = new Map<string, string>();
+    metricOrder.forEach((metric, index) => {
+      const value = values[index] ?? "";
+      if (value && value !== "-" && value !== "--") grading.set(metric, value);
+    });
+    return grading;
+  };
+
   const isTaatz25Vacuum = findAsphaltMixTemplateInText(rawDetectedMixType)?.key === "TAATZ_25";
 
   // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
@@ -7071,6 +7100,9 @@ const applyAsphaltJmfFallbackFromText = (
     [["שחיקה קנטברו"], ["שחיקה קנטברו", "קנטברו"]],
   ];
   asphaltPairs.forEach(([aliases, labels]) => set(aliases, numberNear(labels)));
+
+  const plannedGrading = extractPlannedGradingValues();
+  plannedGrading.forEach((value, metric) => set([metric], value));
 
   return next;
 };
