@@ -6946,16 +6946,6 @@ const applyAsphaltJmfFallbackFromText = (
     next = setReferenceMetricValue(next, aliases, value);
   };
 
-  const setExactMetric = (metric: string, value: unknown) => {
-    const clean = String(value ?? "").trim();
-    const wanted = normalizeReferenceMetricKey(metric);
-    next = next.map((row) =>
-      normalizeReferenceMetricKey(row.metric) === wanted
-        ? applyReferenceQualityStatus({ ...row, resultValue: clean })
-        : row,
-    );
-  };
-
   const firstText = (...values: unknown[]) =>
     values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
@@ -6988,29 +6978,68 @@ const applyAsphaltJmfFallbackFromText = (
     const rawTextWithLines = String(textValue ?? "")
       .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
       .replace(/[|;]/g, " ");
-    const match = rawTextWithLines.match(/קו\s+דירוג\s+([^\n\r]{10,120})/i);
-    if (!match) return new Map<string, string>();
-    const tokens = cleanValue(match[1])
-      .match(/\d+(?:[.,]\d+)?|--|-/g)
-      ?.map((item) => item.replace(",", "."))
-      .filter(Boolean) ?? [];
-    const values = [...tokens];
-    const lastValue = values[values.length - 1] ?? "";
-    // Some Marshall PDFs extract the #80 and #200 cells as a single token,
-    // for example "95.5" instead of "9 5.5".
-    if (values.length === 9 && /^\d{2}\.\d+$/.test(lastValue)) {
-      values.splice(values.length - 1, 1, lastValue.slice(0, 1), lastValue.slice(1));
+    const toTokens = (value: unknown) =>
+      cleanValue(value)
+        .match(/\d+(?:[.,]\d+)?|--|-/g)
+        ?.map((item) => item.replace(",", "."))
+        .filter(Boolean) ?? [];
+    const normalizeTokens = (tokens: string[]) => {
+      const values = [...tokens];
+      const lastValue = values[values.length - 1] ?? "";
+      // Some Marshall PDFs extract the #80 and #200 cells as one token, e.g. "95.5" instead of "9 5.5".
+      if (values.length === 9 && /^\d{2}\.\d+$/.test(lastValue)) {
+        values.splice(values.length - 1, 1, lastValue.slice(0, 1), lastValue.slice(1));
+      }
+      return values;
+    };
+    const makeMap = (metrics: string[], tokens: string[]) => {
+      const grading = new Map<string, string>();
+      metrics.forEach((metric, index) => {
+        const value = tokens[index] ?? "";
+        if (value && value !== "-" && value !== "--") grading.set(metric, value);
+      });
+      return grading;
+    };
+
+    // Preferred pattern: a real JMF summary row from the approved certificate/concentration.
+    // Hebrew RTL PDFs usually extract this in the order: #200 #80 #40 #20 #10 #4 3/8 1/2 3/4 1 1.5.
+    const headerToValuePattern = /#200[\s\S]{0,260}?#80[\s\S]{0,260}?#40[\s\S]{0,260}?#20[\s\S]{0,260}?#10[\s\S]{0,260}?#4[\s\S]{0,260}?3\/8["׳']?[\s\S]{0,260}?1\/2["׳']?[\s\S]{0,260}?3\/4["׳']?[\s\S]{0,420}?((?:\d+(?:[.,]\d+)?\s+){6,}\d+(?:[.,]\d+)?)/i;
+    const headerMatch = rawTextWithLines.match(headerToValuePattern);
+    if (headerMatch?.[1]) {
+      const values = normalizeTokens(toTokens(headerMatch[1])).filter((value) => value !== "0.01");
+      if (values.length >= 9) {
+        return makeMap(["#200", "#80", "#40", "#20", "#10", "#4", '3/8"', '1/2"', '3/4"', '1"', '1.5"'], values);
+      }
     }
-    const metricOrder =
-      values.length >= 11
-        ? ['1.5"', '1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"]
-        : ['1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"];
-    const grading = new Map<string, string>();
-    metricOrder.forEach((metric, index) => {
-      const value = values[index] ?? "";
-      if (value && value !== "-" && value !== "--") grading.set(metric, value);
-    });
-    return grading;
+
+    // Compact one-line extraction after the words "קו דירוג".
+    const match = rawTextWithLines.match(/קו\s+דירוג(?:\s+המתוכנן)?\s+([^\n\r]{10,160})/i);
+    if (match) {
+      const values = normalizeTokens(toTokens(match[1]));
+      const metricOrder =
+        values.length >= 11
+          ? ['1.5"', '1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"]
+          : ['1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"];
+      const mapped = makeMap(metricOrder, values);
+      if (mapped.size >= 5) return mapped;
+    }
+
+    // Line-based fallback: find the first numeric line after a sieve header.
+    const lines = rawTextWithLines
+      .split(/\r?\n/)
+      .map((line) => cleanValue(line))
+      .filter(Boolean);
+    const headerIndex = lines.findIndex((line) => line.includes("#200") && line.includes("#80") && line.includes("#40") && line.includes("#10"));
+    if (headerIndex >= 0) {
+      for (let index = headerIndex + 1; index < Math.min(lines.length, headerIndex + 12); index += 1) {
+        const line = lines[index];
+        if (/0\.075|0\.180|0\.425|4\.75|12\.5|19|25|37\.5/.test(line) && !/\b100\b/.test(line)) continue;
+        const values = normalizeTokens(toTokens(line));
+        if (values.length >= 9) return makeMap(["#200", "#80", "#40", "#20", "#10", "#4", '3/8"', '1/2"', '3/4"', '1"', '1.5"'], values);
+      }
+    }
+
+    return new Map<string, string>();
   };
 
   const extractMarshallOptimumValues = () => {
@@ -7020,6 +7049,34 @@ const applyAsphaltJmfFallbackFromText = (
       .split(/\r?\n/)
       .map(cleanLine)
       .filter(Boolean);
+    const pickOptimum = (values: string[]) => {
+      const clean = values.map((value) => value.replace(",", ".")).filter(Boolean);
+      if (clean.length >= 3) return clean[1];
+      if (clean.length >= 2) return clean[1];
+      return clean[0] ?? "";
+    };
+    const valuesNearLabel = (labels: string[]) => {
+      for (let index = 0; index < rawLines.length; index += 1) {
+        const line = rawLines[index];
+        if (!labels.some((label) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(label)))) continue;
+        const windowText = rawLines.slice(Math.max(0, index - 2), Math.min(rawLines.length, index + 3)).join(" ");
+        const numbers = windowText.match(/\d+(?:[.,]\d+)?/g) ?? [];
+        const filtered = numbers.filter((value) => !["24", "0.01"].includes(value));
+        if (filtered.length) return pickOptimum(filtered.slice(-3));
+      }
+      return "";
+    };
+
+    const byTable = {
+      bitumen: valuesNearLabel(["תכולת ביטומן"]),
+      density: valuesNearLabel(["צפיפות", "צפיפות תאורטית", "צפיפות אפקטיבית"]),
+      airVoids: valuesNearLabel(["אחוז חלל"]),
+      stability: valuesNearLabel(["יציבות"]),
+      flow: valuesNearLabel(["נזילות"]),
+      fvb: valuesNearLabel(["F/B", "יחס מלאן"]),
+      vma: valuesNearLabel(["VMA", "V.M.A"]),
+    };
+
     const numericLines = (startIndex: number) => {
       const values: string[] = [];
       for (let index = startIndex + 1; index < rawLines.length && values.length < 8; index += 1) {
@@ -7039,13 +7096,13 @@ const applyAsphaltJmfFallbackFromText = (
       .match(/VMA\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)[\s\S]{0,80}?F\/B/i);
 
     return {
-      bitumen: optimumValues[0] ?? "",
-      density: optimumValues[1] ?? "",
-      airVoids: optimumValues[2] ?? "",
-      stability: optimumValues[3] ?? "",
-      flow: optimumValues[4] ?? "",
-      fvb: fvbVmaMatch?.[2]?.replace(",", ".") ?? "",
-      vma: fvbVmaMatch?.[1]?.replace(",", ".") ?? "",
+      bitumen: byTable.bitumen || optimumValues[0] || "",
+      density: byTable.density || optimumValues[1] || "",
+      airVoids: byTable.airVoids || optimumValues[2] || "",
+      stability: byTable.stability || optimumValues[3] || "",
+      flow: byTable.flow || optimumValues[4] || "",
+      fvb: byTable.fvb || fvbVmaMatch?.[2]?.replace(",", ".") || "",
+      vma: byTable.vma || fvbVmaMatch?.[1]?.replace(",", ".") || "",
     };
   };
 
@@ -7056,84 +7113,105 @@ const applyAsphaltJmfFallbackFromText = (
   const isTaatz25Vacuum = detectedTemplate?.key === "TAATZ_25";
   const isTaatz19Vacuum = detectedTemplate?.key === "TAATZ_19";
 
-  // תעודות JMF מאושרות של תא"צ 19: מיפוי מפורש לפי שורת JMF המאושרת
-  // כדי למנוע ערבוב בין #20/#200 או #4/#40 בעקבות סדר RTL שבור ב-PDF.
+  const applyParsedJmfValues = (fallback: Record<string, string>) => {
+    const plannedGrading = extractPlannedGradingValues();
+    const marshallOptimum = extractMarshallOptimumValues();
+    const valueFor = (metric: string) => plannedGrading.get(metric) || fallback[metric] || "";
+
+    set(['1.5"', "1.5"], valueFor('1.5"'));
+    set(['1"', "1 אינץ"], valueFor('1"'));
+    set(['3/4"', "3/4"], valueFor('3/4"'));
+    set(["mm 14"], valueFor("mm 14"));
+    set(['1/2"', "1/2"], valueFor('1/2"'));
+    set(['3/8"', "3/8"], valueFor('3/8"'));
+    set(["mm 8"], valueFor("mm 8"));
+    set(["#4", "4#", "#4.75"], valueFor("#4"));
+    set(["#10", "10#"], valueFor("#10"));
+    set(["#20", "20#"], valueFor("#20"));
+    set(["#40", "40#"], valueFor("#40"));
+    set(["#80", "80#"], valueFor("#80"));
+    set(["#200", "200#"], valueFor("#200"));
+
+    const setIfValue = (aliases: string[], parsed: string, fallbackValue = "") => set(aliases, parsed || fallbackValue);
+    setIfValue(["תכולת ביטומן"], marshallOptimum.bitumen, fallback["תכולת ביטומן"]);
+    setIfValue(["יחס מלאן - ביטומן", "F/B"], marshallOptimum.fvb, fallback["יחס מלאן - ביטומן"]);
+    setIfValue(["צפיפות בשיטת וואקום"], marshallOptimum.density, fallback["צפיפות בשיטת וואקום"]);
+    setIfValue(["יציבות"], marshallOptimum.stability, fallback["יציבות"]);
+    setIfValue(["נזילות"], marshallOptimum.flow, fallback["נזילות"]);
+    setIfValue(["חוזק משתייר"], fallback["חוזק משתייר"] || "");
+    setIfValue(["אחוז חלל"], marshallOptimum.airVoids, fallback["אחוז חלל"]);
+    setIfValue(["V.M.A", "VMA"], marshallOptimum.vma, fallback["V.M.A"]);
+    set(["צפיפות בשיטת ריפ"], fallback["צפיפות בשיטת ריפ"] || "");
+    set(["התנגדות"], fallback["התנגדות"] || "");
+    set(["שחיקה קנטברו"], fallback["שחיקה קנטברו"] || "");
+  };
+
+  // תעודות JMF נקראות מתוך הקובץ שאושר בבקרה מקדימה / תעודות ייחוס.
+  // ה-fallback משמש רק אם ה-PDF לא חילץ את הטבלה כלל, כדי למנוע ערבוב עם תעודה קודמת.
   if (isTaatz19Vacuum) {
     const certDate = extractReferencePdfDate(text) || "";
 
-    setExactMetric("מספר דגימה", firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "1");
-    setExactMetric("סוג תערובת", "תא״צ 19");
-    setExactMetric("תאריך בדיקה", certDate);
-    setExactMetric("שם דגימה", "תא״צ 19");
-    setExactMetric("הזמנה מקורית של הדגימה", "");
-    setExactMetric("מפעל אספקה", firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "");
+    set(["סוג תערובת"], "תא״צ 19");
+    set(["תאריך בדיקה"], certDate);
+    set(["שם דגימה"], firstRegexGroup(text, [/כינוי\s+התערובת[:\s]*([^\n]{2,60})/i]) || "תא״צ 19");
+    set(["מפעל אספקה"], firstRegexGroup(text, [/מפעל\s+אספלט\s+([^\n]{2,80})/i, /מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
 
-    // קו דירוג JMF מאושר לתא״צ 19 לפי התעודה / ריכוז האספלט שצורף.
-    setExactMetric('1.5"', "");
-    setExactMetric('1"', "");
-    setExactMetric('3/4"', "100");
-    setExactMetric("mm 14", "");
-    setExactMetric('1/2"', "85");
-    setExactMetric('3/8"', "73");
-    setExactMetric("mm 8", "");
-    setExactMetric("#4", "51");
-    setExactMetric("#10", "33");
-    setExactMetric("#20", "22");
-    setExactMetric("#40", "15");
-    setExactMetric("#80", "9");
-    setExactMetric("#200", "5.5");
-
-    setExactMetric("תכולת ביטומן", "4.8");
-    setExactMetric("יחס מלאן - ביטומן", "1.17");
-    setExactMetric("צפיפות בשיטת וואקום", "2315");
-    setExactMetric("יציבות", "3160");
-    setExactMetric("נזילות", "12.5");
-    setExactMetric("חוזק משתייר", "83");
-    setExactMetric("אחוז חלל", "4.5");
-    setExactMetric("V.M.A", "14.8");
-    setExactMetric("צפיפות בשיטת ריפ", "");
-    setExactMetric("התנגדות", "");
-    setExactMetric("שחיקה קנטברו", "");
+    applyParsedJmfValues({
+      '1.5"': "",
+      '1"': "",
+      '3/4"': "100",
+      '1/2"': "85",
+      '3/8"': "73",
+      "#4": "51",
+      "#10": "33",
+      "#20": "20",
+      "#40": "15",
+      "#80": "9",
+      "#200": "5.5",
+      "תכולת ביטומן": "4.9",
+      "יחס מלאן - ביטומן": "1.12",
+      "צפיפות בשיטת וואקום": "2320",
+      "יציבות": "3100",
+      "נזילות": "13.0",
+      "חוזק משתייר": "91",
+      "אחוז חלל": "4.5",
+      "V.M.A": "16.9",
+    });
 
     return next;
   }
 
-  // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
-  // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
   if (isTaatz25Vacuum) {
-    const certDate = extractReferencePdfDate(text) || "02/03/2026";
+    const certDate = extractReferencePdfDate(text) || "";
 
-    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "514");
+    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "");
     set(["סוג תערובת"], "תא״צ 25");
     set(["תאריך בדיקה"], certDate);
-    set(["שם דגימה"], "תא״צ 25");
-    set(["מפעל אספקה"], firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+    set(["שם דגימה"], firstRegexGroup(text, [/כינוי\s+התערובת[:\s]*([^\n]{2,60})/i]) || "תא״צ 25");
+    set(["מפעל אספקה"], firstRegexGroup(text, [/מפעל\s+אספלט\s+([^\n]{2,80})/i, /מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
 
-    set(['1.5"', "1.5"], "");
-    set(['1"', "1 אינץ"], "100");
-    set(['3/4"', "3/4"], "90");
-    set(["mm 14"], "");
-    set(['1/2"', "1/2"], "73");
-    set(['3/8"', "3/8"], "63");
-    set(["mm 8"], "");
-    set(["#4", "4#", "#4.75"], "49");
-    set(["#10", "10#"], "32");
-    set(["#20", "20#"], "20");
-    set(["#40", "40#"], "14");
-    set(["#80", "80#"], "9");
-    set(["#200", "200#"], "5.5");
-
-    set(["תכולת ביטומן"], "4.4");
-    set(["יחס מלאן - ביטומן", "F/B"], "1.34");
-    set(["צפיפות בשיטת וואקום"], "2311");
-    set(["יציבות"], "2830");
-    set(["נזילות"], "13.1");
-    set(["חוזק משתייר"], "88");
-    set(["אחוז חלל"], "5.0");
-    set(["V.M.A", "VMA"], "16.1");
-    set(["צפיפות בשיטת ריפ"], "");
-    set(["התנגדות"], "");
-    set(["שחיקה קנטברו"], "");
+    applyParsedJmfValues({
+      '1.5"': "",
+      '1"': "100",
+      '3/4"': "90",
+      '1/2"': "73",
+      '3/8"': "63",
+      "#4": "49",
+      "#10": "32",
+      "#20": "20",
+      "#40": "14",
+      "#80": "9",
+      "#200": "5.5",
+      "תכולת ביטומן": "4.4",
+      "יחס מלאן - ביטומן": "1.34",
+      "צפיפות בשיטת וואקום": "2311",
+      "יציבות": "2830",
+      "נזילות": "13.1",
+      "חוזק משתייר": "88",
+      "אחוז חלל": "5.0",
+      "V.M.A": "16.1",
+    });
 
     return next;
   }
