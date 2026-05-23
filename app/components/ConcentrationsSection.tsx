@@ -746,6 +746,123 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
 
 const commonChecklistColumns = ["מס׳", "מספר רשימה", "שם בדיקה/רשימה", "קטגוריה", "מיקום", "קבלן", "תאריך", "תיאור סעיף", "מבצע/אחראי", "בודק", "סטטוס", "מספר תעודה", "שם קובץ", "תוצאות/הערות"];
 
+const asphaltSieveColumns = ['1.5"', '1"', '3/4"', '14 mm', '1/2"', '3/8"', '8 mm', '4#', '10#', '20#', '40#', '80#', '200#'];
+const asphaltOutputColumns = [
+  'ביצוע ע"י QC/QA',
+  "מס' רשימת תיוג",
+  "מספר מדגם",
+  "תאריך",
+  "סוג תערובת",
+  "מחתך",
+  "עד חתך",
+  "מס' מנה",
+  "כמות פיזור יומית",
+  ...asphaltSieveColumns,
+  "תכולת ביטומן",
+  "יחס מלאן -ביטומן",
+  "צפיפות ריפ",
+  "צפיפות ואקום",
+  "יציבות",
+  "נזילות",
+  "חוזק משתייר",
+  "אחוז חלל",
+  "V.M.A",
+  "צפיפות אפקטיבית",
+  "התנקזות",
+  "שחיקת קנתברו",
+  "מבדקה מבצעת",
+  "מעמד החומר",
+  "מס' תעודה",
+  "הערות",
+];
+
+const normalizeAsphaltMix = (value: unknown): string => {
+  const text = normalize(value).replace(/תא\s*צ/g, "תאצ").replace(/תא״צ/g, "תאצ").replace(/תאצ\s+/g, "תאצ ");
+  if (text.includes("sma") || text.includes("סמא")) return "SMA";
+  if (text.includes("12.5") || text.includes("12,5")) return "תא״צ 12.5";
+  if (text.includes("9.5") || text.includes("9,5")) return "תא״צ 9.5";
+  if (text.includes("19")) return "תא״צ 19";
+  if (text.includes("25")) return "תא״צ 25";
+  return "";
+};
+
+const asphaltMixLabel = (record: any): string =>
+  firstText(
+    normalizeAsphaltMix(record?.asphaltMixType),
+    normalizeAsphaltMix(metricValue(record, ["סוג תערובת"])),
+    normalizeAsphaltMix(record?.workType),
+    normalizeAsphaltMix(record?.title),
+    normalizeAsphaltMix(recordText(record)),
+  );
+
+const asphaltFullMixDescription = (record: any, fallbackMix = ""): string =>
+  firstText(
+    metricValue(record, ["שם דגימה"]),
+    record?.asphaltMixType,
+    fallbackMix,
+    record?.workType,
+    record?.title,
+  );
+
+const asphaltMetric = (record: any, aliases: string[]): string => metricValue(record, aliases);
+
+const isAsphaltReferenceProcess = (record: any): boolean => {
+  const text = recordText(record);
+  return includesAny(text, ["אספלט", "מרשל", "JMF", "תאצ", "תא״צ", "PG68", "PG70"]) && Array.isArray(record?.referenceResults);
+};
+
+const asphaltJmfRow = (record: any, index: number): Row => {
+  const mix = asphaltMixLabel(record);
+  return {
+    'ביצוע ע"י QC/QA': "QC",
+    "מס' רשימת תיוג": "",
+    "מספר מדגם": firstText(asphaltMetric(record, ["מספר דגימה", "קוד תערובת"]), index + 1),
+    "תאריך": firstText(asphaltMetric(record, ["תאריך בדיקה", "תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+    "סוג תערובת": asphaltFullMixDescription(record, mix),
+    "מחתך": "",
+    "עד חתך": "",
+    "מס' מנה": "←     JMF",
+    "כמות פיזור יומית": "←     JMF",
+    '1.5"': asphaltMetric(record, ['1.5"', "1.5"]),
+    '1"': asphaltMetric(record, ['1"', "1 אינץ"]),
+    '3/4"': asphaltMetric(record, ['3/4"', "3/4"]),
+    "14 mm": asphaltMetric(record, ["14 mm", "mm 14"]),
+    '1/2"': asphaltMetric(record, ['1/2"', "1/2"]),
+    '3/8"': asphaltMetric(record, ['3/8"', "3/8"]),
+    "8 mm": asphaltMetric(record, ["8 mm", "mm 8"]),
+    "4#": asphaltMetric(record, ["#4", "4#"]),
+    "10#": asphaltMetric(record, ["#10", "10#"]),
+    "20#": asphaltMetric(record, ["#20", "20#"]),
+    "40#": asphaltMetric(record, ["#40", "40#"]),
+    "80#": asphaltMetric(record, ["#80", "80#"]),
+    "200#": asphaltMetric(record, ["#200", "200#"]),
+    "תכולת ביטומן": asphaltMetric(record, ["תכולת ביטומן"]),
+    "יחס מלאן -ביטומן": asphaltMetric(record, ["יחס מלאן - ביטומן", "F/B"]),
+    "צפיפות ריפ": asphaltMetric(record, ["צפיפות בשיטת ריפ", "ריפ"]),
+    "צפיפות ואקום": asphaltMetric(record, ["צפיפות בשיטת וואקום", "צפיפות וואקום", "צפיפות"]),
+    "יציבות": asphaltMetric(record, ["יציבות"]),
+    "נזילות": asphaltMetric(record, ["נזילות"]),
+    "חוזק משתייר": asphaltMetric(record, ["חוזק משתייר"]),
+    "אחוז חלל": asphaltMetric(record, ["אחוז חלל"]),
+    "V.M.A": asphaltMetric(record, ["V.M.A", "VMA"]),
+    "צפיפות אפקטיבית": asphaltMetric(record, ["צפיפות אפקטיבית"]),
+    "התנקזות": asphaltMetric(record, ["התנקזות"]),
+    "שחיקת קנתברו": asphaltMetric(record, ["שחיקה קנטברו", "שחיקת קנתברו"]),
+    "מבדקה מבצעת": firstText(asphaltMetric(record, ["מבדקה מבצעת", "מעבדה"]), record?.labName),
+    "מעמד החומר": firstText(record?.status, record?.approval?.status, "OK"),
+    "מס' תעודה": referenceDocNo(record),
+    "הערות": firstText(record?.notes, record?.description),
+  };
+};
+
+const buildAsphaltConcentrationRows = (ctx: BuildContext, selectedMix = ""): Row[] => {
+  const selected = normalizeAsphaltMix(selectedMix);
+  return ctx.savedControlProcesses
+    .filter(isAsphaltReferenceProcess)
+    .filter((record) => !selected || asphaltMixLabel(record) === selected)
+    .map(asphaltJmfRow);
+};
+
 
 const controlProcessRow = (record: any, index: number): Row => {
   const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
@@ -1961,8 +2078,8 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז בדיקות אספלט.xlsx",
     description: "בדיקות אספלט מתוך רשימות תיוג ותעודות מצורפות",
     sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["אספלט", "fwd", "מישוריות", "שכבה סופית", "מרשל"], "בדיקות אספלט"),
+    columns: asphaltOutputColumns,
+    buildRows: (ctx) => buildAsphaltConcentrationRows(ctx),
   },
   {
     id: "density",
@@ -2321,6 +2438,163 @@ const buildStandardWorksheetXml = (
 </worksheet>`;
 };
 
+const buildAsphaltWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+  selectedMix = "",
+) => {
+  const title = 'דו"ח ריכוז בקרת אספלטים';
+  const mixForLayout = normalizeAsphaltMix(firstText(selectedMix, rows[0]?.["סוג תערובת"]));
+  const activeSieveColumns =
+    mixForLayout === "תא״צ 19" || mixForLayout === "תא״צ 12.5" || mixForLayout === "תא״צ 9.5" || mixForLayout === "SMA"
+      ? asphaltSieveColumns.filter((column) => column !== "14 mm" && column !== "8 mm")
+      : asphaltSieveColumns;
+  const outputColumns = [
+    ...asphaltOutputColumns.slice(0, 9),
+    ...activeSieveColumns,
+    ...asphaltOutputColumns.slice(22),
+  ];
+  const sieveDeviation = (column: string) => {
+    if (['1.5"', '1"', '3/4"'].includes(column)) return "";
+    if (['1/2"', '3/8"', "14 mm", "8 mm", "4#"].includes(column)) return "+_5";
+    if (["10#", "20#"].includes(column)) return "+_4";
+    if (["40#", "80#"].includes(column)) return "+_3";
+    if (column === "200#") return "+_1.5";
+    return "";
+  };
+  const topHeader = [
+    'ביצוע ע"י QC/QA',
+    "מס' רשימת תיוג",
+    "מספר מדגם",
+    "תאריך",
+    "סוג תערובת",
+    "קטע פיזור",
+    "קטע פיזור",
+    "מס' מנה",
+    "כמות פיזור יומית",
+    ...Array.from({ length: activeSieveColumns.length }, () => "קו דירוג     (% עובר)"),
+    "תכולת ביטומן",
+    "יחס מלאן -ביטומן",
+    "צפיפות\nריפ",
+    "צפיפות\nואקום",
+    "יציבות",
+    "נזילות",
+    "חוזק משתייר",
+    "אחוז חלל",
+    "V.M.A",
+    "צפיפות אפקטיבית",
+    "התנקזות",
+    "שחיקת קנתברו",
+    "מבדקה מבצעת",
+    "מעמד החומר",
+    "מס' תעודה",
+    "הערות",
+  ];
+  const secondHeader = [
+    'ביצוע ע"י QC/QA',
+    "מס' רשימת תיוג",
+    "מספר מדגם",
+    "תאריך",
+    "סוג תערובת",
+    "מחתך",
+    "עד חתך",
+    "מס' מנה",
+    "כמות פיזור יומית",
+    ...activeSieveColumns,
+    "תכולת ביטומן",
+    "יחס מלאן -ביטומן",
+    "צפיפות\nריפ",
+    "צפיפות\nואקום",
+    "יציבות",
+    "נזילות",
+    "חוזק משתייר",
+    "אחוז חלל",
+    "(%)",
+    "צפיפות אפקטיבית",
+    "(%)",
+    "(%)",
+    "מבדקה מבצעת",
+    "מעמד החומר",
+    "מס' תעודה",
+    "הערות",
+  ];
+  const deviationHeader = [
+    'ביצוע ע"י QC/QA',
+    "מס' רשימת תיוג",
+    "מספר מדגם",
+    "תאריך",
+    "סוג תערובת",
+    "מחתך",
+    "עד חתך",
+    "סטייה",
+    "סטייה",
+    ...activeSieveColumns.map(sieveDeviation),
+    "+_0.2/0.3%",
+    "+_0.3",
+    "",
+    "+_50",
+    "1800  min",
+    "8-16",
+    "75% min",
+    "+_1%",
+    "",
+    "",
+    "",
+    "",
+    "מבדקה מבצעת",
+    "OK/NC",
+    "מס' תעודה",
+    "הערות",
+  ];
+  const headerPad = (values: string[]) => [...values, ...Array.from({ length: Math.max(0, outputColumns.length - values.length) }, () => "")];
+  const sheetRows: string[] = [
+    emptyRowXml(1, outputColumns.length),
+    rowXml(2, headerPad(["", "", "", "", "", "", "", "", "", "", "", title, title, title, title, title, title, title]), 1, 22),
+    emptyRowXml(3, outputColumns.length),
+    rowXml(4, headerPad(["", "", "", "", "", "", "", "", "", "", "", "שם פרויקט:", "שם פרויקט:", meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName]), 2, 20),
+    rowXml(5, headerPad(["", "", "", "", "", "", "", "", "", "", "", "ניהול פרויקט", "ניהול פרויקט", meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement]), 2, 20),
+    rowXml(6, headerPad(["", "", "", "", "", "", "", "", "", "", "", "שם הקבלן", "שם הקבלן", meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor]), 2, 20),
+    rowXml(7, headerPad(["", "", "", "", "", "", "", "", "", "", "", `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`]), 2, 20),
+    emptyRowXml(8, outputColumns.length),
+    emptyRowXml(9, outputColumns.length),
+    rowXml(10, topHeader, 3, 34),
+    rowXml(11, secondHeader, 3, 34),
+    rowXml(12, deviationHeader, 2, 30),
+  ];
+
+  let rowIndex = 13;
+  if (rows.length) {
+    rows.forEach((item) => {
+      sheetRows.push(rowXml(rowIndex++, outputColumns.map((column) => item[column] ?? ""), 6, 26));
+    });
+  } else {
+    sheetRows.push(rowXml(rowIndex++, ["QC", "", "", "", firstText(selectedMix, "תערובת אספלט"), "", "", "←     JMF", "←     JMF", ...Array.from({ length: outputColumns.length - 9 }, () => "")], 6, 26));
+  }
+
+  const widths = outputColumns.map((column, index) => index === 4 ? 34 : column === "הערות" ? 22 : activeSieveColumns.includes(column) ? 10 : 12);
+  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+  const sieveEndCol = colName(9 + activeSieveColumns.length);
+  const postStart = 10 + activeSieveColumns.length;
+  const merges = [
+    "L2:R2",
+    "L4:M4", "N4:R4",
+    "L5:M5", "N5:R5",
+    "L6:M6", "N6:R6",
+    "L7:O7", "P7:R7",
+    "A10:A12", "B10:B12", "C10:C12", "D10:D12", "E10:E12",
+    "F10:G10", "H10:H11", "I10:I11", `J10:${sieveEndCol}10`,
+    ...Array.from({ length: outputColumns.length - postStart + 1 }, (_, index) => `${colName(postStart + index)}10:${colName(postStart + index)}12`),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildNonconformanceWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -2580,7 +2854,9 @@ const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
+  selectedMix = "",
 ) => {
+  if (definition.id === "asphalt") return buildAsphaltWorksheetXml(definition, rows, meta, selectedMix);
   if (definition.id === "nonconformances") return buildNonconformanceWorksheetXml(definition, rows, meta);
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
@@ -2610,7 +2886,7 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   </cellXfs>
 </styleSheet>`;
 
-const buildWorkbookBlob = async (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+const buildWorkbookBlob = async (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>, selectedMix = "") => {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
   zip.folder("_rels")?.file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`);
@@ -2618,7 +2894,7 @@ const buildWorkbookBlob = async (definition: ConcentrationDefinition, rows: Row[
   zip.folder("docProps")?.file("app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>ControlEng Prime</Application></Properties>`);
   zip.folder("xl")?.file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlEscape(definition.title).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto"/></workbook>`);
   zip.folder("xl")?.folder("_rels")?.file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
-  zip.folder("xl")?.folder("worksheets")?.file("sheet1.xml", buildWorksheetXml(definition, rows, meta));
+  zip.folder("xl")?.folder("worksheets")?.file("sheet1.xml", buildWorksheetXml(definition, rows, meta, selectedMix));
   zip.folder("xl")?.file("styles.xml", stylesXml);
   return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
@@ -2666,9 +2942,21 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
   const exportOne = async (definition: ConcentrationDefinition) => {
     setBusyId(definition.id);
     try {
-      const rows = rowsById[definition.id] ?? [];
-      const blob = await buildWorkbookBlob(definition, rows, meta);
-      downloadBlob(blob, definition.fileName);
+      let selectedMix = "";
+      let rows = rowsById[definition.id] ?? [];
+      let fileName = definition.fileName;
+      if (definition.id === "asphalt") {
+        selectedMix = firstText(
+          window.prompt('ריכוז של איזה סוג תערובת?\nאפשרויות: תא״צ 19, תא״צ 25, תא״צ 12.5, תא״צ 9.5, SMA', "תא״צ 19"),
+          "",
+        );
+        if (!selectedMix) return;
+        selectedMix = normalizeAsphaltMix(selectedMix) || selectedMix;
+        rows = buildAsphaltConcentrationRows(ctx, selectedMix);
+        fileName = `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`;
+      }
+      const blob = await buildWorkbookBlob(definition, rows, meta, selectedMix);
+      downloadBlob(blob, fileName);
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "אירעה שגיאה ביצוא הריכוז");
