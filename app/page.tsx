@@ -540,7 +540,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_25",
     label: "תא״צ 25",
-    aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "25", "תאצ25", "תא״צ25"],
+    aliases: ["תאצ 25", "תא״צ 25", "תא צ 25", "תאצ25", "תא״צ25", "taatz 25", "taatz25"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
@@ -569,7 +569,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_19",
     label: "תא״צ 19",
-    aliases: ["תאצ 19", "תא״צ 19", "תא צ 19", "19", "תאצ19", "תא״צ19", "PG70-10 19"],
+    aliases: ["תאצ 19", "תא״צ 19", "תא צ 19", "תאצ19", "תא״צ19", "PG70-10 תאצ 19", "PG70-10 תא״צ 19", "taatz 19", "taatz19"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "95", maxValue: "105", allowedDeviation: "±5" },
@@ -598,7 +598,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_12_5",
     label: "תא״צ 12.5",
-    aliases: ["תאצ 12.5", "תא״צ 12.5", "12.5", "תאצ12.5", "תא״צ12.5"],
+    aliases: ["תאצ 12.5", "תא״צ 12.5", "תא צ 12.5", "תאצ12.5", "תא״צ12.5", "taatz 12.5", "taatz12.5"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "", maxValue: "" },
@@ -627,7 +627,7 @@ const ASPHALT_MIX_TEMPLATES: AsphaltMixTemplate[] = [
   {
     key: "TAATZ_9_5",
     label: "תא״צ 9.5",
-    aliases: ["תאצ 9.5", "תא״צ 9.5", "9.5", "תאצ9.5", "תא״צ9.5"],
+    aliases: ["תאצ 9.5", "תא״צ 9.5", "תא צ 9.5", "תאצ9.5", "תא״צ9.5", "taatz 9.5", "taatz9.5"],
     rows: withAsphaltCommonRows([
       { metric: '1.5"', minValue: "", maxValue: "" },
       { metric: '1"', minValue: "", maxValue: "" },
@@ -702,19 +702,57 @@ const resolveAsphaltMixTemplate = (
   value: unknown,
   rows: ReferenceResultRow[] = [],
 ): AsphaltMixTemplate => {
-  const candidates = [
-    value,
-    extractAsphaltMixValueFromRows(rows),
-    rows.map((row) => `${row.metric} ${row.resultValue}`).join(" "),
-  ];
-  const normalizedCandidates = candidates.map(normalizeAsphaltMixText).filter(Boolean);
-  const found = ASPHALT_MIX_TEMPLATES.find((template) =>
-    template.aliases.some((alias) => {
-      const normalizedAlias = normalizeAsphaltMixText(alias);
-      return normalizedCandidates.some((candidate) => candidate === normalizedAlias || candidate.includes(normalizedAlias));
-    }),
+  // חשוב: בחירת סוג תערובת מפורשת חייבת לגבור על כל נתונים ישנים שכבר נמצאים בטבלה.
+  // בעבר המערכת חיפשה גם בכל שורות התוצאות, וכך מספרים כמו 25 מתוך תעודה קודמת
+  // גרמו לכך שגם לאחר בחירת תא"צ 19 נטען Template של תא"צ 25.
+  const explicitValue = normalizeAsphaltMixText(value);
+  const rowMixValue = normalizeAsphaltMixText(extractAsphaltMixValueFromRows(rows));
+
+  const matchByText = (textValue: string) => {
+    if (!textValue) return null;
+    return (
+      ASPHALT_MIX_TEMPLATES.find((template) =>
+        template.aliases.some((alias) => {
+          const normalizedAlias = normalizeAsphaltMixText(alias);
+          return (
+            textValue === normalizedAlias ||
+            textValue.includes(normalizedAlias) ||
+            normalizedAlias.includes(textValue)
+          );
+        }),
+      ) ?? null
+    );
+  };
+
+  // זיהוי קשיח לפי מספר תערובת, כדי למנוע בלבול בין 19 ל-25.
+  const hardMatch = (textValue: string) => {
+    if (!textValue) return null;
+    if (/תאצ\s*19\b/.test(textValue) || /taatz\s*19\b/.test(textValue)) {
+      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_19") ?? null;
+    }
+    if (/תאצ\s*25\b/.test(textValue) || /taatz\s*25\b/.test(textValue)) {
+      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_25") ?? null;
+    }
+    if (/תאצ\s*12\.5\b/.test(textValue) || /taatz\s*12\.5\b/.test(textValue)) {
+      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_12_5") ?? null;
+    }
+    if (/תאצ\s*9\.5\b/.test(textValue) || /taatz\s*9\.5\b/.test(textValue)) {
+      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_9_5") ?? null;
+    }
+    if (/\bsma\b/.test(textValue) || textValue.includes("סמא")) {
+      return ASPHALT_MIX_TEMPLATES.find((template) => template.key === "SMA") ?? null;
+    }
+    return null;
+  };
+
+  return (
+    hardMatch(explicitValue) ||
+    matchByText(explicitValue) ||
+    hardMatch(rowMixValue) ||
+    matchByText(rowMixValue) ||
+    ASPHALT_MIX_TEMPLATES.find((template) => template.key === "TAATZ_19") ||
+    ASPHALT_MIX_TEMPLATES[0]
   );
-  return found ?? ASPHALT_MIX_TEMPLATES[0];
 };
 
 const createAsphaltJmfReferenceResults = (mixType?: unknown): ReferenceResultRow[] => {
@@ -735,7 +773,7 @@ const buildAsphaltRowsForMix = (
   current: ReferenceResultRow[] = [],
   preserveValues = false,
 ): ReferenceResultRow[] => {
-  const template = resolveAsphaltMixTemplate(mixType, current);
+  const template = resolveAsphaltMixTemplate(mixType || extractAsphaltMixValueFromRows(current), []);
   const currentByMetric = new Map(current.map((row) => [normalizeHebrewProjectName(row.metric), row]));
   return template.rows.map((fixed) => {
     const existing = currentByMetric.get(normalizeHebrewProjectName(fixed.metric));
@@ -7537,7 +7575,7 @@ function ControlProcessesSection({
         ...prev,
         workType: value,
         referenceResults: nextIsAsphalt
-          ? buildAsphaltRowsForMix(prev.asphaltMixType || "תא״צ 25", previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
+          ? buildAsphaltRowsForMix(prev.asphaltMixType || extractAsphaltMixValueFromRows(prev.referenceResults) || "תא״צ 19", previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
           : ensureReferenceResultsForMaterial(value, prev.referenceResults),
       };
     });
