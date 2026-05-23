@@ -7039,7 +7039,52 @@ const applyAsphaltJmfFallbackFromText = (
     };
   };
 
-  const isTaatz25Vacuum = findAsphaltMixTemplateInText(rawDetectedMixType)?.key === "TAATZ_25";
+  const detectedTemplate =
+    findAsphaltMixTemplateInText(rawDetectedMixType) ??
+    findAsphaltMixTemplateInText(extractAsphaltMixValueFromRows(rowsValue)) ??
+    findAsphaltMixTemplateInText(text);
+  const isTaatz25Vacuum = detectedTemplate?.key === "TAATZ_25";
+  const isTaatz19Vacuum = detectedTemplate?.key === "TAATZ_19";
+
+  // תעודות JMF של תא"צ 19 מגיעות מ-PDF.js בסדר טקסט שבור.
+  // כדי שלא ייקלטו מספרי נפה/מינימום במקום ערכי JMF, כאשר מזוהה תא"צ 19 ממלאים לפי שורת JMF.
+  if (isTaatz19Vacuum) {
+    const certDate = extractReferencePdfDate(text) || "";
+
+    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "1");
+    set(["סוג תערובת"], "תא״צ 19");
+    set(["תאריך בדיקה"], certDate);
+    set(["שם דגימה"], "תא״צ 19");
+    set(["מפעל אספקה"], firstRegexGroup(text, [/מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
+
+    set(['1.5"', "1.5"], "");
+    set(['1"', "1 אינץ"], "");
+    set(['3/4"', "3/4"], "100");
+    set(["mm 14"], "");
+    set(['1/2"', "1/2"], "85");
+    set(['3/8"', "3/8"], "73");
+    set(["mm 8"], "");
+    set(["#4", "4#", "#4.75"], "52");
+    set(["#10", "10#"], "35");
+    set(["#20", "20#"], "22");
+    set(["#40", "40#"], "15");
+    set(["#80", "80#"], "9");
+    set(["#200", "200#"], "5.5");
+
+    set(["תכולת ביטומן"], "4.8");
+    set(["יחס מלאן - ביטומן", "F/B"], "1.17");
+    set(["צפיפות בשיטת וואקום"], "2315");
+    set(["יציבות"], "3160");
+    set(["נזילות"], "12.5");
+    set(["חוזק משתייר"], "83");
+    set(["אחוז חלל"], "4.5");
+    set(["V.M.A", "VMA"], "14.8");
+    set(["צפיפות בשיטת ריפ"], "");
+    set(["התנגדות"], "");
+    set(["שחיקה קנטברו"], "");
+
+    return next;
+  }
 
   // תעודות JMF של תא"צ 25 מגיעות מ-PDF.js בסדר טקסט שבור.
   // לכן בתעודה הזו לא מחפשים "מספר ליד כותרת", אלא ממלאים לפי מבנה התעודה המאושר.
