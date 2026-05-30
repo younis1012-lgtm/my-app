@@ -11130,6 +11130,32 @@ export default function Page() {
     const id = editingControlProcessId ?? crypto.randomUUID();
     const nextStatus: ControlProcessStatus =
       controlProcessForm.status === "נעול" ? "נעול" : controlProcessForm.status;
+    let syncedReferenceResults = isAsphaltReference(controlProcessForm.workType)
+      ? buildAsphaltRowsForMix(
+          controlProcessForm.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(controlProcessForm.referenceResults)) || getDefaultAsphaltMixTemplate().label,
+          normalizeReferenceResults(controlProcessForm.referenceResults),
+          true,
+        )
+      : ensureReferenceResultsForMaterial(
+          controlProcessForm.workType,
+          controlProcessForm.referenceResults,
+        );
+
+    if (isAsphaltReference(controlProcessForm.workType)) {
+      const syncMetric = (aliases: string[], value: unknown) => {
+        syncedReferenceResults = setReferenceMetricValue(syncedReferenceResults, aliases, value);
+      };
+      syncMetric(["סוג תערובת"], controlProcessForm.asphaltMixType);
+      syncMetric(["תכולת ביטומן"], controlProcessForm.optimumBitumen);
+      syncMetric(["צפיפות בשיטת וואקום"], controlProcessForm.referenceDensity);
+      syncMetric(["אחוז חלל"], controlProcessForm.airVoids);
+      syncMetric(["יציבות"], controlProcessForm.stability);
+      syncMetric(["נזילות"], controlProcessForm.flow);
+      syncMetric(["V.M.A", "VMA"], controlProcessForm.vma);
+      syncMetric(["מספר תעודת מעבדה", "מספר תעודה"], controlProcessForm.labCertificateNo);
+      syncMetric(["מפעל אספקה"], controlProcessForm.supplier);
+    }
+
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
@@ -11152,10 +11178,7 @@ export default function Page() {
       requiredDocuments: normalizeRequiredDocuments(
         controlProcessForm.requiredDocuments,
       ),
-      referenceResults: ensureReferenceResultsForMaterial(
-        controlProcessForm.workType,
-        controlProcessForm.referenceResults,
-      ).map(applyReferenceQualityStatus),
+      referenceResults: syncedReferenceResults.map(applyReferenceQualityStatus),
       auditTrail: [
         ...(existing?.auditTrail ?? []),
         {
