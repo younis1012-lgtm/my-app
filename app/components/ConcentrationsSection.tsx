@@ -2819,12 +2819,12 @@ const buildAsphaltWorksheetXml = (
   const headerPad = (values: string[]) => [...values, ...Array.from({ length: Math.max(0, outputColumns.length - values.length) }, () => "")];
   const sheetRows: string[] = [
     emptyRowXml(1, outputColumns.length),
-    rowXml(2, headerPad(["", "", "", "", "", "", "", title, title, title, title, title, title, title, title]), 1, 22),
+    rowXmlFromColumn(2, 8, [title, "", "", "", "", "", "", ""], 1, 22),
     emptyRowXml(3, outputColumns.length),
-    rowXml(4, headerPad(["", "", "", "", "", "", "", "שם פרויקט:", "שם פרויקט:", meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName]), 2, 20),
-    rowXml(5, headerPad(["", "", "", "", "", "", "", "ניהול פרויקט", "ניהול פרויקט", meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement]), 2, 20),
-    rowXml(6, headerPad(["", "", "", "", "", "", "", "שם הקבלן", "שם הקבלן", meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor]), 2, 20),
-    rowXml(7, headerPad(["", "", "", "", "", "", "", `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`]), 2, 20),
+    rowXmlFromColumn(4, 8, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20),
+    rowXmlFromColumn(5, 8, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20),
+    rowXmlFromColumn(6, 8, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20),
+    rowXmlFromColumn(7, 8, [`בקרת איכות- ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות -${meta.qualityAssurance || ""}`, "", "", ""], 2, 20),
     emptyRowXml(8, outputColumns.length),
     emptyRowXml(9, outputColumns.length),
     rowXml(10, topHeader, 3, 34),
