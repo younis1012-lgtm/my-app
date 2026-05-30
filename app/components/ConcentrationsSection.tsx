@@ -2819,12 +2819,12 @@ const buildAsphaltWorksheetXml = (
   const headerPad = (values: string[]) => [...values, ...Array.from({ length: Math.max(0, outputColumns.length - values.length) }, () => "")];
   const sheetRows: string[] = [
     emptyRowXml(1, outputColumns.length),
-    rowXml(2, headerPad(["", "", "", "", "", "", "", "", "", "", "", title, title, title, title, title, title, title]), 1, 22),
+    rowXml(2, headerPad(["", "", "", "", "", "", "", title, title, title, title, title, title, title, title]), 1, 22),
     emptyRowXml(3, outputColumns.length),
-    rowXml(4, headerPad(["", "", "", "", "", "", "", "", "", "", "", "שם פרויקט:", "שם פרויקט:", meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName]), 2, 20),
-    rowXml(5, headerPad(["", "", "", "", "", "", "", "", "", "", "", "ניהול פרויקט", "ניהול פרויקט", meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement]), 2, 20),
-    rowXml(6, headerPad(["", "", "", "", "", "", "", "", "", "", "", "שם הקבלן", "שם הקבלן", meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor]), 2, 20),
-    rowXml(7, headerPad(["", "", "", "", "", "", "", "", "", "", "", `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`]), 2, 20),
+    rowXml(4, headerPad(["", "", "", "", "", "", "", "שם פרויקט:", "שם פרויקט:", meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName, meta.projectName]), 2, 20),
+    rowXml(5, headerPad(["", "", "", "", "", "", "", "ניהול פרויקט", "ניהול פרויקט", meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement, meta.projectManager || meta.projectManagement]), 2, 20),
+    rowXml(6, headerPad(["", "", "", "", "", "", "", "שם הקבלן", "שם הקבלן", meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor, meta.contractor]), 2, 20),
+    rowXml(7, headerPad(["", "", "", "", "", "", "", `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `בקרת איכות- ${meta.qualityControl || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`, `הבטחת איכות -${meta.qualityAssurance || ""}`]), 2, 20),
     emptyRowXml(8, outputColumns.length),
     emptyRowXml(9, outputColumns.length),
     rowXml(10, topHeader, 3, 34),
@@ -2846,11 +2846,11 @@ const buildAsphaltWorksheetXml = (
   const sieveEndCol = colName(9 + activeSieveColumns.length);
   const postStart = 10 + activeSieveColumns.length;
   const merges = [
-    "L2:R2",
-    "L4:M4", "N4:R4",
-    "L5:M5", "N5:R5",
-    "L6:M6", "N6:R6",
-    "L7:O7", "P7:R7",
+    "H2:O2",
+    "H4:I4", "J4:O4",
+    "H5:I5", "J5:O5",
+    "H6:I6", "J6:O6",
+    "H7:K7", "L7:O7",
     "A10:A12", "B10:B12", "C10:C12", "D10:D12", "E10:E12",
     "F10:G10", "H10:H11", "I10:I11", `J10:${sieveEndCol}10`,
     ...Array.from({ length: outputColumns.length - postStart + 1 }, (_, index) => `${colName(postStart + index)}10:${colName(postStart + index)}12`),
