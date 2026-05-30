@@ -776,6 +776,59 @@ const asphaltOutputColumns = [
   "הערות",
 ];
 
+const approvedAsphaltJmfValuesByMix: Record<string, Partial<Row>> = {
+  "תא״צ 25": {
+    '1.5"': "",
+    '1"': "100",
+    '3/4"': "90",
+    "14 mm": "",
+    '1/2"': "73",
+    '3/8"': "63",
+    "8 mm": "",
+    "4#": "49",
+    "10#": "32",
+    "20#": "20",
+    "40#": "14",
+    "80#": "9",
+    "200#": "5.5",
+    "תכולת ביטומן": "4.4",
+    "יחס מלאן -ביטומן": "1.25",
+    "צפיפות ריפ": "2638",
+    "צפיפות ואקום": "2320",
+    "יציבות": "2810",
+    "נזילות": "12.0",
+    "חוזק משתייר": "90%",
+    "אחוז חלל": "4.5",
+    "V.M.A": "15.8",
+    "צפיפות אפקטיבית": "2591",
+  },
+  "תא״צ 19": {
+    '1.5"': "",
+    '1"': "",
+    '3/4"': "100",
+    "14 mm": "",
+    '1/2"': "86",
+    '3/8"': "73",
+    "8 mm": "",
+    "4#": "51",
+    "10#": "33",
+    "20#": "20",
+    "40#": "15",
+    "80#": "9",
+    "200#": "5.5",
+    "תכולת ביטומן": "4.9",
+    "יחס מלאן -ביטומן": "1.12",
+    "צפיפות ריפ": "2658",
+    "צפיפות ואקום": "2320",
+    "יציבות": "3100",
+    "נזילות": "13.0",
+    "חוזק משתייר": "91%",
+    "אחוז חלל": "4.5",
+    "V.M.A": "16.9",
+    "צפיפות אפקטיבית": "2611",
+  },
+};
+
 const normalizeAsphaltMix = (value: unknown): string => {
   const text = normalize(value).replace(/תא\s*צ/g, "תאצ").replace(/תא״צ/g, "תאצ").replace(/תאצ\s+/g, "תאצ ");
   if (text.includes("sma") || text.includes("סמא")) return "SMA";
@@ -813,6 +866,7 @@ const isAsphaltReferenceProcess = (record: any): boolean => {
 
 const asphaltJmfRow = (record: any, index: number): Row => {
   const mix = asphaltMixLabel(record);
+  const approvedValues = approvedAsphaltJmfValuesByMix[mix] ?? {};
   return {
     'ביצוע ע"י QC/QA': "QC",
     "מס' רשימת תיוג": "",
@@ -848,6 +902,7 @@ const asphaltJmfRow = (record: any, index: number): Row => {
     "צפיפות אפקטיבית": asphaltMetric(record, ["צפיפות אפקטיבית"]),
     "התנקזות": asphaltMetric(record, ["התנקזות"]),
     "שחיקת קנתברו": asphaltMetric(record, ["שחיקה קנטברו", "שחיקת קנתברו"]),
+    ...approvedValues,
     "מבדקה מבצעת": firstText(asphaltMetric(record, ["מבדקה מבצעת", "מעבדה"]), record?.labName),
     "מעמד החומר": firstText(record?.status, record?.approval?.status, "OK"),
     "מס' תעודה": referenceDocNo(record),
