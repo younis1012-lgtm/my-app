@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 
+const InlineCode = ({ children }: { children: string }) => (
+  <b dir="ltr" style={{ unicodeBidi: "isolate" }}>
+    {children}
+  </b>
+);
+
 export function PasswordField({
   value,
   onChange,
@@ -108,7 +114,7 @@ export function ProjectLoginScreen({
           <input
             value={username}
             onChange={(event) => onUsernameChange(event.target.value)}
-            placeholder="לדוגמה: admin או 806"
+            placeholder="לדוגמה: admin, המייל שלך או 806"
             autoFocus
             autoComplete="username"
             style={{
@@ -162,10 +168,22 @@ export function ProjectLoginScreen({
               marginBottom: 16,
             }}
           >
-            <div style={{ fontWeight: 950, marginBottom: 4 }}>אפשרויות שחזור</div>
-            <div>נסה כניסת מנהל ברירת מחדל: שם משתמש <b>admin</b>, סיסמה <b>admin123</b>.</div>
-            <div>לפרויקט 806 ברירת המחדל היא: שם משתמש <b>user806</b>, סיסמה <b>806</b>.</div>
-            <div>אם הסיסמה שונתה, יש להיכנס כמנהל ולשנות אותה דרך "ניהול משתמשים והרשאות".</div>
+            <div style={{ fontWeight: 950, marginBottom: 4 }}>
+              אפשרויות שחזור
+            </div>
+            <div>
+              מנהל מערכת: שם משתמש <InlineCode>admin</InlineCode> או{" "}
+              <InlineCode>younis1012@gmail.com</InlineCode>, סיסמה{" "}
+              <InlineCode>admin123</InlineCode>.
+            </div>
+            <div>
+              פרויקט 806: שם משתמש <InlineCode>user806</InlineCode> או קוד{" "}
+              <InlineCode>806</InlineCode>, סיסמה <InlineCode>806</InlineCode>.
+            </div>
+            <div>
+              אם הסיסמה שונתה, יש להיכנס כמנהל ולשנות אותה דרך "ניהול משתמשים
+              והרשאות".
+            </div>
           </div>
         ) : null}
 

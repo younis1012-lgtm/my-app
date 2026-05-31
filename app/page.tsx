@@ -1623,6 +1623,7 @@ type ProjectAccess = {
   displayName: string;
   role: "admin" | "user";
   code?: string;
+  aliases?: string[];
   projectName?: string | null;
   signatureDataUrl?: string;
   signatureFileName?: string;
@@ -1638,6 +1639,7 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     displayName: "מנהל מערכת",
     role: "admin",
     code: "admin",
+    aliases: ["younis1012@gmail.com"],
     projectName: null,
   },
   {
@@ -1667,9 +1669,12 @@ const normalizeAccessValue = (value: unknown) =>
 
 const accessLoginMatches = (access: ProjectAccess, value: string) => {
   const normalized = normalizeAccessValue(value);
+  const aliases = Array.isArray(access.aliases) ? access.aliases : [];
   return (
     normalizeAccessValue(access.username) === normalized ||
-    normalizeAccessValue(access.code) === normalized
+    normalizeAccessValue(access.code) === normalized ||
+    aliases.some((alias) => normalizeAccessValue(alias) === normalized) ||
+    (access.role === "admin" && normalized === "younis1012@gmail.com")
   );
 };
 
@@ -1700,6 +1705,11 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
         ).trim(),
         role: item.role === "admin" ? "admin" : "user",
         code: item.code ? String(item.code).trim() : undefined,
+        aliases: Array.isArray(item.aliases)
+          ? item.aliases
+              .map((alias: unknown) => String(alias ?? "").trim())
+              .filter(Boolean)
+          : undefined,
         projectName:
           item.role === "admin" ? null : String(item.projectName ?? "").trim(),
         signatureDataUrl: String(item.signatureDataUrl ?? ""),
