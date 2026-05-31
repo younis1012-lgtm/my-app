@@ -5452,6 +5452,39 @@ function TrialSectionsRecordsTable({
   const safeRecords = Array.isArray(records) ? records : [];
   const cellValue = (record: any, ...keys: string[]) =>
     pickTrialValue(record, ...keys) || "-";
+  const rawCellValue = (record: any, ...keys: string[]) =>
+    pickTrialValue(record, ...keys);
+  const splitRangeAndSide = (record: any) => {
+    const combined = rawCellValue(
+      record,
+      "chainageSide",
+      "fromTo",
+      "fromToSide",
+      "sectionRange",
+      "sectionRangeSide",
+      "chainage",
+      "chainageRange",
+      "stationRange",
+    );
+    const directSide = rawCellValue(record, "side", "roadSide");
+    const sideMatch =
+      combined.match(/(?:צד|side)\s*[:：-]?\s*([^,\-/|]+)/i) ??
+      combined.match(/\(([^()]*(?:ימין|שמאל|מרכז|צפון|דרום|מזרח|מערב)[^()]*)\)/);
+    const cleanCombined = combined
+      .replace(/(?:צד|side)\s*[:：-]?\s*[^,\-/|]+/i, "")
+      .replace(/\([^()]*\)/g, "")
+      .trim();
+    const parts = cleanCombined
+      .split(/\s*(?:עד|[-–—]|\/|\||,|;)\s*/i)
+      .map((part) => normalizeLooseText(part))
+      .filter(Boolean);
+    return {
+      from: rawCellValue(record, "fromSection", "fromChainage", "fromStation") || parts[0] || "",
+      to: rawCellValue(record, "toSection", "toChainage", "toStation") || parts[1] || "",
+      side: directSide || normalizeLooseText(sideMatch?.[1]) || "",
+      combined,
+    };
+  };
   const statusText = (record: any) =>
     cellValue(record, "status", "approvalStatus", "result");
   const statusStyle = (status: string): CSSProperties => {
@@ -5479,7 +5512,7 @@ function TrialSectionsRecordsTable({
   }> = [
     {
       label: "מספר סידורי",
-      width: 92,
+      width: 110,
       value: (record, index) => rowNumber(record, index),
     },
     {
@@ -5490,7 +5523,7 @@ function TrialSectionsRecordsTable({
     },
     {
       label: "סוג קטע ניסוי",
-      width: 180,
+      width: 210,
       value: (record) =>
         cellValue(record, "proofForActivityType", "proofOfCapability", "capabilityProof", "classificationProof", "spec"),
     },
@@ -5508,6 +5541,17 @@ function TrialSectionsRecordsTable({
       value: (record) => cellValue(record, "elementName", "element"),
     },
     {
+      label: "תת אלמנט",
+      width: 150,
+      value: (record) => cellValue(record, "subElement", "sub_element"),
+    },
+    {
+      label: "מיקום / מבנה",
+      width: 170,
+      value: (record) =>
+        cellValue(record, "location", "workLocation", "roadStructure", "workSection", "area"),
+    },
+    {
       label: "קומה",
       width: 110,
       value: (record) => cellValue(record, "floor", "level"),
@@ -5520,18 +5564,33 @@ function TrialSectionsRecordsTable({
     {
       label: "הסט",
       width: 110,
-      value: (record) => cellValue(record, "offset", "side", "roadSide"),
+      value: (record) => cellValue(record, "offset"),
+    },
+    {
+      label: "צד",
+      width: 110,
+      value: (record) => splitRangeAndSide(record).side || "-",
     },
     {
       label: "מחתך",
       width: 120,
-      value: (record) =>
-        cellValue(record, "fromSection", "fromChainage", "fromStation"),
+      value: (record) => splitRangeAndSide(record).from || "-",
     },
     {
       label: "לחתך",
       width: 120,
-      value: (record) => cellValue(record, "toSection", "toChainage", "toStation"),
+      value: (record) => splitRangeAndSide(record).to || "-",
+    },
+    {
+      label: "מחתך עד חתך/צד",
+      width: 190,
+      value: (record) => splitRangeAndSide(record).combined || "-",
+    },
+    {
+      label: "תאריך ביצוע",
+      width: 130,
+      value: (record) =>
+        cellValue(record, "executionDate", "date", "approvalDate", "savedAt"),
     },
   ];
 
@@ -5598,7 +5657,7 @@ function TrialSectionsRecordsTable({
         <table
           style={{
             width: "100%",
-            minWidth: 1420,
+            minWidth: 1880,
             borderCollapse: "collapse",
             tableLayout: "fixed",
             direction: "rtl",
@@ -5609,7 +5668,7 @@ function TrialSectionsRecordsTable({
             <tr style={{ background: "#f5f5f5", color: "#111827" }}>
               <th
                 style={{
-                  width: 92,
+                  width: 128,
                   padding: "14px 10px",
                   border: "1px solid #e5e7eb",
                   textAlign: "center",
@@ -5641,7 +5700,12 @@ function TrialSectionsRecordsTable({
               safeRecords.map((record, index) => {
                 const id = String(record?.id ?? index);
                 return (
-                  <tr key={id} style={{ height: 96 }}>
+                  <tr
+                    key={id}
+                    onClick={() => onOpen(id)}
+                    title="לחץ לפתיחה / עריכה"
+                    style={{ height: 96, cursor: "pointer" }}
+                  >
                     <td
                       style={{
                         padding: 10,
@@ -5654,15 +5718,19 @@ function TrialSectionsRecordsTable({
                         <button
                           type="button"
                           title="פתח / ערוך"
-                          onClick={() => onOpen(id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpen(id);
+                          }}
                           style={{
-                            border: 0,
-                            background: "transparent",
+                            border: "1px solid #bbf7d0",
+                            borderRadius: 999,
+                            background: "#f0fdf4",
                             color: "#16a34a",
-                            fontSize: 22,
+                            fontSize: 14,
                             fontWeight: 950,
                             cursor: "pointer",
-                            lineHeight: 1,
+                            padding: "7px 10px",
                           }}
                         >
                           ✎
@@ -5670,7 +5738,10 @@ function TrialSectionsRecordsTable({
                         <button
                           type="button"
                           title="מחק"
-                          onClick={() => onDelete(id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDelete(id);
+                          }}
                           style={{
                             border: 0,
                             background: "transparent",
