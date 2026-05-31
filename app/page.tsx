@@ -10301,14 +10301,22 @@ export default function Page() {
     checklistTemplates[normalizeChecklistTemplateKey(key)]?.label ??
     "רשימת תיוג";
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
+  const currentProjectIdNormalized = normalizeStoredProjectId(currentProjectId);
+  const activeProjectAcceptsLegacyRecords =
+    !currentProjectIdNormalized ||
+    isRoad806Value(currentProjectIdNormalized) ||
+    isRoad806Value(projectName);
+  const recordMatchesCurrentProject = (projectId: unknown) => {
+    const recordProjectId = normalizeStoredProjectId(projectId);
+    if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
+    if (!currentProjectIdNormalized) return true;
+    return recordProjectId === currentProjectIdNormalized;
+  };
+
   const projectChecklists = useMemo(
     () =>
       savedChecklists
-        .filter((item) => {
-          const itemProjectId = normalizeStoredProjectId(item.projectId);
-          const activeProjectId = normalizeStoredProjectId(currentProjectId);
-          return !itemProjectId || !activeProjectId || itemProjectId === activeProjectId;
-        })
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -10317,7 +10325,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedChecklists, currentProjectId, normalizedSearchTerm],
+    [
+      savedChecklists,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const selectedChecklistRecords = useMemo(
     () =>
@@ -10329,11 +10342,6 @@ export default function Page() {
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
-  const currentProjectIdNormalized = normalizeStoredProjectId(currentProjectId);
-  const recordMatchesCurrentProject = (projectId: unknown) => {
-    const recordProjectId = normalizeStoredProjectId(projectId);
-    return !recordProjectId || !currentProjectIdNormalized || recordProjectId === currentProjectIdNormalized;
-  };
 
   const projectNonconformances = useMemo(
     () =>
@@ -10347,7 +10355,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedNonconformances, currentProjectIdNormalized, normalizedSearchTerm],
+    [
+      savedNonconformances,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const projectRfis = useMemo(
     () =>
@@ -10367,7 +10380,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedRfis, currentProjectIdNormalized, normalizedSearchTerm],
+    [
+      savedRfis,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const projectControlProcesses = useMemo(
     () =>
@@ -10388,7 +10406,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedControlProcesses, currentProjectIdNormalized, normalizedSearchTerm],
+    [
+      savedControlProcesses,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const projectSupervisionReports = useMemo(
     () =>
@@ -10402,7 +10425,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedSupervisionReports, currentProjectIdNormalized, normalizedSearchTerm],
+    [
+      savedSupervisionReports,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const projectTrialSections = useMemo(
     () =>
@@ -10416,7 +10444,12 @@ export default function Page() {
               .toLowerCase()
               .includes(normalizedSearchTerm),
         ),
-    [savedTrialSections, currentProjectIdNormalized, normalizedSearchTerm],
+    [
+      savedTrialSections,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
   );
   const projectPreliminary = useMemo(() => {
     const matchesSearch = (item: PreliminaryRecord) =>
@@ -10428,9 +10461,13 @@ export default function Page() {
     const matchingProject = savedPreliminary.filter((item) =>
       recordMatchesCurrentProject(item.projectId),
     );
-    const visibleSource = matchingProject.length ? matchingProject : savedPreliminary;
-    return visibleSource.filter(matchesSearch);
-  }, [savedPreliminary, currentProjectIdNormalized, normalizedSearchTerm]);
+    return matchingProject.filter(matchesSearch);
+  }, [
+    savedPreliminary,
+    currentProjectIdNormalized,
+    activeProjectAcceptsLegacyRecords,
+    normalizedSearchTerm,
+  ]);
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? "");
