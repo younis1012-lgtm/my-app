@@ -5438,6 +5438,311 @@ function FolderRecordsTable({
   );
 }
 
+function TrialSectionsRecordsTable({
+  records,
+  onOpen,
+  onDelete,
+  onNew,
+}: {
+  records: any[];
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  onNew: () => void;
+}) {
+  const safeRecords = Array.isArray(records) ? records : [];
+  const cellValue = (record: any, ...keys: string[]) =>
+    pickTrialValue(record, ...keys) || "-";
+  const statusText = (record: any) =>
+    cellValue(record, "status", "approvalStatus", "result");
+  const statusStyle = (status: string): CSSProperties => {
+    const normalized = normalizeLooseText(status).toLowerCase();
+    if (
+      normalized.includes("אושר") ||
+      normalized.includes("מאושר") ||
+      normalized.includes("approved")
+    ) {
+      return { color: "#16a34a", fontWeight: 900 };
+    }
+    if (normalized.includes("נדחה") || normalized.includes("rejected")) {
+      return { color: "#dc2626", fontWeight: 900 };
+    }
+    return { color: "#374151", fontWeight: 800 };
+  };
+  const rowNumber = (record: any, index: number) =>
+    pickTrialValue(record, "sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number", "title") ||
+    String(index + 1);
+
+  const columns: Array<{
+    label: string;
+    width: number;
+    value: (record: any, index: number) => React.ReactNode;
+  }> = [
+    {
+      label: "מספר סידורי",
+      width: 92,
+      value: (record, index) => rowNumber(record, index),
+    },
+    {
+      label: "קבלן / מבצע",
+      width: 190,
+      value: (record) =>
+        cellValue(record, "mainContractor", "contractor", "performingContractor", "executor"),
+    },
+    {
+      label: "סוג קטע ניסוי",
+      width: 180,
+      value: (record) =>
+        cellValue(record, "proofForActivityType", "proofOfCapability", "capabilityProof", "classificationProof", "spec"),
+    },
+    {
+      label: "סטטוס",
+      width: 130,
+      value: (record) => {
+        const status = statusText(record);
+        return <span style={statusStyle(status)}>{status}</span>;
+      },
+    },
+    {
+      label: "אלמנט",
+      width: 150,
+      value: (record) => cellValue(record, "elementName", "element"),
+    },
+    {
+      label: "קומה",
+      width: 110,
+      value: (record) => cellValue(record, "floor", "level"),
+    },
+    {
+      label: "יחידה",
+      width: 110,
+      value: (record) => cellValue(record, "unit", "buildingUnit"),
+    },
+    {
+      label: "הסט",
+      width: 110,
+      value: (record) => cellValue(record, "offset", "side", "roadSide"),
+    },
+    {
+      label: "מחתך",
+      width: 120,
+      value: (record) =>
+        cellValue(record, "fromSection", "fromChainage", "fromStation"),
+    },
+    {
+      label: "לחתך",
+      width: 120,
+      value: (record) => cellValue(record, "toSection", "toChainage", "toStation"),
+    },
+  ];
+
+  return (
+    <section
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 4,
+        overflow: "hidden",
+        marginBottom: 18,
+        background: "#fff",
+        boxShadow: "0 8px 22px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          padding: "12px 16px",
+          background: "#fff",
+          borderBottom: "1px solid #e5e7eb",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontWeight: 900, color: "#374151" }}>
+          1-{Math.min(10, safeRecords.length)} / {safeRecords.length || 0}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={onNew}
+            style={{
+              border: 0,
+              borderRadius: 4,
+              background: "#22c55e",
+              color: "#fff",
+              fontWeight: 900,
+              padding: "10px 26px",
+              cursor: "pointer",
+            }}
+          >
+            אפס
+          </button>
+          <button
+            type="button"
+            onClick={onNew}
+            style={{
+              border: "1px solid #d1d5db",
+              borderRadius: 4,
+              background: "#fff",
+              color: "#111827",
+              fontWeight: 900,
+              padding: "10px 18px",
+              cursor: "pointer",
+            }}
+          >
+            חדש
+          </button>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{
+            width: "100%",
+            minWidth: 1420,
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+            direction: "rtl",
+            fontSize: 14,
+          }}
+        >
+          <thead>
+            <tr style={{ background: "#f5f5f5", color: "#111827" }}>
+              <th
+                style={{
+                  width: 92,
+                  padding: "14px 10px",
+                  border: "1px solid #e5e7eb",
+                  textAlign: "center",
+                  fontWeight: 950,
+                }}
+              >
+                פעולות
+              </th>
+              {columns.map((column) => (
+                <th
+                  key={column.label}
+                  style={{
+                    width: column.width,
+                    padding: "14px 10px",
+                    border: "1px solid #e5e7eb",
+                    textAlign: "center",
+                    fontWeight: 950,
+                    whiteSpace: "normal",
+                  }}
+                >
+                  <span>{column.label}</span>
+                  <span style={{ color: "#9ca3af", marginInlineStart: 8 }}>↕</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {safeRecords.length ? (
+              safeRecords.map((record, index) => {
+                const id = String(record?.id ?? index);
+                return (
+                  <tr key={id} style={{ height: 96 }}>
+                    <td
+                      style={{
+                        padding: 10,
+                        border: "1px solid #e5e7eb",
+                        textAlign: "center",
+                        background: "#fff",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          title="פתח / ערוך"
+                          onClick={() => onOpen(id)}
+                          style={{
+                            border: 0,
+                            background: "transparent",
+                            color: "#16a34a",
+                            fontSize: 22,
+                            fontWeight: 950,
+                            cursor: "pointer",
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          title="מחק"
+                          onClick={() => onDelete(id)}
+                          style={{
+                            border: 0,
+                            background: "transparent",
+                            color: "#dc2626",
+                            fontWeight: 950,
+                            cursor: "pointer",
+                          }}
+                        >
+                          מחק
+                        </button>
+                      </div>
+                    </td>
+                    {columns.map((column) => (
+                      <td
+                        key={column.label}
+                        style={{
+                          padding: "12px 10px",
+                          border: "1px solid #e5e7eb",
+                          textAlign: "center",
+                          verticalAlign: "middle",
+                          color: "#374151",
+                          whiteSpace: "pre-wrap",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {column.value(record, index) || "-"}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  style={{
+                    padding: 28,
+                    border: "1px solid #e5e7eb",
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontWeight: 900,
+                  }}
+                >
+                  אין קטעי ניסוי להצגה בפרויקט זה.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div
+        style={{
+          height: 14,
+          background: "#f3f4f6",
+          borderTop: "1px solid #e5e7eb",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: 14,
+            width: "38%",
+            background: "#8b8b8b",
+            borderRadius: 999,
+            marginInlineStart: "45%",
+          }}
+        />
+      </div>
+    </section>
+  );
+}
+
 type FieldDef = {
   key: string;
   label: string;
@@ -14086,17 +14391,12 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "trialSections" && (
             <>
-              <FolderRecordsTable
-                title="קטעי ניסוי"
-                description="כל קטעי הניסוי של הפרויקט מוצגים כאן בטבלה."
+              <TrialSectionsRecordsTable
                 records={projectTrialSections as any[]}
-                columns={[
-                  { label: "כותרת", value: (record) => getRecordTitle(record) },
-                  { label: "מיקום", value: (record) => record.location || record.roadStructure || record.area },
-                  { label: "תאריך", value: (record) => getRecordDate(record) },
-                  { label: "סטטוס", value: (record) => getRecordStatus(record) },
-                ]}
-                onOpen={(id) => { const record = projectTrialSections.find((item) => item.id === id); if (record) loadTrialSection(record); }}
+                onOpen={(id) => {
+                  const record = projectTrialSections.find((item) => item.id === id);
+                  if (record) loadTrialSection(record);
+                }}
                 onDelete={deleteTrialSection}
                 onNew={resetTrialSectionEditor}
               />
