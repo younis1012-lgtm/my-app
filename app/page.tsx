@@ -9162,6 +9162,57 @@ export default function Page() {
     }
   };
 
+  const resetAdminPasswordFromLogin = async () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("לאפס את סיסמת מנהל המערכת ל-admin123?")
+    ) {
+      return;
+    }
+
+    try {
+      let adminFound = false;
+      const sourceUsers = accessUsers.length
+        ? accessUsers
+        : DEFAULT_PROJECT_ACCESS_LIST;
+      const nextUsers = sourceUsers.map((user) => {
+        const isAdminUser =
+          user.role === "admin" ||
+          normalizeAccessValue(user.username) === "admin" ||
+          normalizeAccessValue(user.code) === "admin";
+        if (!isAdminUser) return user;
+        adminFound = true;
+        return {
+          ...user,
+          username: user.username || "admin",
+          password: "admin123",
+          displayName: user.displayName || "מנהל מערכת",
+          role: "admin" as const,
+          code: user.code || "admin",
+          aliases: Array.from(
+            new Set([...(user.aliases ?? []), "younis1012@gmail.com"]),
+          ),
+          projectName: null,
+        };
+      });
+
+      if (!adminFound) {
+        nextUsers.unshift({
+          ...DEFAULT_PROJECT_ACCESS_LIST[0],
+          password: "admin123",
+        });
+      }
+
+      await persistAccessUsers(nextUsers);
+      setLoginCode("younis1012@gmail.com");
+      setLoginPassword("admin123");
+      setLoginError("סיסמת מנהל אופסה. לחץ כניסה למערכת.");
+    } catch (error) {
+      console.error("Failed to reset admin password", error);
+      setLoginError(`שגיאה באיפוס סיסמת מנהל: ${errorText(error)}`);
+    }
+  };
+
   const updateAccessUser = (
     index: number,
     field: keyof ProjectAccess,
@@ -13466,6 +13517,7 @@ ${invalidRecipients.join("\n")}`);
         onUsernameChange={setLoginCode}
         onPasswordChange={setLoginPassword}
         onSubmit={handleProjectLogin}
+        onResetAdminPassword={resetAdminPasswordFromLogin}
       />
     );
   }

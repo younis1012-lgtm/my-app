@@ -67,6 +67,7 @@ export function ProjectLoginScreen({
   onUsernameChange,
   onPasswordChange,
   onSubmit,
+  onResetAdminPassword,
 }: {
   username: string;
   password: string;
@@ -74,6 +75,7 @@ export function ProjectLoginScreen({
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onResetAdminPassword: () => void;
 }) {
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   return (
@@ -184,6 +186,23 @@ export function ProjectLoginScreen({
               אם הסיסמה שונתה, יש להיכנס כמנהל ולשנות אותה דרך "ניהול משתמשים
               והרשאות".
             </div>
+            <button
+              type="button"
+              onClick={onResetAdminPassword}
+              style={{
+                width: "100%",
+                border: "1px solid #2563eb",
+                borderRadius: 10,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+                cursor: "pointer",
+                fontWeight: 950,
+                marginTop: 10,
+                padding: "9px 12px",
+              }}
+            >
+              איפוס סיסמת מנהל ל-admin123
+            </button>
           </div>
         ) : null}
 
