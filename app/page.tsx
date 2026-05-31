@@ -6253,6 +6253,7 @@ function ProjectLoginScreen({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }) {
+  const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   return (
     <div
       dir="rtl"
@@ -6314,6 +6315,43 @@ function ProjectLoginScreen({
             autoComplete="current-password"
           />
         </label>
+
+        <button
+          type="button"
+          onClick={() => setShowPasswordHelp((prev) => !prev)}
+          style={{
+            border: 0,
+            background: "transparent",
+            color: "#2563eb",
+            fontWeight: 900,
+            cursor: "pointer",
+            padding: 0,
+            marginBottom: showPasswordHelp ? 10 : 16,
+            textDecoration: "underline",
+          }}
+        >
+          שכחתי סיסמה
+        </button>
+
+        {showPasswordHelp ? (
+          <div
+            style={{
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              color: "#1e3a8a",
+              borderRadius: 12,
+              padding: 12,
+              fontWeight: 800,
+              lineHeight: 1.7,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontWeight: 950, marginBottom: 4 }}>אפשרויות שחזור</div>
+            <div>נסה כניסת מנהל ברירת מחדל: שם משתמש <b>admin</b>, סיסמה <b>admin123</b>.</div>
+            <div>לפרויקט 806 ברירת המחדל היא: שם משתמש <b>user806</b>, סיסמה <b>806</b>.</div>
+            <div>אם הסיסמה שונתה, יש להיכנס כמנהל ולשנות אותה דרך “ניהול משתמשים והרשאות”.</div>
+          </div>
+        ) : null}
 
         {error ? (
           <div
