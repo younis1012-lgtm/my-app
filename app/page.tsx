@@ -85,12 +85,30 @@ const normalizeEmailList = (value: unknown) =>
 const isValidEmailAddress = (value: unknown) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
 
+const projectUserParticipantLabel = (user: Pick<ProjectEmailUser, "name" | "role" | "company" | "email">) =>
+  [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email;
+
+const dedupeProjectEmailUsers = (users: ProjectEmailUser[]) =>
+  Array.from(
+    users
+      .reduce((map, user) => {
+        const label = projectUserParticipantLabel(user);
+        const key =
+          normalizeStoredProjectId(user.projectId) +
+          "|" +
+          normalizeAccessValue(user.email || label);
+        if (!map.has(key)) map.set(key, user);
+        return map;
+      }, new Map<string, ProjectEmailUser>())
+      .values(),
+  );
+
 const readProjectEmailUsers = (): ProjectEmailUser[] => {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(window.localStorage.getItem(PROJECT_EMAIL_USERS_STORAGE_KEY) || "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const users = parsed
       .map((item: any) => ({
         id: String(item?.id || crypto.randomUUID()),
         projectId: normalizeStoredProjectId(item?.projectId),
@@ -103,6 +121,7 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
         createdAt: String(item?.createdAt || new Date().toISOString()),
       }))
       .filter((item: ProjectEmailUser) => item.projectId && item.email);
+    return dedupeProjectEmailUsers(users);
   } catch {
     return [];
   }
@@ -110,12 +129,12 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
 
 const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(users));
+  window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(dedupeProjectEmailUsers(users)));
 };
 
 const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
   if (!isSupabaseConfigured || !supabase) return;
-  const normalized = users.map((user) => ({
+  const normalized = dedupeProjectEmailUsers(users).map((user) => ({
     id: user.id,
     project_id: normalizeStoredProjectId(user.projectId),
     name: user.name,
@@ -134,7 +153,7 @@ const loadProjectEmailUsersFromCloud = async () => {
   if (!isSupabaseConfigured || !supabase) return null;
   const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
   if (error) throw error;
-  return (Array.isArray(data) ? data : []).map((item: any) => ({
+  const users = (Array.isArray(data) ? data : []).map((item: any) => ({
     id: String(item?.id || crypto.randomUUID()),
     projectId: normalizeStoredProjectId(item?.project_id || item?.projectId),
     name: String(item?.name || ""),
@@ -145,6 +164,7 @@ const loadProjectEmailUsersFromCloud = async () => {
     active: item?.active !== false,
     createdAt: String(item?.created_at || item?.createdAt || new Date().toISOString()),
   })).filter((item: ProjectEmailUser) => item.projectId && item.email);
+  return dedupeProjectEmailUsers(users);
 };
 
 type ProjectProfile = {
@@ -10217,7 +10237,14 @@ export default function Page() {
   }, [projectEmailUsers]);
 
   const currentProjectEmailUsers = useMemo(
-    () => projectEmailUsers.filter((user) => normalizeStoredProjectId(user.projectId) === normalizeStoredProjectId(currentProject?.id)),
+    () =>
+      dedupeProjectEmailUsers(
+        projectEmailUsers.filter(
+          (user) =>
+            normalizeStoredProjectId(user.projectId) ===
+            normalizeStoredProjectId(currentProject?.id),
+        ),
+      ),
     [projectEmailUsers, currentProject],
   );
 
@@ -10307,39 +10334,25 @@ export default function Page() {
   );
 
   const trialParticipantOptions = useMemo(() => {
-    const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
-    const legend = normalizeProjectLegend(currentProjectLegend, currentProject?.name || "");
     const fromUsers = currentProjectEmailUsers
+      .filter((user) => user.active !== false)
       .map((user) =>
-        [user.name, user.role, user.company].filter(Boolean).join(" - ") || user.email,
+        projectUserParticipantLabel(user),
       )
       .filter(Boolean);
 
-    // גורמי פרויקט קבועים + גורמים נוספים שהוגדרו בפרטי הפרויקט.
-    // כך גם "מפקח", "מפקח אתר" או כל גורם חדש שמוסיפים לפרטי הפרויקט יופיע לבחירה בקטע ניסוי.
-    const fromProjectDetails = [
-      legend.projectManagement || profile?.projectManager ? `מנהל פרויקט - ${legend.projectManagement || profile?.projectManager}` : "",
-      legend.contractor || profile?.contractor ? `קבלן ראשי - ${legend.contractor || profile?.contractor}` : "",
-      legend.qualityAssurance || profile?.qaCompany ? `הבטחת איכות - ${legend.qualityAssurance || profile?.qaCompany}` : "",
-      legend.qualityControl || profile?.qualityControl ? `בקרת איכות - ${legend.qualityControl || profile?.qualityControl}` : "",
-      legend.workManager || profile?.workManager ? `מנהל עבודה - ${legend.workManager || profile?.workManager}` : "",
-      legend.surveyor || profile?.surveyor ? `מודד - ${legend.surveyor || profile?.surveyor}` : "",
-      legend.supervisor ? `מפקח - ${legend.supervisor}` : "",
-      ...legend.extraFactors.map((factor) => {
-        const label = String(factor.label || "גורם נוסף").trim();
-        const value = String(factor.value || "").trim();
-        return value ? `${label} - ${value}` : label;
-      }),
-    ];
-
     return Array.from(
-      new Set(
-        [...fromUsers, ...fromProjectDetails]
-          .map((item) => String(item || "").trim())
-          .filter(Boolean),
-      ),
+      fromUsers
+        .reduce((map, item) => {
+          const label = String(item || "").trim();
+          if (!label) return map;
+          const key = normalizeAccessValue(label);
+          if (!map.has(key)) map.set(key, label);
+          return map;
+        }, new Map<string, string>())
+        .values(),
     );
-  }, [currentProjectEmailUsers, currentProjectLegend, currentProjectProfile, currentProject?.name]);
+  }, [currentProjectEmailUsers]);
   const currentProjectDefaults = useMemo(() => {
     const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
     const legend = currentProjectLegend;
