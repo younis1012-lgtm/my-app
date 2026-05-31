@@ -1717,9 +1717,36 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
       }),
     )
     .filter((item) => item.username && item.password);
+  const unique = Array.from(
+    normalized
+      .reduce((map, item) => {
+        const key = [
+          normalizeAccessValue(item.role),
+          normalizeAccessValue(item.username),
+          normalizeAccessValue(item.code),
+        ].join("|");
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, item);
+          return map;
+        }
+        map.set(key, {
+          ...existing,
+          aliases: Array.from(
+            new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
+          ),
+          signatureDataUrl:
+            existing.signatureDataUrl || item.signatureDataUrl || "",
+          signatureFileName:
+            existing.signatureFileName || item.signatureFileName || "",
+        });
+        return map;
+      }, new Map<string, ProjectAccess>())
+      .values(),
+  );
 
-  return normalized.some((item) => item.role === "admin")
-    ? normalized
+  return unique.some((item) => item.role === "admin")
+    ? unique
     : DEFAULT_PROJECT_ACCESS_LIST;
 };
 
@@ -13685,6 +13712,40 @@ ${invalidRecipients.join("\n")}`);
                   מצב מקומי בלבד
                 </div>
               )}
+              {isAdminAccess(projectAccess) ? (
+                <label
+                  style={{
+                    display: "grid",
+                    gap: 6,
+                    marginTop: 10,
+                    fontWeight: 900,
+                    color: "#0f172a",
+                  }}
+                >
+                  בחירת פרויקט לעבודה
+                  <select
+                    value={currentProjectId ?? ""}
+                    onChange={(event) => {
+                      void setActiveProject(event.target.value);
+                    }}
+                    style={{
+                      minWidth: 260,
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 10,
+                      padding: "9px 10px",
+                      fontWeight: 900,
+                      background: "#fff",
+                      color: "#0f172a",
+                    }}
+                  >
+                    {accessibleProjects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {isAdminAccess(projectAccess) ? (
