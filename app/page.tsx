@@ -1641,7 +1641,7 @@ type ProjectAccess = {
   username: string;
   password: string;
   displayName: string;
-  role: "admin" | "user";
+  role: "admin" | "readwrite" | "readonly";
   code?: string;
   aliases?: string[];
   projectName?: string | null;
@@ -1650,8 +1650,9 @@ type ProjectAccess = {
 };
 
 // כאן מגדירים משתמשים והרשאות.
-// מנהל מערכת רואה את כל הפרויקטים.
-// משתמש רגיל רואה רק את הפרויקט שהוגדר לו.
+// Netivei Israel permission levels:
+// Administrator, Read & Write, Read Only.
+// Older "user" records are migrated to Read & Write for backward compatibility.
 const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
   {
     username: "admin",
@@ -1666,7 +1667,7 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     username: "user806",
     password: "806",
     displayName: "משתמש פרויקט 806",
-    role: "user",
+    role: "readwrite",
     code: "806",
     projectName: "כביש 806 צלמון שלב א׳",
   },
@@ -1674,11 +1675,21 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     username: "user909",
     password: "909",
     displayName: "משתמש פרויקט 909",
-    role: "user",
+    role: "readonly",
     code: "909",
     projectName: "שם הפרויקט כפי שמופיע במערכת",
   },
 ];
+
+const normalizeAccessRole = (
+  value: unknown,
+): ProjectAccess["role"] => {
+  const role = String(value ?? "").trim().toLowerCase();
+  if (role === "admin" || role === "administrator") return "admin";
+  if (role === "readonly" || role === "read_only" || role === "read-only")
+    return "readonly";
+  return "readwrite";
+};
 
 const normalizeAccessValue = (value: unknown) =>
   String(value ?? "")
@@ -1723,7 +1734,7 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
         displayName: String(
           item.displayName ?? item.username ?? "משתמש",
         ).trim(),
-        role: item.role === "admin" ? "admin" : "user",
+        role: normalizeAccessRole(item.role),
         code: item.code ? String(item.code).trim() : undefined,
         aliases: Array.isArray(item.aliases)
           ? item.aliases
@@ -1731,7 +1742,9 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
               .filter(Boolean)
           : undefined,
         projectName:
-          item.role === "admin" ? null : String(item.projectName ?? "").trim(),
+          normalizeAccessRole(item.role) === "admin"
+            ? null
+            : String(item.projectName ?? "").trim(),
         signatureDataUrl: String(item.signatureDataUrl ?? ""),
         signatureFileName: String(item.signatureFileName ?? ""),
       }),
@@ -1776,10 +1789,10 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   displayName: String(
     row?.display_name ?? row?.displayName ?? row?.username ?? "משתמש",
   ).trim(),
-  role: row?.role === "admin" ? "admin" : "user",
+  role: normalizeAccessRole(row?.role),
   code: row?.code ? String(row.code).trim() : undefined,
   projectName:
-    row?.role === "admin"
+    normalizeAccessRole(row?.role) === "admin"
       ? null
       : String(row?.project_name ?? row?.projectName ?? "").trim(),
   signatureDataUrl: String(row?.signature ?? row?.signatureDataUrl ?? ""),
@@ -1801,7 +1814,7 @@ const projectAccessToRow = (access: ProjectAccess) => ({
 type StoredAuthSession = {
   username?: string;
   code?: string;
-  role?: "admin" | "user";
+  role?: ProjectAccess["role"];
   expiresAt?: number;
 };
 
@@ -1903,6 +1916,9 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
 
 const isAdminAccess = (access: ProjectAccess | null) =>
   access?.role === "admin";
+
+const canWriteAccess = (access: ProjectAccess | null) =>
+  access?.role === "admin" || access?.role === "readwrite";
 
 const projectMatchesAccess = (
   project: Project,
@@ -6821,8 +6837,9 @@ function UserAccessPanel({
                         fontWeight: 900,
                       }}
                     >
-                      <option value="admin">מנהל מערכת</option>
-                      <option value="user">משתמש פרויקט</option>
+                      <option value="admin">Administrator</option>
+                      <option value="readwrite">Read &amp; Write</option>
+                      <option value="readonly">Read Only</option>
                     </select>
                   </td>
                   <td
@@ -9648,8 +9665,9 @@ export default function Page() {
           ...user,
           [field]: value,
         } as ProjectAccess;
-        if (field === "role" && value === "admin") updated.projectName = null;
-        if (field === "role" && value === "user" && !updated.projectName)
+        if (field === "role") updated.role = normalizeAccessRole(value);
+        if (field === "role" && updated.role === "admin") updated.projectName = null;
+        if (field === "role" && updated.role !== "admin" && !updated.projectName)
           updated.projectName = projects[0]?.name ?? "";
         return updated;
       }),
@@ -9683,7 +9701,7 @@ export default function Page() {
         username: `user${prevUsers.length + 1}`,
         password: "1234",
         displayName: `משתמש ${prevUsers.length + 1}`,
-        role: "user",
+        role: "readwrite",
         code: String(prevUsers.length + 1),
         projectName: projects[0]?.name ?? "",
         signatureDataUrl: "",
@@ -10098,6 +10116,10 @@ export default function Page() {
   };
 
   const withSaving = async (action: () => Promise<void>) => {
+    if (!canWriteAccess(projectAccess)) {
+      alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור, לעדכן או למחוק.");
+      return;
+    }
     try {
       setIsSaving(true);
       await action();
@@ -10249,6 +10271,7 @@ export default function Page() {
   );
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
+    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
       ...prev,
@@ -10257,17 +10280,20 @@ export default function Page() {
   };
 
   const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
+    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
     saveProjectEmailUsers((prev) =>
       prev.map((user) => (user.id === id ? { ...user, ...patch, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
     );
   };
 
   const deleteProjectEmailUser = (id: string) => {
+    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק נמעני פרויקט.");
     if (!window.confirm("למחוק משתמש מרשימת הנמענים של הפרויקט?")) return;
     saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
   };
 
   const saveCurrentProjectEmailUsers = async () => {
+    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור נמעני פרויקט.");
     const usersToSave = projectEmailUsersRef.current;
     try {
       writeProjectEmailUsers(usersToSave);

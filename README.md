@@ -2,6 +2,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Create a local environment file:
+
+```bash
+cp .env.example .env.local
+```
+
+Then fill in the values for Supabase, OCR, and email features as needed.
+
 First, run the development server:
 
 ```bash
@@ -15,6 +23,19 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+## Environment Variables
+
+Set these in Vercel under `Project Settings` -> `Environment Variables`:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `OPENAI_API_KEY` for OCR features
+- `OPENAI_OCR_MODEL` optional, defaults to `gpt-4.1-mini`
+- `EMAIL_USER` for Gmail-based sending
+- `EMAIL_APP_PASSWORD` for Gmail-based sending
+
+Do not commit `.env.local` or real secret keys.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
