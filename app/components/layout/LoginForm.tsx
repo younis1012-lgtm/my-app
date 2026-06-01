@@ -105,18 +105,18 @@ export function ProjectLoginScreen({
             Y.K QUALITY
           </div>
           <div style={{ color: "#475569", marginTop: 6, fontWeight: 700 }}>
-            כניסה לפי שם משתמש וסיסמה
+            כניסה לפי Supabase Auth או שם משתמש פנימי
           </div>
         </div>
 
         <label
           style={{ display: "grid", gap: 7, marginBottom: 14, fontWeight: 900 }}
         >
-          שם משתמש / קוד פרויקט
+          אימייל / שם משתמש / קוד פרויקט
           <input
             value={username}
             onChange={(event) => onUsernameChange(event.target.value)}
-            placeholder="לדוגמה: admin, המייל שלך או 806"
+            placeholder="לדוגמה: user@example.com, admin או 806"
             autoFocus
             autoComplete="username"
             style={{
@@ -174,7 +174,10 @@ export function ProjectLoginScreen({
               אפשרויות שחזור
             </div>
             <div>
-              מנהל מערכת: שם משתמש <InlineCode>admin</InlineCode> או{" "}
+              אם הוגדרת ב-Supabase Auth, התחבר עם כתובת המייל והסיסמה שלך.
+            </div>
+            <div>
+              גיבוי פנימי: מנהל מערכת <InlineCode>admin</InlineCode> או{" "}
               <InlineCode>younis1012@gmail.com</InlineCode>, סיסמה{" "}
               <InlineCode>admin123</InlineCode>.
             </div>

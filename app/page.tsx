@@ -1645,6 +1645,10 @@ type ProjectAccess = {
   code?: string;
   aliases?: string[];
   projectName?: string | null;
+  projectIds?: string[];
+  authUserId?: string;
+  email?: string;
+  authProvider?: "legacy" | "supabase";
   signatureDataUrl?: string;
   signatureFileName?: string;
 };
@@ -1690,6 +1694,9 @@ const normalizeAccessRole = (
     return "readonly";
   return "readwrite";
 };
+
+const isEmailAddress = (value: unknown) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
 
 const normalizeAccessValue = (value: unknown) =>
   String(value ?? "")
@@ -1894,6 +1901,80 @@ const loadAccessUsersFromSupabase = async (): Promise<
   return users.length ? users : null;
 };
 
+const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
+  if (!isSupabaseConfigured || !supabase) return null;
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) return null;
+
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("project_id, role, active, projects(id, name)")
+    .eq("user_id", user.id)
+    .eq("active", true);
+
+  if (error) {
+    console.warn("Failed to load Supabase Auth project memberships", error);
+    return null;
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  const memberships = rows
+    .map((row: any) => ({
+      projectId: normalizeStoredProjectId(row?.project_id),
+      role: normalizeAccessRole(row?.role),
+      projectName: String(row?.projects?.name ?? "").trim(),
+    }))
+    .filter((row) => row.projectId);
+
+  if (!memberships.length) return null;
+
+  const role: ProjectAccess["role"] = memberships.some((item) => item.role === "admin")
+    ? "admin"
+    : memberships.some((item) => item.role === "readwrite")
+      ? "readwrite"
+      : "readonly";
+  const email = String(user.email ?? "").trim();
+  const firstProject = memberships[0];
+
+  return {
+    username: email || user.id,
+    password: "",
+    displayName:
+      String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? "").trim() ||
+      email ||
+      "Supabase Auth User",
+    role,
+    code: role === "admin" ? "admin" : firstProject?.projectId,
+    aliases: email ? [email] : [],
+    projectName: role === "admin" ? null : firstProject?.projectName || null,
+    projectIds: memberships.map((item) => item.projectId),
+    authUserId: user.id,
+    email,
+    authProvider: "supabase",
+  };
+};
+
+const signInWithSupabaseAuth = async (
+  email: string,
+  password: string,
+): Promise<ProjectAccess | null> => {
+  if (!isSupabaseConfigured || !supabase || !isEmailAddress(email)) return null;
+  const { error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error) throw new Error(error.message);
+  const access = await loadSupabaseAuthAccess();
+  if (!access) {
+    await supabase.auth.signOut();
+    throw new Error("המשתמש התחבר, אך לא הוגדרה לו הרשאה פעילה בטבלת project_members.");
+  }
+  return access;
+};
+
 const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (!isSupabaseConfigured || !supabase) return;
   const normalized = normalizeProjectAccessList(users);
@@ -1926,6 +2007,12 @@ const projectMatchesAccess = (
 ) => {
   if (!access) return false;
   if (isAdminAccess(access)) return true;
+
+  const allowedProjectIds = Array.isArray(access.projectIds)
+    ? access.projectIds.map(normalizeStoredProjectId).filter(Boolean)
+    : [];
+  if (allowedProjectIds.includes(normalizeStoredProjectId(project.id)))
+    return true;
 
   const allowedName = normalizeHebrewProjectName(access.projectName ?? "");
   const code = normalizeAccessValue(access.code ?? access.username ?? "");
@@ -9451,6 +9538,17 @@ export default function Page() {
       setAccessUsers(users);
       setDraftAccessUsers(users);
 
+      const supabaseAuthUser = await loadSupabaseAuthAccess();
+      if (cancelled) return;
+      if (supabaseAuthUser) {
+        setProjectAccess(supabaseAuthUser);
+        setLoginPassword("");
+        setLoginError("");
+        if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
+        setAuthReady(true);
+        return;
+      }
+
       // שומרים התחברות פעילה עד 10 דקות חוסר פעילות.
       // רענון דף בתוך הטווח לא מנתק את המשתמש.
       const storedSession = readStoredAuthSession();
@@ -9549,8 +9647,23 @@ export default function Page() {
     void writeSupervisionReportsToBrowser(savedSupervisionReports);
   }, [savedSupervisionReports, supervisionReportsLoaded]);
 
-  const handleProjectLogin = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleProjectLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSupabaseConfigured && isEmailAddress(loginCode)) {
+      try {
+        const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
+        if (authAccess) {
+          setLoginError("");
+          setProjectAccess(authAccess);
+          setSection("home");
+          return;
+        }
+      } catch (error) {
+        setLoginError(errorText(error) || "כניסה דרך Supabase Auth נכשלה");
+        return;
+      }
+    }
+
     const access = findProjectAccessByCredentials(
       accessUsers,
       loginCode,
@@ -9566,7 +9679,10 @@ export default function Page() {
     setSection("home");
   };
 
-  const logoutProject = () => {
+  const logoutProject = async () => {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut().catch(() => {});
+    }
     if (typeof window !== "undefined")
       window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setProjectAccess(null);
