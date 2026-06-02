@@ -7,6 +7,11 @@ This project now includes the first compliance foundation for the Netivei Israel
 - Application roles were expanded to `Administrator`, `Read & Write`, and `Read Only`.
 - Existing legacy `user` records are treated as `Read & Write`.
 - Read-only users are blocked from save/update/delete operations in the main save wrapper.
+- Project structure tree UI was added for:
+  `Project -> Road/Site -> Structure -> Section -> Element/Activity`.
+- Main operational records can now be linked to `structure_node_id`:
+  checklists, NCRs, trial sections, preliminary records, RFIs, control processes,
+  supervision reports, and document registry rows.
 - Supabase foundation script added:
   - `project_access_users`
   - `project_members`
@@ -28,11 +33,17 @@ Then, after creating users in Supabase Authentication, run:
 app/supabase/05_supabase_auth_rls.sql
 ```
 
+Then run the structure-link migration:
+
+```text
+app/supabase/06_project_structure_links.sql
+```
+
 ## Still Required For Full Approval
 
 - Create Supabase Auth users and add rows to `project_members`.
 - Run `05_supabase_auth_rls.sql` only after the membership rows are ready.
-- Add UI screens for project structure tree and central document registry.
+- Add UI screen for central document registry.
 - Write audit log entries from every create/update/delete action.
 - Add automatic daily/weekly/monthly report generation.
 - Configure Supabase backup and restore procedures.
@@ -45,10 +56,11 @@ app/supabase/05_supabase_auth_rls.sql
 2. Create Supabase Auth users.
 3. Add `project_members` rows for each user/project/role.
 4. Run the strict RLS script.
-5. Add the project structure tree for the active project.
-6. Move attachments to the central `project-documents` storage bucket.
-7. Enable audit writes for each module.
-8. Add scheduled report automation.
+5. Run `06_project_structure_links.sql`.
+6. Add the project structure tree for the active project in the app.
+7. Move attachments to the central `project-documents` storage bucket.
+8. Enable audit writes for each module.
+9. Add scheduled report automation.
 
 ## Example Project Member Row
 

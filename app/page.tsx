@@ -56,6 +56,7 @@ type AppSection =
   | "concentrations"
   | "projectDetails"
   | "projectUsers"
+  | "projectStructure"
   | "rfi"
   | "supervisionReports"
   | "controlProcesses";
@@ -303,11 +304,157 @@ const ACCESS_USERS_STORAGE_KEY = `${STORAGE_KEY}-access-users`;
 const ACCESS_USERS_TABLE = "project_access_users";
 const PROJECT_LEGEND_STORAGE_KEY = `${STORAGE_KEY}-project-legend`;
 const PROJECT_LEGEND_TABLE = "project_legends";
+const PROJECT_STRUCTURE_STORAGE_KEY = `${STORAGE_KEY}-project-structure`;
+const PROJECT_STRUCTURE_TABLE = "project_structure_nodes";
 const RFI_STORAGE_KEY = `${STORAGE_KEY}-rfi-records`;
 const CONTROL_PROCESS_STORAGE_KEY = `${STORAGE_KEY}-control-processes`;
 const SUPERVISION_REPORTS_STORAGE_KEY = `${STORAGE_KEY}-supervision-reports`;
 const CONTROL_PROCESS_TABLE = "control_processes";
 const SUPERVISION_REPORTS_TABLE = "supervision_reports";
+
+type ProjectStructureNodeType =
+  | "road"
+  | "site"
+  | "structure"
+  | "section"
+  | "element"
+  | "activity";
+
+type ProjectStructureNode = {
+  id: string;
+  projectId: string;
+  parentId: string;
+  nodeType: ProjectStructureNodeType;
+  name: string;
+  code: string;
+  fromChainage: string;
+  toChainage: string;
+  side: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const PROJECT_STRUCTURE_NODE_TYPES: Array<{
+  value: ProjectStructureNodeType;
+  label: string;
+}> = [
+  { value: "road", label: "כביש / אתר" },
+  { value: "site", label: "אתר" },
+  { value: "structure", label: "מבנה" },
+  { value: "section", label: "קטע / מקטע" },
+  { value: "element", label: "אלמנט" },
+  { value: "activity", label: "פעילות" },
+];
+
+const projectStructureTypeLabel = (type: unknown) =>
+  PROJECT_STRUCTURE_NODE_TYPES.find((item) => item.value === type)?.label ??
+  "פריט";
+
+const createDefaultProjectStructureForm = (): Omit<
+  ProjectStructureNode,
+  "id" | "projectId" | "createdAt" | "updatedAt"
+> => ({
+  parentId: "",
+  nodeType: "road",
+  name: "",
+  code: "",
+  fromChainage: "",
+  toChainage: "",
+  side: "",
+  sortOrder: 0,
+});
+
+const normalizeProjectStructureNodeType = (
+  value: unknown,
+): ProjectStructureNodeType => {
+  const text = String(value ?? "");
+  return PROJECT_STRUCTURE_NODE_TYPES.some((item) => item.value === text)
+    ? (text as ProjectStructureNodeType)
+    : "road";
+};
+
+const normalizeProjectStructureNode = (
+  value: any,
+): ProjectStructureNode | null => {
+  if (!value || typeof value !== "object") return null;
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    projectId: normalizeStoredProjectId(value.projectId ?? value.project_id),
+    parentId: String(value.parentId ?? value.parent_id ?? ""),
+    nodeType: normalizeProjectStructureNodeType(value.nodeType ?? value.node_type),
+    name: String(value.name ?? ""),
+    code: String(value.code ?? ""),
+    fromChainage: String(value.fromChainage ?? value.from_chainage ?? ""),
+    toChainage: String(value.toChainage ?? value.to_chainage ?? ""),
+    side: String(value.side ?? ""),
+    sortOrder: Number(value.sortOrder ?? value.sort_order ?? 0) || 0,
+    createdAt: String(value.createdAt ?? value.created_at ?? ""),
+    updatedAt: String(value.updatedAt ?? value.updated_at ?? ""),
+  };
+};
+
+const projectStructureNodeToRow = (node: ProjectStructureNode) => ({
+  id: node.id,
+  project_id: normalizeStoredProjectId(node.projectId),
+  parent_id: node.parentId || null,
+  node_type: node.nodeType,
+  name: node.name,
+  code: node.code || null,
+  from_chainage: node.fromChainage || null,
+  to_chainage: node.toChainage || null,
+  side: node.side || null,
+  sort_order: node.sortOrder || 0,
+  updated_at: nowIso(),
+});
+
+const sortProjectStructureNodes = (nodes: ProjectStructureNode[]) =>
+  [...nodes].sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    const typeIndexA = PROJECT_STRUCTURE_NODE_TYPES.findIndex(
+      (item) => item.value === a.nodeType,
+    );
+    const typeIndexB = PROJECT_STRUCTURE_NODE_TYPES.findIndex(
+      (item) => item.value === b.nodeType,
+    );
+    if (typeIndexA !== typeIndexB) return typeIndexA - typeIndexB;
+    return a.name.localeCompare(b.name, "he");
+  });
+
+const buildProjectStructurePath = (
+  nodes: ProjectStructureNode[],
+  nodeId: string,
+) => {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const path: ProjectStructureNode[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(nodeId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path
+    .map((node) => [node.code, node.name].filter(Boolean).join(" - "))
+    .filter(Boolean)
+    .join(" / ");
+};
+
+const projectStructureNodeDepth = (
+  nodes: ProjectStructureNode[],
+  node: ProjectStructureNode,
+) => {
+  const byId = new Map(nodes.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  let depth = 0;
+  let parent = node.parentId ? byId.get(node.parentId) : undefined;
+  while (parent && !seen.has(parent.id)) {
+    seen.add(parent.id);
+    depth += 1;
+    parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+  }
+  return depth;
+};
 
 type ControlProcessStatus =
   | "טיוטה"
@@ -369,6 +516,7 @@ type ControlProcessRecord = {
   title: string;
   workType: string;
   specSection: string;
+  structureNodeId: string;
   location: string;
   fromSection: string;
   toSection: string;
@@ -985,6 +1133,7 @@ const createDefaultControlProcess = (
   title: "אישור חומר / תעודת ייחוס חדשה",
   workType: "אספלט - מרשל / JMF",
   specSection: "",
+  structureNodeId: "",
   location: "",
   fromSection: "",
   toSection: "",
@@ -1059,6 +1208,7 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     title: String(value.title ?? "תהליך בקרה"),
     workType: String(value.workType ?? value.work_type ?? ""),
     specSection: String(value.specSection ?? value.spec_section ?? ""),
+    structureNodeId: String(value.structureNodeId ?? value.structure_node_id ?? ""),
     location: String(value.location ?? ""),
     fromSection: String(value.fromSection ?? value.from_section ?? ""),
     toSection: String(value.toSection ?? value.to_section ?? ""),
@@ -1093,6 +1243,7 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
   title: record.title,
   work_type: record.workType,
   spec_section: record.specSection,
+  structure_node_id: record.structureNodeId || null,
   location: record.location,
   from_section: record.fromSection,
   to_section: record.toSection,
@@ -1127,6 +1278,7 @@ type RfiRecord = {
   planName: string;
   buildingDetails: string;
   building: string;
+  structureNodeId: string;
   openDate: string;
   location: string;
   workActivity: string;
@@ -1160,6 +1312,7 @@ const createDefaultRfi = (
   planName: "",
   buildingDetails: "",
   building: "",
+  structureNodeId: "",
   openDate: new Date().toISOString().slice(0, 10),
   location: "",
   workActivity: "",
@@ -1203,6 +1356,7 @@ const normalizeRfiRecord = (value: any): RfiRecord | null => {
     planName: String(value.planName ?? ""),
     buildingDetails: String(value.buildingDetails ?? ""),
     building: String(value.building ?? ""),
+    structureNodeId: String(value.structureNodeId ?? value.structure_node_id ?? ""),
     openDate: String(value.openDate ?? ""),
     location: String(value.location ?? ""),
     workActivity: String(value.workActivity ?? ""),
@@ -1253,6 +1407,7 @@ const rfiRowToRecord = (row: any): RfiRecord => ({
   planName: String(row?.plan_name ?? ""),
   buildingDetails: String(row?.building_details ?? ""),
   building: String(row?.building ?? ""),
+  structureNodeId: String(row?.structure_node_id ?? ""),
   openDate: String(row?.open_date ?? ""),
   location: String(row?.location ?? ""),
   workActivity: String(row?.work_activity ?? ""),
@@ -1297,6 +1452,7 @@ const rfiRecordToRow = (record: RfiRecord) => ({
   plan_name: record.planName,
   building_details: record.buildingDetails,
   building: record.building,
+  structure_node_id: record.structureNodeId || null,
   open_date: record.openDate || null,
   location: record.location,
   work_activity: record.workActivity,
@@ -1326,6 +1482,7 @@ type SupervisionReportRecord = {
   title: string;
   reportNo: string;
   date: string;
+  structureNodeId: string;
   location: string;
   author: string;
   status: SupervisionReportStatus;
@@ -1348,6 +1505,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
   title: "",
   reportNo: "",
   date: new Date().toISOString().slice(0, 10),
+  structureNodeId: "",
   location: "",
   author: "",
   status: "פתוח",
@@ -1370,6 +1528,7 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     title: String(value.title ?? ""),
     reportNo: String(value.reportNo ?? value.report_no ?? ""),
     date: String(value.date ?? ""),
+    structureNodeId: String(value.structureNodeId ?? value.structure_node_id ?? ""),
     location: String(value.location ?? ""),
     author: String(value.author ?? value.createdBy ?? ""),
     status,
@@ -1389,6 +1548,7 @@ const supervisionReportRowToRecord = (row: any): SupervisionReportRecord | null 
     title: row?.title,
     reportNo: row?.report_no,
     date: row?.date,
+    structureNodeId: row?.structure_node_id,
     location: row?.location,
     author: row?.author,
     status: row?.status,
@@ -1407,6 +1567,7 @@ const supervisionReportRecordToRow = (record: SupervisionReportRecord) => ({
   title: record.title,
   report_no: record.reportNo,
   date: record.date || null,
+  structure_node_id: record.structureNodeId || null,
   location: record.location,
   author: record.author,
   status: record.status,
@@ -2345,6 +2506,7 @@ const createDefaultChecklist = (
   templateKey,
   title: checklistTemplates[templateKey].title,
   category: checklistTemplates[templateKey].category,
+  structureNodeId: "",
   location: "",
   date: "",
   contractor: "",
@@ -2374,6 +2536,7 @@ const createDefaultNonconformance = (): Omit<
     openedRole: "בקרת איכות",
     raisedBy: "",
     date: "",
+    structureNodeId: "",
     location: "",
     building: "",
     element: "",
@@ -2408,6 +2571,7 @@ const createDefaultTrialSection = (): Omit<
 > =>
   ({
     title: "",
+    structureNodeId: "",
     projectName: "",
     projectManagement: "",
     managementCompany: "",
@@ -2711,7 +2875,8 @@ const enrichTrialSectionRecord = (record: Record<string, any>) => {
 const createDefaultPreliminary = (
   subtype: PreliminaryTab,
 ): Omit<PreliminaryRecord, "id" | "projectId" | "savedAt"> => ({
-  subtype,
+    subtype,
+  structureNodeId: "",
   title:
     subtype === "suppliers"
       ? "בקרה מקדימה - ספקים"
@@ -2879,6 +3044,13 @@ async function saveWithApprovalFallback(
       mode === "insert"
         ? await supabase!.from(table).insert(withoutStatus)
         : await supabase!.from(table).update(withoutStatus).eq("id", id);
+  }
+  if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
+    const { structure_node_id, ...withoutStructureNode } = payload;
+    result =
+      mode === "insert"
+        ? await supabase!.from(table).insert(withoutStructureNode)
+        : await supabase!.from(table).update(withoutStructureNode).eq("id", id);
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
@@ -4730,6 +4902,271 @@ function SimpleFolderSection({
       </div>
       <div style={styles.emptyBox}>
         התיקייה נוצרה. בשלב הבא ניתן להוסיף כאן טפסים, קבצים ורשומות ייעודיות.
+      </div>
+    </section>
+  );
+}
+
+function ProjectStructureSelector({
+  nodes,
+  value,
+  onChange,
+}: {
+  nodes: ProjectStructureNode[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const ordered = sortProjectStructureNodes(nodes);
+  return (
+    <div
+      style={{
+        ...styles.card,
+        marginBottom: 14,
+        background: "#f8fafc",
+        borderColor: "#dbe3ef",
+      }}
+    >
+      <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
+        שיוך מיקום בעץ הפרויקט
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          style={{
+            border: "1px solid #cbd5e1",
+            borderRadius: 12,
+            padding: "10px 12px",
+            fontWeight: 800,
+            background: "#fff",
+          }}
+        >
+          <option value="">ללא שיוך מיקום</option>
+          {ordered.map((node) => (
+            <option key={node.id} value={node.id}>
+              {buildProjectStructurePath(nodes, node.id) ||
+                `${projectStructureTypeLabel(node.nodeType)} - ${node.name}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!nodes.length ? (
+        <div style={{ color: "#64748b", marginTop: 8, fontWeight: 700 }}>
+          עדיין לא הוגדר עץ פרויקט. ניתן להוסיף אותו בלשונית “עץ פרויקט”.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectStructureSection({
+  nodes,
+  form,
+  editingId,
+  canWrite,
+  onChange,
+  onSave,
+  onEdit,
+  onDelete,
+  onReset,
+}: {
+  nodes: ProjectStructureNode[];
+  form: Omit<ProjectStructureNode, "id" | "projectId" | "createdAt" | "updatedAt">;
+  editingId: string | null;
+  canWrite: boolean;
+  onChange: (
+    patch: Partial<Omit<ProjectStructureNode, "id" | "projectId" | "createdAt" | "updatedAt">>,
+  ) => void;
+  onSave: () => void;
+  onEdit: (node: ProjectStructureNode) => void;
+  onDelete: (id: string) => void;
+  onReset: () => void;
+}) {
+  const ordered = sortProjectStructureNodes(nodes);
+  const parentOptions = ordered.filter((node) => node.id !== editingId);
+  const input: CSSProperties = {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: 12,
+    padding: "10px 12px",
+    fontWeight: 800,
+    background: "#fff",
+    boxSizing: "border-box",
+  };
+  const label: CSSProperties = {
+    display: "grid",
+    gap: 6,
+    fontWeight: 900,
+  };
+
+  return (
+    <section>
+      <div style={{ marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>
+          עץ מבנה פרויקט
+        </h2>
+        <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+          היררכיה לפי דרישת נתיבי ישראל: פרויקט → כביש/אתר → מבנה → קטע/מקטע → אלמנט/פעילות.
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginBottom: 16 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 12,
+          }}
+        >
+          <label style={label}>
+            אב בעץ
+            <select
+              style={input}
+              value={form.parentId}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ parentId: event.target.value })}
+            >
+              <option value="">שורש הפרויקט</option>
+              {parentOptions.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {buildProjectStructurePath(nodes, node.id) || node.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={label}>
+            סוג
+            <select
+              style={input}
+              value={form.nodeType}
+              disabled={!canWrite}
+              onChange={(event) =>
+                onChange({ nodeType: normalizeProjectStructureNodeType(event.target.value) })
+              }
+            >
+              {PROJECT_STRUCTURE_NODE_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={label}>
+            שם
+            <input
+              style={input}
+              value={form.name}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ name: event.target.value })}
+            />
+          </label>
+          <label style={label}>
+            קוד / מזהה
+            <input
+              style={input}
+              value={form.code}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ code: event.target.value })}
+            />
+          </label>
+          <label style={label}>
+            מקטע מ-
+            <input
+              style={input}
+              value={form.fromChainage}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ fromChainage: event.target.value })}
+            />
+          </label>
+          <label style={label}>
+            מקטע עד
+            <input
+              style={input}
+              value={form.toChainage}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ toChainage: event.target.value })}
+            />
+          </label>
+          <label style={label}>
+            צד / נתיב
+            <input
+              style={input}
+              value={form.side}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ side: event.target.value })}
+            />
+          </label>
+          <label style={label}>
+            סדר
+            <input
+              style={input}
+              type="number"
+              value={form.sortOrder}
+              disabled={!canWrite}
+              onChange={(event) => onChange({ sortOrder: Number(event.target.value) || 0 })}
+            />
+          </label>
+        </div>
+        <div style={{ ...styles.buttonRow, justifyContent: "flex-start", marginTop: 14 }}>
+          <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={!canWrite}>
+            {editingId ? "עדכן פריט" : "הוסף פריט"}
+          </button>
+          <button type="button" style={styles.secondaryBtn} onClick={onReset}>
+            ניקוי
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        {ordered.length ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            {ordered.map((node) => {
+              const depth = projectStructureNodeDepth(nodes, node);
+              return (
+                <div
+                  key={node.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 10,
+                    alignItems: "center",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    background: editingId === node.id ? "#fdf2f8" : "#fff",
+                  }}
+                >
+                  <div style={{ paddingInlineStart: depth * 18 }}>
+                    <div style={{ fontWeight: 950 }}>
+                      {projectStructureTypeLabel(node.nodeType)}: {node.name}
+                    </div>
+                    <div style={{ color: "#64748b", fontWeight: 700, marginTop: 2 }}>
+                      {buildProjectStructurePath(nodes, node.id)}
+                      {node.fromChainage || node.toChainage || node.side
+                        ? ` · ${[node.fromChainage, node.toChainage].filter(Boolean).join("-")} ${node.side}`.trim()
+                        : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" style={styles.secondaryBtn} onClick={() => onEdit(node)}>
+                      עריכה
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.dangerBtn}
+                      onClick={() => onDelete(node.id)}
+                      disabled={!canWrite}
+                    >
+                      מחיקה
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={styles.emptyBox}>
+            עדיין לא הוגדרו כבישים, מבנים, מקטעים או פעילויות בפרויקט.
+          </div>
+        )}
       </div>
     </section>
   );
@@ -9426,6 +9863,14 @@ export default function Page() {
   const [savedRfis, setSavedRfis] = useState<RfiRecord[]>([]);
   const [rfiForm, setRfiForm] = useState(createDefaultRfi());
   const [editingRfiId, setEditingRfiId] = useState<string | null>(null);
+  const [projectStructureNodes, setProjectStructureNodes] = useState<
+    ProjectStructureNode[]
+  >([]);
+  const [projectStructureForm, setProjectStructureForm] = useState(
+    createDefaultProjectStructureForm(),
+  );
+  const [editingProjectStructureNodeId, setEditingProjectStructureNodeId] =
+    useState<string | null>(null);
   const [savedControlProcesses, setSavedControlProcesses] = useState<
     ControlProcessRecord[]
   >([]);
@@ -9490,6 +9935,21 @@ export default function Page() {
       );
     } catch {
       setSavedRfis([]);
+    }
+    try {
+      const storedStructure = window.localStorage.getItem(
+        PROJECT_STRUCTURE_STORAGE_KEY,
+      );
+      const parsedStructure = storedStructure ? JSON.parse(storedStructure) : [];
+      setProjectStructureNodes(
+        Array.isArray(parsedStructure)
+          ? (parsedStructure
+              .map(normalizeProjectStructureNode)
+              .filter(Boolean) as ProjectStructureNode[])
+          : [],
+      );
+    } catch {
+      setProjectStructureNodes([]);
     }
     try {
       const storedProcesses = window.localStorage.getItem(
@@ -9603,6 +10063,14 @@ export default function Page() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
   }, [savedRfis]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      PROJECT_STRUCTURE_STORAGE_KEY,
+      JSON.stringify(projectStructureNodes),
+    );
+  }, [projectStructureNodes]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -9953,6 +10421,7 @@ export default function Page() {
     rfiRows: any[] | null = [],
     controlProcessRows: any[] | null = [],
     supervisionReportRows: any[] | null = [],
+    structureRows: any[] | null = [],
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
@@ -9977,6 +10446,7 @@ export default function Page() {
           templateKey: normalizeChecklistTemplateKey(row.template_key),
           title: row.title ?? "",
           category: row.category ?? "",
+          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
           location: row.location ?? "",
           date: row.date ?? "",
           contractor: row.contractor ?? details.contractor ?? "",
@@ -10003,6 +10473,7 @@ export default function Page() {
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
           title: row.title ?? details.title ?? "",
+          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
           openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
           openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
           raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
@@ -10053,6 +10524,7 @@ export default function Page() {
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
           details,
+          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
           title: pick(details.title, row.title),
           location: pick(details.location, details.workLocation, details.workSegment, details.workSection, details.roadSection, details.roadStructure, row.location),
           date: pick(details.date, details.executionDate, row.date),
@@ -10074,6 +10546,7 @@ export default function Page() {
         id: row.id,
         projectId: normalizeStoredProjectId(row.project_id),
         subtype: row.subtype,
+        structureNodeId: row.structure_node_id ?? "",
         title: row.title ?? "",
         date: row.date ?? "",
         status: row.status ?? "טיוטה",
@@ -10097,6 +10570,11 @@ export default function Page() {
         .map(supervisionReportRowToRecord)
         .filter(Boolean) as SupervisionReportRecord[],
     );
+    setProjectStructureNodes(
+      (structureRows ?? [])
+        .map(normalizeProjectStructureNode)
+        .filter(Boolean) as ProjectStructureNode[],
+    );
   };
 
   useEffect(() => {
@@ -10116,6 +10594,7 @@ export default function Page() {
           rfiRes,
           controlRes,
           supervisionRes,
+          structureRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectTable("checklists", "saved_at"),
@@ -10125,6 +10604,7 @@ export default function Page() {
           selectTable("rfi_records", "created_at"),
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
           selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
+          selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
         ]);
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
@@ -10135,6 +10615,7 @@ export default function Page() {
           cloudRowsOrFallback(rfiRes, savedRfis),
           cloudRowsOrFallback(controlRes, savedControlProcesses),
           cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
+          cloudRowsOrFallback(structureRes, projectStructureNodes),
         );
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
@@ -10209,6 +10690,7 @@ export default function Page() {
       rfiRes,
       controlRes,
       supervisionRes,
+      structureRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectTable("checklists", "saved_at"),
@@ -10218,6 +10700,7 @@ export default function Page() {
       selectTable("rfi_records", "created_at"),
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
       selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
+      selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
@@ -10228,6 +10711,7 @@ export default function Page() {
       cloudRowsOrFallback(rfiRes, savedRfis),
       cloudRowsOrFallback(controlRes, savedControlProcesses),
       cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
+      cloudRowsOrFallback(structureRes, projectStructureNodes),
     );
   };
 
@@ -10870,6 +11354,19 @@ export default function Page() {
     if (!currentProjectIdNormalized) return true;
     return recordProjectId === currentProjectIdNormalized;
   };
+  const currentProjectStructureNodes = useMemo(
+    () =>
+      sortProjectStructureNodes(
+        projectStructureNodes.filter((node) =>
+          recordMatchesCurrentProject(node.projectId),
+        ),
+      ),
+    [
+      projectStructureNodes,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+    ],
+  );
 
   const projectChecklists = useMemo(
     () =>
@@ -11243,6 +11740,85 @@ export default function Page() {
         ...createDefaultPreliminary("materials"),
         title: nextPreliminaryTitle("materials"),
       }));
+  };
+
+  const resetProjectStructureForm = () => {
+    setEditingProjectStructureNodeId(null);
+    setProjectStructureForm(createDefaultProjectStructureForm());
+  };
+
+  const saveProjectStructureNode = async () => {
+    if (!currentProjectId) return alert("יש לבחור פרויקט לפני יצירת עץ מבנה.");
+    if (!projectStructureForm.name.trim())
+      return alert("יש להזין שם לפריט בעץ הפרויקט.");
+    const now = nowIso();
+    const id = editingProjectStructureNodeId ?? crypto.randomUUID();
+    const record: ProjectStructureNode = {
+      id,
+      projectId: normalizeStoredProjectId(currentProjectId),
+      parentId: projectStructureForm.parentId,
+      nodeType: normalizeProjectStructureNodeType(projectStructureForm.nodeType),
+      name: projectStructureForm.name.trim(),
+      code: projectStructureForm.code.trim(),
+      fromChainage: projectStructureForm.fromChainage.trim(),
+      toChainage: projectStructureForm.toChainage.trim(),
+      side: projectStructureForm.side.trim(),
+      sortOrder: Number(projectStructureForm.sortOrder) || 0,
+      createdAt:
+        currentProjectStructureNodes.find((node) => node.id === id)?.createdAt ||
+        now,
+      updatedAt: now,
+    };
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = await supabase!
+          .from(PROJECT_STRUCTURE_TABLE)
+          .upsert(projectStructureNodeToRow(record), { onConflict: "id" });
+        if (result.error && !shouldIgnoreCloudError(result.error))
+          throw result.error;
+      }
+      setProjectStructureNodes((prev) => {
+        const exists = prev.some((node) => node.id === id);
+        return exists
+          ? prev.map((node) => (node.id === id ? record : node))
+          : [record, ...prev];
+      });
+    });
+    resetProjectStructureForm();
+  };
+
+  const editProjectStructureNode = (node: ProjectStructureNode) => {
+    setEditingProjectStructureNodeId(node.id);
+    setProjectStructureForm({
+      parentId: node.parentId,
+      nodeType: node.nodeType,
+      name: node.name,
+      code: node.code,
+      fromChainage: node.fromChainage,
+      toChainage: node.toChainage,
+      side: node.side,
+      sortOrder: node.sortOrder,
+    });
+  };
+
+  const deleteProjectStructureNode = async (id: string) => {
+    const hasChildren = projectStructureNodes.some((node) => node.parentId === id);
+    if (hasChildren)
+      return alert("לא ניתן למחוק פריט שיש לו פריטי משנה. מחק קודם את הילדים.");
+    if (!window.confirm("למחוק את הפריט מעץ הפרויקט?")) return;
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        const result = await supabase!
+          .from(PROJECT_STRUCTURE_TABLE)
+          .delete()
+          .eq("id", id);
+        if (result.error && !shouldIgnoreCloudError(result.error))
+          throw result.error;
+      }
+      setProjectStructureNodes((prev) => prev.filter((node) => node.id !== id));
+      if (editingProjectStructureNodeId === id) resetProjectStructureForm();
+    });
   };
 
   const addProject = async () => {
@@ -11655,6 +12231,7 @@ export default function Page() {
       title: String(controlProcessForm.title ?? ""),
       workType: String(controlProcessForm.workType ?? ""),
       specSection: String(controlProcessForm.specSection ?? ""),
+      structureNodeId: String((controlProcessForm as any).structureNodeId ?? ""),
       location: controlProcessLayer,
       ...(isAsphaltReference(controlProcessForm.workType)
         ? { asphaltLayer: controlProcessLayer }
@@ -11689,14 +12266,26 @@ export default function Page() {
 
     await withSaving(async () => {
       if (cloudEnabled) {
-        const result = editingControlProcessId
+        const row = sanitizeCloudPayload(controlProcessToRow(record));
+        let result = editingControlProcessId
           ? await supabase!
               .from(CONTROL_PROCESS_TABLE)
-              .update(sanitizeCloudPayload(controlProcessToRow(record)))
+              .update(row)
               .eq("id", editingControlProcessId)
           : await supabase!
               .from(CONTROL_PROCESS_TABLE)
-              .insert(sanitizeCloudPayload(controlProcessToRow(record)));
+              .insert(row);
+        if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
+          const { structure_node_id, ...fallbackRow } = row;
+          result = editingControlProcessId
+            ? await supabase!
+                .from(CONTROL_PROCESS_TABLE)
+                .update(fallbackRow)
+                .eq("id", editingControlProcessId)
+            : await supabase!
+                .from(CONTROL_PROCESS_TABLE)
+                .insert(fallbackRow);
+        }
         if (result.error && !shouldIgnoreCloudError(result.error))
           throw result.error;
       }
@@ -11719,6 +12308,7 @@ export default function Page() {
       title: record.title,
       workType: record.workType,
       specSection: record.specSection,
+      structureNodeId: record.structureNodeId,
       location: record.location,
       fromSection: record.fromSection,
       toSection: record.toSection,
@@ -11791,6 +12381,7 @@ export default function Page() {
       offset: String((checklistForm as any).offset ?? ""),
       revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
+      structureNodeId: String((checklistForm as any).structureNodeId ?? ""),
     };
     const items = normalizeChecklistItems(checklistForm.items);
     const normalizedApproval = normalizeApproval(checklistForm.approval);
@@ -11835,6 +12426,7 @@ export default function Page() {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
           checklist_no: record.checklistNo,
+          structure_node_id: (record as any).structureNodeId || null,
           template_key: record.templateKey,
           title: record.title,
           category: record.category,
@@ -11906,6 +12498,7 @@ export default function Page() {
         "updated_by",
         "updated_at",
         "audit_log",
+        "structure_node_id",
       ].some((column) => isMissingColumnError(result.error, column))
     ) {
       const {
@@ -11914,6 +12507,7 @@ export default function Page() {
         updated_by,
         updated_at,
         audit_log,
+        structure_node_id,
         ...fallbackPayload
       } = payload;
       result = await run(fallbackPayload);
@@ -12054,6 +12648,7 @@ export default function Page() {
         const payload = {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
+          structure_node_id: (record as any).structureNodeId || null,
           description: record.description,
           action_required: record.actionRequired,
           images: normalizeAttachments((record as any).images),
@@ -12067,6 +12662,7 @@ export default function Page() {
             approval: record.approval,
             images: normalizeAttachments((record as any).images),
             title: record.title,
+            structureNodeId: (record as any).structureNodeId,
             projectName: (record as any).projectName,
             projectManagement: (record as any).projectManagement,
             contractor: (record as any).contractor,
@@ -12127,6 +12723,7 @@ export default function Page() {
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
       title: record.title,
+      structureNodeId: (record as any).structureNodeId ?? "",
       projectName: (record as any).projectName ?? (record as any).projectDetails?.projectName ?? currentProjectDefaults.projectName,
       projectManagement: (record as any).projectManagement ?? (record as any).projectDetails?.projectManagement ?? currentProjectDefaults.projectManagement,
       contractor: (record as any).contractor ?? (record as any).projectDetails?.contractor ?? currentProjectDefaults.contractor,
@@ -12295,6 +12892,7 @@ export default function Page() {
         const payload = {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
+          structure_node_id: (record as any).structureNodeId || null,
           title: record.title,
           location: record.location,
           date: record.date,
@@ -12308,6 +12906,7 @@ export default function Page() {
           details: {
             ...(record as any),
             ...trialSectionDetails(record as any),
+            structureNodeId: (record as any).structureNodeId,
             title: record.title,
             location: record.location,
             date: record.date,
@@ -12361,6 +12960,7 @@ export default function Page() {
       ...(record as any),
       ...details,
       details,
+      structureNodeId: (record as any).structureNodeId ?? details.structureNodeId ?? "",
       title: details.title ?? record.title,
       location: details.location ?? (record as any).location,
       date: details.date ?? (record as any).date,
@@ -12423,6 +13023,7 @@ export default function Page() {
         const payload = {
           id: record.id,
           project_id: normalizeStoredProjectId(record.projectId),
+          structure_node_id: (record as any).structureNodeId || null,
           subtype: record.subtype,
           title: record.title,
           date: record.date,
@@ -12458,6 +13059,7 @@ export default function Page() {
     if (record.subtype === "suppliers")
       setSupplierPreliminaryForm({
         subtype: "suppliers",
+        structureNodeId: (record as any).structureNodeId ?? "",
         title: record.title,
         date: record.date,
         status: record.status,
@@ -12468,6 +13070,7 @@ export default function Page() {
     if (record.subtype === "subcontractors")
       setSubcontractorPreliminaryForm({
         subtype: "subcontractors",
+        structureNodeId: (record as any).structureNodeId ?? "",
         title: record.title,
         date: record.date,
         status: record.status,
@@ -12479,6 +13082,7 @@ export default function Page() {
     if (record.subtype === "materials")
       setMaterialPreliminaryForm({
         subtype: "materials",
+        structureNodeId: (record as any).structureNodeId ?? "",
         title: record.title,
         date: record.date,
         status: record.status,
@@ -13648,6 +14252,51 @@ ${invalidRecipients.join("\n")}`);
     await sendEmailToRecipients(recipientEmails);
   };
 
+  const structureLinkedSections: AppSection[] = [
+    "controlProcesses",
+    "rfi",
+    "supervisionReports",
+    "checklists",
+    "nonconformances",
+    "trialSections",
+    "preliminary",
+  ];
+  const activeStructureNodeId = (() => {
+    if (section === "controlProcesses")
+      return String((controlProcessForm as any).structureNodeId ?? "");
+    if (section === "rfi") return String((rfiForm as any).structureNodeId ?? "");
+    if (section === "supervisionReports")
+      return String((supervisionReportForm as any).structureNodeId ?? "");
+    if (section === "checklists")
+      return String((checklistForm as any).structureNodeId ?? "");
+    if (section === "nonconformances")
+      return String((nonconformanceForm as any).structureNodeId ?? "");
+    if (section === "trialSections")
+      return String((trialSectionForm as any).structureNodeId ?? "");
+    if (section === "preliminary")
+      return String((currentPreliminaryForm as any).structureNodeId ?? "");
+    return "";
+  })();
+  const setActiveStructureNodeId = (value: string) => {
+    if (section === "controlProcesses")
+      return setControlProcessForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "rfi")
+      return setRfiForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "supervisionReports")
+      return setSupervisionReportForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "checklists")
+      return setChecklistForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "nonconformances")
+      return setNonconformanceForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "trialSections")
+      return setTrialSectionForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "preliminary" && preliminaryTab === "suppliers")
+      return setSupplierPreliminaryForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "preliminary" && preliminaryTab === "subcontractors")
+      return setSubcontractorPreliminaryForm((prev: any) => ({ ...prev, structureNodeId: value }));
+    if (section === "preliminary" && preliminaryTab === "materials")
+      return setMaterialPreliminaryForm((prev: any) => ({ ...prev, structureNodeId: value }));
+  };
 
   const resetSupervisionReportForm = () => {
     setSupervisionReportForm(createDefaultSupervisionReport());
@@ -13882,9 +14531,17 @@ ${invalidRecipients.join("\n")}`);
       : [record, ...savedSupervisionReports];
     if (cloudEnabled) {
       await withSaving(async () => {
-        const { error } = await supabase!
+        const row = supervisionReportRecordToRow(record);
+        let { error } = await supabase!
           .from(SUPERVISION_REPORTS_TABLE)
-          .upsert(supervisionReportRecordToRow(record), { onConflict: "id" });
+          .upsert(row, { onConflict: "id" });
+        if (error && isMissingColumnError(error, "structure_node_id")) {
+          const { structure_node_id, ...fallbackRow } = row;
+          const fallback = await supabase!
+            .from(SUPERVISION_REPORTS_TABLE)
+            .upsert(fallbackRow, { onConflict: "id" });
+          error = fallback.error;
+        }
         if (error) throw error;
         setSavedSupervisionReports(nextReports);
         void writeSupervisionReportsToBrowser(nextReports);
@@ -13913,6 +14570,7 @@ ${invalidRecipients.join("\n")}`);
       title: record.title,
       reportNo: record.reportNo,
       date: record.date,
+      structureNodeId: record.structureNodeId,
       location: record.location,
       author: record.author,
       status: record.status,
@@ -14343,6 +15001,17 @@ ${invalidRecipients.join("\n")}`);
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          style={{
+            ...styles.navBtn,
+            background: section === "projectStructure" ? "#0f172a" : "#fff",
+            color: section === "projectStructure" ? "#fff" : "#0f172a",
+          }}
+          onClick={() => setSection("projectStructure")}
+        >
+          עץ פרויקט
+        </button>
       </div>
 
       <div style={styles.layout}>
@@ -14370,6 +15039,28 @@ ${invalidRecipients.join("\n")}`);
                 שלח מייל
               </button>
             </div>
+          )}
+          {structureLinkedSections.includes(section) && !guardedBody && (
+            <ProjectStructureSelector
+              nodes={currentProjectStructureNodes}
+              value={activeStructureNodeId}
+              onChange={setActiveStructureNodeId}
+            />
+          )}
+          {section === "projectStructure" && (
+            <ProjectStructureSection
+              nodes={currentProjectStructureNodes}
+              form={projectStructureForm}
+              editingId={editingProjectStructureNodeId}
+              canWrite={canWriteAccess(projectAccess)}
+              onChange={(patch) =>
+                setProjectStructureForm((prev) => ({ ...prev, ...patch }))
+              }
+              onSave={saveProjectStructureNode}
+              onEdit={editProjectStructureNode}
+              onDelete={deleteProjectStructureNode}
+              onReset={resetProjectStructureForm}
+            />
           )}
           {section === "projectDetails" && currentProject && (
             <ProjectLegendPanel
