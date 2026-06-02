@@ -10782,12 +10782,8 @@ export default function Page() {
     if (!projects.length) setProjects(getDefaultProjectList());
   }, [loaded, projectAccess, projects.length]);
 
-  // תיקון בחירת פרויקט פעיל:
-  // מונע לולאת React: בחירת הפרויקט מתבצעת פעם אחת לאחר טעינת הנתונים.
-  const projectSelectionResolvedRef = useRef(false);
-
+  // תיקון בחירת פרויקט פעיל: מנהל יכול לשמור בחירה, משתמש רגיל ננעל לפרויקט המורשה.
   useEffect(() => {
-    if (projectSelectionResolvedRef.current) return;
     if (!loaded || !projectAccess) return;
 
     const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
@@ -10808,16 +10804,16 @@ export default function Page() {
     const activeProject = sourceProjects.find((project) => project.isActive);
 
     const nextProjectId = normalizeStoredProjectId(
-      selectedProject?.id ??
-        savedProject?.id ??
-        allowedProject?.id ??
-        activeProject?.id ??
-        sourceProjects[0]?.id ??
-        "",
+      isAdminAccess(projectAccess)
+        ? selectedProject?.id ??
+            savedProject?.id ??
+            activeProject?.id ??
+            sourceProjects[0]?.id ??
+            ""
+        : allowedProject?.id ?? sourceProjects[0]?.id ?? "",
     );
 
     if (!nextProjectId) return;
-    projectSelectionResolvedRef.current = true;
 
     setCurrentProjectId((prev) => {
       const normalizedPrev = normalizeStoredProjectId(prev);
