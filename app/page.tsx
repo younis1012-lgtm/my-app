@@ -2174,6 +2174,7 @@ const projectMatchesAccess = (
     : [];
   if (allowedProjectIds.includes(normalizeStoredProjectId(project.id)))
     return true;
+  if (Array.isArray(access.projectIds)) return false;
 
   const allowedName = normalizeHebrewProjectName(access.projectName ?? "");
   const code = normalizeAccessValue(access.code ?? access.username ?? "");
@@ -10769,6 +10770,12 @@ export default function Page() {
       } as Project,
     ];
   }, [effectiveProjects, projectAccess]);
+  const canManageProjects = isAdminAccess(projectAccess);
+
+  useEffect(() => {
+    if (!projectAccess) return;
+    if (!canManageProjects && section === "projects") setSection("home");
+  }, [projectAccess, canManageProjects, section]);
 
   useEffect(() => {
     if (!loaded || !projectAccess) return;
@@ -13130,7 +13137,7 @@ export default function Page() {
       description: "נמעני מיילים של הפרויקט",
       count: currentProjectEmailUsers.filter((user) => user.active).length,
     },
-    ...(isAdminAccess(projectAccess)
+    ...(canManageProjects
       ? [
           {
             key: "projects",
@@ -14724,7 +14731,7 @@ ${invalidRecipients.join("\n")}`);
     "preliminary",
     "controlProcesses",
   ].includes(section);
-  const navItems: Array<[AppSection, string]> = isAdminAccess(projectAccess)
+  const navItems: Array<[AppSection, string]> = canManageProjects
     ? [
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
@@ -15176,7 +15183,7 @@ ${invalidRecipients.join("\n")}`);
               setSection={setSection as any}
             />
           )}
-          {section === "projects" && isAdminAccess(projectAccess) && (
+          {section === "projects" && canManageProjects && (
             <ProjectsSection
               projects={accessibleProjects}
               currentProjectId={currentProjectId}
