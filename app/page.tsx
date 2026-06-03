@@ -13043,6 +13043,13 @@ export default function Page() {
           editingPreliminaryId ? "update" : "insert",
           editingPreliminaryId ?? undefined,
         );
+        setSavedPreliminary((prev) =>
+          editingPreliminaryId
+            ? prev.map((item) =>
+                item.id === editingPreliminaryId ? record : item,
+              )
+            : [record, ...prev],
+        );
         await refreshCloudData();
       } else
         setSavedPreliminary((prev) =>
