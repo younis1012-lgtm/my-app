@@ -10118,6 +10118,7 @@ export default function Page() {
 
   const handleProjectLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    let supabaseLoginError = "";
     if (isSupabaseConfigured && isEmailAddress(loginCode)) {
       try {
         const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
@@ -10128,8 +10129,7 @@ export default function Page() {
           return;
         }
       } catch (error) {
-        setLoginError(errorText(error) || "כניסה דרך Supabase Auth נכשלה");
-        return;
+        supabaseLoginError = errorText(error);
       }
     }
 
@@ -10139,7 +10139,10 @@ export default function Page() {
       loginPassword,
     );
     if (!access) {
-      setLoginError("שם משתמש או סיסמה אינם נכונים");
+      setLoginError(
+        supabaseLoginError ||
+          "שם משתמש או סיסמה אינם נכונים",
+      );
       return;
     }
     setLoginError("");
@@ -14834,7 +14837,6 @@ ${invalidRecipients.join("\n")}`);
         onUsernameChange={setLoginCode}
         onPasswordChange={setLoginPassword}
         onSubmit={handleProjectLogin}
-        onResetAdminPassword={resetAdminPasswordFromLogin}
       />
     );
   }

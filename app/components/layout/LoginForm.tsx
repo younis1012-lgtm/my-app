@@ -4,7 +4,7 @@ import { useState } from "react";
 
 const InlineCode = ({ children }: { children: string }) => (
   <b dir="ltr" style={{ unicodeBidi: "isolate" }}>
-    {children}
+    פרטי כניסה חסויים
   </b>
 );
 
@@ -67,7 +67,6 @@ export function ProjectLoginScreen({
   onUsernameChange,
   onPasswordChange,
   onSubmit,
-  onResetAdminPassword,
 }: {
   username: string;
   password: string;
@@ -75,9 +74,9 @@ export function ProjectLoginScreen({
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onResetAdminPassword: () => void;
 }) {
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
+  const onResetAdminPassword = () => undefined;
   return (
     <div
       dir="rtl"
@@ -193,6 +192,7 @@ export function ProjectLoginScreen({
               type="button"
               onClick={onResetAdminPassword}
               style={{
+                display: "none",
                 width: "100%",
                 border: "1px solid #2563eb",
                 borderRadius: 10,
