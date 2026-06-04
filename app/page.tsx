@@ -2614,6 +2614,9 @@ const TRIAL_SECTION_DETAIL_KEYS = [
   "qualityCompany",
   "sectionNo",
   "sectionNumber",
+  "proofForActivityType",
+  "trialType",
+  "sectionType",
   "proofOfCapability",
   "capabilityProof",
   "proof",
@@ -2832,8 +2835,10 @@ const readVisibleFormValueByLabels = (labels: string[]) => {
   return "";
 };
 
-const enrichTrialSectionRecord = (record: Record<string, any>) => {
-  const visible = readTrialFormVisibleValues();
+const enrichTrialSectionRecord = (record: Record<string, any>, useVisibleValues = true) => {
+  const visible = useVisibleValues
+    ? readTrialFormVisibleValues()
+    : { fromSection: "", toSection: "", side: "", fromTo: "", materials: "", tools: "", proofOfCapability: "" };
   const fromSection = firstFilled(visible.fromSection, pickTrialValue(record, "fromSection", "fromChainage", "fromStation", "מחתך"));
   const toSection = firstFilled(visible.toSection, pickTrialValue(record, "toSection", "toChainage", "toStation", "עד חתך", "לחתך"));
   const side = firstFilled(visible.side, pickTrialValue(record, "side", "roadSide", "צד"));
@@ -2851,6 +2856,7 @@ const enrichTrialSectionRecord = (record: Record<string, any>) => {
     pickTrialValue(record, "tools", "toolsInUse", "toolsUsed", "equipment", "equipmentUsed", "usedTools", "machinery", "toolsList", "כלים בהם משתמשים"),
   );
   const proof = firstFilled(
+    pickTrialValue(record, "proofForActivityType", "trialType", "sectionType"),
     visible.proofOfCapability,
     pickTrialValue(record, "proofOfCapability", "capabilityProof", "proof", "abilityProof", "classificationProof", "classifiedCapabilityProof", "הוכחת היכולת לפעולה מסווג", "הוכחת היכולת לפעולה מסוג", "הוכחת יכולת"),
   );
@@ -2868,6 +2874,7 @@ const enrichTrialSectionRecord = (record: Record<string, any>) => {
     tools,
     toolsUsed: tools,
     equipment: tools,
+    proofForActivityType: proof,
     proofOfCapability: proof,
     capabilityProof: proof,
   };
@@ -6063,7 +6070,7 @@ function TrialSectionsRecordsTable({
     return { color: "#374151", fontWeight: 800 };
   };
   const rowNumber = (record: any, index: number) =>
-    pickTrialValue(record, "sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number", "title") ||
+    pickTrialValue(record, "sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
     String(index + 1);
 
   const columns: Array<{
@@ -6086,7 +6093,7 @@ function TrialSectionsRecordsTable({
       label: "סוג קטע ניסוי",
       width: 210,
       value: (record) =>
-        cellValue(record, "proofForActivityType", "proofOfCapability", "capabilityProof", "classificationProof", "spec"),
+        cellValue(record, "proofForActivityType", "trialType", "sectionType"),
     },
     {
       label: "סטטוס",
@@ -10542,7 +10549,7 @@ export default function Page() {
           savedAt: row.saved_at
             ? new Date(row.saved_at).toLocaleString("he-IL")
             : "",
-        }), details) as TrialSectionRecord;
+        }, false), details) as TrialSectionRecord;
       }),
     );
     setSavedPreliminary(
@@ -12931,6 +12938,7 @@ export default function Page() {
             tools: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
             toolsUsed: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
             equipment: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
+            proofForActivityType: (recordForSave as any).proofForActivityType || (recordForSave as any).proofOfCapability || (recordForSave as any).capabilityProof,
             proofOfCapability: (recordForSave as any).proofOfCapability || (recordForSave as any).capabilityProof,
             capabilityProof: (recordForSave as any).proofOfCapability || (recordForSave as any).capabilityProof,
             spec: recordForSave.spec,
@@ -12987,7 +12995,7 @@ export default function Page() {
       notes: details.notes ?? (record as any).notes,
       images: normalizeAttachments(details.images ?? (record as any).images),
       approval: normalizeApproval(details.approval ?? record.approval),
-    } as any)));
+    } as any, false)));
   };
   const deleteTrialSection = async (id: string) =>
     withSaving(async () =>

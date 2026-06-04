@@ -157,7 +157,6 @@ const trialFieldGroups = [
 
 const getTrialValue = (form: any, key: string) => {
   const aliases: Record<string, string[]> = {
-    sectionNo: ['title'],
     executionDate: ['date'],
     trialDescription: ['spec'],
     trialConclusions: ['result'],
@@ -176,7 +175,6 @@ const getTrialValue = (form: any, key: string) => {
 
 const updateTrialField = (setTrialSectionForm: any, key: string, value: string) => {
   const legacyMap: Record<string, string> = {
-    sectionNo: 'title',
     executionDate: 'date',
     trialDescription: 'spec',
     trialConclusions: 'result',
