@@ -12891,49 +12891,52 @@ export default function Page() {
       savedAt: nowLocal(),
     } as any;
     await withSaving(async () => {
+      const recordForSave = cloudEnabled
+        ? await prepareTrialSectionAttachmentsForCloud(record)
+        : record;
       if (cloudEnabled) {
         const payload = {
-          id: record.id,
-          project_id: normalizeStoredProjectId(record.projectId),
-          structure_node_id: (record as any).structureNodeId || null,
-          title: record.title,
-          location: record.location,
-          date: record.date,
-          spec: record.spec,
-          result: record.result,
-          approved_by: record.approvedBy,
-          status: record.status,
-          notes: record.notes,
-          images: normalizeAttachments((record as any).images),
-          approval: record.approval,
+          id: recordForSave.id,
+          project_id: normalizeStoredProjectId(recordForSave.projectId),
+          structure_node_id: (recordForSave as any).structureNodeId || null,
+          title: recordForSave.title,
+          location: recordForSave.location,
+          date: recordForSave.date,
+          spec: recordForSave.spec,
+          result: recordForSave.result,
+          approved_by: recordForSave.approvedBy,
+          status: recordForSave.status,
+          notes: recordForSave.notes,
+          images: normalizeAttachments((recordForSave as any).images),
+          approval: recordForSave.approval,
           details: {
-            ...(record as any),
-            ...trialSectionDetails(record as any),
-            structureNodeId: (record as any).structureNodeId,
-            title: record.title,
-            location: record.location,
-            date: record.date,
-            fromTo: (record as any).fromTo,
-            fromToSide: (record as any).fromToSide || (record as any).fromTo,
-            sectionRange: (record as any).sectionRange || (record as any).fromTo,
-            fromSection: (record as any).fromSection,
-            toSection: (record as any).toSection,
-            side: (record as any).side || (record as any).roadSide,
-            materials: (record as any).materials,
-            materialsForUse: (record as any).materialsForUse || (record as any).materials,
-            materialsToUse: (record as any).materialsToUse || (record as any).materials,
-            tools: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
-            toolsUsed: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
-            equipment: (record as any).tools || (record as any).toolsUsed || (record as any).equipment,
-            proofOfCapability: (record as any).proofOfCapability || (record as any).capabilityProof,
-            capabilityProof: (record as any).proofOfCapability || (record as any).capabilityProof,
-            spec: record.spec,
-            result: record.result,
-            approvedBy: record.approvedBy,
-            status: record.status,
-            notes: record.notes,
-            images: normalizeAttachments((record as any).images),
-            approval: record.approval,
+            ...(recordForSave as any),
+            ...trialSectionDetails(recordForSave as any),
+            structureNodeId: (recordForSave as any).structureNodeId,
+            title: recordForSave.title,
+            location: recordForSave.location,
+            date: recordForSave.date,
+            fromTo: (recordForSave as any).fromTo,
+            fromToSide: (recordForSave as any).fromToSide || (recordForSave as any).fromTo,
+            sectionRange: (recordForSave as any).sectionRange || (recordForSave as any).fromTo,
+            fromSection: (recordForSave as any).fromSection,
+            toSection: (recordForSave as any).toSection,
+            side: (recordForSave as any).side || (recordForSave as any).roadSide,
+            materials: (recordForSave as any).materials,
+            materialsForUse: (recordForSave as any).materialsForUse || (recordForSave as any).materials,
+            materialsToUse: (recordForSave as any).materialsToUse || (recordForSave as any).materials,
+            tools: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
+            toolsUsed: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
+            equipment: (recordForSave as any).tools || (recordForSave as any).toolsUsed || (recordForSave as any).equipment,
+            proofOfCapability: (recordForSave as any).proofOfCapability || (recordForSave as any).capabilityProof,
+            capabilityProof: (recordForSave as any).proofOfCapability || (recordForSave as any).capabilityProof,
+            spec: recordForSave.spec,
+            result: recordForSave.result,
+            approvedBy: recordForSave.approvedBy,
+            status: recordForSave.status,
+            notes: recordForSave.notes,
+            images: normalizeAttachments((recordForSave as any).images),
+            approval: recordForSave.approval,
           },
           saved_at: nowIso(),
         };
@@ -12942,6 +12945,13 @@ export default function Page() {
           payload,
           editingTrialSectionId ? "update" : "insert",
           editingTrialSectionId ?? undefined,
+        );
+        setSavedTrialSections((prev) =>
+          editingTrialSectionId
+            ? prev.map((item) =>
+                item.id === editingTrialSectionId ? recordForSave : item,
+              )
+            : [recordForSave, ...prev],
         );
         await refreshCloudData();
       } else
@@ -14415,6 +14425,50 @@ ${invalidRecipients.join("\n")}`);
       uploaded.push(await uploadInlineSupervisionAttachmentToCloud(attachment));
     }
     return uploaded;
+  };
+
+  const uploadInlineTrialSectionAttachmentToCloud = async (
+    attachment: StoredAttachment,
+    recordId: string,
+  ) => {
+    if (!cloudEnabled || !supabase || !String(attachment.dataUrl || "").startsWith("data:")) {
+      return attachment;
+    }
+    const parsed = dataUrlToBytes(attachment.dataUrl);
+    if (!parsed) return attachment;
+    const safeName = String(attachment.name || "trial-section-file")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .slice(-140);
+    const filePath = `trial-sections/${recordId}/${Date.now()}-${crypto.randomUUID()}-${safeName || "file"}`;
+    const blob = new Blob([parsed.bytes], {
+      type: attachment.type || parsed.mimeType || "application/octet-stream",
+    });
+    const uploadResult = await supabase.storage
+      .from("attachments")
+      .upload(filePath, blob, {
+        upsert: false,
+        contentType: attachment.type || parsed.mimeType || undefined,
+      });
+    if (uploadResult.error) {
+      if (isStorageBucketMissingError(uploadResult.error)) {
+        throw new Error("חסר bucket בשם attachments ב-Supabase Storage. יש ליצור אותו כדי לשמור קבצים מצורפים.");
+      }
+      throw uploadResult.error;
+    }
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+    return { ...attachment, dataUrl: data.publicUrl, storagePath: filePath };
+  };
+
+  const prepareTrialSectionAttachmentsForCloud = async (
+    record: TrialSectionRecord,
+  ) => {
+    const images: StoredAttachment[] = [];
+    for (const attachment of normalizeAttachments((record as any).images)) {
+      images.push(await uploadInlineTrialSectionAttachmentToCloud(attachment, record.id));
+    }
+    return { ...(record as any), images } as TrialSectionRecord;
   };
 
   const preliminaryRecordKey = (

@@ -49,6 +49,9 @@ create table if not exists trial_sections (
   approved_by text default '',
   status text default 'טיוטה',
   notes text default '',
+  images jsonb default '[]'::jsonb,
+  approval jsonb,
+  details jsonb default '{}'::jsonb,
   saved_at timestamptz default now()
 );
 
