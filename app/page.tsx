@@ -14139,16 +14139,45 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const appendAttachmentToPdf = async (targetPdf: any, attachment: OutgoingEmailAttachment) => {
     const { PDFDocument } = await loadPdfTools();
     const src = String(attachment.contentBase64 || attachment.url || "").trim();
-    const mimeType = String(attachment.mimeType || "").toLowerCase();
-    const bytesInfo = attachment.contentBase64
-      ? { mimeType: mimeType || "application/octet-stream", bytes: Uint8Array.from(atob(attachment.contentBase64.replace(/\s/g, "")), (c) => c.charCodeAt(0)) }
+    const declaredMimeType = String(attachment.mimeType || "").toLowerCase();
+    const mimeFromName = (() => {
+      const filename = String(attachment.filename || src).toLowerCase();
+      if (filename.endsWith(".pdf")) return "application/pdf";
+      if (filename.endsWith(".png")) return "image/png";
+      if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
+      if (filename.endsWith(".webp")) return "image/webp";
+      return "";
+    })();
+    let bytesInfo = attachment.contentBase64
+      ? { mimeType: declaredMimeType || mimeFromName || "application/octet-stream", bytes: Uint8Array.from(atob(attachment.contentBase64.replace(/\s/g, "")), (c) => c.charCodeAt(0)) }
       : src.startsWith("data:")
         ? dataUrlToBytes(src)
         : null;
+    if (!bytesInfo && /^https?:\/\//i.test(src)) {
+      try {
+        const response = await fetch(src);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        bytesInfo = {
+          mimeType:
+            declaredMimeType ||
+            response.headers.get("content-type")?.split(";")[0]?.toLowerCase() ||
+            mimeFromName ||
+            "application/octet-stream",
+          bytes: new Uint8Array(buffer),
+        };
+      } catch (error) {
+        console.warn("Attachment fetch failed", attachment.filename, error);
+        return;
+      }
+    }
     if (!bytesInfo) return;
 
     const bytes = bytesInfo.bytes;
-    const detectedMime = mimeType || bytesInfo.mimeType.toLowerCase();
+    const detectedMime =
+      declaredMimeType ||
+      String(bytesInfo.mimeType || "").toLowerCase() ||
+      mimeFromName;
 
     if (detectedMime.includes("pdf")) {
       try {
