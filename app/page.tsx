@@ -6017,7 +6017,28 @@ function TrialSectionsRecordsTable({
   onDelete: (id: string) => void;
   onNew: () => void;
 }) {
-  const safeRecords = Array.isArray(records) ? records : [];
+  const trialDateValue = (record: any) => {
+    const raw = pickTrialValue(record, "executionDate", "date", "approvalDate", "savedAt", "createdAt");
+    const normalized = normalizeLooseText(raw);
+    if (!normalized) return Number.MAX_SAFE_INTEGER;
+    const iso = normalized.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+    if (iso) return new Date(`${iso}T00:00:00`).getTime();
+    const dayFirst = normalized.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+    if (dayFirst) {
+      const [, day, month, year] = dayFirst;
+      return new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00`).getTime();
+    }
+    const parsed = Date.parse(normalized);
+    return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+  };
+  const safeRecords = (Array.isArray(records) ? records : [])
+    .map((record, originalIndex) => ({ record, originalIndex }))
+    .sort((left, right) => {
+      const byDate = trialDateValue(left.record) - trialDateValue(right.record);
+      if (byDate !== 0) return byDate;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map((item) => item.record);
   const cellValue = (record: any, ...keys: string[]) =>
     pickTrialValue(record, ...keys) || "-";
   const rawCellValue = (record: any, ...keys: string[]) =>
@@ -6069,9 +6090,7 @@ function TrialSectionsRecordsTable({
     }
     return { color: "#374151", fontWeight: 800 };
   };
-  const rowNumber = (record: any, index: number) =>
-    pickTrialValue(record, "sectionNo", "sectionNumber", "trialSectionNo", "trialNo", "number") ||
-    String(index + 1);
+  const rowNumber = (_record: any, index: number) => String(index + 1);
 
   const columns: Array<{
     label: string;
