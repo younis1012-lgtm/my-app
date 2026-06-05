@@ -15192,6 +15192,30 @@ ${invalidRecipients.join("\n")}`);
               </button>
             </div>
           )}
+          {section === "preliminary" && !guardedBody && (
+            <div
+              style={{
+                ...styles.chipRow,
+                justifyContent: "flex-end",
+                marginBottom: 14,
+              }}
+            >
+              {(["suppliers", "subcontractors", "materials"] as PreliminaryTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  style={{
+                    ...styles.chip,
+                    background: preliminaryTab === tab ? "#0f172a" : "#fff",
+                    color: preliminaryTab === tab ? "#fff" : "#0f172a",
+                  }}
+                  onClick={() => setPreliminaryTab(tab)}
+                >
+                  {labelForPreliminary(tab)}
+                </button>
+              ))}
+            </div>
+          )}
           {structureLinkedSections.includes(section) && !guardedBody && (
             <ProjectStructureSelector
               nodes={currentProjectStructureNodes}

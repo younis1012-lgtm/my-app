@@ -53,8 +53,6 @@ type PreliminarySectionProps = {
   projectMeta?: ProjectMeta;
 };
 
-const tabOrder: PreliminaryTab[] = ['suppliers', 'subcontractors', 'materials'];
-
 const dataKeyByTab: Record<PreliminaryTab, 'supplier' | 'subcontractor' | 'material'> = {
   suppliers: 'supplier',
   subcontractors: 'subcontractor',
@@ -262,20 +260,6 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       <h2 style={styles.sectionTitle}>בקרה מקדימה</h2>
       <FormModeBanner isEditing={Boolean(props.editingPreliminaryId)} />
 
-      <div style={styles.chipRow}>
-        {tabOrder.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            style={{ ...styles.chip, background: props.preliminaryTab === tab ? '#0f172a' : '#fff', color: props.preliminaryTab === tab ? '#fff' : '#0f172a' }}
-            onClick={() => props.setPreliminaryTab(tab)}
-          >
-            {props.labelForPreliminary(tab)}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ height: 12 }} />
       <div style={styles.formGrid}>
         <Field label="שם הפרויקט"><input style={styles.input} value={projectName} readOnly /></Field>
         <Field label="חברת ניהול"><input style={styles.input} value={projectMeta.projectManagement || projectMeta.projectManager || ''} readOnly /></Field>
