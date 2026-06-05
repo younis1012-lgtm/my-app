@@ -11539,6 +11539,20 @@ export default function Page() {
     ],
   );
   const projectPreliminary = useMemo(() => {
+    const recordOrderTime = (item: any, fallbackIndex: number) => {
+      const raw = String(item?.savedAt ?? item?.saved_at ?? item?.createdAt ?? item?.created_at ?? item?.date ?? "").trim();
+      const parsed = Date.parse(raw);
+      if (Number.isFinite(parsed)) return parsed;
+
+      const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if (local) {
+        const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
+        const time = new Date(year, Number(local[2]) - 1, Number(local[1]), Number(local[4] ?? 0), Number(local[5] ?? 0), Number(local[6] ?? 0)).getTime();
+        if (Number.isFinite(time)) return time;
+      }
+
+      return fallbackIndex;
+    };
     const matchesSearch = (item: PreliminaryRecord) =>
       !normalizedSearchTerm ||
       [item.title, item.subtype, item.status]
@@ -11548,7 +11562,11 @@ export default function Page() {
     const matchingProject = savedPreliminary.filter((item) =>
       recordMatchesCurrentProject(item.projectId),
     );
-    return matchingProject.filter(matchesSearch);
+    return matchingProject
+      .filter(matchesSearch)
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => recordOrderTime(a.item, a.index) - recordOrderTime(b.item, b.index) || a.index - b.index)
+      .map(({ item }) => item);
   }, [
     savedPreliminary,
     currentProjectIdNormalized,
@@ -13086,7 +13104,7 @@ export default function Page() {
             ? prev.map((item) =>
                 item.id === editingPreliminaryId ? record : item,
               )
-            : [record, ...prev],
+            : [...prev, record],
         );
         await refreshCloudData();
       } else
@@ -13095,7 +13113,7 @@ export default function Page() {
             ? prev.map((item) =>
                 item.id === editingPreliminaryId ? record : item,
               )
-            : [record, ...prev],
+            : [...prev, record],
         );
     });
     resetPreliminaryEditor();
