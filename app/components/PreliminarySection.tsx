@@ -193,6 +193,7 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       const payload = await res.json();
       if (!res.ok) throw new Error(payload?.error || 'OCR failed');
       const data = payload?.data ?? {};
+      const extractedCertificates = Array.isArray(data.certificates) ? data.certificates : [];
       const certificateNo = cleanDocNo(data.certificateNo ?? data.documentNo ?? data.licenseNo);
       const expiryDate = normalizeIsoDate(data.expiryDate ?? data.validUntil ?? data.expirationDate);
       const details = String(data.documentType || data.details || data.materialName || data.supplierName || data.subcontractorName || file.name).trim();
@@ -200,14 +201,32 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       setForm((prev) => {
         const activeNested = getNestedData(prev, props.preliminaryTab);
         const activeRows = normalizeRows(activeNested.certificates);
-        const nextRows = activeRows.map((row) => row.id === targetId ? {
-          ...row,
-          details: details || row.details,
-          certificateNo: certificateNo || row.certificateNo,
-          expiryDate: expiryDate || row.expiryDate,
-          ocrMessage: certificateNo || expiryDate ? 'נקלט מהמסמך' : 'לא נמצאו מספר/תוקף ברורים במסמך',
-          ocrConfidence: Number(data.confidence ?? 0),
-        } : row);
+        const extractedRows = extractedCertificates
+          .map((item: any, index: number) => ({
+            id: index === 0 ? targetId : createId(),
+            details: String(item?.details || item?.materialName || item?.supplierName || details || file.name).trim(),
+            exists: true,
+            certificateNo: cleanDocNo(item?.certificateNo ?? item?.documentNo ?? item?.licenseNo),
+            expiryDate: normalizeIsoDate(item?.expiryDate ?? item?.validUntil ?? item?.expirationDate),
+            attachments: [attachment],
+            ocrMessage: 'נקלט מקובץ מרובה אישורים',
+            ocrConfidence: Number(data.confidence ?? 0),
+          }))
+          .filter((row: GenericCertificateRow) => row.details || row.certificateNo || row.expiryDate);
+
+        let nextRows: GenericCertificateRow[];
+        if (extractedRows.length > 1) {
+          nextRows = activeRows.flatMap((row) => row.id === targetId ? extractedRows : [row]);
+        } else {
+          nextRows = activeRows.map((row) => row.id === targetId ? {
+            ...row,
+            details: extractedRows[0]?.details || details || row.details,
+            certificateNo: extractedRows[0]?.certificateNo || certificateNo || row.certificateNo,
+            expiryDate: extractedRows[0]?.expiryDate || expiryDate || row.expiryDate,
+            ocrMessage: extractedRows[0] || certificateNo || expiryDate ? 'נקלט מהמסמך' : 'לא נמצאו מספר/תוקף ברורים במסמך',
+            ocrConfidence: Number(data.confidence ?? 0),
+          } : row);
+        }
         return patchNestedData(prev, props.preliminaryTab, { certificates: nextRows });
       });
     } catch (error: any) {

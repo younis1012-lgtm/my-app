@@ -23,6 +23,14 @@ const emptyData = {
   details: '',
   confidence: 0,
   notes: '',
+  certificates: [] as Array<{
+    details: string;
+    certificateNo: string;
+    expiryDate: string;
+    issueDate: string;
+    supplierName: string;
+    materialName: string;
+  }>,
 };
 
 const jsonSchema = {
@@ -41,6 +49,22 @@ const jsonSchema = {
     details: { type: 'string' },
     confidence: { type: 'number' },
     notes: { type: 'string' },
+    certificates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          details: { type: 'string' },
+          certificateNo: { type: 'string' },
+          expiryDate: { type: 'string' },
+          issueDate: { type: 'string' },
+          supplierName: { type: 'string' },
+          materialName: { type: 'string' },
+        },
+        required: ['details', 'certificateNo', 'expiryDate', 'issueDate', 'supplierName', 'materialName'],
+      },
+    },
   },
   required: Object.keys(emptyData),
 };
@@ -200,6 +224,31 @@ function extractFromText(text: string, fileName: string) {
   return { certificateNo, expiryDate };
 }
 
+function normalizeCertificateItem(item: any) {
+  return {
+    details: String(item?.details || item?.documentType || item?.name || '').trim(),
+    certificateNo: cleanCertificateNo(String(item?.certificateNo || item?.documentNo || item?.licenseNo || '')),
+    expiryDate: normalizeHebrewDate(String(item?.expiryDate || item?.validUntil || item?.expirationDate || '')),
+    issueDate: normalizeHebrewDate(String(item?.issueDate || item?.date || item?.approvalDate || '')),
+    supplierName: String(item?.supplierName || '').trim(),
+    materialName: String(item?.materialName || item?.suppliedMaterial || '').trim(),
+  };
+}
+
+function normalizeCertificateItems(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value
+    .map(normalizeCertificateItem)
+    .filter((item) => item.certificateNo || item.expiryDate || item.details)
+    .filter((item) => {
+      const key = [item.certificateNo, item.expiryDate, item.details].join('|').toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -269,6 +318,8 @@ For dates, return yyyy-mm-dd when possible. Do not invent values.`;
 קרא את הקובץ המצורף חזותית והחזר JSON בלבד.
 סוג טופס: ${subtype}.
 חובה לחלץ מהמסמך עצמו, לא משם הקובץ, אלא אם אין מידע במסמך.
+אם הקובץ כולל כמה אישורים / תעודות / רישיונות באותו PDF, חובה להחזיר את כולם במערך certificates, פריט נפרד לכל אישור. כל פריט יכלול details, certificateNo, expiryDate, issueDate, supplierName, materialName.
+בשדות הראשיים החזר את האישור הראשון/הברור ביותר, אבל אל תוותר על שאר האישורים במערך certificates.
 certificateNo = מספר התעודה / מספר הרישיון / מספר האישור שמופיע במסמך. דוגמאות תקינות: 25/3785, 947, Z70091.
 expiryDate = תאריך תוקף / פקיעת תוקף. אם מופיע "12 מאי 2026" החזר 2026-05-12.
 issueDate אינו חשוב, החזר ריק אם לא ברור.
@@ -317,6 +368,10 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
     parsed.certificateNo = cleanCertificateNo(parsed.certificateNo) || fallback.certificateNo;
     parsed.expiryDate = normalizeHebrewDate(parsed.expiryDate) || fallback.expiryDate;
     parsed.issueDate = '';
+    parsed.certificates = normalizeCertificateItems(parsed.certificates);
+    if (!parsed.certificates.length && (parsed.certificateNo || parsed.expiryDate || parsed.details)) {
+      parsed.certificates = [normalizeCertificateItem(parsed)];
+    }
 
     return NextResponse.json({ data: parsed });
   } catch (error: any) {
