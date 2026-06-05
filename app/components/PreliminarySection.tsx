@@ -39,6 +39,7 @@ type PreliminarySectionProps = {
   preliminaryTab: PreliminaryTab;
   setPreliminaryTab: (tab: PreliminaryTab) => void;
   editingPreliminaryId: string | null;
+  approvedSupplierNames?: string[];
   supplierPreliminaryForm: PreliminaryForm;
   subcontractorPreliminaryForm: PreliminaryForm;
   materialPreliminaryForm: PreliminaryForm;
@@ -132,6 +133,10 @@ export function PreliminarySection(props: PreliminarySectionProps) {
   const projectName = projectMeta.projectName || props.currentProjectName || '';
   const nested = getNestedData(form, props.preliminaryTab);
   const rows = useMemo(() => normalizeRows(nested.certificates), [nested.certificates]);
+  const approvedSupplierNames = useMemo(
+    () => Array.from(new Set((props.approvedSupplierNames ?? []).map((name) => String(name).trim()).filter(Boolean))),
+    [props.approvedSupplierNames],
+  );
 
   useEffect(() => {
     const qc = String(projectMeta.qualityControl ?? '').trim();
@@ -282,7 +287,17 @@ export function PreliminarySection(props: PreliminarySectionProps) {
         {props.preliminaryTab === 'materials' && (
           <>
             <Field label="שם חומר"><input style={styles.input} value={nested.materialName ?? ''} onChange={(e) => updateNested({ materialName: e.target.value })} /></Field>
-            <Field label="מקור"><input style={styles.input} value={nested.source ?? ''} onChange={(e) => updateNested({ source: e.target.value })} /></Field>
+            <Field label="מקור">
+              <select style={styles.input} value={nested.source ?? ''} onChange={(e) => updateNested({ source: e.target.value })}>
+                <option value="">{approvedSupplierNames.length ? 'בחר ספק מאושר' : 'אין ספקים מאושרים לבחירה'}</option>
+                {nested.source && !approvedSupplierNames.includes(String(nested.source)) ? (
+                  <option value={nested.source}>{nested.source}</option>
+                ) : null}
+                {approvedSupplierNames.map((supplierName) => (
+                  <option key={supplierName} value={supplierName}>{supplierName}</option>
+                ))}
+              </select>
+            </Field>
             <Field label="שימוש"><input style={styles.input} value={nested.usage ?? ''} onChange={(e) => updateNested({ usage: e.target.value })} /></Field>
           </>
         )}

@@ -5880,6 +5880,7 @@ function preliminaryFolderColumns(tab: PreliminaryTab): FolderColumn[] {
     { label: "סוג", value: () => "חומרים" },
     { label: "שם ספק", value: (record) => getMaterialSupplierName(record) || "-" },
     { label: "סוג חומר מסופק", value: (record) => getMaterialType(record) || "-" },
+    { label: "תאריך אישור", value: (record) => getPreliminaryApprovalDate(record) || "-" },
     { label: "תאריך תפוגה", value: (record) => <ExpiryDateCell value={getPreliminaryExpiryDate(record)} /> },
     { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
   ];
@@ -11573,6 +11574,19 @@ export default function Page() {
     activeProjectAcceptsLegacyRecords,
     normalizedSearchTerm,
   ]);
+  const approvedPreliminarySupplierNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projectPreliminary
+            .filter((record) => record.subtype === "suppliers")
+            .filter((record) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
+            .map((record) => String(getSupplierName(record) || "").trim())
+            .filter(Boolean),
+        ),
+      ),
+    [projectPreliminary],
+  );
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? "");
@@ -15516,6 +15530,7 @@ ${invalidRecipients.join("\n")}`);
               preliminaryTab={preliminaryTab}
               setPreliminaryTab={setPreliminaryTab}
               editingPreliminaryId={editingPreliminaryId}
+              approvedSupplierNames={approvedPreliminarySupplierNames}
               supplierPreliminaryForm={supplierPreliminaryForm}
               subcontractorPreliminaryForm={subcontractorPreliminaryForm}
               materialPreliminaryForm={materialPreliminaryForm}
