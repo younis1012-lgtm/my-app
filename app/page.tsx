@@ -5253,6 +5253,7 @@ function SupervisionReportsSection({
   onDownloadPdf: (record: SupervisionReportRecord) => void;
   onSendEmail: (record: SupervisionReportRecord) => void;
 }) {
+  const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
   const input: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -5303,7 +5304,7 @@ function SupervisionReportsSection({
       </div>
 
       <div style={{ ...styles.card, marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
           <label style={label}>נושא הדוח
             <input style={input} value={form.title} onChange={(e) => onChange("title", e.target.value)} />
           </label>
@@ -5324,29 +5325,53 @@ function SupervisionReportsSection({
           <label style={label}>מבצע / עורך
             <input style={input} value={form.author} onChange={(e) => onChange("author", e.target.value)} />
           </label>
-          <label style={{ ...label, gridColumn: "span 2" }}>קבצי דוח / תמונות
-            <input style={input} type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={(e) => onAttachmentChange(e.target.files)} />
-            {(form.attachments ?? (form.attachment ? [form.attachment] : [])).length ? (
-              <div style={{ display: "grid", gap: 6 }}>
-                {(form.attachments ?? (form.attachment ? [form.attachment] : [])).map((file, fileIndex) => (
-                  <div key={`${file.name}-${fileIndex}`} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "6px 8px", border: "1px solid #dbeafe", borderRadius: 10, background: "#eff6ff" }}>
-                    <a href={file.dataUrl} download={file.name} style={{ color: "#15803d", fontWeight: 900 }}>{file.name}</a>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = (form.attachments ?? (form.attachment ? [form.attachment] : [])).filter((_, idx) => idx !== fileIndex);
-                        onChange("attachments", next);
-                        onChange("attachment", next.at(0) ?? null);
-                      }}
-                      style={styles.dangerBtn}
-                    >
-                      הסר
-                    </button>
-                  </div>
-                ))}
+          <div style={{ ...label, gridColumn: "1 / -1" }}>
+            <span>קבצי דוח / תמונות</span>
+            <div style={{ border: "1px solid #dbeafe", borderRadius: 14, padding: 12, background: "#f8fafc" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer", alignItems: "center", justifyContent: "center" }}>
+                  צרף קבצים
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      onAttachmentChange(e.target.files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+                <span style={{ color: "#475569", fontWeight: 850 }}>
+                  {formAttachments.length ? `${formAttachments.length} קבצים מצורפים` : "עדיין לא צורפו קבצים"}
+                </span>
               </div>
-            ) : null}
-          </label>
+              {formAttachments.length ? (
+                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  {formAttachments.map((file, fileIndex) => (
+                    <div key={`${file.name}-${fileIndex}`} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "8px 10px", border: "1px solid #dbeafe", borderRadius: 10, background: "#eff6ff", flexWrap: "wrap" }}>
+                      <a href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" style={{ color: "#15803d", fontWeight: 900, overflowWrap: "anywhere" }}>{file.name}</a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = formAttachments.filter((_, idx) => idx !== fileIndex);
+                          onChange("attachments", next);
+                          onChange("attachment", next.at(0) ?? null);
+                        }}
+                        style={styles.dangerBtn}
+                      >
+                        הסר
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ ...styles.emptyBox, marginTop: 10, padding: 14 }}>
+                  ניתן לצרף PDF, תמונות, Word או Excel לדוח הפיקוח העליון.
+                </div>
+              )}
+            </div>
+          </div>
           <label style={label}>תאריך טיפול
             <input style={input} type="date" value={form.treatmentDate} onChange={(e) => onChange("treatmentDate", e.target.value)} />
           </label>
@@ -14771,35 +14796,6 @@ ${invalidRecipients.join("\n")}`);
           attachments: [...(prev.attachments ?? (prev.attachment ? [prev.attachment] : [])), attachment],
         }));
       };
-
-      if (cloudEnabled && supabase) {
-        void (async () => {
-          try {
-            const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
-            const filePath = `supervision-reports/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-            const uploadResult = await supabase.storage
-              .from("attachments")
-              .upload(filePath, file, {
-                upsert: false,
-                contentType: file.type || undefined,
-              });
-            if (uploadResult.error) throw uploadResult.error;
-            const { data } = supabase.storage
-              .from("attachments")
-              .getPublicUrl(filePath);
-            appendAttachment({
-              name: file.name,
-              type: file.type,
-              dataUrl: data.publicUrl,
-              uploadedAt: nowLocal(),
-            });
-          } catch (error) {
-            console.error("Supervision report attachment upload failed", error);
-            alert("העלאת הקובץ לענן נכשלה. הדוח לא יצורף לקובץ עד שהעלאה תצליח.");
-          }
-        })();
-        return;
-      }
 
       const reader = new FileReader();
       reader.onload = () => {
