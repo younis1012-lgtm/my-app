@@ -15099,8 +15099,9 @@ ${invalidRecipients.join("\n")}`);
     normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : []));
 
   const supervisionReportHtml = (record: SupervisionReportRecord) => {
+    const savedDisplayDate = record.treatmentDate || record.date || "";
     const attachmentRows = supervisionReportAttachments(record)
-      .map((file, index) => `<tr><td>${index + 1}</td><td>${String(file.name || "").replace(/</g, "&lt;")}</td><td>${String(file.uploadedAt || "")}</td></tr>`)
+      .map((file, index) => `<tr><td>${index + 1}</td><td>${String(file.name || "").replace(/</g, "&lt;")}</td></tr>`)
       .join("");
     return `
       <div dir="rtl" style="font-family:Arial,sans-serif;padding:28px;color:#0f172a">
@@ -15111,15 +15112,15 @@ ${invalidRecipients.join("\n")}`);
             <tr><th>נושא הדוח</th><td>${record.title || ""}</td><th>מספר דוח</th><td>${record.reportNo || ""}</td></tr>
             <tr><th>תאריך</th><td>${record.date || ""}</td><th>תאריך טיפול</th><td>${record.treatmentDate || ""}</td></tr>
             <tr><th>מיקום</th><td>${record.location || ""}</td><th>מבצע / עורך</th><td>${record.author || ""}</td></tr>
-            <tr><th>סטטוס</th><td>${record.status || ""}</td><th>נשמר בתאריך</th><td>${record.savedAt || ""}</td></tr>
+            <tr><th>סטטוס</th><td>${record.status || ""}</td><th>נשמר בתאריך</th><td>${savedDisplayDate}</td></tr>
             <tr><th>טיפול</th><td colspan="3">${record.treatment || ""}</td></tr>
             <tr><th>הערות</th><td colspan="3">${record.notes || ""}</td></tr>
           </tbody>
         </table>
-        <h3 style="margin-top:22px">קבצים / תמונות מצורפים</h3>
+        <h3 style="margin-top:22px">קבצים שצורפו</h3>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
-          <thead><tr><th>מס׳</th><th>שם קובץ</th><th>תאריך צירוף</th></tr></thead>
-          <tbody>${attachmentRows || `<tr><td colspan="3">אין קבצים מצורפים</td></tr>`}</tbody>
+          <thead><tr><th>מס׳</th><th>קבצים שצורפו</th></tr></thead>
+          <tbody>${attachmentRows || `<tr><td colspan="2">אין קבצים מצורפים</td></tr>`}</tbody>
         </table>
         <style>
           th{background:#0f172a;color:#fff;font-weight:800}
