@@ -210,6 +210,31 @@ const firstDateText = (...values: unknown[]) => {
   return "";
 };
 
+const preliminaryApprovalDateText = (record: any) => {
+  const nested = record?.supplier ?? record?.subcontractor ?? record?.material ?? {};
+  const docs = getAttachments(record);
+  return firstDateText(
+    nested?.approvalDate,
+    nested?.certificateApprovalDate,
+    nested?.approvedDate,
+    nested?.approvedAt,
+    record?.approvalDate,
+    record?.approvedDate,
+    record?.date,
+    record?.approval?.date,
+    record?.approval?.approvalDate,
+    docs.map((doc) => firstDateText(doc?.approvalDate, doc?.certificateApprovalDate, doc?.approvedDate, doc?.approvedAt, doc?.issueDate, doc?.date)).find(Boolean),
+    valueByKeyOrLabel(record, ["approvalDate", "certificateApprovalDate", "approvedDate", "approvedAt", "issueDate"]),
+    valueByLabel(record, ["תאריך אישור", "תאריך אישור תעודה", "תאריך אישור רישיון", "תאריך אישור רשיון"])
+  );
+};
+
+const preliminaryOrderTime = (record: any, fallbackIndex: number) => {
+  const raw = preliminaryApprovalDateText(record);
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : recordOrderTime(record, fallbackIndex);
+};
+
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
 
 const certificateNumberFromAttachment = (attachment: any): string => {
@@ -489,7 +514,11 @@ const buildProjectMeta = (currentProjectName = "", meta?: ProjectConcentrationMe
 });
 
 const preliminaryBySubtype = (records: any[], subtype: string) =>
-  sortRecordsOldestFirst(records.filter((r) => normalize(r?.subtype) === normalize(subtype)));
+  records
+    .filter((r) => normalize(r?.subtype) === normalize(subtype))
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => preliminaryOrderTime(a.record, a.index) - preliminaryOrderTime(b.record, b.index) || a.index - b.index)
+    .map(({ record }) => record);
 
 const supplierRow = (record: any, index: number): Row => {
   const supplier = record?.supplier ?? record;

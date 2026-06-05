@@ -11540,7 +11540,7 @@ export default function Page() {
   );
   const projectPreliminary = useMemo(() => {
     const recordOrderTime = (item: any, fallbackIndex: number) => {
-      const raw = String(item?.savedAt ?? item?.saved_at ?? item?.createdAt ?? item?.created_at ?? item?.date ?? "").trim();
+      const raw = String(getPreliminaryApprovalDate(item) || item?.savedAt || item?.saved_at || item?.createdAt || item?.created_at || item?.date || "").trim();
       const parsed = Date.parse(raw);
       if (Number.isFinite(parsed)) return parsed;
 
