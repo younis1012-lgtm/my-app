@@ -176,24 +176,44 @@ const dateText = (value: unknown) => {
   return "";
 };
 
-const recordOrderTime = (record: any, fallbackIndex: number) => {
-  const raw = cleanText(record?.savedAt ?? record?.saved_at ?? record?.createdAt ?? record?.created_at ?? record?.date);
-  const parsed = Date.parse(raw);
-  if (Number.isFinite(parsed)) return parsed;
+const parseDateOrderTime = (value: unknown): number | null => {
+  const raw = cleanText(value);
+  if (!raw || looksLikeUuid(raw)) return null;
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (iso) {
+    const time = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3]),
+      Number(iso[4] ?? 0),
+      Number(iso[5] ?? 0),
+      Number(iso[6] ?? 0),
+    ).getTime();
+    return Number.isFinite(time) ? time : null;
+  }
 
   const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if (local) {
     const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
-    const month = Number(local[2]) - 1;
-    const day = Number(local[1]);
-    const hour = Number(local[4] ?? 0);
-    const minute = Number(local[5] ?? 0);
-    const second = Number(local[6] ?? 0);
-    const time = new Date(year, month, day, hour, minute, second).getTime();
-    if (Number.isFinite(time)) return time;
+    const time = new Date(
+      year,
+      Number(local[2]) - 1,
+      Number(local[1]),
+      Number(local[4] ?? 0),
+      Number(local[5] ?? 0),
+      Number(local[6] ?? 0),
+    ).getTime();
+    return Number.isFinite(time) ? time : null;
   }
 
-  return fallbackIndex;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const recordOrderTime = (record: any, fallbackIndex: number) => {
+  const raw = cleanText(record?.savedAt ?? record?.saved_at ?? record?.createdAt ?? record?.created_at ?? record?.date);
+  return parseDateOrderTime(raw) ?? fallbackIndex;
 };
 
 const sortRecordsOldestFirst = (records: any[]) =>
@@ -231,8 +251,7 @@ const preliminaryApprovalDateText = (record: any) => {
 
 const preliminaryOrderTime = (record: any, fallbackIndex: number) => {
   const raw = preliminaryApprovalDateText(record);
-  const parsed = Date.parse(raw);
-  return Number.isFinite(parsed) ? parsed : recordOrderTime(record, fallbackIndex);
+  return parseDateOrderTime(raw) ?? recordOrderTime(record, fallbackIndex);
 };
 
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
@@ -631,6 +650,7 @@ const supplierRow = (record: any, index: number): Row => {
 const contractorRow = (record: any, index: number): Row => {
   const contractor = record?.subcontractor ?? record;
   const docs = getAttachments(record);
+  const approvalDate = preliminaryApprovalDateText(record);
   const certNumbers = uniqueJoin([
     contractor?.approvalNo,
     contractor?.certificateNo,
@@ -653,7 +673,7 @@ const contractorRow = (record: any, index: number): Row => {
     "שם / סוג תעודה": docTypes,
     "מס׳ מסמכים": docs.length || "",
     "סטטוס": firstText(record?.status, record?.approval?.status),
-    "תאריך": dateText(record?.date ?? record?.savedAt),
+    "תאריך אישור": approvalDate,
     "הערות": firstText(contractor?.notes, record?.notes),
   };
 };
@@ -661,6 +681,7 @@ const contractorRow = (record: any, index: number): Row => {
 const materialRow = (record: any, index: number): Row => {
   const material = record?.material ?? record;
   const docs = getAttachments(record);
+  const approvalDate = preliminaryApprovalDateText(record);
   return {
     "מס׳": index + 1,
     "שם חומר": firstText(material?.materialName, material?.name, record?.title),
@@ -668,7 +689,7 @@ const materialRow = (record: any, index: number): Row => {
     "שימוש מיועד": firstText(material?.usage, record?.description),
     "מספר תעודה / אישור": firstText(docs.map((d) => attachmentCertificateNo(d)).find(Boolean), material?.certificateNo, material?.approvalNo, record?.certificateNo),
     "סטטוס": firstText(record?.status, record?.approval?.status),
-    "תאריך": dateText(record?.date ?? record?.savedAt),
+    "תאריך אישור": approvalDate,
     "הערות": firstText(material?.notes, record?.notes),
   };
 };
@@ -2451,7 +2472,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז קבלנים.xlsx",
     description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / קבלנים",
-    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך", "הערות"],
+    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "subcontractors").map(contractorRow),
   },
   {
@@ -2496,7 +2517,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז חומרים.xlsx",
     description: "ריכוז אישורי חומרים מתוך בקרה מקדימה",
     sourceLabel: "בקרה מקדימה / חומרים",
-    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך", "הערות"],
+    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך אישור", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "materials").map(materialRow),
   },
   {
