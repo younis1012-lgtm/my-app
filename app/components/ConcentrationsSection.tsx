@@ -176,6 +176,32 @@ const dateText = (value: unknown) => {
   return "";
 };
 
+const recordOrderTime = (record: any, fallbackIndex: number) => {
+  const raw = cleanText(record?.savedAt ?? record?.saved_at ?? record?.createdAt ?? record?.created_at ?? record?.date);
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return parsed;
+
+  const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (local) {
+    const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
+    const month = Number(local[2]) - 1;
+    const day = Number(local[1]);
+    const hour = Number(local[4] ?? 0);
+    const minute = Number(local[5] ?? 0);
+    const second = Number(local[6] ?? 0);
+    const time = new Date(year, month, day, hour, minute, second).getTime();
+    if (Number.isFinite(time)) return time;
+  }
+
+  return fallbackIndex;
+};
+
+const sortRecordsOldestFirst = (records: any[]) =>
+  records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => recordOrderTime(a.record, a.index) - recordOrderTime(b.record, b.index) || a.index - b.index)
+    .map(({ record }) => record);
+
 const firstDateText = (...values: unknown[]) => {
   for (const value of values) {
     const text = dateText(value);
@@ -462,7 +488,8 @@ const buildProjectMeta = (currentProjectName = "", meta?: ProjectConcentrationMe
   supervisor: firstText(meta?.supervisor),
 });
 
-const preliminaryBySubtype = (records: any[], subtype: string) => records.filter((r) => normalize(r?.subtype) === normalize(subtype));
+const preliminaryBySubtype = (records: any[], subtype: string) =>
+  sortRecordsOldestFirst(records.filter((r) => normalize(r?.subtype) === normalize(subtype)));
 
 const supplierRow = (record: any, index: number): Row => {
   const supplier = record?.supplier ?? record;
