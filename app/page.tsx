@@ -22,7 +22,7 @@ import {
   defaultProjects,
   normalizeChecklistTemplateKey,
 } from "./checklistTemplates";
-import { styles } from "./components/common";
+import { Field, FormModeBanner, styles } from "./components/common";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
@@ -57,6 +57,7 @@ type AppSection =
   | "projectDetails"
   | "projectUsers"
   | "projectStructure"
+  | "plans"
   | "rfi"
   | "supervisionReports"
   | "controlProcesses";
@@ -2240,6 +2241,20 @@ type StoredAttachment = {
   densityExtractionSummary?: string;
 };
 
+type PlanRecord = {
+  id: string;
+  projectId: string;
+  planNo: string;
+  revision: string;
+  title: string;
+  discipline: string;
+  date: string;
+  status: string;
+  notes: string;
+  attachments: StoredAttachment[];
+  savedAt: string;
+};
+
 const normalizeAttachments = (value: unknown): StoredAttachment[] =>
   Array.isArray(value)
     ? value
@@ -2257,6 +2272,36 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
         }))
         .filter((item) => item.dataUrl)
     : [];
+
+const PLANS_STORAGE_KEY = `${STORAGE_KEY}-plans`;
+
+const createDefaultPlanRecord = (): Omit<PlanRecord, "id" | "projectId" | "savedAt"> => ({
+  planNo: "",
+  revision: "",
+  title: "",
+  discipline: "",
+  date: new Date().toISOString().slice(0, 10),
+  status: "טיוטה",
+  notes: "",
+  attachments: [],
+});
+
+const normalizePlanRecord = (value: any): PlanRecord | null => {
+  if (!value || typeof value !== "object") return null;
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    projectId: normalizeStoredProjectId(value.projectId ?? value.project_id ?? ""),
+    planNo: String(value.planNo ?? value.plan_no ?? ""),
+    revision: String(value.revision ?? value.edition ?? ""),
+    title: String(value.title ?? value.planName ?? value.plan_name ?? ""),
+    discipline: String(value.discipline ?? value.field ?? ""),
+    date: String(value.date ?? ""),
+    status: String(value.status ?? "טיוטה"),
+    notes: String(value.notes ?? ""),
+    attachments: normalizeAttachments(value.attachments ?? value.files),
+    savedAt: String(value.savedAt ?? value.saved_at ?? ""),
+  };
+};
 
 type ChecklistAttachmentKind = "lab" | "measurement" | "other";
 
@@ -5638,6 +5683,7 @@ type HomeDashboardProps = {
   projectPreliminary: any[];
   projectRFIs: any[];
   projectSupervisionReports: any[];
+  projectPlans: any[];
   homeModules: Array<{ key: AppSection | string; title: string; icon: string; description: string; count: number }>;
   setSection: (section: AppSection) => void;
 };
@@ -5657,7 +5703,7 @@ const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
   return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
-function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, homeModules, setSection }: HomeDashboardProps) {
+function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const isClosed = (value: unknown) => {
@@ -5713,7 +5759,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
     { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
   ];
-  const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length);
+  const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
   const distribution = [
     { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
     { label: "אי התאמות", value: projectNonconformances.length, section: "nonconformances" as AppSection },
@@ -5721,6 +5767,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "בקרה מקדימה", value: projectPreliminary.length, section: "preliminary" as AppSection },
     { label: "RFI", value: projectRFIs.length, section: "rfi" as AppSection },
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
+    { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
   return (
     <div
@@ -6004,6 +6051,103 @@ function FolderRecordsTable({
         </table>
       </div>
     </section>
+  );
+}
+
+function PlansSection({
+  records,
+  form,
+  editingId,
+  onChange,
+  onAttachmentChange,
+  onRemoveAttachment,
+  onSave,
+  onNew,
+  onLoad,
+  onDelete,
+}: {
+  records: PlanRecord[];
+  form: Omit<PlanRecord, "id" | "projectId" | "savedAt">;
+  editingId: string | null;
+  onChange: (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => void;
+  onAttachmentChange: (files: FileList | File[] | null) => void;
+  onRemoveAttachment: (index: number) => void;
+  onSave: () => void;
+  onNew: () => void;
+  onLoad: (record: PlanRecord) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div>
+      <FolderRecordsTable
+        title="תוכניות"
+        description="תיקיית תוכניות, מהדורות וקבצים מצורפים בפרויקט."
+        records={records as any[]}
+        columns={[
+          { label: "מספר תוכנית", value: (record) => record.planNo || "-" },
+          { label: "מהדורה", value: (record) => record.revision || "-" },
+          { label: "שם / תיאור", value: (record) => record.title || "-" },
+          { label: "תחום", value: (record) => record.discipline || "-" },
+          { label: "תאריך", value: (record) => record.date || "-" },
+          { label: "סטטוס", value: (record) => record.status || "-" },
+          { label: "קבצים", value: (record) => normalizeAttachments(record.attachments).length || "-" },
+        ]}
+        onOpen={(id) => {
+          const record = records.find((item) => item.id === id);
+          if (record) onLoad(record);
+        }}
+        onDelete={onDelete}
+        onNew={onNew}
+      />
+
+      <FormModeBanner isEditing={Boolean(editingId)} />
+      <div style={styles.formGrid}>
+        <Field label="מספר תוכנית"><input style={styles.input} value={form.planNo} onChange={(e) => onChange("planNo", e.target.value)} /></Field>
+        <Field label="מהדורה"><input style={styles.input} value={form.revision} onChange={(e) => onChange("revision", e.target.value)} /></Field>
+        <Field label="שם / תיאור"><input style={styles.input} value={form.title} onChange={(e) => onChange("title", e.target.value)} /></Field>
+        <Field label="תחום"><input style={styles.input} value={form.discipline} onChange={(e) => onChange("discipline", e.target.value)} placeholder="לדוגמה: תנועה / ניקוז / מבנה / חשמל" /></Field>
+        <Field label="תאריך"><input type="date" style={styles.input} value={form.date} onChange={(e) => onChange("date", e.target.value)} /></Field>
+        <Field label="סטטוס">
+          <select style={styles.input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
+            <option>טיוטה</option>
+            <option>בתוקף</option>
+            <option>לביצוע</option>
+            <option>מבוטל</option>
+            <option>הוחלף</option>
+          </select>
+        </Field>
+        <Field label="הערות" full>
+          <textarea style={styles.textarea} value={form.notes} onChange={(e) => onChange("notes", e.target.value)} />
+        </Field>
+      </div>
+
+      <div style={{ border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>קבצי תוכניות מצורפים</h3>
+          <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer" }}>
+            צרף תוכנית / קובץ
+            <input type="file" multiple accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={(e) => { onAttachmentChange(e.target.files); e.currentTarget.value = ""; }} />
+          </label>
+        </div>
+        {form.attachments.length ? (
+          <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+            {form.attachments.map((file, index) => (
+              <div key={`${file.name}-${index}`} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", border: "1px solid #dbeafe", borderRadius: 10, padding: "8px 10px", background: "#eff6ff" }}>
+                <a href={file.dataUrl} download={file.name} style={{ color: "#0f766e", fontWeight: 900 }}>{file.name}</a>
+                <button type="button" style={styles.dangerBtn} onClick={() => onRemoveAttachment(index)}>מחק</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={styles.emptyBox}>טרם צורפו תוכניות או קבצים.</div>
+        )}
+      </div>
+
+      <div style={styles.buttonRow}>
+        <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? "עדכן תוכנית" : "שמור תוכנית"}</button>
+        <button type="button" style={styles.secondaryBtn} onClick={onNew}>חדש / נקה</button>
+      </div>
+    </div>
   );
 }
 
@@ -9912,6 +10056,24 @@ export default function Page() {
   const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
+  const [savedPlans, setSavedPlans] = useState<PlanRecord[]>([]);
+  const [planForm, setPlanForm] = useState(createDefaultPlanRecord());
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
+      setSavedPlans((Array.isArray(parsed) ? parsed : []).map(normalizePlanRecord).filter(Boolean) as PlanRecord[]);
+    } catch {
+      setSavedPlans([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(savedPlans));
+  }, [savedPlans]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -11515,6 +11677,25 @@ export default function Page() {
         ),
     [
       savedSupervisionReports,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      normalizedSearchTerm,
+    ],
+  );
+  const projectPlans = useMemo(
+    () =>
+      savedPlans
+        .filter((item) => recordMatchesCurrentProject(item.projectId))
+        .filter(
+          (item) =>
+            !normalizedSearchTerm ||
+            [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
+              .join(" ")
+              .toLowerCase()
+              .includes(normalizedSearchTerm),
+        ),
+    [
+      savedPlans,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
       normalizedSearchTerm,
@@ -13195,6 +13376,75 @@ export default function Page() {
         יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.
       </div>
     ) : null;
+
+  const resetPlanForm = () => {
+    setPlanForm(createDefaultPlanRecord());
+    setEditingPlanId(null);
+  };
+
+  const updatePlanForm = (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => {
+    setPlanForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const uploadPlanAttachments = (files: FileList | File[] | null) => {
+    Array.from(files ?? []).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const attachment: StoredAttachment = {
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          dataUrl: String(reader.result ?? ""),
+          uploadedAt: nowLocal(),
+        };
+        setPlanForm((prev) => ({ ...prev, attachments: [...normalizeAttachments(prev.attachments), attachment] }));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePlanAttachment = (index: number) => {
+    setPlanForm((prev) => ({
+      ...prev,
+      attachments: normalizeAttachments(prev.attachments).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const savePlan = () => {
+    if (!currentProjectId) return alert("יש לבחור פרויקט");
+    if (!String(planForm.planNo || planForm.title).trim()) return alert("יש להזין מספר תוכנית או שם תוכנית");
+    const id = editingPlanId ?? crypto.randomUUID();
+    const record: PlanRecord = {
+      id,
+      projectId: normalizeStoredProjectId(currentProjectId),
+      ...planForm,
+      attachments: normalizeAttachments(planForm.attachments),
+      savedAt: nowLocal(),
+    };
+    setSavedPlans((prev) => (prev.some((item) => item.id === id) ? prev.map((item) => item.id === id ? record : item) : [record, ...prev]));
+    setEditingPlanId(id);
+  };
+
+  const loadPlan = (record: PlanRecord) => {
+    setEditingPlanId(record.id);
+    setPlanForm({
+      planNo: record.planNo,
+      revision: record.revision,
+      title: record.title,
+      discipline: record.discipline,
+      date: record.date,
+      status: record.status,
+      notes: record.notes,
+      attachments: normalizeAttachments(record.attachments),
+    });
+    setSection("plans");
+  };
+
+  const deletePlan = (id: string) => {
+    if (!window.confirm("למחוק את התוכנית?")) return;
+    setSavedPlans((prev) => prev.filter((item) => item.id !== id));
+    if (editingPlanId === id) resetPlanForm();
+  };
+
   const homeModules = [
     {
       key: "projectDetails",
@@ -13248,6 +13498,13 @@ export default function Page() {
       icon: "🗂️",
       description: "ספקים, קבלנים וחומרים",
       count: projectPreliminary.length,
+    },
+    {
+      key: "plans",
+      title: "תוכניות",
+      icon: "📐",
+      description: "מספרי תוכנית, מהדורות וקבצים",
+      count: projectPlans.length,
     },
     {
       key: "rfi",
@@ -14890,6 +15147,7 @@ ${invalidRecipients.join("\n")}`);
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
+        ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
       ]
     : [
@@ -14903,6 +15161,7 @@ ${invalidRecipients.join("\n")}`);
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
+        ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
       ];
 
@@ -15339,6 +15598,20 @@ ${invalidRecipients.join("\n")}`);
               onSendEmail={sendSupervisionReportEmail}
             />
           )}
+          {section === "plans" && (
+            <PlansSection
+              records={projectPlans}
+              form={planForm}
+              editingId={editingPlanId}
+              onChange={updatePlanForm}
+              onAttachmentChange={uploadPlanAttachments}
+              onRemoveAttachment={removePlanAttachment}
+              onSave={savePlan}
+              onNew={resetPlanForm}
+              onLoad={loadPlan}
+              onDelete={deletePlan}
+            />
+          )}
           {section === "home" && (
             <HomeSection
               projects={accessibleProjects}
@@ -15348,6 +15621,7 @@ ${invalidRecipients.join("\n")}`);
               projectPreliminary={projectPreliminary}
               projectRFIs={projectRfis as any}
               projectSupervisionReports={projectSupervisionReports as any}
+              projectPlans={projectPlans as any}
               homeModules={homeModules}
               setSection={setSection as any}
             />
