@@ -1,16 +1,16 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { ApprovalFlow } from '../types';
 export const styles: Record<string, CSSProperties> = {
-  page: { background: '#f8fafc', minHeight: '100vh', padding: 20, fontFamily: 'Arial, sans-serif' },
-  header: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 16, marginBottom: 18 },
-  headerCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 16, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
-  navRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 },
-  navBtn: { border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', fontWeight: 700 },
+  page: { background: '#f8fafc', minHeight: '100vh', padding: 'clamp(10px, 3vw, 20px)', fontFamily: 'Arial, sans-serif' },
+  header: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 16, marginBottom: 18 },
+  headerCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 'clamp(12px, 3vw, 16px)', boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
+  navRow: { display: 'flex', gap: 8, flexWrap: 'nowrap', marginBottom: 18, overflowX: 'auto', paddingBottom: 6, WebkitOverflowScrolling: 'touch' as any },
+  navBtn: { border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' },
   layout: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 18, alignItems: 'start' },
-  mainCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: 20, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
+  mainCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: 'clamp(12px, 3vw, 20px)', boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
   sideCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: 16, boxShadow: '0 10px 30px rgba(15,23,42,0.06)' },
   sectionTitle: { fontSize: 26, fontWeight: 800, margin: '0 0 18px' },
-  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 14, marginBottom: 16 },
+  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 14, marginBottom: 16 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
   fieldFull: { gridColumn: '1 / -1' },
   label: { fontWeight: 700, color: '#334155' },

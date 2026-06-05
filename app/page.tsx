@@ -5933,6 +5933,21 @@ function preliminaryFolderColumns(tab: PreliminaryTab): FolderColumn[] {
   ];
 }
 
+function useNarrowScreen(maxWidth = 720) {
+  const [isNarrow, setIsNarrow] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const update = () => setIsNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [maxWidth]);
+
+  return isNarrow;
+}
+
 function FolderRecordsTable({
   title,
   description,
@@ -5951,6 +5966,10 @@ function FolderRecordsTable({
   onNew?: () => void;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
+  const isNarrow = useNarrowScreen();
+  const serialFor = (record: any, index: number) =>
+    record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
+
   return (
     <section
       style={{
@@ -5986,6 +6005,65 @@ function FolderRecordsTable({
           </button>
         ) : null}
       </div>
+      {isNarrow ? (
+        <div style={{ display: "grid", gap: 10, padding: 12 }}>
+          {safeRecords.length ? (
+            safeRecords.map((record, index) => {
+              const id = String(record?.id ?? index);
+              return (
+                <article
+                  key={id}
+                  style={{
+                    border: "1px solid #dbe3ef",
+                    borderRadius: 14,
+                    padding: 12,
+                    background: "#fff",
+                    boxShadow: "0 6px 16px rgba(15, 23, 42, 0.04)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                    <span style={{ fontWeight: 950, color: "#0f172a" }}>#{serialFor(record, index)}</span>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {onOpen ? (
+                        <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
+                          פתח / ערוך
+                        </button>
+                      ) : null}
+                      {onDelete ? (
+                        <button type="button" style={styles.dangerBtn} onClick={() => onDelete(id)}>
+                          מחק
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {columns.map((column) => (
+                      <div
+                        key={column.label}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(96px, 0.36fr) minmax(0, 1fr)",
+                          gap: 8,
+                          alignItems: "start",
+                          borderTop: "1px solid #eef2f7",
+                          paddingTop: 8,
+                        }}
+                      >
+                        <span style={{ color: "#64748b", fontWeight: 850, fontSize: 12 }}>{column.label}</span>
+                        <span style={{ color: "#0f172a", fontWeight: 800, overflowWrap: "anywhere" }}>{column.value(record, index) || "-"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <div style={{ padding: 18, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+              אין רשומות להצגה בתיקייה זו.
+            </div>
+          )}
+        </div>
+      ) : (
       <div style={{ overflowX: "auto" }}>
         <table
           style={{
@@ -6016,7 +6094,7 @@ function FolderRecordsTable({
                 return (
                   <tr key={id}>
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1}
+                      {serialFor(record, index)}
                     </td>
                     {columns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
@@ -6050,6 +6128,7 @@ function FolderRecordsTable({
           </tbody>
         </table>
       </div>
+      )}
     </section>
   );
 }
