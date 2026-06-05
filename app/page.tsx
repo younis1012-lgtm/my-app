@@ -12902,8 +12902,6 @@ export default function Page() {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     const completedTrialSectionForm: any = enrichTrialSectionRecord(trialSectionForm as any);
     if (!String(completedTrialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
-    const validation = validateApproval(completedTrialSectionForm.approval);
-    if (validation) return alert(validation);
     const id = editingTrialSectionId ?? crypto.randomUUID();
     const title =
       editingTrialSectionId || titleHasNumber(completedTrialSectionForm.title)
