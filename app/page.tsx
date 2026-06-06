@@ -519,6 +519,7 @@ type ControlProcessRecord = {
   specSection: string;
   structureNodeId: string;
   location: string;
+  date: string;
   fromSection: string;
   toSection: string;
   status: ControlProcessStatus;
@@ -1231,6 +1232,7 @@ const createDefaultControlProcess = (
   specSection: "",
   structureNodeId: "",
   location: "",
+  date: "",
   fromSection: "",
   toSection: "",
   status: "טיוטה",
@@ -1297,6 +1299,21 @@ const normalizeStringArray = (value: unknown): string[] =>
 
 const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
   if (!value || typeof value !== "object") return null;
+  const referenceResults = ensureReferenceResultsForMaterial(
+    value.workType ?? value.work_type,
+    value.referenceResults ?? value.reference_results ?? extractReferenceResultsFromAudit(value),
+  );
+  const referenceValue = (...aliases: string[]) => {
+    const aliasKeys = aliases.map(normalizeReferenceMetricKey).filter(Boolean);
+    for (const row of referenceResults) {
+      const metricKey = normalizeReferenceMetricKey(row.metric);
+      if (aliasKeys.some((aliasKey) => aliasKey && metricKey === aliasKey)) {
+        const result = String(row.resultValue ?? "").trim();
+        if (result) return result;
+      }
+    }
+    return "";
+  };
   return {
     id: String(value.id ?? crypto.randomUUID()),
     projectId: String(value.projectId ?? value.project_id ?? ""),
@@ -1305,7 +1322,8 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     workType: String(value.workType ?? value.work_type ?? ""),
     specSection: String(value.specSection ?? value.spec_section ?? ""),
     structureNodeId: String(value.structureNodeId ?? value.structure_node_id ?? ""),
-    location: String(value.location ?? ""),
+    location: String(value.location ?? "") || referenceValue("מבנה", "מיקום / שימוש מיועד", "מיקום"),
+    date: normalizeDateValue(value.date ?? value.executionDate ?? value.execution_date) || normalizeDateValue(referenceValue("תאריך בדיקה", "תאריך")),
     fromSection: String(value.fromSection ?? value.from_section ?? ""),
     toSection: String(value.toSection ?? value.to_section ?? ""),
     status: CONTROL_PROCESS_STATUS_OPTIONS.includes(value.status)
@@ -1321,10 +1339,7 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
     requiredDocuments: normalizeRequiredDocuments(
       value.requiredDocuments ?? value.required_documents,
     ),
-    referenceResults: ensureReferenceResultsForMaterial(
-      value.workType ?? value.work_type,
-      value.referenceResults ?? value.reference_results ?? extractReferenceResultsFromAudit(value),
-    ),
+    referenceResults,
     auditTrail: auditWithoutReferenceResults(value.auditTrail ?? value.audit_log),
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
@@ -1341,6 +1356,7 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
   spec_section: record.specSection,
   structure_node_id: record.structureNodeId || null,
   location: record.location,
+  date: record.date || null,
   from_section: record.fromSection,
   to_section: record.toSection,
   status: record.status,
@@ -13118,6 +13134,28 @@ export default function Page() {
       syncMetric(["מפעל אספקה"], controlProcessForm.supplier);
     }
 
+    const referenceValue = (...aliases: string[]) => {
+      const aliasKeys = aliases.map(normalizeReferenceMetricKey).filter(Boolean);
+      for (const row of syncedReferenceResults) {
+        const metricKey = normalizeReferenceMetricKey(row.metric);
+        if (aliasKeys.some((aliasKey) => aliasKey && metricKey === aliasKey)) {
+          const value = String(row.resultValue ?? "").trim();
+          if (value) return value;
+        }
+      }
+      return "";
+    };
+    const gradingLineDate = saveAsGradingLine
+      ? normalizeDateValue(referenceValue("תאריך בדיקה", "תאריך"))
+      : "";
+    const gradingLineLocation = saveAsGradingLine
+      ? referenceValue("מבנה", "מיקום / שימוש מיועד", "מיקום")
+      : "";
+    const gradingLineFromSection = saveAsGradingLine ? referenceValue("מחתך") : "";
+    const gradingLineToSection = saveAsGradingLine ? referenceValue("עד חתך") : "";
+    const savedControlProcessDate = gradingLineDate || normalizeDateValue((controlProcessForm as any).date) || "";
+    const savedControlProcessLocation = String(gradingLineLocation || controlProcessLayer).trim();
+
     const record: ControlProcessRecord = {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
@@ -13126,12 +13164,13 @@ export default function Page() {
       workType: String(controlProcessForm.workType ?? ""),
       specSection: String(controlProcessForm.specSection ?? ""),
       structureNodeId: String((controlProcessForm as any).structureNodeId ?? ""),
-      location: controlProcessLayer,
+      location: savedControlProcessLocation,
+      date: savedControlProcessDate,
       ...(isAsphaltReference(controlProcessForm.workType)
         ? { asphaltLayer: controlProcessLayer }
         : {}),
-      fromSection: String(controlProcessForm.fromSection ?? ""),
-      toSection: String(controlProcessForm.toSection ?? ""),
+      fromSection: String(gradingLineFromSection || (controlProcessForm.fromSection ?? "")),
+      toSection: String(gradingLineToSection || (controlProcessForm.toSection ?? "")),
       status: nextStatus,
       checklistIds: normalizeStringArray(controlProcessForm.checklistIds),
       rfiIds: normalizeStringArray(controlProcessForm.rfiIds),
@@ -13160,7 +13199,7 @@ export default function Page() {
 
     await withSaving(async () => {
       if (cloudEnabled) {
-        const row = sanitizeCloudPayload(controlProcessToRow(record));
+        let row = sanitizeCloudPayload(controlProcessToRow(record));
         let result = editingControlProcessId
           ? await supabase!
               .from(CONTROL_PROCESS_TABLE)
@@ -13171,6 +13210,19 @@ export default function Page() {
               .insert(row);
         if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
           const { structure_node_id, ...fallbackRow } = row;
+          row = fallbackRow;
+          result = editingControlProcessId
+            ? await supabase!
+                .from(CONTROL_PROCESS_TABLE)
+                .update(fallbackRow)
+                .eq("id", editingControlProcessId)
+            : await supabase!
+                .from(CONTROL_PROCESS_TABLE)
+                .insert(fallbackRow);
+        }
+        if (result.error && isMissingColumnError(result.error, "date")) {
+          const { date, ...fallbackRow } = row;
+          row = fallbackRow;
           result = editingControlProcessId
             ? await supabase!
                 .from(CONTROL_PROCESS_TABLE)
@@ -13204,6 +13256,7 @@ export default function Page() {
       specSection: record.specSection,
       structureNodeId: record.structureNodeId,
       location: record.location,
+      date: record.date,
       fromSection: record.fromSection,
       toSection: record.toSection,
       status: record.status,
