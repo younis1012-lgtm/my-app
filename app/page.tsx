@@ -5761,6 +5761,46 @@ function getPreliminaryApprovalDate(record: any) {
   return normalizeDateValue(withDate?.approvalDate || withDate?.approvedDate || withDate?.issueDate || withDate?.date) || "";
 }
 
+function getControlProcessApprovalDate(record: any) {
+  const signatures = [
+    ...(Array.isArray(record?.approval?.signatures) ? record.approval.signatures : []),
+    ...(Array.isArray(record?.details?.approval?.signatures) ? record.details.approval.signatures : []),
+    ...(Array.isArray(record?.form?.approval?.signatures) ? record.form.approval.signatures : []),
+    ...(Array.isArray(record?.data?.approval?.signatures) ? record.data.approval.signatures : []),
+  ];
+  const signed = signatures
+    .map((signature: any) =>
+      normalizeDateValue(
+        signature?.signedAt ||
+          signature?.approvalDate ||
+          signature?.approvedAt ||
+          signature?.date,
+      ),
+    )
+    .filter(Boolean)
+    .sort()[0];
+  if (signed) return signed;
+  return (
+    normalizeDateValue(
+      record?.approvalDate ||
+        record?.approvedDate ||
+        record?.approvedAt ||
+        record?.approval?.approvalDate ||
+        record?.approval?.approvedAt ||
+        record?.lockedAt,
+    ) ||
+    normalizeDateValue(record?.date || record?.savedAt || record?.createdAt) ||
+    ""
+  );
+}
+
+function controlProcessApprovalSortValue(record: any) {
+  const date = getControlProcessApprovalDate(record);
+  if (!date) return Number.MAX_SAFE_INTEGER;
+  const parsed = Date.parse(`${date}T00:00:00`);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
 function isExpiredDate(value: unknown) {
   const date = normalizeDateValue(value);
   if (!date) return false;
@@ -11996,7 +12036,18 @@ export default function Page() {
               .join(" ")
               .toLowerCase()
               .includes(normalizedSearchTerm),
-        ),
+        )
+        .sort((a, b) => {
+          const dateDiff =
+            controlProcessApprovalSortValue(a) -
+            controlProcessApprovalSortValue(b);
+          if (dateDiff !== 0) return dateDiff;
+          return String(a.processNo ?? "").localeCompare(
+            String(b.processNo ?? ""),
+            "he",
+            { numeric: true },
+          );
+        }),
     [
       savedControlProcesses,
       currentProjectIdNormalized,
@@ -15847,6 +15898,7 @@ ${invalidRecipients.join("\n")}`);
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "תחום", value: (record) => record.workType || record.category || record.type },
                   { label: "מיקום / שימוש", value: (record) => record.location || record.area },
+                  { label: "תאריך אישור", value: (record) => getControlProcessApprovalDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectControlProcesses.find((item) => item.id === id); if (record) loadControlProcess(record); }}
