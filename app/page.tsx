@@ -8171,7 +8171,7 @@ const applyGradingLineFallbackFromText = (
   const certNo =
     extractReferencePdfNumber(text) ||
     firstRegexGroup(text, [/(?:דו["״']?ח|תעודה|מס["׳']?)\s*(?:מס["׳']?)?\s*(\d{4,6})/i]) ||
-    (text.includes("24416") ? "24416" : "");
+    "";
   const certDate =
     extractReferencePdfDate(text) ||
     textAfter([/תאריך\s+בדיקה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]);
@@ -8223,7 +8223,7 @@ const applyGradingLineFallbackFromText = (
     return "";
   };
 
-  metrics.forEach((metric) => {
+  if (false) metrics.forEach((metric) => {
     const value = valueNearAnchor(metric.anchors);
     if (value) set(metric.aliases, value);
   });
@@ -8246,7 +8246,7 @@ const applyGradingLineFallbackFromText = (
     }
   }
 
-  if (text.includes("24416")) {
+  if (false && text.includes("24416")) {
     set(["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"], certNo || "24416");
     set(["תאריך בדיקה", "תאריך"], certDate || "2025-05-08");
     set(["מקור החומר", "מקור"], "מקומי");
@@ -8267,6 +8267,122 @@ const applyGradingLineFallbackFromText = (
     set(["IP"], "23");
     set(["מיון AASHTO", "AASHTO"], "A-7-6 (3)");
   }
+
+  const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
+    .map((match) => normalizeDateValue(match[0]))
+    .filter(Boolean)
+    .sort();
+  if (allDates[0]) set(["תאריך בדיקה", "תאריך"], allDates[0]);
+
+  if (text.includes("מקומי")) set(["מקור החומר", "מקור"], "מקומי");
+  if (text.includes("קרקע יסוד/שתית") || (text.includes("קרקע יסוד") && text.includes("שתית"))) {
+    set(["מהות העבודה", "סוג העבודה"], "קרקע יסוד/שתית");
+  }
+  if (text.includes("צרורות עם טין וחול")) set(["תיאור החומר", "תאור החומר"], "צרורות עם טין וחול");
+
+  const sectionLine = lines.find((line) => /(?:מחתך|חתך)\s*\d+/.test(line));
+  const sectionValue = sectionLine ? firstRegexGroup(sectionLine, [/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/]) : "";
+  if (sectionValue) set(["מחתך"], sectionValue);
+
+  const splitCompactGradingValues = (line: string) => {
+    const spaced = numberTokens(line).filter((value) => !["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"].includes(value));
+    if (spaced.length >= 9 && spaced[0] === "100") {
+      return {
+        '3"': spaced[0],
+        '1.5"': spaced[1],
+        '1"': spaced[2],
+        '3/4"': spaced[3],
+        '3/8"': spaced[4],
+        "#4": spaced[5],
+        "#10": spaced[6],
+        "#40": spaced[7],
+        "#200": spaced[8],
+      };
+    }
+    if (spaced.length >= 7 && spaced[0] === "100") {
+      return {
+        '3"': spaced[0],
+        '1.5"': spaced[1],
+        '3/4"': spaced[2],
+        "#4": spaced[3],
+        "#10": spaced[4],
+        "#40": spaced[5],
+        "#200": spaced[6],
+      };
+    }
+    const compact = clean(line).replace(/[^0-9.]/g, "");
+    const compactMatch = compact.match(/^100(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}(?:\.\d+)?)$/);
+    if (!compactMatch) return null;
+    return {
+      '3"': "100",
+      '1.5"': compactMatch[1],
+      '3/4"': compactMatch[2],
+      "#4": compactMatch[3],
+      "#10": compactMatch[4],
+      "#40": compactMatch[5],
+      "#200": compactMatch[6],
+    };
+  };
+
+  const gradingRow =
+    lines
+      .slice(Math.max(0, gradingHeaderIndex + 1), gradingHeaderIndex >= 0 ? Math.min(lines.length, gradingHeaderIndex + 12) : lines.length)
+      .find((line) => {
+        const compact = clean(line).replace(/[^0-9.]/g, "");
+        return !line.includes("0.075") && !line.includes("4.75") && /^100\d{8,}/.test(compact);
+      }) ?? "";
+  const gradingValues = splitCompactGradingValues(gradingRow);
+  if (gradingValues) {
+    set(['3"', "3 אינץ"], gradingValues['3"']);
+    set(['1.5"', "1.5"], gradingValues['1.5"']);
+    if (gradingValues['1"']) set(['1"', "1 אינץ"], gradingValues['1"']);
+    set(['3/4"', "3/4"], gradingValues['3/4"']);
+    if (gradingValues['3/8"']) set(['3/8"', "3/8"], gradingValues['3/8"']);
+    set(["#4"], gradingValues["#4"]);
+    set(["#10"], gradingValues["#10"]);
+    set(["#40"], gradingValues["#40"]);
+    set(["#200"], gradingValues["#200"]);
+  }
+
+  const unitsIndex = lines.findIndex((line) => line.includes("יחידות") && line.includes("תוצאה") && line.includes("התאמה"));
+  if (unitsIndex >= 0) {
+    const plasticValues = lines
+      .slice(unitsIndex + 1, Math.min(lines.length, unitsIndex + 8))
+      .flatMap(numberTokens)
+      .filter((value) => Number(value) > 0 && Number(value) <= 100);
+    if (plasticValues[0]) set(["LL"], plasticValues[0]);
+    if (plasticValues[1]) set(["IP"], plasticValues[1]);
+    if (plasticValues[2]) set(["PL"], plasticValues[2]);
+  }
+
+  const aashtoValue = firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i]);
+  if (aashtoValue) set(["מיון AASHTO", "מיון", "AASHTO"], aashtoValue);
+  const unifiedValue = firstRegexGroup(text, [/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i]);
+  if (unifiedValue) set(["מיון אחיד", "Unified", "USCS"], unifiedValue);
+
+  const specificGravityLine = lines.find((line) => line.includes("גרם") && line.includes("סמ") && numberTokens(line).some((value) => Number(value) > 1 && Number(value) < 4));
+  const specificGravity = specificGravityLine ? numberTokens(specificGravityLine).find((value) => Number(value) > 1 && Number(value) < 4) : "";
+  if (specificGravity) set(["אגרגט גס צפיפות ממשית"], specificGravity);
+  const absorptionLine =
+    unitsIndex >= 0
+      ? lines.find((line, index) => line.includes("%") && numberTokens(line).some((value) => Number(value) > 0 && Number(value) < 10) && index > unitsIndex + 4)
+      : "";
+  const absorption = absorptionLine ? numberTokens(absorptionLine).find((value) => Number(value) > 0 && Number(value) < 10) : "";
+  if (absorption) set(["אגרגט גס ספיגות"], absorption);
+
+  const densityIndex = lines.findIndex((line) => line.includes("יחסי צפיפות") && line.includes("רטיבות"));
+  if (densityIndex >= 0) {
+    const densityValues = lines.slice(Math.max(0, densityIndex - 10), densityIndex).flatMap(numberTokens);
+    const maxDensity = densityValues.find((value) => Number(value) >= 1500 && Number(value) <= 2500);
+    const optimumMoisture = densityValues.find((value) => Number(value) >= 4 && Number(value) <= 25 && value.includes("."));
+    if (maxDensity) set(["100% מעבדתי"], maxDensity);
+    if (optimumMoisture) set(["רטיבות אופטימלית"], optimumMoisture);
+  }
+  const coarseFraction = lines
+    .slice(Math.max(0, densityIndex), densityIndex >= 0 ? Math.min(lines.length, densityIndex + 12) : lines.length)
+    .flatMap(numberTokens)
+    .find((value) => Number(value) > 10 && Number(value) < 60);
+  if (coarseFraction) set(['מקטע -3/4"', "מקטע 3/4"], coarseFraction);
 
   return next;
 };
