@@ -552,6 +552,7 @@ const REQUIRED_DOCUMENT_TYPES: RequiredDocumentType[] = [
 ];
 
 const REFERENCE_MATERIAL_OPTIONS = [
+  "קו דירוג",
   "אישור חומר חצץ",
   "סוללות מילוי מיובא",
   "סוללות מילוי חומר מקומי",
@@ -667,6 +668,42 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   { metric: "תאריך", minValue: "", maxValue: "" },
   { metric: "מקום הדגם לבדיקה", minValue: "", maxValue: "" },
   { metric: "מבנה", minValue: "", maxValue: "" },
+];
+
+const GRADING_LINE_REFERENCE_RESULT_DEFS: Array<{
+  metric: string;
+  minValue: string;
+  maxValue: string;
+  allowedDeviation?: string;
+}> = [
+  { metric: "ביצוע ע״י QC/QA", minValue: "", maxValue: "" },
+  { metric: "מס׳ סידורי", minValue: "", maxValue: "" },
+  { metric: "מקור החומר", minValue: "", maxValue: "" },
+  { metric: "תאריך בדיקה", minValue: "", maxValue: "" },
+  { metric: "תעודה מס׳", minValue: "", maxValue: "" },
+  { metric: "מבנה", minValue: "", maxValue: "" },
+  { metric: "מחתך", minValue: "", maxValue: "" },
+  { metric: "עד חתך", minValue: "", maxValue: "" },
+  { metric: "צד", minValue: "", maxValue: "" },
+  { metric: "מהות העבודה", minValue: "", maxValue: "" },
+  { metric: '3"', minValue: "", maxValue: "" },
+  { metric: '1.5"', minValue: "", maxValue: "" },
+  { metric: '1"', minValue: "", maxValue: "" },
+  { metric: '3/4"', minValue: "", maxValue: "" },
+  { metric: "#4", minValue: "", maxValue: "" },
+  { metric: "#10", minValue: "", maxValue: "" },
+  { metric: "#40", minValue: "", maxValue: "" },
+  { metric: "#200", minValue: "", maxValue: "" },
+  { metric: "IP", minValue: "", maxValue: "" },
+  { metric: "PL", minValue: "", maxValue: "" },
+  { metric: "LL", minValue: "", maxValue: "" },
+  { metric: "מיון AASHTO", minValue: "", maxValue: "" },
+  { metric: "אגרגט גס ספיגות", minValue: "", maxValue: "" },
+  { metric: "אגרגט גס צפיפות ממשית", minValue: "", maxValue: "" },
+  { metric: "100% מעבדתי", minValue: "", maxValue: "" },
+  { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
+  { metric: 'מקטע -3/4"', minValue: "", maxValue: "" },
+  { metric: "100% מעוקב", minValue: "", maxValue: "" },
 ];
 
 type AsphaltMixTemplate = {
@@ -956,6 +993,11 @@ const isSelectedMaterialReference = (value: unknown) => {
   return text.includes("נברר") || text.includes("A-2-4") || text.includes("a-2-4");
 };
 
+const isGradingLineReference = (value: unknown) => {
+  const text = normalizeHebrewProjectName(value);
+  return text.includes("קו דירוג") || text.includes("גרדציה");
+};
+
 const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
   MATZEA_A_REFERENCE_RESULT_DEFS.map((row) => ({
     id: `matzea-a-${row.metric}`.replace(/\s+/g, "-"),
@@ -970,6 +1012,17 @@ const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
 const createSelectedMaterialReferenceResults = (): ReferenceResultRow[] =>
   SELECTED_MATERIAL_REFERENCE_RESULT_DEFS.map((row) => ({
     id: `selected-material-${row.metric}`.replace(/\s+/g, "-"),
+    metric: row.metric,
+    resultValue: "",
+    qualityStatus: "",
+    minValue: row.minValue,
+    maxValue: row.maxValue,
+    allowedDeviation: row.allowedDeviation,
+  }));
+
+const createGradingLineReferenceResults = (): ReferenceResultRow[] =>
+  GRADING_LINE_REFERENCE_RESULT_DEFS.map((row) => ({
+    id: `grading-line-${row.metric}`.replace(/\s+/g, "-"),
     metric: row.metric,
     resultValue: "",
     qualityStatus: "",
@@ -1063,6 +1116,12 @@ const ensureReferenceResultsForMaterial = (
   if (isSelectedMaterialReference(workType)) {
     return mergeReferenceResultsWithTemplate(
       createSelectedMaterialReferenceResults(),
+      normalized,
+    );
+  }
+  if (isGradingLineReference(workType)) {
+    return mergeReferenceResultsWithTemplate(
+      createGradingLineReferenceResults(),
       normalized,
     );
   }
@@ -8687,10 +8746,16 @@ function ControlProcessesSection({
         selectedMaterial,
         form.referenceResults,
       );
-  const showReferenceResultsTable = isMatzeaAReference(selectedMaterial) || isSelectedMaterialReference(selectedMaterial) || isAsphaltReference(selectedMaterial);
+  const showReferenceResultsTable =
+    isMatzeaAReference(selectedMaterial) ||
+    isSelectedMaterialReference(selectedMaterial) ||
+    isGradingLineReference(selectedMaterial) ||
+    isAsphaltReference(selectedMaterial);
   const referenceResultsTitle = isAsphaltReference(selectedMaterial)
     ? "תוצאות JMF מפורטות - אספלט"
-    : "תוצאות הזמנה מפורטות - מצע א׳";
+    : isGradingLineReference(selectedMaterial)
+      ? "תוצאות תעודת קו דירוג"
+      : "תוצאות הזמנה מפורטות - מצע א׳";
 
   const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. נא לבדוק וללחוץ עדכון תעודה לשמירה.") => {
     // לא שומרים אוטומטית מתוך חלון קופץ: שמירה מיידית תפסה לפעמים state ישן
