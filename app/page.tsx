@@ -8246,28 +8246,6 @@ const applyGradingLineFallbackFromText = (
     }
   }
 
-  if (false && text.includes("24416")) {
-    set(["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"], certNo || "24416");
-    set(["תאריך בדיקה", "תאריך"], certDate || "2025-05-08");
-    set(["מקור החומר", "מקור"], "מקומי");
-    set(["מבנה"], "כביש+קרות 1+2");
-    set(["מחתך"], "0");
-    set(["עד חתך"], "115");
-    set(["צד"], "R");
-    set(["מהות העבודה", "סוג העבודה"], "שתית טבעית");
-    set(['3"', "3 אינץ"], "100");
-    set(['1.5"', "1.5"], "68");
-    set(['3/4"', "3/4"], "60");
-    set(["#4"], "50");
-    set(["#10"], "46");
-    set(["#40"], "41");
-    set(["#200"], "37");
-    set(["LL"], "45");
-    set(["PL"], "22");
-    set(["IP"], "23");
-    set(["מיון AASHTO", "AASHTO"], "A-7-6 (3)");
-  }
-
   const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
     .map((match) => normalizeDateValue(match[0]))
     .filter(Boolean)
@@ -8280,8 +8258,13 @@ const applyGradingLineFallbackFromText = (
   }
   if (text.includes("צרורות עם טין וחול")) set(["תיאור החומר", "תאור החומר"], "צרורות עם טין וחול");
 
-  const sectionLine = lines.find((line) => /(?:מחתך|חתך)\s*\d+/.test(line));
-  const sectionValue = sectionLine ? firstRegexGroup(sectionLine, [/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/]) : "";
+  const sectionLineIndex = lines.findIndex((line) => /(?:מחתך|חתך)/.test(line));
+  const sectionLine = sectionLineIndex >= 0 ? lines[sectionLineIndex] : "";
+  const sectionValue =
+    sectionLine
+      ? firstRegexGroup(sectionLine, [/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/]) ||
+        (numberTokens(lines[sectionLineIndex + 1] ?? "")[0] ?? "")
+      : "";
   if (sectionValue) set(["מחתך"], sectionValue);
 
   const splitCompactGradingValues = (line: string) => {
@@ -8342,6 +8325,69 @@ const applyGradingLineFallbackFromText = (
     set(["#10"], gradingValues["#10"]);
     set(["#40"], gradingValues["#40"]);
     set(["#200"], gradingValues["#200"]);
+  }
+
+  const findSieveCellSequenceValues = () => {
+    const isSame = (value: string, expected: string) => clean(value).replace(/\s+/g, "") === expected;
+    const labelIndex = lines.findIndex((line, index) =>
+      isSame(line, '3"') &&
+      isSame(lines[index + 1] ?? "", '1.5"') &&
+      isSame(lines[index + 2] ?? "", '1"') &&
+      isSame(lines[index + 3] ?? "", '3/4"') &&
+      isSame(lines[index + 4] ?? "", '3/8"') &&
+      isSame(lines[index + 5] ?? "", "#4") &&
+      isSame(lines[index + 6] ?? "", "#10") &&
+      isSame(lines[index + 7] ?? "", "#40") &&
+      isSame(lines[index + 8] ?? "", "#200")
+    );
+    if (labelIndex < 0) return null;
+    const sizeStart = labelIndex + 9;
+    const sizeValues = ["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"];
+    const hasSizes = sizeValues.every((value, index) => isSame(lines[sizeStart + index] ?? "", value));
+    const valueStart = hasSizes ? sizeStart + sizeValues.length : sizeStart;
+    const values: string[] = [];
+    for (let index = valueStart; index < Math.min(lines.length, valueStart + 12); index += 1) {
+      const token = clean(lines[index]);
+      if (!/^\d+(?:[.,]\d+)?$/.test(token)) break;
+      values.push(token.replace(",", "."));
+    }
+    if (values.length >= 9) {
+      return {
+        '3"': values[0],
+        '1.5"': values[1],
+        '1"': values[2],
+        '3/4"': values[3],
+        '3/8"': values[4],
+        "#4": values[5],
+        "#10": values[6],
+        "#40": values[7],
+        "#200": values[8],
+      };
+    }
+    if (values.length >= 7) {
+      return {
+        '3"': values[0],
+        '1.5"': values[1],
+        '3/4"': values[2],
+        "#4": values[3],
+        "#10": values[4],
+        "#40": values[5],
+        "#200": values[6],
+      };
+    }
+    return null;
+  };
+  const cellSequenceValues = findSieveCellSequenceValues();
+  if (cellSequenceValues) {
+    set(['3"', "3 אינץ"], cellSequenceValues['3"']);
+    set(['1.5"', "1.5"], cellSequenceValues['1.5"']);
+    if (cellSequenceValues['1"']) set(['1"', "1 אינץ"], cellSequenceValues['1"']);
+    set(['3/4"', "3/4"], cellSequenceValues['3/4"']);
+    if (cellSequenceValues['3/8"']) set(['3/8"', "3/8"], cellSequenceValues['3/8"']);
+    set(["#4"], cellSequenceValues["#4"]);
+    set(["#10"], cellSequenceValues["#10"]);
+    set(["#40"], cellSequenceValues["#40"]);
+    set(["#200"], cellSequenceValues["#200"]);
   }
 
   const unitsIndex = lines.findIndex((line) => line.includes("יחידות") && line.includes("תוצאה") && line.includes("התאמה"));
@@ -9137,6 +9183,13 @@ function ControlProcessesSection({
           parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(metric))
             ?.resultValue ?? "",
         ).trim();
+      const parsedCertificateNo = parsedValue("תעודה מס׳") || parsedValue("מספר תעודה") || parsedValue("מספר תעודת בדיקה");
+      const parsedTestDate = parsedValue("תאריך בדיקה") || parsedValue("תאריך");
+      const parsedLocation = parsedValue("מבנה") || parsedValue("מיקום / שימוש מיועד") || parsedValue("מיקום");
+      const parsedFromSection = parsedValue("מחתך");
+      const parsedToSection = parsedValue("עד חתך");
+      const parsedSide = parsedValue("צד");
+      const parsedWorkDescription = parsedValue("מהות העבודה") || parsedValue("סוג העבודה");
 
       flushSync(() => {
         setForm((prev: any) => {
@@ -9166,6 +9219,17 @@ function ControlProcessesSection({
                   stability: parsedValue("יציבות"),
                   flow: parsedValue("נזילות"),
                   vma: parsedValue("V.M.A"),
+                }
+              : {}),
+            ...(isGradingLineReferenceRecord(prev)
+              ? {
+                  processNo: parsedCertificateNo || prev.processNo,
+                  date: parsedTestDate || prev.date,
+                  location: parsedLocation || prev.location,
+                  fromSection: parsedFromSection,
+                  toSection: parsedToSection,
+                  side: parsedSide,
+                  title: prev.title || parsedWorkDescription || prev.workType,
                 }
               : {}),
             referenceResults: mergedRows,
@@ -16014,7 +16078,7 @@ ${invalidRecipients.join("\n")}`);
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "תחום", value: (record) => record.workType || record.category || record.type },
                   { label: "מיקום / שימוש", value: (record) => record.location || record.area },
-                  { label: "תאריך אישור", value: (record) => getControlProcessApprovalDate(record) },
+                  { label: "תאריך ביצוע בדיקה", value: (record) => normalizeDateValue(record.date || record.executionDate) || getControlProcessApprovalDate(record) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectControlProcesses.find((item) => item.id === id); if (record) loadControlProcess(record); }}
