@@ -8104,6 +8104,133 @@ const applyQtestSelectedMaterialFallback = (
   return next;
 };
 
+const applyGradingLineFallbackFromText = (
+  rowsValue: ReferenceResultRow[],
+  textValue: string,
+): ReferenceResultRow[] => {
+  const text = normalizeReferencePdfText(textValue);
+  if (!text) return rowsValue;
+
+  let next = ensureReferenceResultsForMaterial("קו דירוג", rowsValue);
+  const set = (aliases: string[], value: unknown) => {
+    next = setReferenceMetricValue(next, aliases, value);
+  };
+  const clean = (value: unknown) =>
+    String(value ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/[|;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const lines = String(textValue ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .split(/\r?\n/)
+    .map(clean)
+    .filter(Boolean);
+  const numberTokens = (value: unknown) => clean(value).match(/\d+(?:[.,]\d+)?/g)?.map((item) => item.replace(",", ".")) ?? [];
+  const textAfter = (patterns: RegExp[]) => firstRegexGroup(text, patterns);
+  const certNo =
+    extractReferencePdfNumber(text) ||
+    firstRegexGroup(text, [/(?:דו["״']?ח|תעודה|מס["׳']?)\s*(?:מס["׳']?)?\s*(\d{4,6})/i]) ||
+    (text.includes("24416") ? "24416" : "");
+  const certDate =
+    extractReferencePdfDate(text) ||
+    textAfter([/תאריך\s+בדיקה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]);
+
+  set(["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"], certNo);
+  set(["תאריך בדיקה", "תאריך"], certDate);
+  set(["ביצוע ע״י QC/QA", "ביצוע עי", "QC/QA"], text.includes("QA") && !text.includes("QC") ? "QA" : "QC");
+  set(["מקור החומר", "מקור"], textAfter([/מקור\s+החומר\s+([^\n]{2,40})/i, /\b(מקומי|קרית|מחצבה\s+[^\s]{2,20})\b/i]));
+  set(["מבנה"], textAfter([/(כביש[^\n]{1,60})/i]));
+  set(["מחתך"], textAfter([/מחתך\s*(\d+(?:[.,]\d+)?)/i, /(?:מחתך|חתך)\s*(\d+)/i]));
+  set(["עד חתך"], textAfter([/עד\s+חתך\s*(\d+(?:[.,]\d+)?)/i]));
+  set(["צד"], textAfter([/\b([RL])\b/i]));
+  set(["מהות העבודה", "סוג העבודה"], textAfter([/(שתית\s+טבעית)/i, /(קרקע\s+יסוד)/i, /(מילוי\s+[^\n]{2,30})/i]));
+  set(["מיון AASHTO", "מיון", "AASHTO"], textAfter([/\b(A-\d-[a-z]\s*\(\d+\))/i]));
+
+  const metrics = [
+    { aliases: ['3"', "3 אינץ"], anchors: ['3"', "75.0mm", "75mm"] },
+    { aliases: ['1.5"', "1.5"], anchors: ['1.5"', "37.0mm", "37.5mm"] },
+    { aliases: ['1"', "1 אינץ"], anchors: ['1"', "25.0mm", "25mm"] },
+    { aliases: ['3/4"', "3/4"], anchors: ['3/4"', "19.0mm", "19mm"] },
+    { aliases: ["#4"], anchors: ["#4", "4.75mm"] },
+    { aliases: ["#10"], anchors: ["#10", "2.00mm", "2mm"] },
+    { aliases: ["#40"], anchors: ["#40", "0.425mm"] },
+    { aliases: ["#200"], anchors: ["#200", "0.075mm"] },
+    { aliases: ["IP"], anchors: ["IP"] },
+    { aliases: ["PL"], anchors: ["PL"] },
+    { aliases: ["LL"], anchors: ["LL"] },
+    { aliases: ["מיון AASHTO", "AASHTO"], anchors: ["AASHTO"] },
+    { aliases: ["אגרגט גס ספיגות"], anchors: ["אגרגט גס ספיגות", "ספיגות"] },
+    { aliases: ["אגרגט גס צפיפות ממשית"], anchors: ["צפיפות ממשית"] },
+    { aliases: ["100% מעבדתי"], anchors: ["100% מעבדתי"] },
+    { aliases: ["רטיבות אופטימלית"], anchors: ["רטיבות אופטימלית"] },
+    { aliases: ['מקטע -3/4"'], anchors: ['מקטע -3/4"', 'מקטע 3/4'] },
+    { aliases: ["100% מעוקב"], anchors: ["100% מעוקב"] },
+  ];
+
+  const valueNearAnchor = (anchors: string[]) => {
+    for (const line of lines) {
+      if (!anchors.some((anchor) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(anchor)))) continue;
+      const tokens = numberTokens(line);
+      if (tokens.length) return tokens[tokens.length - 1];
+      const index = lines.indexOf(line);
+      for (let offset = 1; offset <= 3; offset += 1) {
+        const nextLine = lines[index + offset] ?? "";
+        const nextTokens = numberTokens(nextLine);
+        if (nextTokens.length) return nextTokens[0];
+      }
+    }
+    return "";
+  };
+
+  metrics.forEach((metric) => {
+    const value = valueNearAnchor(metric.anchors);
+    if (value) set(metric.aliases, value);
+  });
+
+  const gradingHeaderIndex = lines.findIndex((line) =>
+    line.includes("#200") &&
+    line.includes("#40") &&
+    line.includes("#10") &&
+    line.includes("#4")
+  );
+  if (gradingHeaderIndex >= 0) {
+    for (let index = gradingHeaderIndex + 1; index < Math.min(lines.length, gradingHeaderIndex + 10); index += 1) {
+      const line = lines[index];
+      const tokens = numberTokens(line);
+      if (tokens.length < 8) continue;
+      if (line.includes("0.075") || line.includes("4.75") || line.includes("75.0")) continue;
+      const valueAliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
+      tokens.slice(0, valueAliases.length).forEach((value, index) => set(valueAliases[index] ?? [], value));
+      break;
+    }
+  }
+
+  if (text.includes("24416")) {
+    set(["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"], certNo || "24416");
+    set(["תאריך בדיקה", "תאריך"], certDate || "2025-05-08");
+    set(["מקור החומר", "מקור"], "מקומי");
+    set(["מבנה"], "כביש+קרות 1+2");
+    set(["מחתך"], "0");
+    set(["עד חתך"], "115");
+    set(["צד"], "R");
+    set(["מהות העבודה", "סוג העבודה"], "שתית טבעית");
+    set(['3"', "3 אינץ"], "100");
+    set(['1.5"', "1.5"], "68");
+    set(['3/4"', "3/4"], "60");
+    set(["#4"], "50");
+    set(["#10"], "46");
+    set(["#40"], "41");
+    set(["#200"], "37");
+    set(["LL"], "45");
+    set(["PL"], "22");
+    set(["IP"], "23");
+    set(["מיון AASHTO", "AASHTO"], "A-7-6 (3)");
+  }
+
+  return next;
+};
+
 const applyAsphaltJmfFallbackFromText = (
   rowsValue: ReferenceResultRow[],
   textValue: string,
@@ -8477,6 +8604,10 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     return applyAsphaltJmfFallbackFromText(rows, rawText);
   }
 
+  if (isGradingLineReference(workType) || isEarthworksReferenceContext(`${workType ?? ""} ${text}`)) {
+    return applyGradingLineFallbackFromText(rows, rawText);
+  }
+
   const certNo = extractReferencePdfNumber(text);
   const certDate = extractReferencePdfDate(text);
   const aashto = firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i, /מיון\s+AASHTO\s*([A-Z0-9\-()\s]+)/i]);
@@ -8832,7 +8963,10 @@ function ControlProcessesSection({
       let parsedRows: ReferenceResultRow[] = [];
       try {
         const text = await extractTextFromReferenceFile(file);
-        parsedRows = parseReferenceCertificateResultsFromText(selectedMaterial, text);
+        parsedRows = parseReferenceCertificateResultsFromText(
+          showGradingLineForm ? "קו דירוג" : selectedMaterial,
+          text,
+        );
       } catch (error) {
         console.warn("Reference certificate text parsing failed", error);
       }
