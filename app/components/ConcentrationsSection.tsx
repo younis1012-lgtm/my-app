@@ -2049,9 +2049,20 @@ const isGradingLineReferenceProcess = (process: any): boolean => {
     process?.title,
     process?.specSection,
     process?.location,
+    ...(Array.isArray(process?.requiredDocuments)
+      ? process.requiredDocuments.flatMap((doc: any) => [
+          doc?.type,
+          doc?.description,
+          doc?.attachmentName,
+        ])
+      : []),
     safeStringify(process?.referenceResults ?? []),
   ].join(" ");
-  return includesAny(text, ["קו דירוג", "גרדציה"]) && Array.isArray(process?.referenceResults);
+  const isExplicitGrading = includesAny(text, ["קו דירוג", "גרדציה"]);
+  const isEarthworksReference =
+    includesAny(text, ["ייחוס", "בדיקת ייחוס", "תעודת ייחוס"]) &&
+    includesAny(text, ["שתית", "קרקע יסוד", "עבודות עפר", "חפירה", "מילוי", "הידוק"]);
+  return (isExplicitGrading || isEarthworksReference) && Array.isArray(process?.referenceResults);
 };
 
 const gradingLineResultValue = (process: any, aliases: string[]): string => {

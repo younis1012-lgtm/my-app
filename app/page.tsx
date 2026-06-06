@@ -998,6 +998,42 @@ const isGradingLineReference = (value: unknown) => {
   return text.includes("קו דירוג") || text.includes("גרדציה");
 };
 
+const isEarthworksReferenceContext = (value: unknown) => {
+  const text = normalizeHebrewProjectName(value);
+  const hasReference =
+    text.includes("ייחוס") ||
+    text.includes("בדיקת ייחוס") ||
+    text.includes("תעודת ייחוס");
+  const hasEarthworks =
+    text.includes("שתית") ||
+    text.includes("קרקע יסוד") ||
+    text.includes("עבודות עפר") ||
+    text.includes("חפירה") ||
+    text.includes("מילוי") ||
+    text.includes("הידוק");
+  return hasReference && hasEarthworks;
+};
+
+const isGradingLineReferenceRecord = (value: any) => {
+  const docs = normalizeRequiredDocuments(value?.requiredDocuments ?? value?.required_documents);
+  const text = [
+    value?.workType,
+    value?.work_type,
+    value?.title,
+    value?.processNo,
+    value?.process_no,
+    value?.specSection,
+    value?.spec_section,
+    value?.location,
+    ...docs.flatMap((doc) => [
+      doc.type,
+      doc.description,
+      doc.attachmentName,
+    ]),
+  ].join(" ");
+  return isGradingLineReference(text) || isEarthworksReferenceContext(text);
+};
+
 const createMatzeaAReferenceResults = (): ReferenceResultRow[] =>
   MATZEA_A_REFERENCE_RESULT_DEFS.map((row) => ({
     id: `matzea-a-${row.metric}`.replace(/\s+/g, "-"),
@@ -8734,6 +8770,7 @@ function ControlProcessesSection({
   const setField = (key: string, value: string) =>
     setForm((prev: any) => ({ ...prev, [key]: value }));
   const selectedMaterial = String(form.workType ?? "");
+  const showGradingLineForm = isGradingLineReferenceRecord(form);
   const showAsphaltForm = isAsphaltReference(selectedMaterial);
   const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
   const referenceResults = isAsphaltReference(selectedMaterial)
@@ -8742,6 +8779,11 @@ function ControlProcessesSection({
         normalizeReferenceResults(form.referenceResults),
         true,
       )
+    : showGradingLineForm
+      ? ensureReferenceResultsForMaterial(
+          "קו דירוג",
+          form.referenceResults,
+        )
     : ensureReferenceResultsForMaterial(
         selectedMaterial,
         form.referenceResults,
@@ -8749,11 +8791,11 @@ function ControlProcessesSection({
   const showReferenceResultsTable =
     isMatzeaAReference(selectedMaterial) ||
     isSelectedMaterialReference(selectedMaterial) ||
-    isGradingLineReference(selectedMaterial) ||
+    showGradingLineForm ||
     isAsphaltReference(selectedMaterial);
   const referenceResultsTitle = isAsphaltReference(selectedMaterial)
     ? "תוצאות JMF מפורטות - אספלט"
-    : isGradingLineReference(selectedMaterial)
+    : showGradingLineForm
       ? "תוצאות תעודת קו דירוג"
       : "תוצאות הזמנה מפורטות - מצע א׳";
 
@@ -8811,6 +8853,8 @@ function ControlProcessesSection({
           const parsedMixType = prev.asphaltMixType || parsedValue("סוג תערובת") || prev.workType || getDefaultAsphaltMixTemplate().label;
           const templateRows = isAsphaltReference(prev.workType)
             ? buildAsphaltRowsForMix(parsedMixType, [], false)
+            : isGradingLineReferenceRecord(prev)
+              ? ensureReferenceResultsForMaterial("קו דירוג", [])
             : ensureReferenceResultsForMaterial(prev.workType, []);
           const mergedRows = templateRows.map((row) => {
             const parsed = parsedRows.find(
@@ -8898,6 +8942,11 @@ function ControlProcessesSection({
       ...prev,
       referenceResults: (isAsphaltReference(prev.workType)
         ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, prev.referenceResults, true)
+        : isGradingLineReferenceRecord(prev)
+          ? ensureReferenceResultsForMaterial(
+              "קו דירוג",
+              prev.referenceResults,
+            )
         : ensureReferenceResultsForMaterial(
             prev.workType,
             prev.referenceResults,
@@ -12601,12 +12650,18 @@ export default function Page() {
     const id = editingControlProcessId ?? crypto.randomUUID();
     const nextStatus: ControlProcessStatus =
       controlProcessForm.status === "נעול" ? "נעול" : controlProcessForm.status;
+    const saveAsGradingLine = isGradingLineReferenceRecord(controlProcessForm);
     let syncedReferenceResults = isAsphaltReference(controlProcessForm.workType)
       ? buildAsphaltRowsForMix(
           controlProcessForm.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(controlProcessForm.referenceResults)) || getDefaultAsphaltMixTemplate().label,
           normalizeReferenceResults(controlProcessForm.referenceResults),
           true,
         )
+      : saveAsGradingLine
+        ? ensureReferenceResultsForMaterial(
+            "קו דירוג",
+            controlProcessForm.referenceResults,
+          )
       : ensureReferenceResultsForMaterial(
           controlProcessForm.workType,
           controlProcessForm.referenceResults,
@@ -12721,7 +12776,7 @@ export default function Page() {
       nonconformanceIds: record.nonconformanceIds,
       requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
       referenceResults: ensureReferenceResultsForMaterial(
-        record.workType,
+        isGradingLineReferenceRecord(record) ? "קו דירוג" : record.workType,
         record.referenceResults,
       ),
       auditTrail: record.auditTrail,
