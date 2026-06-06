@@ -8068,6 +8068,68 @@ const setReferenceMetricValue = (
   value: unknown,
 ): ReferenceResultRow[] => upsertParsedReferenceMetric(rows, aliases, String(value ?? ""));
 
+const extractGradingLineSieveCells = (textValue: string) => {
+  const clean = (value: unknown) =>
+    String(value ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/[|;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const lines = String(textValue ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .split(/\r?\n/)
+    .map(clean)
+    .filter(Boolean);
+  const isSame = (value: unknown, expected: string) => clean(value).replace(/\s+/g, "") === expected;
+  const labelIndex = lines.findIndex((line, index) =>
+    isSame(line, '3"') &&
+    isSame(lines[index + 1] ?? "", '1.5"') &&
+    isSame(lines[index + 2] ?? "", '1"') &&
+    isSame(lines[index + 3] ?? "", '3/4"') &&
+    isSame(lines[index + 4] ?? "", '3/8"') &&
+    isSame(lines[index + 5] ?? "", "#4") &&
+    isSame(lines[index + 6] ?? "", "#10") &&
+    isSame(lines[index + 7] ?? "", "#40") &&
+    isSame(lines[index + 8] ?? "", "#200")
+  );
+  if (labelIndex < 0) return null;
+  const sizeStart = labelIndex + 9;
+  const sizeValues = ["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"];
+  const hasSizes = sizeValues.every((value, index) => isSame(lines[sizeStart + index] ?? "", value));
+  const valueStart = hasSizes ? sizeStart + sizeValues.length : sizeStart;
+  const values: string[] = [];
+  for (let index = valueStart; index < Math.min(lines.length, valueStart + 12); index += 1) {
+    const token = clean(lines[index]).replace(",", ".");
+    if (!/^\d+(?:\.\d+)?$/.test(token)) break;
+    values.push(token);
+  }
+  if (values.length >= 9) {
+    return {
+      '3"': values[0],
+      '1.5"': values[1],
+      '1"': values[2],
+      '3/4"': values[3],
+      '3/8"': values[4],
+      "#4": values[5],
+      "#10": values[6],
+      "#40": values[7],
+      "#200": values[8],
+    } as Record<string, string>;
+  }
+  if (values.length >= 7) {
+    return {
+      '3"': values[0],
+      '1.5"': values[1],
+      '3/4"': values[2],
+      "#4": values[3],
+      "#10": values[4],
+      "#40": values[5],
+      "#200": values[6],
+    } as Record<string, string>;
+  }
+  return null;
+};
+
 const extractNumberTokens = (value: string): string[] =>
   String(value ?? "").match(/\d+(?:\.\d+)?/g) ?? [];
 
@@ -9163,8 +9225,10 @@ function ControlProcessesSection({
     if (readOnly || !showReferenceResultsTable) return 0;
     try {
       let parsedRows: ReferenceResultRow[] = [];
+      let parsedText = "";
       try {
         const text = await extractTextFromReferenceFile(file);
+        parsedText = text;
         parsedRows = parseReferenceCertificateResultsFromText(
           showGradingLineForm ? "קו דירוג" : selectedMaterial,
           text,
@@ -9205,6 +9269,13 @@ function ControlProcessesSection({
             );
             return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
           });
+          const exactGradingCells = isGradingLineReferenceRecord(prev) ? extractGradingLineSieveCells(parsedText) : null;
+          const finalRows = exactGradingCells
+            ? Object.entries(exactGradingCells).reduce(
+                (rows, [metric, value]) => setReferenceMetricValue(rows, [metric, metric.replace('"', " אינץ")], value),
+                mergedRows,
+              )
+            : mergedRows;
           return {
             ...prev,
             // קובץ חדש מחליף את נתוני התעודה הקודמת. לא ממזגים עם תוצאות ישנות.
@@ -9232,7 +9303,7 @@ function ControlProcessesSection({
                   title: prev.title || parsedWorkDescription || prev.workType,
                 }
               : {}),
-            referenceResults: mergedRows,
+            referenceResults: finalRows,
           };
         });
       });
