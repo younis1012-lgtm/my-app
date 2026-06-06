@@ -2043,7 +2043,107 @@ const mergeEarthworksRows = (base: Row, next: Row): Row => {
   return merged;
 };
 
-const buildEarthworksFieldRows = (checklists: any[]): Row[] => {
+const isGradingLineReferenceProcess = (process: any): boolean => {
+  const text = [
+    process?.workType,
+    process?.title,
+    process?.specSection,
+    process?.location,
+    safeStringify(process?.referenceResults ?? []),
+  ].join(" ");
+  return includesAny(text, ["קו דירוג", "גרדציה"]) && Array.isArray(process?.referenceResults);
+};
+
+const gradingLineResultValue = (process: any, aliases: string[]): string => {
+  const rows = Array.isArray(process?.referenceResults) ? process.referenceResults : [];
+  const match = rows.find((row: any) => aliases.some((alias) => fieldKeyMatchesAlias(firstText(row?.metric, row?.label, row?.name), alias)));
+  return firstText(match?.resultValue, match?.value, match?.result);
+};
+
+const gradingLineSummary = (process: any): string => {
+  const metrics = [
+    '3"',
+    '1.5"',
+    '1"',
+    '3/4"',
+    "#4",
+    "#10",
+    "#40",
+    "#200",
+    "IP",
+    "PL",
+    "LL",
+    "100% מעבדתי",
+    "רטיבות אופטימלית",
+  ];
+  return metrics
+    .map((metric) => {
+      const value = gradingLineResultValue(process, [metric]);
+      return value ? `${metric}: ${value}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+};
+
+const earthworksRowFromGradingLineProcess = (process: any, serial: number): Row => {
+  const certificateNo = firstText(
+    gradingLineResultValue(process, ["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"]),
+    process?.processNo,
+    process?.referenceNo,
+  );
+  const testDate = firstText(
+    gradingLineResultValue(process, ["תאריך בדיקה", "תאריך"]),
+    process?.date,
+    process?.savedAt,
+  );
+  const fromSection = firstText(gradingLineResultValue(process, ["מחתך"]), process?.fromSection);
+  const toSection = firstText(gradingLineResultValue(process, ["עד חתך"]), process?.toSection);
+  const workType = firstText(gradingLineResultValue(process, ["מהות העבודה", "סוג העבודה"]), process?.location, process?.workType);
+  const notes = gradingLineSummary(process);
+
+  return {
+    'ביצוע ע"י ': firstText(gradingLineResultValue(process, ['ביצוע ע"י QC/QA', "ביצוע עי", "QC/QA"]), "QC"),
+    "מס' סדורי": serial,
+    'רשימת תיוג': "",
+    'תאריך הבדיקה': testDate,
+    'כביש\\ציר \\רמפה': firstText(process?.axis, process?.road, process?.structureNodeName),
+    'מחתך': fromSection,
+    'עד חתך': toSection,
+    'צד': gradingLineResultValue(process, ["צד"]),
+    'מקום נטילה': firstText(gradingLineResultValue(process, ["מקום נטילה", "מיקום"]), process?.samplingLocation),
+    'שטח ': "",
+    "שכבה מס'": firstText(process?.layerNo, process?.layer),
+    'עובי השכבה': "",
+    'סוג העבודה ': workType,
+    'תאור החומר ': firstText(gradingLineResultValue(process, ["תיאור החומר", "תאור החומר", "חומר"]), "קו דירוג"),
+    'מיון החומר ': gradingLineResultValue(process, ["מיון AASHTO", "מיון", "AASHTO"]),
+    'מקור החומר': gradingLineResultValue(process, ["מקור החומר", "מקור"]),
+    "מס' תעודת בדיקההידוק רגיל": "",
+    'מעברי מכבש': "",
+    'מעמד הידוק רגיל': "",
+    "מס' תעודת בדיקה צפיפות/ רטיבות שדה": "",
+    'הידוק מבוקר (צפיפות מד גרעיני)': "",
+    'מעמד צפיפות/רטיבות': "",
+    ' מנת בדיקה (חרוט חול / שלבי)': "",
+    'מעמד מנת בדיקה': "",
+    'מדידה': "",
+    'מעמד מדידה': "",
+    'מספר תעודת בדיקה אפיון - 100%': certificateNo,
+    'HWD': "",
+    'מעמד HWD': "",
+    'תוצאות בדיקה': "",
+    'צפיפות סטטיסטיקה גבול תחתון': "",
+    'צפיפות סטטיסטיקה גבול עליון': "",
+    'צפיפות סטטיסטיקה ממוצע': "",
+    'מעמד תוצאות': firstText(process?.status, "מאושר"),
+    'בדיקה חוזרת לתעודה ': "",
+    'מתאריך': "",
+    'מספר אי התאמה': "",
+    'הערות': notes,
+  };
+};
+
+const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row[] => {
   const rows: Row[] = [];
 
   const orderedChecklists = [...checklists]
@@ -2149,6 +2249,12 @@ const buildEarthworksFieldRows = (checklists: any[]): Row[] => {
       if (combinedRow) rows.push(combinedRow);
     }
   });
+
+  processes
+    .filter(isGradingLineReferenceProcess)
+    .forEach((process: any) => {
+      rows.push(earthworksRowFromGradingLineProcess(process, rows.length + 1));
+    });
 
   return rows
     .sort((a, b) => {
@@ -2554,7 +2660,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז בדיקות צפיפות/רטיבות שדה לעבודות עפר בלבד: חפירה, קרקע יסוד, מילוי והידוק רגיל/מבוקר. לא כולל מצע א׳.",
     sourceLabel: "רשימות תיוג / עבודות עפר",
     columns: earthworksFieldColumns,
-    buildRows: ({ savedChecklists }) => buildEarthworksFieldRows(savedChecklists),
+    buildRows: ({ savedChecklists, savedControlProcesses }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses),
   },
   {
     id: "rfi",
