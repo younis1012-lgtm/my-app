@@ -699,10 +699,13 @@ const GRADING_LINE_REFERENCE_RESULT_DEFS: Array<{
   { metric: "PL", minValue: "", maxValue: "" },
   { metric: "LL", minValue: "", maxValue: "" },
   { metric: "מיון AASHTO", minValue: "", maxValue: "" },
+  { metric: "מיון אחיד", minValue: "", maxValue: "" },
   { metric: "אגרגט גס ספיגות", minValue: "", maxValue: "" },
   { metric: "אגרגט גס צפיפות ממשית", minValue: "", maxValue: "" },
   { metric: "100% מעבדתי", minValue: "", maxValue: "" },
   { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
+  { metric: "רטיבות כוללת", minValue: "", maxValue: "" },
+  { metric: "אבן +3/4", minValue: "", maxValue: "" },
   { metric: 'מקטע -3/4"', minValue: "", maxValue: "" },
   { metric: "100% מעוקב", minValue: "", maxValue: "" },
 ];
@@ -8084,7 +8087,7 @@ const setReferenceMetricValue = (
   value: unknown,
 ): ReferenceResultRow[] => upsertParsedReferenceMetric(rows, aliases, String(value ?? ""));
 
-const extractGradingLineSieveCells = (textValue: string) => {
+const extractGradingLinePdfCellResults = (textValue: string) => {
   const clean = (value: unknown) =>
     String(value ?? "")
       .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
@@ -8119,8 +8122,9 @@ const extractGradingLineSieveCells = (textValue: string) => {
     if (!/^\d+(?:\.\d+)?$/.test(token)) break;
     values.push(token);
   }
+  const results: Record<string, string> = {};
   if (values.length >= 9) {
-    return {
+    Object.assign(results, {
       '3"': values[0],
       '1.5"': values[1],
       '1"': values[2],
@@ -8130,10 +8134,9 @@ const extractGradingLineSieveCells = (textValue: string) => {
       "#10": values[6],
       "#40": values[7],
       "#200": values[8],
-    } as Record<string, string>;
-  }
-  if (values.length >= 7) {
-    return {
+    });
+  } else if (values.length >= 7) {
+    Object.assign(results, {
       '3"': values[0],
       '1.5"': values[1],
       '3/4"': values[2],
@@ -8141,9 +8144,116 @@ const extractGradingLineSieveCells = (textValue: string) => {
       "#10": values[4],
       "#40": values[5],
       "#200": values[6],
-    } as Record<string, string>;
+    });
+  } else {
+    return null;
   }
-  return null;
+
+  const text = normalizeReferencePdfText(textValue);
+  const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
+    .map((match) => normalizeDateValue(match[0]))
+    .filter(Boolean)
+    .sort();
+  if (allDates[0]) results["תאריך בדיקה"] = allDates[0];
+
+  const certNo = extractReferencePdfNumber(text);
+  if (certNo) results["תעודה מס׳"] = certNo;
+
+  const siteIndex = lines.findIndex((line) => line === "כביש");
+  if (siteIndex >= 0) {
+    const parts: string[] = [];
+    for (let index = siteIndex; index < Math.min(lines.length, siteIndex + 12); index += 1) {
+      const part = clean(lines[index]);
+      if (!part) continue;
+      if (index > siteIndex && /^\d{4,}$/.test(part)) break;
+      if (["שם הקבלן", "מס", "פרויקט", "הזמנה", "תאריך דגימה"].some((stop) => part.includes(stop))) break;
+      parts.push(part);
+    }
+    const site = parts
+      .join(" ")
+      .replace(/\s+'\s+/g, "'")
+      .replace(/\s+\./g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (site) results["מבנה"] = site;
+  }
+
+  if (text.includes("מקומי")) results["מקור החומר"] = "מקומי";
+  if (text.includes("קרקע יסוד") && text.includes("שתית")) results["מהות העבודה"] = "קרקע יסוד/שתית";
+
+  const sectionIndex = lines.findIndex((line) => line.includes("חתך"));
+  if (sectionIndex >= 0) {
+    const sectionValue =
+      (clean(lines[sectionIndex]).match(/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/)?.[1] ?? "") ||
+      (clean(lines[sectionIndex + 1]).match(/^\d+(?:[.,]\d+)?$/)?.[0] ?? "");
+    if (sectionValue) results["מחתך"] = sectionValue.replace(",", ".");
+  }
+
+  const unitsIndex = lines.findIndex((line, index) =>
+    line.includes("יחידות") &&
+    lines.slice(index, index + 8).some((item) => item.includes("תוצאה")) &&
+    lines.slice(index, index + 8).some((item) => item.includes("התאמה"))
+  );
+  const densityLabelIndex = lines.findIndex((line) => line.includes("צפיפות"));
+  if (unitsIndex >= 0) {
+    const plasticValues = lines
+      .slice(unitsIndex, densityLabelIndex > unitsIndex ? densityLabelIndex : unitsIndex + 40)
+      .map(clean)
+      .filter((line) => /^\d+(?:[.,]\d+)?$/.test(line))
+      .map((line) => line.replace(",", "."))
+      .filter((value) => Number(value) > 0 && Number(value) <= 100);
+    if (plasticValues[0]) results["LL"] = plasticValues[0];
+    if (plasticValues[1]) results["IP"] = plasticValues[1];
+    if (plasticValues[2]) results["PL"] = plasticValues[2];
+  }
+
+  const aashto = text.match(/\bA-\d-[a-z]\s*\(\d+\)/i)?.[0] ?? "";
+  if (aashto) results["מיון AASHTO"] = aashto;
+  const unified = text.match(/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i)?.[1] ?? "";
+  if (unified) results["מיון אחיד"] = unified.toUpperCase();
+
+  const specificGravityIndex = lines.findIndex((line) => line.includes("גרם לסמ"));
+  if (specificGravityIndex >= 0) {
+    const specificGravity = lines
+      .slice(specificGravityIndex, specificGravityIndex + 8)
+      .map(clean)
+      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 1 && Number(line.replace(",", ".")) < 4);
+    if (specificGravity) results["אגרגט גס צפיפות ממשית"] = specificGravity.replace(",", ".");
+    const absorption = lines
+      .slice(specificGravityIndex + 1, specificGravityIndex + 12)
+      .map(clean)
+      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 0 && Number(line.replace(",", ".")) < 10 && line !== specificGravity);
+    if (absorption) results["אגרגט גס ספיגות"] = absorption.replace(",", ".");
+  }
+
+  const compactionIndex = lines.findIndex((line) => line.includes("יחסי צפיפות") && line.includes("רטיבות"));
+  if (compactionIndex >= 0) {
+    const compactionValues = lines
+      .slice(Math.max(0, compactionIndex - 8), compactionIndex)
+      .map(clean)
+      .filter((line) => /^\d+(?:[.,]\d+)?$/.test(line))
+      .map((line) => line.replace(",", "."));
+    const densityValues = compactionValues.filter((value) => Number(value) >= 1500 && Number(value) <= 2500);
+    const moistureValues = compactionValues.filter((value) => Number(value) > 0 && Number(value) < 40 && value.includes("."));
+    if (densityValues[0]) results["100% מעבדתי"] = densityValues[0];
+    if (densityValues[1]) results["100% מעוקב"] = densityValues[1];
+    if (moistureValues[0]) results["רטיבות אופטימלית"] = moistureValues[0];
+    if (moistureValues[1]) results["רטיבות כוללת"] = moistureValues[1];
+  }
+
+  const localIndex = lines.findIndex((line) => line.includes("מקומי"));
+  if (localIndex >= 0) {
+    const coarseFraction = lines
+      .slice(localIndex + 1, localIndex + 6)
+      .map(clean)
+      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 0 && Number(line.replace(",", ".")) < 60);
+    if (coarseFraction) {
+      results["אבן +3/4"] = coarseFraction.replace(",", ".");
+      results['מקטע -3/4"'] = coarseFraction.replace(",", ".");
+    }
+  }
+
+  return results;
 };
 
 const extractNumberTokens = (value: string): string[] =>
@@ -9285,7 +9395,7 @@ function ControlProcessesSection({
             );
             return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
           });
-          const exactGradingCells = isGradingLineReferenceRecord(prev) ? extractGradingLineSieveCells(parsedText) : null;
+          const exactGradingCells = isGradingLineReferenceRecord(prev) ? extractGradingLinePdfCellResults(parsedText) : null;
           const finalRows = exactGradingCells
             ? Object.entries(exactGradingCells).reduce(
                 (rows, [metric, value]) => setReferenceMetricValue(rows, [metric, metric.replace('"', " אינץ")], value),
