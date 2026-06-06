@@ -3065,45 +3065,34 @@ async function saveWithApprovalFallback(
   mode: "insert" | "update",
   id?: string,
 ) {
-  payload = sanitizeCloudPayload(payload);
-  let result =
+  let currentPayload = sanitizeCloudPayload(payload);
+  const savePayload = (body: Record<string, any>) =>
     mode === "insert"
-      ? await supabase!.from(table).insert(payload)
-      : await supabase!.from(table).update(payload).eq("id", id);
-  if (result.error && isMissingColumnError(result.error, "approval")) {
-    const { approval, ...withoutApproval } = payload;
-    result =
-      mode === "insert"
-        ? await supabase!.from(table).insert(withoutApproval)
-        : await supabase!.from(table).update(withoutApproval).eq("id", id);
-  }
-  if (result.error && isMissingColumnError(result.error, "images")) {
-    const { images, ...withoutImages } = payload;
-    result =
-      mode === "insert"
-        ? await supabase!.from(table).insert(withoutImages)
-        : await supabase!.from(table).update(withoutImages).eq("id", id);
-  }
-  if (result.error && isMissingColumnError(result.error, "details")) {
-    const { details, ...withoutDetails } = payload;
-    result =
-      mode === "insert"
-        ? await supabase!.from(table).insert(withoutDetails)
-        : await supabase!.from(table).update(withoutDetails).eq("id", id);
-  }
-  if (result.error && isMissingColumnError(result.error, "status")) {
-    const { status, ...withoutStatus } = payload;
-    result =
-      mode === "insert"
-        ? await supabase!.from(table).insert(withoutStatus)
-        : await supabase!.from(table).update(withoutStatus).eq("id", id);
-  }
-  if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
-    const { structure_node_id, ...withoutStructureNode } = payload;
-    result =
-      mode === "insert"
-        ? await supabase!.from(table).insert(withoutStructureNode)
-        : await supabase!.from(table).update(withoutStructureNode).eq("id", id);
+      ? supabase!.from(table).insert(body)
+      : supabase!.from(table).update(body).eq("id", id);
+
+  let result = await savePayload(currentPayload);
+  const optionalColumns = [
+    "approval",
+    "images",
+    "details",
+    "status",
+    "structure_node_id",
+  ] as const;
+  const omittedColumns = new Set<string>();
+
+  while (result.error) {
+    const missingColumn = optionalColumns.find(
+      (column) =>
+        !omittedColumns.has(column) &&
+        isMissingColumnError(result.error, column),
+    );
+    if (!missingColumn) break;
+
+    const { [missingColumn]: _omitted, ...nextPayload } = currentPayload;
+    currentPayload = nextPayload;
+    omittedColumns.add(missingColumn);
+    result = await savePayload(currentPayload);
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
