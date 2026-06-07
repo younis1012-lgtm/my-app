@@ -763,7 +763,7 @@ const nonconformanceRow = (record: any, index: number): Row => {
     "פירוט ביצוע פעולה מתקנת": firstText(record?.correctiveActionDetails, record?.correctiveAction, record?.actionTaken),
     "נסגרה": firstText(closingBy, closed ? "כן" : ""),
     "תאריך  סגירה": firstDateText(record?.closingDate, record?.closedAt, record?.closeDate),
-    "אישור מנהל ה״א לסגירת אי התאמה QC": firstText(record?.qcManagerApproval, record?.closeApproval, record?.approval?.status, closed ? "כן" : ""),
+    "אישור מנהל ה״א לסגירת אי התאמה QC": closed ? "מאושר" : firstText(record?.qcManagerApproval, record?.closeApproval, record?.approval?.status),
     "סטטוס": firstText(record?.status, closed ? "סגור" : "פתוח"),
     "נושא": firstText(record?.title, record?.subject),
     "הערות": firstText(record?.notes),
@@ -2993,27 +2993,29 @@ const buildSelectedMaterialWorksheetXml = (definition: ConcentrationDefinition, 
 const buildStandardHeaderRows = (
   definition: ConcentrationDefinition,
   meta: Required<ProjectConcentrationMeta>,
+  startCol: number,
 ): { rows: string[]; nextRow: number; merges: string[] } => {
   let r = 1;
   const rows: string[] = [];
   const merges: string[] = [];
+  const h = (offset: number) => colName(startCol + offset - 1);
 
-  // כותרת עליונה אחידה לכל הריכוזים הסטנדרטיים, מיושרת לימין בגיליון RTL.
+  // כותרת עליונה אחידה לכל הריכוזים הסטנדרטיים, ממורכזת מעל טווח הטבלה.
   rows.push(emptyRowXml(r++, 14));
-  rows.push(rowXml(r++, [definition.title, "", "", "", "", "", "", ""], 1, 20));
+  rows.push(rowXmlFromColumn(r++, startCol, [definition.title, "", "", "", "", "", "", ""], 1, 20));
   rows.push(emptyRowXml(r++, 18));
-  rows.push(rowXml(r++, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
-  rows.push(rowXml(r++, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
-  rows.push(rowXml(r++, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
-  rows.push(rowXml(r++, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, startCol, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, startCol, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, startCol, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2, 20));
+  rows.push(rowXmlFromColumn(r++, startCol, [`בקרת איכות - ${meta.qualityControl || ""}`, "", "", "", `הבטחת איכות - ${meta.qualityAssurance || ""}`, "", "", ""], 2, 20));
   rows.push(emptyRowXml(r++, 16));
   rows.push(emptyRowXml(r++, 16));
 
-  merges.push("A2:H2");
-  merges.push("A4:B4", "C4:H4");
-  merges.push("A5:B5", "C5:H5");
-  merges.push("A6:B6", "C6:H6");
-  merges.push("A7:D7", "E7:H7");
+  merges.push(`${h(1)}2:${h(8)}2`);
+  merges.push(`${h(1)}4:${h(2)}4`, `${h(3)}4:${h(8)}4`);
+  merges.push(`${h(1)}5:${h(2)}5`, `${h(3)}5:${h(8)}5`);
+  merges.push(`${h(1)}6:${h(2)}6`, `${h(3)}6:${h(8)}6`);
+  merges.push(`${h(1)}7:${h(4)}7`, `${h(5)}7:${h(8)}7`);
 
   return { rows, nextRow: r, merges };
 };
@@ -3025,11 +3027,12 @@ const buildStandardWorksheetXml = (
 ) => {
   // הריכוזים הסטנדרטיים מתחילים בעמודה A, שבגיליון RTL היא העמודה הימנית ביותר.
   const tableStartCol = 1;
-  const header = buildStandardHeaderRows(definition, meta);
-  let r = header.nextRow;
-  const sheetRows: string[] = [...header.rows];
   const visibleColumns = definition.columns;
   const maxCol = Math.max(8, visibleColumns.length);
+  const headerStartCol = Math.max(1, Math.floor((maxCol - 8) / 2) + 1);
+  const header = buildStandardHeaderRows(definition, meta, headerStartCol);
+  let r = header.nextRow;
+  const sheetRows: string[] = [...header.rows];
 
   sheetRows.push(rowXmlFromColumn(r++, tableStartCol, visibleColumns, 3, 34));
 
@@ -3241,20 +3244,20 @@ const buildNonconformanceWorksheetXml = (
     emptyRowXml(1, 16),
     sparseRowXml(2, [
       ...rangeCells(3, ["שם פרויקט:", "", meta.projectName, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "", ""], 2),
+      ...rangeCells(11, ["תאריך עדכון", "", "", new Date().toLocaleDateString("he-IL"), "", ""], 2),
     ], 20),
     sparseRowXml(3, [
       ...rangeCells(3, ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", ""], 2),
-      ...rangeCells(12, [definition.title, "", "", "", ""], 1),
-      ...rangeCells(22, ["סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", "", grade3OpenRows.length], 2),
+      ...rangeCells(11, ["סה״כ אי התאמות פתוחות", "", openRows.length, "מתוכם דרגה 3", "", grade3OpenRows.length], 2),
+      ...rangeCells(18, [definition.title, "", "", "", ""], 1),
     ], 20),
     sparseRowXml(4, [
       ...rangeCells(3, ["שם הקבלן", "", meta.contractor, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", "", grade3ClosedRows.length], 2),
+      ...rangeCells(11, ["סה״כ אי התאמות סגורות", "", closedRows.length, "מתוכם דרגה 3", "", grade3ClosedRows.length], 2),
     ], 20),
     sparseRowXml(5, [
       ...rangeCells(3, ["בקרת איכות", "", meta.qualityControl, "", "", "", "", ""], 2),
-      ...rangeCells(22, ["סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", "", grade3Rows.length], 2),
+      ...rangeCells(11, ["סה״כ אי התאמות", "", rows.length, "מתוכם דרגה 3", "", grade3Rows.length], 2),
     ], 20),
     emptyRowXml(6, 16),
     rowXml(7, [
@@ -3300,10 +3303,10 @@ const buildNonconformanceWorksheetXml = (
   const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 16, 14, 16, 14];
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
   const merges = [
-    "C2:D2", "E2:J2", "V2:X2", "Y2:AA2",
-    "C3:D3", "E3:J3", "L3:P3", "V3:W3", "Y3:Z3",
-    "C4:D4", "E4:J4", "V4:W4", "Y4:Z4",
-    "C5:D5", "E5:J5", "V5:W5", "Y5:Z5",
+    "C2:D2", "E2:J2", "K2:M2", "N2:P2",
+    "C3:D3", "E3:J3", "K3:L3", "N3:O3", "R3:V3",
+    "C4:D4", "E4:J4", "K4:L4", "N4:O4",
+    "C5:D5", "E5:J5", "K5:L5", "N5:O5",
     "A7:A8", "B7:B8", "C7:C8", "D7:D8", "E7:E8", "G7:G8", "H7:H8", "I7:I8",
     "J7:K7", "L7:L8", "N7:N8", "O7:O8", "P7:P8", "Q7:Q8", "R7:R8", "S7:S8", "T7:T8", "U7:U8", "V7:V8", "W7:W8", "Y7:Y8", "Z7:Z8",
   ];
