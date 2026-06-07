@@ -502,6 +502,14 @@ type ReferenceResultRow = {
   allowedDeviation?: string;
 };
 
+type AsphaltBatchResult = {
+  batchNo: string;
+  sampleNo?: string;
+  asphaltMixType?: string;
+  testDate?: string;
+  referenceResults: ReferenceResultRow[];
+};
+
 
 type AuditEntry = {
   action: string;
@@ -985,6 +993,147 @@ const buildAsphaltRowsForMix = (
       allowedDeviation: fixed.allowedDeviation,
     });
   });
+};
+
+const setAsphaltBatchMetric = (
+  rows: ReferenceResultRow[],
+  aliases: string[],
+  value: unknown,
+) => setReferenceMetricValue(rows, aliases, value);
+
+const numberTokens = (value: unknown) =>
+  String(value ?? "")
+    .match(/-?\d+(?:[.,]\d+)?/g)
+    ?.map((item) => item.replace(",", "."))
+    .filter(Boolean) ?? [];
+
+const firstAsphaltDateFromText = (text: string) => {
+  const date =
+    firstRegexGroup(text, [
+      /תאריך\s+נטילה\s*(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/,
+      /(\d{1,2}[./-]\d{1,2}[./-]20\d{2})\s*תאריך\s+נטילה/,
+    ]) || extractReferencePdfDate(text);
+  return date;
+};
+
+const extractAsphaltBatchResultsFromText = (rawText: string): AsphaltBatchResult[] => {
+  const text = String(rawText ?? "").replace(/[\u200e\u200f\u202a-\u202e]/g, "");
+  if (!isAsphaltReference(text)) return [];
+
+  const compactText = normalizeReferencePdfText(text);
+  const reportNo = firstRegexGroup(compactText, [
+    /דוח\s+בדיקה\s+מס['׳]?\s*[-:]?\s*(\d{3,})/,
+    /(\d{3,})\s*[-:]?\s*['׳]?סמ\s+הקידב\s+חוד/,
+  ]);
+  const testDate = firstAsphaltDateFromText(compactText);
+  const mixType =
+    findAsphaltMixTemplateInText(compactText)?.label ||
+    firstText(firstRegexGroup(compactText, [/(תא["״׳']?צ[^,\n.]{0,80}?25\s*מ["״']?מ)/]), "תא״צ 25");
+  const plant = firstRegexGroup(compactText, [
+    /שם\s+מפעל\s+האספלט\s*([^\n]{2,80}?)(?:\s+שיטת|\s+מדגם|\s*$)/,
+    /([\u0590-\u05ff\s]{2,80})\s+שם\s+מפעל\s+האספלט/,
+  ]);
+
+  const makeRows = (batchNo: string, values: Record<string, string>) => {
+    let rows = buildAsphaltRowsForMix(mixType, [], false);
+    rows = setAsphaltBatchMetric(rows, ["מספר דגימה", "מספר מדגם"], firstText(reportNo, batchNo));
+    rows = setAsphaltBatchMetric(rows, ["מס מנה", "מס' מנה", "מנה"], batchNo);
+    rows = setAsphaltBatchMetric(rows, ["סוג תערובת"], mixType);
+    rows = setAsphaltBatchMetric(rows, ["תאריך בדיקה", "תאריך"], testDate);
+    rows = setAsphaltBatchMetric(rows, ["מפעל אספקה"], plant);
+    Object.entries(values).forEach(([metric, value]) => {
+      rows = setAsphaltBatchMetric(rows, [metric], value);
+    });
+    return rows.filter((row) => String(row.resultValue ?? "").trim());
+  };
+
+  const batches: AsphaltBatchResult[] = [];
+  const layoutBlocks = [...text.matchAll(
+    /#200\s+#80\s+#40\s+#20\s+#10\s+#4\s+3\/8"\s+1\/2"\s+3\/4"\s+1"\s+1\.5"[\s\S]{0,80}?(\d+)\s*\n\s*([0-9.,\s]+?)\s+(?:רבוע\s+לקשמ\s+זוחא|אחוז\s+משקל\s+עובר)/g,
+  )];
+  const gradingMetrics = ["#200", "#80", "#40", "#20", "#10", "#4", '3/8"', '1/2"', '3/4"', '1"', '1.5"'];
+  layoutBlocks.slice(0, 12).forEach((match) => {
+    const batchNo = String(match[1] ?? "").trim();
+    const tokens = numberTokens(match[2]);
+    if (!batchNo || tokens.length < 8) return;
+    const values: Record<string, string> = {};
+    tokens.slice(0, gradingMetrics.length).forEach((token, index) => {
+      values[gradingMetrics[index]] = token;
+    });
+    batches.push({
+      batchNo,
+      sampleNo: firstText(reportNo, batchNo),
+      asphaltMixType: mixType,
+      testDate,
+      referenceResults: makeRows(batchNo, values),
+    });
+  });
+
+  if (!batches.length) return [];
+
+  const densityValues = numberTokens(
+    firstRegexGroup(text, [
+      /תעצוממ\s+תופיפצ[\s\S]{0,180}?((?:\d{4}\s+){1,6}\d{4})/,
+      /צפיפות\s+ממוצעת[\s\S]{0,180}?((?:\d{4}\s+){1,6}\d{4})/,
+    ]),
+  );
+  const maxDensityValues = numberTokens(
+    firstRegexGroup(text, [
+      /'סקמ\s+תיטרואית\s+'פצ[\s\S]{0,120}?((?:\d{4}\s+){1,4}\d{4})/,
+      /צפ['׳]?\s+תיאורטית\s+מקס[\s\S]{0,120}?((?:\d{4}\s+){1,4}\d{4})/,
+    ]),
+  );
+  const airVoidsValues = numberTokens(
+    firstRegexGroup(text, [
+      /ללח\s+זוחא[\s\S]{0,80}?((?:\d+[.,]\d+\s*){1,4})/,
+      /אחוז\s+חלל[\s\S]{0,80}?((?:\d+[.,]\d+\s*){1,4})/,
+    ]),
+  );
+  const stabilityValues = numberTokens(
+    firstRegexGroup(text, [
+      /תעצוממ\s+תוביצי[\s\S]{0,120}?((?:\d{4}\s+){1,4}\d{4})/,
+      /יציבות\s+ממוצעת[\s\S]{0,120}?((?:\d{4}\s+){1,4}\d{4})/,
+    ]),
+  );
+  const bitumenValues = numberTokens(
+    firstRegexGroup(text, [
+      /תבורעתב\s+ןמוטיב\s+זוחא[\s\S]{0,80}?((?:\d+[.,]\d+\s*){1,4})/,
+      /אחוז\s+ביטומן\s+בתערובת[\s\S]{0,80}?((?:\d+[.,]\d+\s*){1,4})/,
+    ]),
+  );
+  const effectiveDensity = firstText(
+    firstRegexGroup(text, [/טאגרגא\s+לש\s+תיביטקפא\s+תופיפצ[\s\S]{0,60}?(\d{4})/]),
+    firstRegexGroup(text, [/צפיפות\s+אפקטיבית\s+של\s+אגרגאט[\s\S]{0,60}?(\d{4})/]),
+  );
+
+  const applySeries = (metric: string, values: string[]) => {
+    if (!values.length) return;
+    batches.forEach((batch, index) => {
+      const value = values[index] ?? values[values.length - 1] ?? "";
+      if (!value) return;
+      batch.referenceResults = setAsphaltBatchMetric(batch.referenceResults, [metric], value);
+    });
+  };
+  applySeries("צפיפות ואקום", densityValues);
+  applySeries("צפיפות בשיטת וואקום", densityValues);
+  applySeries("אחוז חלל", airVoidsValues);
+  applySeries("יציבות", stabilityValues);
+  applySeries("תכולת ביטומן", bitumenValues);
+  if (effectiveDensity) {
+    batches.forEach((batch) => {
+      batch.referenceResults = setAsphaltBatchMetric(batch.referenceResults, ["צפיפות אפקטיבית"], effectiveDensity);
+    });
+  }
+  if (maxDensityValues.length) {
+    batches.forEach((batch, index) => {
+      const value = maxDensityValues[index] ?? maxDensityValues[maxDensityValues.length - 1] ?? "";
+      batch.referenceResults = setAsphaltBatchMetric(batch.referenceResults, ["צפיפות תיאורטית מקסימלית"], value);
+    });
+  }
+
+  return batches.filter((batch) =>
+    batch.referenceResults.some((row) => String(row.resultValue ?? "").trim()),
+  );
 };
 
 const isMatzeaAReference = (value: unknown) => {
@@ -2426,6 +2575,7 @@ type ChecklistAttachment = StoredAttachment & {
   labResults?: Record<string, string>;
   densityResults?: Record<string, string>;
   referenceResults?: ReferenceResultRow[];
+  asphaltBatches?: AsphaltBatchResult[];
   asphaltMixType?: string;
   certificateNo?: string;
   densityExtractionSummary?: string;
@@ -2452,6 +2602,15 @@ const normalizeChecklistAttachments = (
           labResults: item.labResults ?? item.densityResults ?? item.results ?? {},
           densityResults: item.densityResults ?? item.labResults ?? item.results ?? {},
           referenceResults: normalizeReferenceResults(item.referenceResults),
+          asphaltBatches: Array.isArray(item.asphaltBatches)
+            ? item.asphaltBatches.map((batch: any, index: number) => ({
+                batchNo: String(batch?.batchNo ?? batch?.batchNumber ?? index + 1),
+                sampleNo: String(batch?.sampleNo ?? ""),
+                asphaltMixType: String(batch?.asphaltMixType ?? ""),
+                testDate: String(batch?.testDate ?? ""),
+                referenceResults: normalizeReferenceResults(batch?.referenceResults ?? batch?.rows),
+              }))
+            : [],
           asphaltMixType: String(item.asphaltMixType ?? ""),
           certificateNo: String(item.certificateNo ?? item.documentNo ?? ""),
           densityExtractionSummary: String(item.densityExtractionSummary ?? ""),
@@ -7990,7 +8149,30 @@ const extractTextFromReferenceFile = async (file: File): Promise<string> => {
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo);
     const content = await page.getTextContent();
-    pages.push((content.items || []).map((item: any) => String(item?.str ?? "")).join("\n"));
+    const items = content.items || [];
+    const simpleText = items.map((item: any) => String(item?.str ?? "")).join("\n");
+    const positionedRows = new Map<number, Array<{ x: number; text: string }>>();
+    items.forEach((item: any) => {
+      const text = String(item?.str ?? "").trim();
+      if (!text) return;
+      const transform = Array.isArray(item?.transform) ? item.transform : [];
+      const x = Number(transform[4] ?? 0);
+      const y = Number(transform[5] ?? 0);
+      const rowKey = Math.round(y / 3) * 3;
+      const row = positionedRows.get(rowKey) ?? [];
+      row.push({ x, text });
+      positionedRows.set(rowKey, row);
+    });
+    const layoutText = [...positionedRows.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([, row]) =>
+        row
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.text)
+          .join(" "),
+      )
+      .join("\n");
+    pages.push(`${simpleText}\n\n--- positioned text ---\n${layoutText}`);
   }
   return pages.join("\n");
 };
@@ -9265,6 +9447,58 @@ const extractAsphaltJmfRowsByOcr = async (
     return rows.filter((row) => String(row.resultValue ?? "").trim());
   } catch (error) {
     console.warn("Asphalt JMF OCR fallback failed", error);
+    return [];
+  }
+};
+
+const extractAsphaltBatchesByOcr = async (
+  file: File,
+  workType: unknown,
+): Promise<AsphaltBatchResult[]> => {
+  if (!isAsphaltReference(workType)) return [];
+  try {
+    const dataUrl = await readReferenceFileAsDataUrl(file);
+    const response = await fetch("/api/ocr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subtype: "asphalt-jmf",
+        fileName: file.name,
+        mimeType: file.type || "application/pdf",
+        dataUrl,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn("Asphalt batch OCR failed", payload);
+      return [];
+    }
+    const data = payload?.data ?? {};
+    const batches = Array.isArray(data.batches) ? data.batches : [];
+    return batches
+      .map((batch: any, index: number) => {
+        let rows = ensureReferenceResultsForMaterial(workType, []);
+        (Array.isArray(batch?.rows) ? batch.rows : []).forEach((row: any) => {
+          const metric = String(row?.metric ?? "").trim();
+          const resultValue = String(row?.resultValue ?? "").trim();
+          if (metric && resultValue) rows = setReferenceMetricValue(rows, [metric], resultValue);
+        });
+        const batchNo = String(batch?.batchNo ?? index + 1);
+        rows = setReferenceMetricValue(rows, ["מס מנה", "מס' מנה", "מנה"], batchNo);
+        rows = setReferenceMetricValue(rows, ["מספר דגימה", "מספר מדגם"], batch?.sampleNo || batchNo);
+        rows = setReferenceMetricValue(rows, ["סוג תערובת"], batch?.mixType);
+        rows = setReferenceMetricValue(rows, ["תאריך בדיקה"], batch?.testDate);
+        return {
+          batchNo,
+          sampleNo: String(batch?.sampleNo ?? ""),
+          asphaltMixType: String(batch?.mixType ?? ""),
+          testDate: String(batch?.testDate ?? ""),
+          referenceResults: rows.filter((row) => String(row.resultValue ?? "").trim()),
+        };
+      })
+      .filter((batch) => batch.referenceResults.length);
+  } catch (error) {
+    console.warn("Asphalt batch OCR fallback failed", error);
     return [];
   }
 };
@@ -13158,6 +13392,7 @@ export default function Page() {
       let autoDensityResults: Record<string, string> = {};
       let autoAsphaltResults: Record<string, string> = {};
       let autoAsphaltRows: ReferenceResultRow[] = [];
+      let autoAsphaltBatches: AsphaltBatchResult[] = [];
       let asphaltMixType = "";
       let asphaltSummary = "";
       if (kind === "lab" && !shouldExtractAsphalt) {
@@ -13174,16 +13409,42 @@ export default function Page() {
             let parsedRows: ReferenceResultRow[] = [];
             try {
               const text = await extractTextFromReferenceFile(file);
+              autoAsphaltBatches = extractAsphaltBatchResultsFromText(text);
               parsedRows = parseReferenceCertificateResultsFromText("אספלט", text);
             } catch (error) {
               console.warn("Asphalt certificate text parsing failed", error);
             }
+            if (autoAsphaltBatches.length) {
+              autoAsphaltRows = autoAsphaltBatches[0]?.referenceResults ?? [];
+              autoAsphaltResults = referenceResultsToChecklistMap(autoAsphaltRows);
+              asphaltMixType =
+                autoAsphaltBatches[0]?.asphaltMixType ||
+                extractAsphaltMixValueFromRows(autoAsphaltRows) ||
+                getDefaultAsphaltMixTemplate().label;
+              asphaltSummary = autoAsphaltBatches
+                .map((batch) => `מנה ${batch.batchNo}`)
+                .join(" | ");
+            }
             let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-            if (!filledRows.length) {
+            if (!autoAsphaltBatches.length && !filledRows.length) {
+              autoAsphaltBatches = await extractAsphaltBatchesByOcr(file, "אספלט");
+              if (autoAsphaltBatches.length) {
+                autoAsphaltRows = autoAsphaltBatches[0]?.referenceResults ?? [];
+                autoAsphaltResults = referenceResultsToChecklistMap(autoAsphaltRows);
+                asphaltMixType =
+                  autoAsphaltBatches[0]?.asphaltMixType ||
+                  extractAsphaltMixValueFromRows(autoAsphaltRows) ||
+                  getDefaultAsphaltMixTemplate().label;
+                asphaltSummary = autoAsphaltBatches
+                  .map((batch) => `מנה ${batch.batchNo}`)
+                  .join(" | ");
+              }
+            }
+            if (!autoAsphaltBatches.length && !filledRows.length) {
               parsedRows = await extractAsphaltJmfRowsByOcr(file, "אספלט");
               filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
             }
-            if (filledRows.length) {
+            if (!autoAsphaltBatches.length && filledRows.length) {
               autoAsphaltRows = normalizeReferenceResults(parsedRows);
               autoAsphaltResults = referenceResultsToChecklistMap(autoAsphaltRows);
               asphaltMixType =
@@ -13198,6 +13459,7 @@ export default function Page() {
             console.warn("Asphalt certificate auto extraction failed", error);
             autoAsphaltResults = {};
             autoAsphaltRows = [];
+            autoAsphaltBatches = [];
           }
         }
       }
@@ -13229,6 +13491,7 @@ export default function Page() {
         ...(autoAsphaltRows.length
           ? {
               referenceResults: autoAsphaltRows,
+              asphaltBatches: autoAsphaltBatches,
               asphaltMixType,
               asphaltExtractionSummary: asphaltSummary,
             }
@@ -13254,6 +13517,7 @@ export default function Page() {
                       ...(autoAsphaltRows.length
                         ? {
                             referenceResults: autoAsphaltRows,
+                            asphaltBatches: autoAsphaltBatches,
                             asphaltMixType: asphaltMixType || item.asphaltMixType,
                             asphaltExtractionSummary: asphaltSummary || item.asphaltExtractionSummary,
                           }

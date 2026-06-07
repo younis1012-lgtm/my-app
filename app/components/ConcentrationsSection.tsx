@@ -968,6 +968,40 @@ const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
     items.forEach((item: any) => {
       const attachments = itemAttachments(item);
       attachments.forEach((attachment: any) => {
+        const attachmentBatches = Array.isArray(attachment?.asphaltBatches)
+          ? attachment.asphaltBatches
+          : [];
+        if (attachmentBatches.length) {
+          attachmentBatches.forEach((batch: any, batchIndex: number) => {
+            const batchResults = batch?.referenceResults ?? batch?.rows ?? batch?.results ?? [];
+            const referenceResults = referenceRowsFromValue(batchResults);
+            if (!referenceResults.length) return;
+            records.push({
+              title: firstText(item?.description, checklist?.title, attachmentName(attachment)),
+              category: checklist?.category,
+              location: firstText(item?.location, checklist?.location),
+              contractor: firstText(item?.contractor, checklist?.contractor),
+              status: firstText(item?.status, checklist?.status, "מאושר"),
+              checklistNo: firstText(checklist?.checklistNo, checklist?.checklistNumber, checklist?.number, checklist?.id),
+              date: firstDateText(batch?.testDate, item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
+              batchNo: firstText(batch?.batchNo, batch?.batchNumber, batchIndex + 1),
+              sampleNo: firstText(batch?.sampleNo),
+              asphaltMixType: firstText(
+                batch?.asphaltMixType,
+                attachment?.asphaltMixType,
+                aliasesValue(batchResults, ["סוג תערובת", "תערובת", "asphaltMixType"]),
+                item?.asphaltMixType,
+                checklist?.asphaltMixType,
+                item?.description,
+                checklist?.title,
+              ),
+              requiredDocuments: [attachment],
+              referenceResults,
+              notes: firstText(item?.notes, attachment?.description),
+            });
+          });
+          return;
+        }
         const parsedResults =
           attachment?.referenceResults ??
           attachment?.parsedResults ??
@@ -1022,12 +1056,12 @@ const asphaltJmfRow = (record: any, index: number): Row => {
   return {
     'ביצוע ע"י QC/QA': "QC",
     "מס' רשימת תיוג": firstText(record?.checklistNo, record?.checklistNumber, record?.linkedChecklistNo),
-    "מספר מדגם": firstText(asphaltMetric(record, ["מספר מדגם", "מספר דגימה", "מס מדגם", "קוד תערובת"]), index + 1),
+    "מספר מדגם": firstText(asphaltMetric(record, ["מספר מדגם", "מספר דגימה", "מס מדגם", "קוד תערובת"]), record?.sampleNo, index + 1),
     "תאריך": firstText(asphaltMetric(record, ["תאריך בדיקה", "תאריך"]), record?.date, dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
     "סוג תערובת": asphaltFullMixDescription(record, mix),
     "מחתך": firstText(asphaltMetric(record, ["מחתך", "מחתך התחלה"]), record?.fromSection),
     "עד חתך": firstText(asphaltMetric(record, ["עד חתך", "מחתך סוף"]), record?.toSection),
-    "מס' מנה": firstText(asphaltMetric(record, ["מס מנה", "מס' מנה", "מנה"]), "←     JMF"),
+    "מס' מנה": firstText(asphaltMetric(record, ["מס מנה", "מס' מנה", "מנה"]), record?.batchNo, "←     JMF"),
     "כמות פיזור יומית": firstText(asphaltMetric(record, ["כמות פיזור יומית", "כמות פיזור"]), "←     JMF"),
     '1.5"': asphaltMetricOrApproved(record, approvedValues, '1.5"', ['1.5"', "1.5"]),
     '1"': asphaltMetricOrApproved(record, approvedValues, '1"', ['1"', "1 אינץ"]),

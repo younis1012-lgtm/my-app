@@ -71,6 +71,13 @@ const jsonSchema = {
 
 const asphaltJmfEmptyData = {
   rows: [] as Array<{ metric: string; resultValue: string }>,
+  batches: [] as Array<{
+    batchNo: string;
+    sampleNo: string;
+    mixType: string;
+    testDate: string;
+    rows: Array<{ metric: string; resultValue: string }>;
+  }>,
   fields: {
     sampleNo: '',
     mixType: '',
@@ -103,6 +110,32 @@ const asphaltJmfJsonSchema = {
         required: ['metric', 'resultValue'],
       },
     },
+    batches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          batchNo: { type: 'string' },
+          sampleNo: { type: 'string' },
+          mixType: { type: 'string' },
+          testDate: { type: 'string' },
+          rows: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                metric: { type: 'string' },
+                resultValue: { type: 'string' },
+              },
+              required: ['metric', 'resultValue'],
+            },
+          },
+        },
+        required: ['batchNo', 'sampleNo', 'mixType', 'testDate', 'rows'],
+      },
+    },
     fields: {
       type: 'object',
       additionalProperties: false,
@@ -123,7 +156,7 @@ const asphaltJmfJsonSchema = {
     confidence: { type: 'number' },
     notes: { type: 'string' },
   },
-  required: ['rows', 'fields', 'confidence', 'notes'],
+  required: ['rows', 'batches', 'fields', 'confidence', 'notes'],
 };
 
 function normalizeDataUrl(dataUrl: string, mimeType: string) {
@@ -266,7 +299,7 @@ export async function POST(req: NextRequest) {
 
     if (subtype === 'asphalt-jmf') {
       const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
-      const prompt = `You are extracting an asphalt JMF / Marshall mix design lab certificate for Israeli QA/QC.
+      const prompt = `You are extracting an asphalt lab certificate for Israeli QA/QC.
 Return JSON only. Read the attached PDF/image visually if needed.
 Extract result values for these metrics when visible:
 מספר דגימה, סוג תערובת, תאריך בדיקה, שם דגימה, הזמנה מקורית של הדגימה,
@@ -274,6 +307,10 @@ Extract result values for these metrics when visible:
 תכולת ביטומן, מפעל אספקה, יחס מלאן - ביטומן, צפיפות בשיטת וואקום, יציבות, נזילות,
 חוזק משתייר, אחוז חלל, V.M.A, צפיפות בשיטת ריפ, התנגדות, שחיקה קנטברו.
 Use the exact Hebrew metric names from this list in rows[].metric.
+If the certificate contains more than one sample/batch/מנה/מדגם, return every one in batches[].
+Each batches[] item must contain only that batch's own rows and must include batchNo, sampleNo, mixType and testDate when visible.
+For asphalt production test certificates with two extraction/grading columns, create two batches so the concentration can export two rows.
+Also keep rows[] as the first/primary batch for backward compatibility.
 For dates, return yyyy-mm-dd when possible. Do not invent values.`;
       const content: any[] = [{ type: 'input_text', text: prompt }];
       if (isImage(mimeType)) {
