@@ -968,7 +968,12 @@ const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
     items.forEach((item: any) => {
       const attachments = itemAttachments(item);
       attachments.forEach((attachment: any) => {
-        const parsedResults = attachment?.parsedResults ?? attachment?.labResults ?? attachment?.results ?? attachment?.details;
+        const parsedResults =
+          attachment?.referenceResults ??
+          attachment?.parsedResults ??
+          attachment?.labResults ??
+          attachment?.results ??
+          attachment?.details;
         const referenceResults = referenceRowsFromValue(parsedResults);
         const text = [
           checklistText,
@@ -990,6 +995,7 @@ const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
           date: firstDateText(item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
           asphaltMixType: firstText(
             aliasesValue(parsedResults, ["סוג תערובת", "תערובת", "asphaltMixType"]),
+            attachment?.asphaltMixType,
             item?.asphaltMixType,
             checklist?.asphaltMixType,
             item?.description,

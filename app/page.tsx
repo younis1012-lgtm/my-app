@@ -2425,8 +2425,11 @@ type ChecklistAttachment = StoredAttachment & {
   results?: Record<string, string>;
   labResults?: Record<string, string>;
   densityResults?: Record<string, string>;
+  referenceResults?: ReferenceResultRow[];
+  asphaltMixType?: string;
   certificateNo?: string;
   densityExtractionSummary?: string;
+  asphaltExtractionSummary?: string;
 };
 
 const normalizeChecklistAttachments = (
@@ -2448,8 +2451,11 @@ const normalizeChecklistAttachments = (
           results: item.results ?? {},
           labResults: item.labResults ?? item.densityResults ?? item.results ?? {},
           densityResults: item.densityResults ?? item.labResults ?? item.results ?? {},
+          referenceResults: normalizeReferenceResults(item.referenceResults),
+          asphaltMixType: String(item.asphaltMixType ?? ""),
           certificateNo: String(item.certificateNo ?? item.documentNo ?? ""),
           densityExtractionSummary: String(item.densityExtractionSummary ?? ""),
+          asphaltExtractionSummary: String(item.asphaltExtractionSummary ?? ""),
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -13123,6 +13129,14 @@ export default function Page() {
           : prev.items.filter((item) => item.id !== id),
     }));
 
+  const referenceResultsToChecklistMap = (rows: ReferenceResultRow[]) =>
+    normalizeReferenceResults(rows).reduce<Record<string, string>>((acc, row) => {
+      const metric = String(row.metric ?? "").trim();
+      const value = String(row.resultValue ?? "").trim();
+      if (metric && value) acc[metric] = value;
+      return acc;
+    }, {});
+
   const uploadChecklistItemAttachment = (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -13130,8 +13144,23 @@ export default function Page() {
   ) => {
     const reader = new FileReader();
     reader.onload = async () => {
+      const currentItem = checklistForm.items.find((item: any) => item.id === itemId);
+      const attachmentContext = [
+        checklistForm.title,
+        checklistForm.category,
+        checklistForm.location,
+        currentItem?.description,
+        currentItem?.title,
+        currentItem?.notes,
+        file.name,
+      ].join(" ");
+      const shouldExtractAsphalt = kind === "lab" && isAsphaltReference(attachmentContext);
       let autoDensityResults: Record<string, string> = {};
-      if (kind === "lab") {
+      let autoAsphaltResults: Record<string, string> = {};
+      let autoAsphaltRows: ReferenceResultRow[] = [];
+      let asphaltMixType = "";
+      let asphaltSummary = "";
+      if (kind === "lab" && !shouldExtractAsphalt) {
         try {
           autoDensityResults = await extractEarthworksDensityFromFile(file);
         } catch (error) {
@@ -13139,7 +13168,41 @@ export default function Page() {
           autoDensityResults = {};
         }
       }
+      if (kind === "lab") {
+        if (shouldExtractAsphalt) {
+          try {
+            let parsedRows: ReferenceResultRow[] = [];
+            try {
+              const text = await extractTextFromReferenceFile(file);
+              parsedRows = parseReferenceCertificateResultsFromText("אספלט", text);
+            } catch (error) {
+              console.warn("Asphalt certificate text parsing failed", error);
+            }
+            let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+            if (!filledRows.length) {
+              parsedRows = await extractAsphaltJmfRowsByOcr(file, "אספלט");
+              filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+            }
+            if (filledRows.length) {
+              autoAsphaltRows = normalizeReferenceResults(parsedRows);
+              autoAsphaltResults = referenceResultsToChecklistMap(autoAsphaltRows);
+              asphaltMixType =
+                extractAsphaltMixValueFromRows(autoAsphaltRows) ||
+                getDefaultAsphaltMixTemplate().label;
+              asphaltSummary = filledRows
+                .slice(0, 10)
+                .map((row) => `${row.metric}: ${row.resultValue}`)
+                .join(" | ");
+            }
+          } catch (error) {
+            console.warn("Asphalt certificate auto extraction failed", error);
+            autoAsphaltResults = {};
+            autoAsphaltRows = [];
+          }
+        }
+      }
 
+      const combinedLabResults = { ...autoDensityResults, ...autoAsphaltResults };
       const densitySummary = Object.keys(autoDensityResults).length
         ? [
             autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] ? `מס׳ דוח: ${autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"]}` : "",
@@ -13160,8 +13223,15 @@ export default function Page() {
         dataUrl: String(reader.result ?? ""),
         uploadedAt: nowLocal(),
         kind,
-        ...(Object.keys(autoDensityResults).length
-          ? { results: autoDensityResults, labResults: autoDensityResults }
+        ...(Object.keys(combinedLabResults).length
+          ? { results: combinedLabResults, labResults: combinedLabResults }
+          : {}),
+        ...(autoAsphaltRows.length
+          ? {
+              referenceResults: autoAsphaltRows,
+              asphaltMixType,
+              asphaltExtractionSummary: asphaltSummary,
+            }
           : {}),
       } as ChecklistAttachment;
 
@@ -13175,12 +13245,19 @@ export default function Page() {
                   ...normalizeChecklistAttachments(item.attachments),
                   attachment,
                 ],
-                ...(Object.keys(autoDensityResults).length
+                ...(Object.keys(combinedLabResults).length
                   ? {
-                      labResults: { ...(item.labResults ?? {}), ...autoDensityResults },
+                      labResults: { ...(item.labResults ?? {}), ...combinedLabResults },
                       densityResults: { ...(item.densityResults ?? {}), ...autoDensityResults },
                       certificateNo: autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] || autoDensityResults["מס' תעודת בדיקההידוק רגיל"] || autoDensityResults["מספר תעודת בדיקה"] || item.certificateNo,
                       densityExtractionSummary: densitySummary || item.densityExtractionSummary,
+                      ...(autoAsphaltRows.length
+                        ? {
+                            referenceResults: autoAsphaltRows,
+                            asphaltMixType: asphaltMixType || item.asphaltMixType,
+                            asphaltExtractionSummary: asphaltSummary || item.asphaltExtractionSummary,
+                          }
+                        : {}),
                     }
                   : {}),
               }
