@@ -3427,6 +3427,128 @@ const buildNonconformanceWorksheetXml = (
 </worksheet>`;
 };
 
+const parseConcentrationDate = (value: unknown): Date | null => {
+  const text = cleanText(value);
+  if (!text) return null;
+  let match = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  match = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})/);
+  if (match) return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+  return null;
+};
+
+const nonconformanceOwner = (row: Row): "QA" | "QC" => {
+  const text = normalize([row["נפתחה"], row["פותח/מדווח"], row["נסגרה"], row["אישור מנהל ה״א לסגירת אי התאמה QC"]].join(" "));
+  return text.includes("qa") || text.includes("הבטחת") ? "QA" : "QC";
+};
+
+const nonconformanceStatusSummary = (rows: Row[]) => {
+  const now = new Date();
+  const reportMonth = now.getMonth();
+  const reportYear = now.getFullYear();
+  const ownerRows = (owner: "QA" | "QC") => rows.filter((row) => nonconformanceOwner(row) === owner);
+  const isClosedRow = (row: Row) => includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]) || cleanText(row["תאריך  סגירה"]);
+  const isOpenedThisMonth = (row: Row) => {
+    const date = parseConcentrationDate(row["תאריך פתיחת"] ?? row["תאריך פתיחה"]);
+    return Boolean(date && date.getMonth() === reportMonth && date.getFullYear() === reportYear);
+  };
+  const isGrade = (row: Row, grade: number) => cleanText(row["דרגת אי התאמה"]).includes(String(grade));
+  const count = (items: Row[], predicate: (row: Row) => boolean) => items.filter(predicate).length;
+  const byOwner = (items: Row[]) => ({
+    QC: items.filter((row) => nonconformanceOwner(row) === "QC").length,
+    QA: items.filter((row) => nonconformanceOwner(row) === "QA").length,
+  });
+  const openRows = rows.filter((row) => !isClosedRow(row));
+  const closedRows = rows.filter(isClosedRow);
+  const monthRows = rows.filter(isOpenedThisMonth);
+  const gradeRows = (grade: number) => rows.filter((row) => isGrade(row, grade));
+  return {
+    openedProject: byOwner(rows),
+    openedMonth: byOwner(monthRows),
+    open: byOwner(openRows),
+    grades: [1, 2, 3].map((grade) => ({
+      grade,
+      total: byOwner(gradeRows(grade)),
+      open: byOwner(openRows.filter((row) => isGrade(row, grade))),
+      closed: byOwner(closedRows.filter((row) => isGrade(row, grade))),
+    })),
+    totals: {
+      QC: ownerRows("QC").length,
+      QA: ownerRows("QA").length,
+      openQC: count(ownerRows("QC"), (row) => !isClosedRow(row)),
+      openQA: count(ownerRows("QA"), (row) => !isClosedRow(row)),
+      closedQC: count(ownerRows("QC"), isClosedRow),
+      closedQA: count(ownerRows("QA"), isClosedRow),
+    },
+  };
+};
+
+const buildNonconformanceStatusWorksheetXml = (
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  const summary = nonconformanceStatusSummary(rows);
+  const totalPair = (pair: { QC: number; QA: number }) => pair.QC + pair.QA;
+  const sheetRows: string[] = [
+    emptyRowXml(1, 18),
+    sparseRowXml(2, [
+      ...rangeCells(3, ["סטטוס אי התאמות לפרויקט", "", "", "", "", "", ""], 1),
+    ], 26),
+    sparseRowXml(3, [
+      ...rangeCells(3, ["שם פרויקט", meta.projectName, "", "תאריך עדכון", new Date().toLocaleDateString("he-IL")], 2),
+    ], 22),
+    emptyRowXml(4, 16),
+    sparseRowXml(5, [
+      ...rangeCells(3, ["נפתחו מתחילת הפרויקט", "", ""], 2),
+      ...rangeCells(7, ["אי התאמות שנפתחו בחודש הדיווח", "", ""], 2),
+      ...rangeCells(11, ["אי התאמות שטרם נסגרו", "", ""], 2),
+      ...rangeCells(15, ["פירוט דרגה", "", "", ""], 2),
+    ], 26),
+    sparseRowXml(6, [
+      ...rangeCells(3, ["QA", "QC", "סה״כ"], 3),
+      ...rangeCells(7, ["QA", "QC", "סה״כ"], 3),
+      ...rangeCells(11, ["QA", "QC", "סה״כ"], 3),
+      ...rangeCells(15, ["דרגה", "QA", "QC", "סה״כ"], 3),
+    ], 24),
+    sparseRowXml(7, [
+      ...rangeCells(3, [summary.openedProject.QA, summary.openedProject.QC, totalPair(summary.openedProject)], 6),
+      ...rangeCells(7, [summary.openedMonth.QA, summary.openedMonth.QC, totalPair(summary.openedMonth)], 6),
+      ...rangeCells(11, [summary.open.QA, summary.open.QC, totalPair(summary.open)], 6),
+      ...rangeCells(15, ["סה״כ בקרה/הבטחה", summary.totals.QA, summary.totals.QC, summary.totals.QA + summary.totals.QC], 6),
+    ], 24),
+    emptyRowXml(8, 14),
+    sparseRowXml(9, [
+      ...rangeCells(3, ["דרגה", "QA", "QC", "סה״כ"], 3),
+      ...rangeCells(7, ["דרגה", "QA", "QC", "סה״כ"], 3),
+      ...rangeCells(11, ["דרגה", "QA", "QC", "סה״כ"], 3),
+      ...rangeCells(15, ["סיכום", "QA", "QC", "סה״כ"], 3),
+    ], 24),
+    ...summary.grades.map((item, index) =>
+      sparseRowXml(10 + index, [
+        ...rangeCells(3, [`דרגה ${item.grade}`, item.open.QA, item.open.QC, totalPair(item.open)], 6),
+        ...rangeCells(7, [`דרגה ${item.grade}`, item.closed.QA, item.closed.QC, totalPair(item.closed)], 6),
+        ...rangeCells(11, [`דרגה ${item.grade}`, item.total.QA, item.total.QC, totalPair(item.total)], 6),
+        ...rangeCells(15, [`סה״כ דרגה ${item.grade}`, item.total.QA, item.total.QC, totalPair(item.total)], 6),
+      ], 24),
+    ),
+    sparseRowXml(13, [
+      ...rangeCells(3, ["סה״כ פתוחות", summary.totals.openQA, summary.totals.openQC, summary.totals.openQA + summary.totals.openQC], 2),
+      ...rangeCells(7, ["סה״כ סגורות", summary.totals.closedQA, summary.totals.closedQC, summary.totals.closedQA + summary.totals.closedQC], 2),
+      ...rangeCells(11, ["סה״כ אי התאמות", summary.totals.QA, summary.totals.QC, summary.totals.QA + summary.totals.QC], 2),
+      ...rangeCells(15, ["סה״כ דרגה 3 בקרה + הבטחה", summary.grades[2]?.total.QA ?? 0, summary.grades[2]?.total.QC ?? 0, totalPair(summary.grades[2]?.total ?? { QA: 0, QC: 0 })], 2),
+    ], 30),
+  ];
+  const widths = [4, 4, 18, 10, 10, 10, 4, 22, 10, 10, 10, 4, 18, 10, 10, 10, 14, 10, 10, 10];
+  const merges = ["C2:I2", "C5:E5", "G5:I5", "K5:M5", "O5:R5"];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${colsXmlFromWidths(widths)}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 
 const earthworksNetiveiTopHeader = [
   'ביצוע ע"י ',
@@ -3855,13 +3977,27 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 const buildWorkbookBlob = async (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>, selectedMix = "") => {
   const zip = new JSZip();
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
+  const addNonconformanceStatusSheet = definition.id === "nonconformances";
+  const sheet2ContentType = addNonconformanceStatusSheet
+    ? `<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    : "";
+  const sheet2WorkbookEntry = addNonconformanceStatusSheet
+    ? `<sheet name="סטטוס אי התאמות" sheetId="2" r:id="rId2"/>`
+    : "";
+  const workbookRelationships = addNonconformanceStatusSheet
+    ? `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
+    : `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
+
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>${sheet2ContentType}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
   zip.folder("_rels")?.file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`);
   zip.folder("docProps")?.file("core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEscape(definition.title)}</dc:title><dc:creator>מערכת בקרת איכות</dc:creator></cp:coreProperties>`);
   zip.folder("docProps")?.file("app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>ControlEng Prime</Application></Properties>`);
-  zip.folder("xl")?.file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlEscape(definition.title).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto"/></workbook>`);
-  zip.folder("xl")?.folder("_rels")?.file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+  zip.folder("xl")?.file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlEscape(definition.title).slice(0, 31)}" sheetId="1" r:id="rId1"/>${sheet2WorkbookEntry}</sheets><calcPr calcMode="auto"/></workbook>`);
+  zip.folder("xl")?.folder("_rels")?.file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRelationships}</Relationships>`);
   zip.folder("xl")?.folder("worksheets")?.file("sheet1.xml", buildWorksheetXml(definition, rows, meta, selectedMix));
+  if (addNonconformanceStatusSheet) {
+    zip.folder("xl")?.folder("worksheets")?.file("sheet2.xml", buildNonconformanceStatusWorksheetXml(rows, meta));
+  }
   zip.folder("xl")?.file("styles.xml", stylesXml);
   return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 };
