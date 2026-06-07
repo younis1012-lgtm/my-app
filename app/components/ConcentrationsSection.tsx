@@ -40,6 +40,7 @@ type ConcentrationId =
   | "trial-sections"
   | "subbase-a"
   | "selected-material"
+  | "earthworks-material-results"
   | "earthworks"
   | "rfi";
 
@@ -2261,12 +2262,6 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     }
   });
 
-  processes
-    .filter(isGradingLineReferenceProcess)
-    .forEach((process: any) => {
-      rows.push(earthworksRowFromGradingLineProcess(process, rows.length + 1));
-    });
-
   return rows
     .sort((a, b) => {
       const checklistDiff =
@@ -2537,6 +2532,111 @@ const supervisionReportRow = (record: any, index: number): Row => {
   };
 };
 
+const earthworksMaterialResultsColumns = [
+  'ביצוע ע"י QC/QA',
+  "מס' סדורי",
+  "רשימת תיוג מספר",
+  "מקור החומר",
+  "תאריך הבדיקה",
+  "תעודה מס'",
+  "מבנה",
+  "מחתך",
+  "עד חתך",
+  "צד",
+  "מהות העבודה",
+  '3"',
+  '1.5"',
+  '1"',
+  '3/4"',
+  "#4",
+  "#10",
+  "#40",
+  "#200",
+  "LL",
+  "PL",
+  "IP",
+  "מיון",
+  'אגרגט גס צפיפות ממשית',
+  'אגרגט גס ספיגות',
+  "100% מעבדתי",
+  "רטיבות אופטימלית",
+  'מקטע "3/4+',
+  "100% מחושב",
+  "רטיבות מחושבת",
+  "תפיחה חופשית",
+  "תכולת קרבונטים",
+  "מעמד החומר",
+  "הערות",
+];
+
+const earthworksMaterialResultRow = (process: any, serial: number): Row => {
+  const certificateNo = firstText(
+    gradingLineResultValue(process, ["תעודה מס׳", "תעודה מס'", "מספר תעודה", "מספר תעודת בדיקה"]),
+    process?.processNo,
+    process?.referenceNo,
+  );
+  const testDate = firstText(
+    gradingLineResultValue(process, ["תאריך בדיקה", "תאריך הבדיקה", "תאריך"]),
+    process?.date,
+    process?.savedAt,
+  );
+  const materialSource = gradingLineResultValue(process, ["מקור החומר", "מקור"]);
+  const workEssence = firstText(
+    gradingLineResultValue(process, ["מהות העבודה", "סוג העבודה"]),
+    process?.workType,
+    process?.location,
+  );
+  const structure = firstText(
+    gradingLineResultValue(process, ["מבנה", "כביש", "מקום / שימוש מיועד", "מיקום"]),
+    process?.structureNodeName,
+    process?.road,
+    process?.axis,
+    process?.location,
+  );
+
+  return {
+    'ביצוע ע"י QC/QA': firstText(gradingLineResultValue(process, ['ביצוע ע"י QC/QA', 'ביצוע ע"י', "QC/QA"]), "QC"),
+    "מס' סדורי": serial,
+    "רשימת תיוג מספר": firstText(process?.checklistNo, process?.checklistNumber, process?.linkedChecklistNo),
+    "מקור החומר": materialSource,
+    "תאריך הבדיקה": testDate,
+    "תעודה מס'": certificateNo,
+    "מבנה": structure,
+    "מחתך": firstText(gradingLineResultValue(process, ["מחתך"]), process?.fromSection),
+    "עד חתך": firstText(gradingLineResultValue(process, ["עד חתך"]), process?.toSection),
+    "צד": gradingLineResultValue(process, ["צד"]),
+    "מהות העבודה": workEssence,
+    '3"': gradingLineResultValue(process, ['3"', "3 אינץ"]),
+    '1.5"': gradingLineResultValue(process, ['1.5"', '1.5', "37.5"]),
+    '1"': gradingLineResultValue(process, ['1"', "1 אינץ", "25"]),
+    '3/4"': gradingLineResultValue(process, ['3/4"', '3/4', "19"]),
+    "#4": gradingLineResultValue(process, ["#4", "4.75"]),
+    "#10": gradingLineResultValue(process, ["#10", "2.00", "2"]),
+    "#40": gradingLineResultValue(process, ["#40", "0.425"]),
+    "#200": gradingLineResultValue(process, ["#200", "0.075"]),
+    "LL": gradingLineResultValue(process, ["LL", "גבול נזילות"]),
+    "PL": gradingLineResultValue(process, ["PL", "גבול פלסטיות"]),
+    "IP": gradingLineResultValue(process, ["IP", "PI", "אינדקס פלסטיות"]),
+    "מיון": gradingLineResultValue(process, ["מיון AASHTO", "מיון", "AASHTO"]),
+    'אגרגט גס צפיפות ממשית': gradingLineResultValue(process, ['אגרגט גס צפיפות ממשית', "צפיפות ממשית"]),
+    'אגרגט גס ספיגות': gradingLineResultValue(process, ['אגרגט גס ספיגות', "ספיגות"]),
+    "100% מעבדתי": gradingLineResultValue(process, ["100% מעבדתי", "צפיפות מקסימלית", "צפיפות יבשה מקסימלית"]),
+    "רטיבות אופטימלית": gradingLineResultValue(process, ["רטיבות אופטימלית", "רטיבות אופטימלית"]),
+    'מקטע "3/4+': gradingLineResultValue(process, ['מקטע "3/4+', 'אבן +3/4', 'מקטע 3/4']),
+    "100% מחושב": gradingLineResultValue(process, ["100% מחושב", "100% מעוקב"]),
+    "רטיבות מחושבת": gradingLineResultValue(process, ["רטיבות מחושבת", "רטיבות כוללת"]),
+    "תפיחה חופשית": gradingLineResultValue(process, ["תפיחה חופשית"]),
+    "תכולת קרבונטים": gradingLineResultValue(process, ["תכולת קרבונטים"]),
+    "מעמד החומר": firstText(gradingLineResultValue(process, ["מעמד החומר"]), process?.status, process?.approval?.status),
+    "הערות": firstText(gradingLineResultValue(process, ["הערות", "מיון אחיד", "USCS"]), process?.notes, process?.description),
+  };
+};
+
+const buildEarthworksMaterialResultsRows = (processes: any[] = []): Row[] =>
+  processes
+    .filter(isGradingLineReferenceProcess)
+    .map((process: any, index: number) => earthworksMaterialResultRow(process, index + 1));
+
 const definitions: ConcentrationDefinition[] = [
   {
     id: "nonconformances",
@@ -2663,6 +2763,15 @@ const definitions: ConcentrationDefinition[] = [
     sourceLabel: "רשימות תיוג / תעודות",
     columns: selectedMaterialColumns,
     buildRows: ({ savedChecklists, savedControlProcesses }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses),
+  },
+  {
+    id: "earthworks-material-results",
+    title: "ריכוז תוצאות בדיקות חומרים בעבודות עפר",
+    fileName: "ריכוז תוצאות בדיקות חומרים בעבודות עפר.xlsx",
+    description: "ריכוז תוצאות תעודות ייחוס לעבודות עפר, שתית וקרקע יסוד מתוך בקרה מקדימה",
+    sourceLabel: "בקרה מקדימה / תעודות ייחוס",
+    columns: earthworksMaterialResultsColumns,
+    buildRows: ({ savedControlProcesses }) => buildEarthworksMaterialResultsRows(savedControlProcesses),
   },
   {
     id: "earthworks",
@@ -3528,6 +3637,73 @@ const buildSubbaseFieldWorksheetXml = (
 </worksheet>`;
 };
 
+const buildEarthworksMaterialResultsWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  const topHeader = earthworksMaterialResultsColumns;
+  const sizeHeader = [
+    "", "", "", "", "", "", "", "", "", "", "",
+    "75.0mm", "37.0mm", "25.0mm", "19.0mm", "4.75mm", "2.00mm", "0.425mm", "0.075mm",
+    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+  ];
+  const unitsHeader = [
+    "", "", "", "", "", "", "", "", "", "", "",
+    "%", "%", "%", "%", "%", "%", "%", "%", "%", "%", "%", "AASHTO",
+    'קג/מ"ק', "%", 'קג/מ"ק', "%", "%", 'קג/מ"ק', "%", "%", "%", "OK/NC", "",
+  ];
+  const sheetRows: string[] = [
+    emptyRowXml(1, 14),
+    rowXmlFromColumn(2, 8, [definition.title, "", "", "", "", "", "", "", "", "", "", ""], 1, 22),
+    emptyRowXml(3, 18),
+    sparseRowXml(4, [
+      ...rangeCells(8, ["שם הקבלן", "", "", meta.contractor], 2),
+      ...rangeCells(14, ["שם פרויקט", "", "", meta.projectName], 2),
+    ], 20),
+    sparseRowXml(5, [
+      ...rangeCells(8, ["חברת ניהול", "", "", meta.projectManager || meta.projectManagement], 2),
+      ...rangeCells(14, ["חוזה מס'", "", "", ""], 2),
+    ], 20),
+    sparseRowXml(6, [
+      ...rangeCells(8, ["חברת בקרת איכות", "", "", meta.qualityControl], 2),
+      ...rangeCells(14, ["חברת הבטחת איכות", "", "", meta.qualityAssurance], 2),
+    ], 20),
+    emptyRowXml(7, 16),
+    rowXml(8, topHeader, 3, 38),
+    rowXml(9, sizeHeader, 4, 22),
+    rowXml(10, unitsHeader, 3, 24),
+  ];
+
+  const dataRows = rows.length
+    ? rows.map((item) => earthworksMaterialResultsColumns.map((column) => item[column] ?? ""))
+    : Array.from({ length: 20 }, () => Array.from({ length: earthworksMaterialResultsColumns.length }, () => ""));
+
+  dataRows.forEach((values, index) => {
+    sheetRows.push(rowXml(11 + index, values, 6, 24));
+  });
+
+  const widths = [14, 12, 16, 22, 14, 14, 18, 10, 10, 10, 18, 10, 10, 10, 10, 10, 10, 10, 10, 9, 9, 9, 14, 18, 16, 15, 15, 14, 15, 15, 14, 14, 14, 24];
+  const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+  const merges = [
+    "H2:S2",
+    "H4:J4", "K4:M4", "N4:P4", "Q4:S4",
+    "H5:J5", "K5:M5", "N5:P5", "Q5:S5",
+    "H6:J6", "K6:M6", "N6:P6", "Q6:S6",
+    "A8:A10", "B8:B10", "C8:C10", "D8:D10", "E8:E10", "F8:F10", "G8:G10", "H8:H10", "I8:I10", "J8:J10", "K8:K10",
+    "T8:T9", "U8:U9", "V8:V9", "W8:W9", "X8:X9", "Y8:Y9", "Z8:Z9", "AA8:AA9", "AB8:AB9", "AC8:AC9", "AD8:AD9", "AE8:AE9", "AF8:AF9", "AG8:AG9",
+    "AH8:AH10",
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -3538,6 +3714,7 @@ const buildWorksheetXml = (
   if (definition.id === "nonconformances") return buildNonconformanceWorksheetXml(definition, rows, meta);
   if (definition.id === "subbase-a") return buildMatzeaAWorksheetXml(definition, rows, meta);
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
+  if (definition.id === "earthworks-material-results") return buildEarthworksMaterialResultsWorksheetXml(definition, rows, meta);
   if (definition.id === "density") return buildSubbaseFieldWorksheetXml(definition, rows, meta);
   if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
@@ -3661,17 +3838,18 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
         {visibleDefinitions.map((definition) => {
           const rows = rowsById[definition.id] ?? [];
           const isOpen = openId === definition.id;
+          const isTemplateConcentration = definition.id === "earthworks-material-results";
           return (
             <div key={definition.id} style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
                 </div>
-                <span style={{ borderRadius: 999, background: rows.length ? "#dcfce7" : "#f1f5f9", color: rows.length ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length} רשומות</span>
+                <span style={{ borderRadius: 999, background: rows.length || isTemplateConcentration ? "#dcfce7" : "#f1f5f9", color: rows.length || isTemplateConcentration ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
               </div>
 
               <div style={{ marginTop: 12, color: rows.length ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
+                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
               </div>
 
               <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
