@@ -940,6 +940,71 @@ const asphaltMetric = (record: any, aliases: string[]): string => metricValue(re
 const asphaltMetricOrApproved = (record: any, approvedValues: Partial<Row>, column: string, aliases: string[]): string =>
   firstText(asphaltMetric(record, aliases), approvedValues[column]);
 
+const referenceRowsFromValue = (value: unknown): any[] => {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (item && typeof item === "object" && firstText((item as any)?.metric, (item as any)?.label, (item as any)?.name, (item as any)?.measure)) {
+        return [item];
+      }
+      return referenceRowsFromValue(item);
+    });
+  }
+  return flattenRecord(value)
+    .map(({ key, value: resultValue }) => {
+      const metric = cleanText(key.split(".").pop() ?? key);
+      const result = compactValue(resultValue);
+      if (!metric || !result || looksLikeUuid(result)) return null;
+      return { metric, resultValue: result };
+    })
+    .filter(Boolean) as any[];
+};
+
+const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
+  const records: any[] = [];
+  checklists.forEach((checklist: any) => {
+    const checklistText = recordText(checklist);
+    const items = Array.isArray(checklist?.items) ? checklist.items : [];
+    items.forEach((item: any) => {
+      const attachments = itemAttachments(item);
+      attachments.forEach((attachment: any) => {
+        const parsedResults = attachment?.parsedResults ?? attachment?.labResults ?? attachment?.results ?? attachment?.details;
+        const referenceResults = referenceRowsFromValue(parsedResults);
+        const text = [
+          checklistText,
+          item?.description,
+          item?.title,
+          item?.notes,
+          attachmentName(attachment),
+          safeStringify(parsedResults),
+        ].join(" ");
+        if (!referenceResults.length || !includesAny(text, ["אספלט", "מרשל", "JMF", "תאצ", "תא״צ", "ביטומן"])) return;
+
+        records.push({
+          title: firstText(item?.description, checklist?.title, attachmentName(attachment)),
+          category: checklist?.category,
+          location: firstText(item?.location, checklist?.location),
+          contractor: firstText(item?.contractor, checklist?.contractor),
+          status: firstText(item?.status, checklist?.status, "מאושר"),
+          checklistNo: firstText(checklist?.checklistNo, checklist?.checklistNumber, checklist?.number, checklist?.id),
+          date: firstDateText(item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
+          asphaltMixType: firstText(
+            aliasesValue(parsedResults, ["סוג תערובת", "תערובת", "asphaltMixType"]),
+            item?.asphaltMixType,
+            checklist?.asphaltMixType,
+            item?.description,
+            checklist?.title,
+          ),
+          requiredDocuments: [attachment],
+          referenceResults,
+          notes: firstText(item?.notes, attachment?.description),
+        });
+      });
+    });
+  });
+  return records;
+};
+
 const isAsphaltReferenceProcess = (record: any): boolean => {
   const text = recordText(record);
   return includesAny(text, ["אספלט", "מרשל", "JMF", "תאצ", "תא״צ", "PG68", "PG70"]) && Array.isArray(record?.referenceResults);
@@ -950,14 +1015,14 @@ const asphaltJmfRow = (record: any, index: number): Row => {
   const approvedValues = approvedAsphaltJmfValuesByMix[mix] ?? {};
   return {
     'ביצוע ע"י QC/QA': "QC",
-    "מס' רשימת תיוג": "",
-    "מספר מדגם": firstText(asphaltMetric(record, ["מספר דגימה", "קוד תערובת"]), index + 1),
-    "תאריך": firstText(asphaltMetric(record, ["תאריך בדיקה", "תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+    "מס' רשימת תיוג": firstText(record?.checklistNo, record?.checklistNumber, record?.linkedChecklistNo),
+    "מספר מדגם": firstText(asphaltMetric(record, ["מספר מדגם", "מספר דגימה", "מס מדגם", "קוד תערובת"]), index + 1),
+    "תאריך": firstText(asphaltMetric(record, ["תאריך בדיקה", "תאריך"]), record?.date, dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
     "סוג תערובת": asphaltFullMixDescription(record, mix),
-    "מחתך": "",
-    "עד חתך": "",
-    "מס' מנה": "←     JMF",
-    "כמות פיזור יומית": "←     JMF",
+    "מחתך": firstText(asphaltMetric(record, ["מחתך", "מחתך התחלה"]), record?.fromSection),
+    "עד חתך": firstText(asphaltMetric(record, ["עד חתך", "מחתך סוף"]), record?.toSection),
+    "מס' מנה": firstText(asphaltMetric(record, ["מס מנה", "מס' מנה", "מנה"]), "←     JMF"),
+    "כמות פיזור יומית": firstText(asphaltMetric(record, ["כמות פיזור יומית", "כמות פיזור"]), "←     JMF"),
     '1.5"': asphaltMetricOrApproved(record, approvedValues, '1.5"', ['1.5"', "1.5"]),
     '1"': asphaltMetricOrApproved(record, approvedValues, '1"', ['1"', "1 אינץ"]),
     '3/4"': asphaltMetricOrApproved(record, approvedValues, '3/4"', ['3/4"', "3/4"]),
@@ -992,7 +1057,10 @@ const asphaltJmfRow = (record: any, index: number): Row => {
 
 const buildAsphaltConcentrationRows = (ctx: BuildContext, selectedMix = ""): Row[] => {
   const selected = normalizeAsphaltMix(selectedMix);
-  return ctx.savedControlProcesses
+  return [
+    ...ctx.savedControlProcesses,
+    ...asphaltChecklistAttachmentRecords(ctx.savedChecklists),
+  ]
     .filter(isAsphaltReferenceProcess)
     .filter((record) => !selected || asphaltMixLabel(record) === selected)
     .map(asphaltJmfRow);
