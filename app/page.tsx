@@ -8052,7 +8052,7 @@ const normalizeReferenceMetricKey = (value: unknown) => {
 };
 
 const isShortReferenceMetricKey = (value: string) =>
-  /^(?:1|1\.5|3\/4|1\/2|3\/8|#4|#10|#20|#40|#80|#200|mm\d+|vma)$/i.test(value);
+  /^(?:1|1\.5|2|3|3\/4|1\/2|3\/8|#4|#10|#20|#40|#80|#200|mm\d+|vma)$/i.test(value);
 
 const upsertParsedReferenceMetric = (
   rows: ReferenceResultRow[],
@@ -8235,7 +8235,7 @@ const extractGradingLinePdfCellResults = (textValue: string) => {
     if (plasticValues[2]) results["PL"] = plasticValues[2];
   }
 
-  const aashto = text.match(/\bA-\d-[a-z]\s*\(\d+\)/i)?.[0] ?? "";
+  const aashto = text.match(/\bA-\d-[a-z0-9]\s*\(\d+\)/i)?.[0] ?? "";
   if (aashto) results["מיון AASHTO"] = aashto;
   const unified = text.match(/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i)?.[1] ?? "";
   if (unified) results["מיון אחיד"] = unified.toUpperCase();
@@ -8322,7 +8322,7 @@ const applyQtestSelectedMaterialFallback = (
   const certDate = extractReferencePdfDate(text) || (text.includes("21/04/2026") ? "2026-04-21" : "");
   set(["מספר תעודת מעבדה", "מספר תעודה"], certNo);
   set(["תאריך"], certDate);
-  set(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i]) || "A-1-b (0)");
+  set(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstRegexGroup(text, [/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]) || "A-1-b (0)");
   set(["מיון אחיד"], firstRegexGroup(text, [/\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]) || "SM");
   set(["תיאור החומר", "סוג החומר"], firstRegexGroup(text, [/(אבן\s+גרוסה\s*-\s*מילוי\s+נברר)/i]) || "אבן גרוסה - מילוי נברר");
   set(["מקור החומר", "מקור"], firstRegexGroup(text, [/(מחצבה\s+גולני)/i]) || "מחצבה גולני");
@@ -8401,7 +8401,7 @@ const applyGradingLineFallbackFromText = (
   set(["עד חתך"], textAfter([/עד\s+חתך\s*(\d+(?:[.,]\d+)?)/i]));
   set(["צד"], textAfter([/\b([RL])\b/i]));
   set(["מהות העבודה", "סוג העבודה"], textAfter([/(שתית\s+טבעית)/i, /(קרקע\s+יסוד)/i, /(מילוי\s+[^\n]{2,30})/i]));
-  set(["מיון AASHTO", "מיון", "AASHTO"], textAfter([/\b(A-\d-[a-z]\s*\(\d+\))/i]));
+  set(["מיון AASHTO", "מיון", "AASHTO"], textAfter([/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]));
 
   const metrics = [
     { aliases: ['3"', "3 אינץ"], anchors: ['3"', "75.0mm", "75mm"] },
@@ -8617,7 +8617,7 @@ const applyGradingLineFallbackFromText = (
     if (plasticValues[2]) set(["PL"], plasticValues[2]);
   }
 
-  const aashtoValue = firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i]);
+  const aashtoValue = firstRegexGroup(text, [/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]);
   if (aashtoValue) set(["מיון AASHTO", "מיון", "AASHTO"], aashtoValue);
   const unifiedValue = firstRegexGroup(text, [/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i]);
   if (unifiedValue) set(["מיון אחיד", "Unified", "USCS"], unifiedValue);
@@ -9028,7 +9028,7 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
 
   const certNo = extractReferencePdfNumber(text);
   const certDate = extractReferencePdfDate(text);
-  const aashto = firstRegexGroup(text, [/\b(A-\d-[a-z]\s*\(\d+\))/i, /מיון\s+AASHTO\s*([A-Z0-9\-()\s]+)/i]);
+  const aashto = firstRegexGroup(text, [/\b(A-\d-[a-z0-9]\s*\(\d+\))/i, /מיון\s+AASHTO\s*([A-Z0-9\-()\s]+)/i]);
   const unified = firstRegexGroup(text, [/מיון\s+אחיד\s+לפי\s+ת["׳']?י\s*254\s*([A-Z]{1,3})/i, /\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]);
   const material = firstRegexGroup(text, [/סוג\s+החומר\s+([^\n]+?)(?:\s+תאור|\s+תיאור|\s+מקור|\s+הדוגם|$)/i, /(אבן\s+גרוסה\s*-\s*[^\n]+)/i]);
   const source = firstRegexGroup(text, [/מקור\s+החומר\s+([^\n]+?)(?:\s+הדוגם|\s+AASHTO|\s+מיון|$)/i, /(מחצבה\s+[^\n\s]+)/i]);
