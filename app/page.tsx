@@ -3192,6 +3192,7 @@ async function saveWithApprovalFallback(
     "details",
     "status",
     "structure_node_id",
+    "date",
   ] as const;
   const omittedColumns = new Set<string>();
 
@@ -8112,16 +8113,43 @@ const extractGradingLinePdfCellResults = (textValue: string) => {
     isSame(lines[index + 8] ?? "", "#200")
   );
   if (labelIndex < 0) return null;
-  const sizeStart = labelIndex + 9;
-  const sizeValues = ["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"];
-  const hasSizes = sizeValues.every((value, index) => isSame(lines[sizeStart + index] ?? "", value));
-  const valueStart = hasSizes ? sizeStart + sizeValues.length : sizeStart;
-  const values: string[] = [];
-  for (let index = valueStart; index < Math.min(lines.length, valueStart + 12); index += 1) {
-    const token = clean(lines[index]).replace(",", ".");
-    if (!/^\d+(?:\.\d+)?$/.test(token)) break;
-    values.push(token);
-  }
+  const sizeValues = new Set(["75", "75.0", "37", "37.0", "37.5", "25", "25.0", "19", "19.0", "9.5", "4.75", "2", "2.0", "2.00", "0.425", "0.075"]);
+  const numericLineValue = (value: unknown) => {
+    const token = clean(value).replace(",", ".");
+    return /^\d+(?:\.\d+)?$/.test(token) ? token : "";
+  };
+  const isLikelyPercentSequence = (candidate: string[]) => {
+    if (candidate.length < 7 || candidate[0] !== "100") return false;
+    const numbers = candidate.map(Number);
+    if (numbers.some((value) => Number.isNaN(value) || value < 0 || value > 100)) return false;
+    let drops = 0;
+    for (let index = 1; index < numbers.length; index += 1) {
+      if (numbers[index] <= numbers[index - 1]) drops += 1;
+    }
+    return drops >= candidate.length - 2;
+  };
+  const findSieveValues = () => {
+    const scanEnd = Math.min(lines.length, labelIndex + 110);
+    for (let start = labelIndex + 1; start < scanEnd; start += 1) {
+      if (numericLineValue(lines[start]) !== "100") continue;
+      const candidate: string[] = [];
+      let gapAfterStart = 0;
+      for (let index = start; index < scanEnd && candidate.length < 9; index += 1) {
+        const token = numericLineValue(lines[index]);
+        if (!token) {
+          if (candidate.length) gapAfterStart += 1;
+          if (candidate.length >= 7 && gapAfterStart > 2) break;
+          continue;
+        }
+        gapAfterStart = 0;
+        if (!candidate.length && token !== "100") continue;
+        if (!candidate.length || !sizeValues.has(token)) candidate.push(token);
+      }
+      if (isLikelyPercentSequence(candidate)) return candidate;
+    }
+    return [];
+  };
+  const values = findSieveValues();
   const results: Record<string, string> = {};
   if (values.length >= 9) {
     Object.assign(results, {
@@ -13309,41 +13337,12 @@ export default function Page() {
 
     await withSaving(async () => {
       if (cloudEnabled) {
-        let row = sanitizeCloudPayload(controlProcessToRow(record));
-        let result = editingControlProcessId
-          ? await supabase!
-              .from(CONTROL_PROCESS_TABLE)
-              .update(row)
-              .eq("id", editingControlProcessId)
-          : await supabase!
-              .from(CONTROL_PROCESS_TABLE)
-              .insert(row);
-        if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
-          const { structure_node_id, ...fallbackRow } = row;
-          row = fallbackRow;
-          result = editingControlProcessId
-            ? await supabase!
-                .from(CONTROL_PROCESS_TABLE)
-                .update(fallbackRow)
-                .eq("id", editingControlProcessId)
-            : await supabase!
-                .from(CONTROL_PROCESS_TABLE)
-                .insert(fallbackRow);
-        }
-        if (result.error && isMissingColumnError(result.error, "date")) {
-          const { date, ...fallbackRow } = row;
-          row = fallbackRow;
-          result = editingControlProcessId
-            ? await supabase!
-                .from(CONTROL_PROCESS_TABLE)
-                .update(fallbackRow)
-                .eq("id", editingControlProcessId)
-            : await supabase!
-                .from(CONTROL_PROCESS_TABLE)
-                .insert(fallbackRow);
-        }
-        if (result.error && !shouldIgnoreCloudError(result.error))
-          throw result.error;
+        await saveWithApprovalFallback(
+          CONTROL_PROCESS_TABLE,
+          controlProcessToRow(record),
+          editingControlProcessId ? "update" : "insert",
+          editingControlProcessId ?? undefined,
+        );
       }
       setSavedControlProcesses((prev) =>
         editingControlProcessId
