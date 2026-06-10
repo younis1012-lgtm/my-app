@@ -22,6 +22,7 @@ import {
   defaultProjects,
   normalizeChecklistTemplateKey,
 } from "./checklistTemplates";
+import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
@@ -2549,6 +2550,23 @@ const createDefaultPlanRecord = (): Omit<PlanRecord, "id" | "projectId" | "saved
   attachments: [],
 });
 
+const createRoad806SeedPlans = (projectId: unknown): PlanRecord[] => {
+  const normalizedProjectId = normalizeStoredProjectId(projectId) || normalizeStoredProjectId("project-806");
+  return road806PlanRegister.map((plan, index) => ({
+    id: `road806-plan-${index + 1}`,
+    projectId: normalizedProjectId,
+    planNo: plan.planNo,
+    revision: plan.revision,
+    title: plan.title,
+    discipline: plan.discipline,
+    date: plan.date,
+    status: plan.status,
+    notes: plan.notes,
+    attachments: [],
+    savedAt: "ריכוז תוכניות מובנה",
+  }));
+};
+
 const normalizePlanRecord = (value: any): PlanRecord | null => {
   if (!value || typeof value !== "object") return null;
   return {
@@ -2841,6 +2859,10 @@ const createDefaultChecklist = (
   stationSection: "",
   toStationSection: "",
   offset: "",
+  selectedPlanId: "",
+  executionPlanNo: "",
+  executionPlanName: "",
+  executionPlanRevision: "",
   revision: CHECKLIST_DEFAULT_REVISION,
   revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
   items: buildChecklistItemsFromTemplate(templateKey),
@@ -3747,6 +3769,7 @@ type InlineChecklistSectionProps = {
   ) => void;
   onRemoveAttachment: (itemId: string, attachmentId: string) => void;
   savedSignatureForSigner?: (signerName: string, role?: string) => string;
+  projectPlans: PlanRecord[];
 };
 
 type ProcessSignature = {
@@ -4054,6 +4077,7 @@ function ChecklistsSection({
   onUploadAttachment,
   onRemoveAttachment,
   savedSignatureForSigner,
+  projectPlans,
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: CSSProperties = {
@@ -4080,6 +4104,26 @@ function ChecklistsSection({
   };
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
+  const selectExecutionPlan = (planId: string) => {
+    const selectedPlan = projectPlans.find((plan) => plan.id === planId);
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: planId,
+      executionPlanNo: selectedPlan?.planNo ?? "",
+      executionPlanName: selectedPlan?.title ?? "",
+      executionPlanRevision: selectedPlan?.revision ?? "",
+    }));
+  };
+  const setExecutionPlanNo = (planNo: string) => {
+    const selectedPlan = projectPlans.find((plan) => plan.planNo === planNo);
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: selectedPlan?.id ?? prev.selectedPlanId ?? "",
+      executionPlanNo: planNo,
+      executionPlanName: selectedPlan?.title ?? prev.executionPlanName ?? "",
+      executionPlanRevision: selectedPlan?.revision ?? prev.executionPlanRevision ?? "",
+    }));
+  };
   const topTableInputStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
@@ -4379,6 +4423,51 @@ function ChecklistsSection({
               <input
                 value={(checklistForm as any).roadStructure ?? ""}
                 onChange={(event) => setField("roadStructure", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>בחירת תוכנית ביצוע</span>
+              <select
+                value={(checklistForm as any).selectedPlanId ?? ""}
+                onChange={(event) => selectExecutionPlan(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="">בחר מתוך תיקיית תוכניות</option>
+                {projectPlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.planNo || plan.title} {plan.title ? `- ${plan.title}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
+              <input
+                value={(checklistForm as any).executionPlanNo ?? ""}
+                onChange={(event) => setExecutionPlanNo(event.target.value)}
+                style={inputStyle}
+                list="execution-plan-number-options"
+              />
+              <datalist id="execution-plan-number-options">
+                {projectPlans.map((plan) => (
+                  <option key={plan.id} value={plan.planNo}>{plan.title}</option>
+                ))}
+              </datalist>
+            </label>
+            <label>
+              <span style={labelStyle}>שם תוכנית ביצוע</span>
+              <input
+                value={(checklistForm as any).executionPlanName ?? ""}
+                onChange={(event) => setField("executionPlanName", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מהדורת תוכנית</span>
+              <input
+                value={(checklistForm as any).executionPlanRevision ?? ""}
+                onChange={(event) => setField("executionPlanRevision", event.target.value)}
                 style={inputStyle}
               />
             </label>
@@ -11090,11 +11179,15 @@ export default function Page() {
     if (typeof window === "undefined") return;
     try {
       const parsed = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
-      setSavedPlans((Array.isArray(parsed) ? parsed : []).map(normalizePlanRecord).filter(Boolean) as PlanRecord[]);
+      const localPlans = (Array.isArray(parsed) ? parsed : []).map(normalizePlanRecord).filter(Boolean) as PlanRecord[];
+      const seedPlans = createRoad806SeedPlans(currentProjectId);
+      const existingIds = new Set(localPlans.map((plan) => plan.id));
+      const missingSeedPlans = seedPlans.filter((plan) => !existingIds.has(plan.id));
+      setSavedPlans([...localPlans, ...missingSeedPlans]);
     } catch {
-      setSavedPlans([]);
+      setSavedPlans(createRoad806SeedPlans(currentProjectId));
     }
-  }, []);
+  }, [currentProjectId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -11677,6 +11770,10 @@ export default function Page() {
           offset: details.offset ?? "",
           revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
           revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
+          selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
+          executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
+          executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
+          executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
           items: normalizeChecklistItems(row.items),
           approval: normalizeApproval(row.approval),
           savedAt: row.saved_at
@@ -12719,22 +12816,27 @@ export default function Page() {
       normalizedSearchTerm,
     ],
   );
-  const projectPlans = useMemo(
+  const currentProjectPlans = useMemo(
     () =>
-      savedPlans
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
+      savedPlans.filter((item) => recordMatchesCurrentProject(item.projectId)),
     [
       savedPlans,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+    ],
+  );
+  const projectPlans = useMemo(
+    () =>
+      currentProjectPlans.filter(
+        (item) =>
+          !normalizedSearchTerm ||
+          [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedSearchTerm),
+      ),
+    [
+      currentProjectPlans,
       normalizedSearchTerm,
     ],
   );
@@ -13309,6 +13411,10 @@ export default function Page() {
         ...next,
         location: prev.location,
         date: prev.date,
+        selectedPlanId: prev.selectedPlanId ?? "",
+        executionPlanNo: prev.executionPlanNo ?? "",
+        executionPlanName: prev.executionPlanName ?? "",
+        executionPlanRevision: prev.executionPlanRevision ?? "",
         contractor:
           !prev.contractor || prev.contractor.includes("פלסי הגליל")
             ? profile?.contractor || ""
@@ -13779,6 +13885,10 @@ export default function Page() {
       revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
       structureNodeId: String((checklistForm as any).structureNodeId ?? ""),
+      selectedPlanId: String((checklistForm as any).selectedPlanId ?? ""),
+      executionPlanNo: String((checklistForm as any).executionPlanNo ?? ""),
+      executionPlanName: String((checklistForm as any).executionPlanName ?? ""),
+      executionPlanRevision: String((checklistForm as any).executionPlanRevision ?? ""),
     };
     const items = normalizeChecklistItems(checklistForm.items);
     const normalizedApproval = normalizeApproval(checklistForm.approval);
@@ -14919,7 +15029,10 @@ export default function Page() {
     const exportProjectName =
       (checklistForm as any).projectNameDisplay || profile?.projectName || projectName || "";
     const exportContractor = checklistForm.contractor || profile?.contractor || "";
-    const executionPlanNo = checklistForm.location || "";
+    const layerNo = checklistForm.location || "";
+    const executionPlanNo = (checklistForm as any).executionPlanNo || "";
+    const executionPlanName = (checklistForm as any).executionPlanName || "";
+    const executionPlanRevision = (checklistForm as any).executionPlanRevision || "";
     const roadStructure = (checklistForm as any).roadStructure || "";
     const stationSection = (checklistForm as any).stationSection || "";
     const toStationSection = (checklistForm as any).toStationSection || "";
@@ -14977,7 +15090,9 @@ export default function Page() {
     <table class="checklist-top-table source-meta">
       <tbody>
         <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ שכבה</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
-        <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(executionPlanNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+        <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(layerNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+        <tr><th>מס׳ תוכנית ביצוע</th><th colspan="3">שם תוכנית ביצוע</th><th>מהדורת תוכנית</th></tr>
+        <tr><td>${valueOrBlank(executionPlanNo, 24)}</td><td colspan="3">${valueOrBlank(executionPlanName, 58)}</td><td>${valueOrBlank(executionPlanRevision, 18)}</td></tr>
         <tr><th>מחתך</th><th>לחתך</th><th>היטס</th><th colspan="2">הערות</th></tr>
         <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
       </tbody>
@@ -16848,6 +16963,7 @@ ${invalidRecipients.join("\n")}`);
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
                 savedSignatureForSigner={savedSignatureForSigner}
+                projectPlans={currentProjectPlans}
               />
             </>
           )}
