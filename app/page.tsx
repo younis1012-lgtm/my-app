@@ -54,6 +54,7 @@ const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 
 type AppSection =
   | Section
+  | "account"
   | "concentrations"
   | "projectDetails"
   | "projectUsers"
@@ -11147,6 +11148,12 @@ export default function Page() {
   const [editingProjectLegend, setEditingProjectLegend] = useState(false);
   const [projectLegendDirty, setProjectLegendDirty] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [accountForm, setAccountForm] = useState({
+    username: "",
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [loginCode, setLoginCode] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -11370,6 +11377,15 @@ export default function Page() {
       window.clearInterval(timer);
     };
   }, [projectAccess]);
+
+  useEffect(() => {
+    setAccountForm({
+      username: projectAccess?.username ?? "",
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  }, [projectAccess?.username]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -11618,6 +11634,98 @@ export default function Page() {
       prevUsers.filter((_, userIndex) => userIndex !== index),
     );
     setAccessUsersDirty(true);
+  };
+
+  const updateCurrentAccount = async () => {
+    if (!projectAccess) return;
+
+    const nextUsername = accountForm.username.trim();
+    const currentPassword = accountForm.currentPassword;
+    const nextPassword = accountForm.newPassword;
+    const confirmPassword = accountForm.confirmPassword;
+
+    if (!nextUsername) return alert("יש להזין שם משתמש.");
+    if (!currentPassword) return alert("יש להזין את הסיסמה הנוכחית.");
+    if (nextPassword && nextPassword.length < 4)
+      return alert("הסיסמה החדשה חייבת להכיל לפחות 4 תווים.");
+    if (nextPassword !== confirmPassword)
+      return alert("אישור הסיסמה אינו תואם לסיסמה החדשה.");
+
+    if (projectAccess.authProvider === "supabase") {
+      if (!supabase || !projectAccess.email)
+        return alert("לא ניתן לעדכן משתמש Supabase כרגע.");
+      try {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: projectAccess.email,
+          password: currentPassword,
+        });
+        if (signInError) return alert("הסיסמה הנוכחית אינה נכונה.");
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: nextPassword || currentPassword,
+          data: { name: nextUsername, full_name: nextUsername },
+        });
+        if (updateError) throw updateError;
+
+        const updatedAccess = await loadSupabaseAuthAccess();
+        if (updatedAccess) setProjectAccess(updatedAccess);
+        setAccountForm({
+          username: updatedAccess?.username ?? projectAccess.username,
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+        alert("פרטי החשבון נשמרו בהצלחה.");
+      } catch (error) {
+        alert(`שגיאה בשמירת פרטי החשבון: ${errorText(error)}`);
+      }
+      return;
+    }
+
+    const currentIndex = accessUsers.findIndex(
+      (user) =>
+        user.username === projectAccess.username ||
+        user.code === projectAccess.code,
+    );
+    if (currentIndex < 0) return alert("לא נמצאה רשומת המשתמש המחובר.");
+
+    const currentUser = accessUsers[currentIndex];
+    if (String(currentUser.password) !== String(currentPassword))
+      return alert("הסיסמה הנוכחית אינה נכונה.");
+
+    const normalizedNextUsername = normalizeAccessValue(nextUsername);
+    const usernameTaken = accessUsers.some(
+      (user, index) =>
+        index !== currentIndex &&
+        normalizeAccessValue(user.username) === normalizedNextUsername,
+    );
+    if (usernameTaken) return alert("שם המשתמש כבר קיים במערכת.");
+
+    const nextUsers = accessUsers.map((user, index) =>
+      index === currentIndex
+        ? {
+            ...user,
+            username: nextUsername,
+            password: nextPassword || currentPassword,
+          }
+        : user,
+    );
+
+    try {
+      await persistAccessUsers(nextUsers);
+      const updatedUser = nextUsers[currentIndex];
+      setProjectAccess(updatedUser);
+      writeAuthSession(updatedUser);
+      setAccountForm({
+        username: updatedUser.username,
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      alert("פרטי החשבון נשמרו בהצלחה.");
+    } catch (error) {
+      alert(`שגיאה בשמירת פרטי החשבון: ${errorText(error)}`);
+    }
   };
 
   const uploadUserSignature = (index: number, file?: File) => {
@@ -16378,6 +16486,7 @@ ${invalidRecipients.join("\n")}`);
   ].includes(section);
   const navItems: Array<[AppSection, string]> = canManageProjects
     ? [
+        ["account", "החשבון שלי"],
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
@@ -16393,6 +16502,7 @@ ${invalidRecipients.join("\n")}`);
         ["concentrations", "ריכוזים"],
       ]
     : [
+        ["account", "החשבון שלי"],
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
@@ -16854,6 +16964,114 @@ ${invalidRecipients.join("\n")}`);
               onLoad={loadPlan}
               onDelete={deletePlan}
             />
+          )}
+          {section === "account" && (
+            <section style={{ display: "grid", gap: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>
+                  החשבון שלי
+                </h2>
+                <div style={{ color: "#64748b", marginTop: 6 }}>
+                  שינוי שם משתמש וסיסמה עבור המשתמש המחובר בלבד.
+                </div>
+              </div>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void updateCurrentAccount();
+                }}
+                style={{
+                  display: "grid",
+                  gap: 14,
+                  maxWidth: 520,
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 14,
+                  padding: 18,
+                  background: "#fff",
+                }}
+              >
+                <label style={{ display: "grid", gap: 7, fontWeight: 900 }}>
+                  שם משתמש
+                  <input
+                    value={accountForm.username}
+                    onChange={(event) =>
+                      setAccountForm((prev) => ({
+                        ...prev,
+                        username: event.target.value,
+                      }))
+                    }
+                    disabled={projectAccess.authProvider === "supabase"}
+                    style={{
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 12,
+                      padding: "12px 14px",
+                      fontWeight: 800,
+                      direction: "ltr",
+                      background:
+                        projectAccess.authProvider === "supabase"
+                          ? "#f8fafc"
+                          : "#fff",
+                    }}
+                  />
+                </label>
+                {projectAccess.authProvider === "supabase" ? (
+                  <div
+                    style={{
+                      color: "#475569",
+                      fontWeight: 800,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    בחיבור אימייל, שם המשתמש הוא כתובת המייל. ניתן לשנות כאן
+                    סיסמה ושם תצוגה, אך שינוי מייל נעשה דרך מנהל Supabase.
+                  </div>
+                ) : null}
+                <label style={{ display: "grid", gap: 7, fontWeight: 900 }}>
+                  סיסמה נוכחית
+                  <PasswordField
+                    value={accountForm.currentPassword}
+                    onChange={(value) =>
+                      setAccountForm((prev) => ({
+                        ...prev,
+                        currentPassword: value,
+                      }))
+                    }
+                    autoComplete="current-password"
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 7, fontWeight: 900 }}>
+                  סיסמה חדשה
+                  <PasswordField
+                    value={accountForm.newPassword}
+                    onChange={(value) =>
+                      setAccountForm((prev) => ({
+                        ...prev,
+                        newPassword: value,
+                      }))
+                    }
+                    placeholder="השאר ריק אם אין שינוי"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 7, fontWeight: 900 }}>
+                  אישור סיסמה חדשה
+                  <PasswordField
+                    value={accountForm.confirmPassword}
+                    onChange={(value) =>
+                      setAccountForm((prev) => ({
+                        ...prev,
+                        confirmPassword: value,
+                      }))
+                    }
+                    placeholder="השאר ריק אם אין שינוי"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button type="submit" style={styles.primaryBtn}>
+                  שמור שינויים
+                </button>
+              </form>
+            </section>
           )}
           {section === "home" && (
             <HomeSection
