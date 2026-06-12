@@ -2571,6 +2571,73 @@ const getPlanImportValue = (row: Record<string, unknown>, aliases: string[]) => 
   return match ? String(match[1] ?? "").trim() : "";
 };
 
+const PLAN_IMPORT_ALIASES = {
+  planNo: [
+    "מספר תוכנית",
+    "מס' תוכנית",
+    "מספר תכנית",
+    "מס' תכנית",
+    "תוכנית",
+    "תכנית",
+    "מספר",
+    "plan no",
+    "plan number",
+    "drawing no",
+    "drawing number",
+  ],
+  revision: ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"],
+  title: [
+    "שם / תיאור",
+    "שם תוכנית",
+    "שם תכנית",
+    "שם התוכנית",
+    "שם התכנית",
+    "תיאור",
+    "שם",
+    "title",
+    "description",
+    "drawing title",
+  ],
+  discipline: ["תחום", "דיסציפלינה", "מקצוע", "discipline", "field"],
+  date: ["תאריך", "תאריך מהדורה", "תאריך עדכון", "date", "revision date"],
+  status: ["סטטוס", "מטרה", "purpose", "status"],
+  scale: ["קנ\"מ", "קנמ", "קנה מידה", "scale"],
+  notes: ["הערות", "הערה", "notes", "remarks", "remark"],
+};
+
+const planRegisterHeaderScore = (row: unknown[]) => {
+  const cells = row.map(normalizePlanImportHeader).filter(Boolean);
+  const groups = [
+    PLAN_IMPORT_ALIASES.planNo,
+    PLAN_IMPORT_ALIASES.title,
+    PLAN_IMPORT_ALIASES.revision,
+    PLAN_IMPORT_ALIASES.date,
+    PLAN_IMPORT_ALIASES.status,
+    PLAN_IMPORT_ALIASES.scale,
+  ];
+  return groups.filter((aliases) => cells.some((cell) => aliases.some((alias) => cell === normalizePlanImportHeader(alias)))).length;
+};
+
+const parsePlanRegisterSheetRows = (rows: unknown[][]): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
+  const headerIndex = rows.findIndex((row) => planRegisterHeaderScore(row) >= 2);
+  if (headerIndex < 0) return [];
+
+  const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
+  return rows
+    .slice(headerIndex + 1)
+    .map((row) => {
+      const values = Array.isArray(row) ? row : [];
+      const objectRow = headers.reduce<Record<string, unknown>>((acc, header, index) => {
+        if (header) acc[header] = values[index] ?? "";
+        return acc;
+      }, {});
+      return objectRow;
+    })
+    .filter((row) => Object.values(row).some((value) => String(value ?? "").trim()))
+    .map((row) => parsePlanRegisterRow(row))
+    .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+};
+
 const normalizePlanImportDate = (value: unknown) => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -15099,13 +15166,22 @@ export default function Page() {
         const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
         if (!worksheet) return alert("לא נמצאה גיליון תוכניות בקובץ");
 
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+        const matrixRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+          header: 1,
           defval: "",
           raw: false,
         });
-        importedPlans = rows
-          .map((row) => parsePlanRegisterRow(row))
-          .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+        importedPlans = parsePlanRegisterSheetRows(matrixRows);
+
+        if (!importedPlans.length) {
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+            defval: "",
+            raw: false,
+          });
+          importedPlans = rows
+            .map((row) => parsePlanRegisterRow(row))
+            .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+        }
       }
 
       if (!importedPlans.length) {
