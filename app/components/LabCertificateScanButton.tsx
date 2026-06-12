@@ -58,6 +58,7 @@ export default function LabCertificateScanButton({
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   const scanBuffer = async (buffer: ArrayBuffer, fileInfo?: FileInfo) => {
     setBusy(true);
@@ -111,7 +112,33 @@ export default function LabCertificateScanButton({
         : "צרף תעודת מעבדה";
 
   return (
-    <>
+    <div
+      style={{
+        border: `1px dashed ${dragActive ? "#0f172a" : "#cbd5e1"}`,
+        borderRadius: 12,
+        padding: 8,
+        background: dragActive ? "#eff6ff" : "#fff",
+        display: "grid",
+        gap: 6,
+      }}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        void handleFile(event.dataTransfer.files?.[0]);
+      }}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -140,6 +167,7 @@ export default function LabCertificateScanButton({
       >
         📎 {buttonText}
       </button>
-    </>
+      <div style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>אפשר לגרור לכאן PDF</div>
+    </div>
   );
 }

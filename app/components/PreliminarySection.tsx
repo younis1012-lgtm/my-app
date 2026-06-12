@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react';
 import type { PreliminaryRecord, PreliminaryTab } from '../types';
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
+import { FileDropZone } from './FileDropZone';
 
 type StoredAttachment = {
   name: string;
@@ -436,10 +437,14 @@ export function PreliminarySection(props: PreliminarySectionProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>מסמכים / תעודות / רישיונות</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <label style={{ ...styles.primaryBtn, display: 'inline-flex', cursor: 'pointer' }}>
-              צרף קובץ חדש וסרוק
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" style={{ display: 'none' }} onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFile(null, file); e.currentTarget.value = ''; }} />
-            </label>
+            <div style={{ minWidth: 260 }}>
+              <FileDropZone
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                buttonLabel="צרף קובץ חדש וסרוק"
+                helperText="גרור לכאן תעודות או בחר קבצים"
+                onFiles={(files) => Array.from(files).forEach((file) => handleFile(null, file))}
+              />
+            </div>
             <button type="button" style={styles.secondaryBtn} onClick={addEmptyRow}>הוסף שורה ידנית</button>
           </div>
         </div>
@@ -465,10 +470,12 @@ export function PreliminarySection(props: PreliminarySectionProps) {
                   <td style={td}><input style={styles.input} value={row.certificateNo} onChange={(e) => updateRow(row.id, { certificateNo: e.target.value })} /></td>
                   <td style={td}><input type="date" style={styles.input} value={row.expiryDate} onChange={(e) => updateRow(row.id, { expiryDate: e.target.value })} /></td>
                   <td style={td}>
-                    <label style={{ ...styles.secondaryBtn, display: 'inline-flex', cursor: 'pointer' }}>
-                      צרף וסרוק
-                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" style={{ display: 'none' }} onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFile(row.id, file); e.currentTarget.value = ''; }} />
-                    </label>
+                    <FileDropZone
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                      buttonLabel="צרף וסרוק"
+                      helperText="גרור לכאן מסמך לשורה זו"
+                      onFiles={(files) => Array.from(files).forEach((file) => handleFile(row.id, file))}
+                    />
                     <div style={{ fontSize: 12, color: row.ocrMessage?.startsWith('שגיאת') ? '#b91c1c' : '#475569', marginTop: 6 }}>{row.ocrMessage || ''}</div>
                     <div style={{ fontSize: 12, color: '#0f766e', marginTop: 4 }}>{row.attachments.map((a) => `✅ ${a.name}`).join(' | ')}</div>
                   </td>

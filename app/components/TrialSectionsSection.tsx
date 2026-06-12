@@ -1,5 +1,6 @@
 type TrialSectionRecord = any;
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
+import { FileDropZone } from './FileDropZone';
 
 type StoredAttachment = {
   name: string;
@@ -76,7 +77,7 @@ function AttachmentsField({
 }) {
   const attachments = normalizeAttachments(value);
 
-  const addFiles = async (files: FileList | null) => {
+  const addFiles = async (files: FileList | File[] | null) => {
     if (!files?.length) return;
     const nextFiles = await Promise.all(Array.from(files).map(readFileAsDataUrl));
     onChange([...attachments, ...nextFiles]);
@@ -87,15 +88,11 @@ function AttachmentsField({
   return (
     <div style={{ ...styles.card, marginTop: 10 }}>
       <div style={{ fontWeight: 800, marginBottom: 8 }}>תמונות וקבצים מצורפים</div>
-      <input
-        type="file"
-        multiple
+      <FileDropZone
         accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-        style={styles.input}
-        onChange={(event) => {
-          void addFiles(event.target.files);
-          event.currentTarget.value = '';
-        }}
+        buttonLabel="צרף תמונות / קבצים"
+        helperText="גרור לכאן תמונות או מסמכים"
+        onFiles={addFiles}
       />
       <div style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>ניתן לצרף תמונות, PDF, Word ו-Excel.</div>
       {attachments.length > 0 && (

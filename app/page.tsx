@@ -24,6 +24,7 @@ import {
 } from "./checklistTemplates";
 import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
+import { FileDropZone } from "./components/FileDropZone";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
@@ -3808,29 +3809,16 @@ function ChecklistAttachmentsPanel({
                       verticalAlign: "top",
                     }}
                   >
-                    <label
-                      style={{
-                        display: "inline-block",
-                        cursor: "pointer",
-                        border: "1px solid #0f172a",
-                        borderRadius: 10,
-                        padding: "7px 10px",
-                        fontWeight: 800,
-                        background: "#fff",
+                    <FileDropZone
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                      multiple={false}
+                      buttonLabel={`צרף ${checklistAttachmentLabel(kind)}`}
+                      helperText="גרור לכאן קובץ"
+                      onFiles={(files) => {
+                        const file = Array.from(files)[0];
+                        if (file) onUpload(item.id, kind, file);
                       }}
-                    >
-                      📎 צרף {checklistAttachmentLabel(kind)}
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                        style={{ display: "none" }}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file) onUpload(item.id, kind, file);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
+                    />
                   </td>
                   <td
                     style={{
@@ -5259,32 +5247,17 @@ function ChecklistsSection({
                             style={{ marginTop: 8, display: "grid", gap: 6 }}
                           >
                             {attachmentKinds.map((kind) => (
-                              <label
+                              <FileDropZone
                                 key={kind}
-                                style={{
-                                  display: "inline-block",
-                                  cursor: "pointer",
-                                  border: "1px solid #0f172a",
-                                  borderRadius: 8,
-                                  padding: "6px 8px",
-                                  fontWeight: 900,
-                                  background: "#fff",
-                                  textAlign: "center",
+                                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                                multiple={false}
+                                buttonLabel={checklistAttachmentActionLabel(kind, item)}
+                                helperText="גרור לכאן קובץ"
+                                onFiles={(files) => {
+                                  const file = Array.from(files)[0];
+                                  if (file) onUploadAttachment(item.id, kind, file);
                                 }}
-                              >
-                                📎 {checklistAttachmentActionLabel(kind, item)}
-                                <input
-                                  type="file"
-                                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                                  style={{ display: "none" }}
-                                  onChange={(event) => {
-                                    const file = event.target.files?.[0];
-                                    if (file)
-                                      onUploadAttachment(item.id, kind, file);
-                                    event.currentTarget.value = "";
-                                  }}
-                                />
-                              </label>
+                              />
                             ))}
                             {attachments.length ? (
                               <div style={{ display: "grid", gap: 4 }}>
@@ -5991,20 +5964,13 @@ function SupervisionReportsSection({
           <div style={{ ...label, gridColumn: "1 / -1" }}>
             <span>קבצי דוח / תמונות</span>
             <div style={{ border: "1px solid #dbeafe", borderRadius: 14, padding: 12, background: "#f8fafc" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer", alignItems: "center", justifyContent: "center" }}>
-                  צרף קבצים
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      onAttachmentChange(e.target.files);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </label>
+              <div style={{ display: "grid", gap: 10 }}>
+                <FileDropZone
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                  buttonLabel="צרף קבצים"
+                  helperText="גרור לכאן קבצי דוח או תמונות"
+                  onFiles={onAttachmentChange}
+                />
                 <span style={{ color: "#475569", fontWeight: 850 }}>
                   {formAttachments.length ? `${formAttachments.length} קבצים מצורפים` : "עדיין לא צורפו קבצים"}
                 </span>
@@ -6879,7 +6845,7 @@ function PlansSection({
   editingId: string | null;
   onChange: (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => void;
   onAttachmentChange: (files: FileList | File[] | null) => void;
-  onImportRegister: (files: FileList | null) => void | Promise<void>;
+  onImportRegister: (files: FileList | File[] | null) => void | Promise<void>;
   onRemoveAttachment: (index: number) => void;
   onSave: () => void;
   onNew: () => void;
@@ -6888,19 +6854,14 @@ function PlansSection({
 }) {
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer" }}>
-          צרף רשימת תוכניות
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv,.pdf"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              onImportRegister(e.target.files);
-              e.currentTarget.value = "";
-            }}
-          />
-        </label>
+      <div style={{ marginBottom: 12 }}>
+        <FileDropZone
+          accept=".xlsx,.xls,.csv,.pdf"
+          multiple={false}
+          buttonLabel="צרף רשימת תוכניות"
+          helperText="גרור לכאן רשימת תוכניות או בחר קובץ"
+          onFiles={onImportRegister}
+        />
       </div>
       <FolderRecordsTable
         title="תוכניות"
@@ -6947,10 +6908,14 @@ function PlansSection({
       <div style={{ border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>קבצי תוכניות מצורפים</h3>
-          <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer" }}>
-            צרף תוכנית / קובץ
-            <input type="file" multiple accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} onChange={(e) => { onAttachmentChange(e.target.files); e.currentTarget.value = ""; }} />
-          </label>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <FileDropZone
+            accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+            buttonLabel="צרף תוכנית / קובץ"
+            helperText="גרור לכאן תוכניות או קבצים מצורפים"
+            onFiles={onAttachmentChange}
+          />
         </div>
         {form.attachments.length ? (
           <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
@@ -7705,28 +7670,14 @@ function RfiSection({
                 ה-RFI.
               </div>
             </div>
-            <label
-              style={{
-                ...styles.secondaryBtn,
-                display: "inline-flex",
-                alignItems: "center",
-                cursor: "pointer",
-              }}
-            >
-              📎 צירוף קובץ
-              <input
-                type="file"
-                multiple
+            <div style={{ minWidth: 260 }}>
+              <FileDropZone
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                style={{ display: "none" }}
-                onChange={(event) => {
-                  Array.from(event.target.files ?? []).forEach((file) => {
-                    void addRfiDocument(file);
-                  });
-                  event.currentTarget.value = "";
-                }}
+                buttonLabel="צירוף קובץ"
+                helperText="גרור לכאן מסמכי RFI"
+                onFiles={(files) => Array.from(files).forEach((file) => void addRfiDocument(file))}
               />
-            </label>
+            </div>
           </div>
           <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
             {rfiDocuments.length ? (
@@ -8066,16 +8017,11 @@ function EnhancedNonconformancesSection({
           <div style={{ color: "#64748b", marginBottom: 10 }}>
             ניתן לצרף תמונות, PDF וכל קובץ תומך. הקבצים נשמרים יחד עם רשומת ה־NCR.
           </div>
-          <input
-            type="file"
-            multiple
+          <FileDropZone
             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-            onChange={(event) => {
-              Array.from(event.target.files ?? []).forEach((file) =>
-                uploadNonconformanceAttachment(file),
-              );
-              event.currentTarget.value = "";
-            }}
+            buttonLabel="צרף תמונות / קבצים"
+            helperText="גרור לכאן קבצים לאי ההתאמה"
+            onFiles={(files) => Array.from(files).forEach((file) => uploadNonconformanceAttachment(file))}
           />
           {normalizeAttachments((nonconformanceForm as any).images).length ? (
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
@@ -8449,25 +8395,13 @@ function UserAccessPanel({
                         לא הועלתה חתימה
                       </div>
                     )}
-                    <label
-                      style={{
-                        ...styles.secondaryBtn,
-                        display: "inline-flex",
-                        cursor: "pointer",
-                        padding: "6px 9px",
-                      }}
-                    >
-                      העלה חתימה/חותמת
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: "none" }}
-                        onChange={(event) => {
-                          onUploadSignature(index, event.target.files?.[0]);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
+                    <FileDropZone
+                      accept="image/*"
+                      multiple={false}
+                      buttonLabel="העלה חתימה/חותמת"
+                      helperText="גרור לכאן חתימה"
+                      onFiles={(files) => onUploadSignature(index, Array.from(files)[0])}
+                    />
                     {user.signatureDataUrl ? (
                       <button
                         type="button"
@@ -10825,25 +10759,19 @@ function ControlProcessesSection({
                       )}
                     </td>
                     <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <label
-                        style={{
-                          ...styles.secondaryBtn,
-                          display: "inline-flex",
-                          cursor: readOnly ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        צרף / החלף
-                        <input
-                          disabled={readOnly}
-                          type="file"
+                      {readOnly ? (
+                        <button type="button" style={styles.secondaryBtn} disabled>
+                          צרף / החלף
+                        </button>
+                      ) : (
+                        <FileDropZone
                           accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                          style={{ display: "none" }}
-                          onChange={(e) => {
-                            attachDocument(doc.id, e.target.files?.[0]);
-                            e.currentTarget.value = "";
-                          }}
+                          multiple={false}
+                          buttonLabel="צרף / החלף"
+                          helperText="גרור לכאן מסמך"
+                          onFiles={(files) => attachDocument(doc.id, Array.from(files)[0])}
                         />
-                      </label>
+                      )}
                       {doc.attached && showReferenceResultsTable ? (
                         <button
                           type="button"
@@ -15148,7 +15076,7 @@ export default function Page() {
     });
   };
 
-  const importPlanRegisterFile = async (files: FileList | null) => {
+  const importPlanRegisterFile = async (files: FileList | File[] | null) => {
     const file = Array.from(files ?? [])[0];
     if (!file) return;
     if (!currentProjectId) return alert("יש לבחור פרויקט");
