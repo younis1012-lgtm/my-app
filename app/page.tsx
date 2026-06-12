@@ -198,6 +198,12 @@ const PROJECT_ID_ALIASES: Record<string, string> = {
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
 
+const projectCodeToUuid = (code: string) => {
+  const digits = code.replace(/\D/g, "");
+  if (!digits || digits.length > 8) return "";
+  return `${digits.padStart(3, "0").padEnd(8, "0")}-0000-0000-0000-000000000000`;
+};
+
 const normalizeStoredProjectId = (value: unknown) => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -208,6 +214,7 @@ const normalizeStoredProjectId = (value: unknown) => {
   const codeMatch = lower.match(/^project[-_\s]*(\d+)$/);
   if (codeMatch?.[1] === "806") return PROJECT_ID_ALIASES["project-806"];
   if (codeMatch?.[1] === "909") return PROJECT_ID_ALIASES["project-909"];
+  if (codeMatch?.[1]) return projectCodeToUuid(codeMatch[1]) || cleaned;
   return cleaned;
 };
 
@@ -14763,6 +14770,25 @@ export default function Page() {
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    if (cloudEnabled && normalizedProjectId) {
+      const projectForCloud =
+        currentProject ??
+        accessibleProjects.find(
+          (project) => normalizeStoredProjectId(project.id) === normalizedProjectId,
+        );
+      const projectResult = await supabase!.from("projects").upsert(
+        {
+          id: normalizedProjectId,
+          name: projectForCloud?.name || projectName || "פרויקט",
+          description: projectForCloud?.description || "",
+          manager: projectForCloud?.manager || "",
+          is_active: true,
+          created_at: nowIso(),
+        },
+        { onConflict: "id" },
+      );
+      if (projectResult.error) throw projectResult.error;
+    }
     const draftRecord = {
       id,
       projectId: normalizedProjectId,
