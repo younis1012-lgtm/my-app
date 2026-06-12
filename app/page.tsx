@@ -22,6 +22,7 @@ import {
   defaultProjects,
   normalizeChecklistTemplateKey,
 } from "./checklistTemplates";
+import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
@@ -2550,6 +2551,30 @@ const createDefaultPlanRecord = (): Omit<PlanRecord, "id" | "projectId" | "saved
   attachments: [],
 });
 
+const ROAD_806_PROJECT_ID = normalizeStoredProjectId("project-806");
+
+const createRoad806SeedPlans = (projectId: unknown): PlanRecord[] => {
+  const normalizedProjectId =
+    normalizeStoredProjectId(projectId) || ROAD_806_PROJECT_ID;
+
+  return road806PlanRegister.map((plan, index) => ({
+    id: `road806-plan-${index + 1}`,
+    projectId: normalizedProjectId,
+    planNo: plan.planNo,
+    revision: plan.revision,
+    title: plan.title,
+    discipline: plan.discipline,
+    date: plan.date,
+    status: plan.status,
+    notes: plan.notes,
+    attachments: [],
+    savedAt: "ריכוז תוכניות מובנה",
+  }));
+};
+
+const isRoad806SeedPlan = (plan: Pick<PlanRecord, "id">) =>
+  String(plan.id ?? "").startsWith("road806-plan-");
+
 const normalizePlanRecord = (value: any): PlanRecord | null => {
   if (!value || typeof value !== "object") return null;
   return {
@@ -2842,6 +2867,10 @@ const createDefaultChecklist = (
   stationSection: "",
   toStationSection: "",
   offset: "",
+  selectedPlanId: "",
+  executionPlanNo: "",
+  executionPlanName: "",
+  executionPlanRevision: "",
   revision: CHECKLIST_DEFAULT_REVISION,
   revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
   items: buildChecklistItemsFromTemplate(templateKey),
@@ -3741,6 +3770,7 @@ type InlineChecklistSectionProps = {
   saveChecklist: () => void;
   resetChecklistForm: (templateKey?: ChecklistTemplateKey) => void;
   projectName: string;
+  projectPlans: PlanRecord[];
   onUploadAttachment: (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -4052,6 +4082,7 @@ function ChecklistsSection({
   saveChecklist,
   resetChecklistForm,
   projectName,
+  projectPlans,
   onUploadAttachment,
   onRemoveAttachment,
   savedSignatureForSigner,
@@ -4081,6 +4112,30 @@ function ChecklistsSection({
   };
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
+  const availableProjectPlans = projectPlans;
+  const selectExecutionPlan = (planId: string) => {
+    const plan = availableProjectPlans.find((item) => item.id === planId);
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: planId,
+      executionPlanNo: plan ? plan.planNo : "",
+      executionPlanName: plan ? plan.title : "",
+      executionPlanRevision: plan ? plan.revision : "",
+    }));
+  };
+  const setExecutionPlanNo = (planNo: string) => {
+    const normalizedPlanNo = planNo.trim();
+    const plan = availableProjectPlans.find(
+      (item) => item.planNo.trim() === normalizedPlanNo,
+    );
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: plan ? plan.id : "",
+      executionPlanNo: planNo,
+      executionPlanName: plan ? plan.title : prev.executionPlanName,
+      executionPlanRevision: plan ? plan.revision : prev.executionPlanRevision,
+    }));
+  };
   const topTableInputStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
@@ -4380,6 +4435,54 @@ function ChecklistsSection({
               <input
                 value={(checklistForm as any).roadStructure ?? ""}
                 onChange={(event) => setField("roadStructure", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>בחירת תוכנית ביצוע</span>
+              <select
+                value={(checklistForm as any).selectedPlanId ?? ""}
+                onChange={(event) => selectExecutionPlan(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="">בחר מתוך תיקיית תוכניות</option>
+                {availableProjectPlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.planNo}
+                    {plan.title ? ` - ${plan.title}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
+              <input
+                list="execution-plan-number-options"
+                value={(checklistForm as any).executionPlanNo ?? ""}
+                onChange={(event) => setExecutionPlanNo(event.target.value)}
+                style={inputStyle}
+              />
+              <datalist id="execution-plan-number-options">
+                {availableProjectPlans.map((plan) => (
+                  <option key={plan.id} value={plan.planNo}>
+                    {plan.title}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <label>
+              <span style={labelStyle}>שם תוכנית ביצוע</span>
+              <input
+                value={(checklistForm as any).executionPlanName ?? ""}
+                onChange={(event) => setField("executionPlanName", event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>מהדורת תוכנית</span>
+              <input
+                value={(checklistForm as any).executionPlanRevision ?? ""}
+                onChange={(event) => setField("executionPlanRevision", event.target.value)}
                 style={inputStyle}
               />
             </label>
@@ -11783,6 +11886,10 @@ export default function Page() {
           stationSection: details.stationSection ?? details.station_section ?? "",
           toStationSection: details.toStationSection ?? details.to_station_section ?? "",
           offset: details.offset ?? "",
+          selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
+          executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
+          executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
+          executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
           revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
           revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
           items: normalizeChecklistItems(row.items),
@@ -12827,24 +12934,53 @@ export default function Page() {
       normalizedSearchTerm,
     ],
   );
-  const projectPlans = useMemo(
-    () =>
-      savedPlans
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
+  const savedProjectPlans = useMemo(
+    () => savedPlans.filter((item) => recordMatchesCurrentProject(item.projectId)),
     [
       savedPlans,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
-      normalizedSearchTerm,
     ],
+  );
+  const currentProjectPlans = useMemo(() => {
+    const savedWithoutForeignSeedPlans = savedProjectPlans.filter(
+      (plan) => !isRoad806SeedPlan(plan),
+    );
+    const shouldIncludeRoad806Plans =
+      activeProjectAcceptsLegacyRecords ||
+      isRoad806Value(projectName) ||
+      isRoad806Value(currentProjectIdNormalized);
+
+    if (!shouldIncludeRoad806Plans) return savedWithoutForeignSeedPlans;
+
+    const seedProjectId = currentProjectIdNormalized || ROAD_806_PROJECT_ID;
+    const seedPlans = createRoad806SeedPlans(seedProjectId);
+    const savedById = new Map(savedProjectPlans.map((plan) => [plan.id, plan]));
+    const mergedSeedPlans = seedPlans.map((plan) => savedById.get(plan.id) ?? plan);
+
+    return [
+      ...savedWithoutForeignSeedPlans,
+      ...mergedSeedPlans.filter(
+        (plan) => !savedWithoutForeignSeedPlans.some((saved) => saved.id === plan.id),
+      ),
+    ];
+  }, [
+    savedProjectPlans,
+    currentProjectIdNormalized,
+    activeProjectAcceptsLegacyRecords,
+    projectName,
+  ]);
+  const projectPlans = useMemo(
+    () =>
+      currentProjectPlans.filter(
+        (item) =>
+          !normalizedSearchTerm ||
+          [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedSearchTerm),
+      ),
+    [currentProjectPlans, normalizedSearchTerm],
   );
   const projectTrialSections = useMemo(
     () =>
@@ -13422,6 +13558,10 @@ export default function Page() {
             ? profile?.contractor || ""
             : prev.contractor,
         notes: prev.notes,
+        selectedPlanId: prev.selectedPlanId ?? "",
+        executionPlanNo: prev.executionPlanNo ?? "",
+        executionPlanName: prev.executionPlanName ?? "",
+        executionPlanRevision: prev.executionPlanRevision ?? "",
         items: applyProjectTeamToItems(next.items),
         approval: prev.approval,
       };
@@ -13884,6 +14024,10 @@ export default function Page() {
       stationSection: String((checklistForm as any).stationSection ?? ""),
       toStationSection: String((checklistForm as any).toStationSection ?? ""),
       offset: String((checklistForm as any).offset ?? ""),
+      selectedPlanId: String((checklistForm as any).selectedPlanId ?? ""),
+      executionPlanNo: String((checklistForm as any).executionPlanNo ?? ""),
+      executionPlanName: String((checklistForm as any).executionPlanName ?? ""),
+      executionPlanRevision: String((checklistForm as any).executionPlanRevision ?? ""),
       revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
       structureNodeId: String((checklistForm as any).structureNodeId ?? ""),
@@ -15027,7 +15171,10 @@ export default function Page() {
     const exportProjectName =
       (checklistForm as any).projectNameDisplay || profile?.projectName || projectName || "";
     const exportContractor = checklistForm.contractor || profile?.contractor || "";
-    const executionPlanNo = checklistForm.location || "";
+    const layerNo = checklistForm.location || "";
+    const executionPlanNo = (checklistForm as any).executionPlanNo || "";
+    const executionPlanName = (checklistForm as any).executionPlanName || "";
+    const executionPlanRevision = (checklistForm as any).executionPlanRevision || "";
     const roadStructure = (checklistForm as any).roadStructure || "";
     const stationSection = (checklistForm as any).stationSection || "";
     const toStationSection = (checklistForm as any).toStationSection || "";
@@ -15085,7 +15232,9 @@ export default function Page() {
     <table class="checklist-top-table source-meta">
       <tbody>
         <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ שכבה</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
-        <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(executionPlanNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+        <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(layerNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
+        <tr><th>מס׳ תוכנית ביצוע</th><th colspan="3">שם תוכנית ביצוע</th><th>מהדורת תוכנית</th></tr>
+        <tr><td>${valueOrBlank(executionPlanNo, 24)}</td><td colspan="3">${valueOrBlank(executionPlanName, 58)}</td><td>${valueOrBlank(executionPlanRevision, 18)}</td></tr>
         <tr><th>מחתך</th><th>לחתך</th><th>היטס</th><th colspan="2">הערות</th></tr>
         <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
       </tbody>
@@ -17063,6 +17212,7 @@ ${invalidRecipients.join("\n")}`);
                 saveChecklist={saveChecklist}
                 resetChecklistForm={resetChecklistForm}
                 projectName={projectName}
+                projectPlans={currentProjectPlans}
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
                 savedSignatureForSigner={savedSignatureForSigner}
