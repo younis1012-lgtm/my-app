@@ -17515,6 +17515,7 @@ ${invalidRecipients.join("\n")}`);
               labelForPreliminary={labelForPreliminary}
               currentProjectName={projectName}
               qualityControlApproverName={qualityControlApproverName}
+              savedSignatureForSigner={savedSignatureForSigner}
               projectMeta={{
                 projectName: currentProjectLegend.projectName,
                 projectManagement: currentProjectLegend.projectManagement,

@@ -52,6 +52,7 @@ type PreliminarySectionProps = {
   currentProjectName?: string;
   projectMeta?: ProjectMeta;
   qualityControlApproverName?: string;
+  savedSignatureForSigner?: (signerName: string, role?: string) => string;
 };
 
 const dataKeyByTab: Record<PreliminaryTab, 'supplier' | 'subcontractor' | 'material'> = {
@@ -204,6 +205,38 @@ export function PreliminarySection(props: PreliminarySectionProps) {
 
   const updateNested = (patch: Record<string, any>) => setForm((prev) => patchNestedData(prev, props.preliminaryTab, patch));
   const updateRows = (nextRows: GenericCertificateRow[]) => updateNested({ certificates: nextRows });
+  const fillApprovalFromProjectUsers = (prev: PreliminaryForm) => {
+    const qc = String(props.qualityControlApproverName || projectMeta.qualityControl || '').trim();
+    const qa = String(projectMeta.qualityAssurance ?? '').trim();
+    const signatures = Array.isArray(prev.approval?.signatures) ? prev.approval.signatures : [];
+    let changed = false;
+    const nextSignatures = signatures.map((sig: any) => {
+      const role = String(sig?.role ?? '');
+      const autoName = role.includes('QA') || role.includes('׳”׳‘׳˜׳—׳×') ? qa : qc;
+      const savedSignature = props.savedSignatureForSigner?.(autoName, role) || '';
+      const nextSig = { ...sig };
+
+      if (shouldReplaceApproverName(sig?.signerName, autoName, projectMeta.qualityControl)) {
+        nextSig.signerName = autoName;
+        changed = true;
+      }
+      if (savedSignature && !String(sig?.signature ?? '').trim()) {
+        nextSig.signature = savedSignature;
+        changed = true;
+      } else if (!String(sig?.signature ?? '').trim() && autoName) {
+        nextSig.signature = 'מאושר';
+        changed = true;
+      }
+      if (!String(sig?.signedAt ?? '').trim() && (nextSig.signerName || nextSig.signature)) {
+        nextSig.signedAt = today();
+        changed = true;
+      }
+
+      return nextSig;
+    });
+    if (!changed) return prev;
+    return { ...prev, approval: { ...prev.approval, signatures: nextSignatures } };
+  };
 
   const addEmptyRow = () => updateRows([...rows, {
     id: createId(),
@@ -227,6 +260,8 @@ export function PreliminarySection(props: PreliminarySectionProps) {
     const targetId = rowId ?? currentRows[currentRows.length - 1].id;
 
     updateRows(currentRows.map((row) => row.id === targetId ? { ...row, exists: true, attachments: [...row.attachments, attachment], ocrMessage: 'סורק מסמך...' } : row));
+
+    setForm(fillApprovalFromProjectUsers);
 
     try {
       const res = await fetch('/api/ocr', {
