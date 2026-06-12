@@ -4103,13 +4103,10 @@ function ChecklistsSection({
     background: "#f8fafc",
     marginBottom: 14,
   };
-  const availableProjectPlans = projectPlans.length
-    ? projectPlans
-    : createRoad806SeedPlans("project-806");
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
   const selectExecutionPlan = (planId: string) => {
-    const selectedPlan = availableProjectPlans.find((plan) => plan.id === planId);
+    const selectedPlan = projectPlans.find((plan) => plan.id === planId);
     setChecklistForm((prev: any) => ({
       ...prev,
       selectedPlanId: planId,
@@ -4119,7 +4116,7 @@ function ChecklistsSection({
     }));
   };
   const setExecutionPlanNo = (planNo: string) => {
-    const selectedPlan = availableProjectPlans.find((plan) => plan.planNo === planNo);
+    const selectedPlan = projectPlans.find((plan) => plan.planNo === planNo);
     setChecklistForm((prev: any) => ({
       ...prev,
       selectedPlanId: selectedPlan?.id ?? prev.selectedPlanId ?? "",
@@ -4438,7 +4435,7 @@ function ChecklistsSection({
                 style={inputStyle}
               >
                 <option value="">בחר מתוך תיקיית תוכניות</option>
-                {availableProjectPlans.map((plan) => (
+                {projectPlans.map((plan) => (
                   <option key={plan.id} value={plan.id}>
                     {plan.planNo || plan.title} {plan.title ? `- ${plan.title}` : ""}
                   </option>
@@ -4454,7 +4451,7 @@ function ChecklistsSection({
                 list="execution-plan-number-options"
               />
               <datalist id="execution-plan-number-options">
-                {availableProjectPlans.map((plan) => (
+                {projectPlans.map((plan) => (
                   <option key={plan.id} value={plan.planNo}>{plan.title}</option>
                 ))}
               </datalist>
