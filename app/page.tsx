@@ -2633,6 +2633,66 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
   };
 };
 
+const inferPlanDisciplineFromText = (value: string) => {
+  const text = value.toLowerCase();
+  if (/תאורה|חשמל|lighting|\bel\b/.test(text)) return "תאורה / חשמל";
+  if (/ניקוז|drain|drainage|\bdd\b/.test(text)) return "ניקוז";
+  if (/מים|ביוב|water|sewer|\bws\b/.test(text)) return "מים וניקוז";
+  if (/תנועה|traffic|\btr\b/.test(text)) return "תנועה";
+  if (/סלילה|כביש|road|pavement|slila|\bhw\b/.test(text)) return "מבנה כביש";
+  if (/מבנה|קונסטרוקציה|structure|\bst\b/.test(text)) return "מבנה";
+  return "";
+};
+
+const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
+  const planNoPattern = /[A-Z]{2,}[A-Z0-9]*[-–][A-Z0-9][A-Z0-9\-–]{5,}\d/gi;
+  const seen = new Set<string>();
+  const sourceName = fileName.replace(/\.[^.]+$/, "");
+
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      const matches = [...line.matchAll(planNoPattern)];
+      if (!matches.length) return [];
+
+      return matches.map((match) => {
+        const planNo = String(match[0] ?? "").replace(/–/g, "-").trim();
+        const key = normalizeAccessValue(`${planNo}|${line}`);
+        if (seen.has(key)) return null;
+        seen.add(key);
+
+        const dateRaw =
+          line.match(/\d{4}-\d{2}-\d{2}/)?.[0] ||
+          line.match(/\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/)?.[0] ||
+          "";
+        const scaleRaw = line.match(/1\s*[:/]\s*\d{2,5}|1\s*-\s*\d{2,5}/)?.[0] || "";
+        const statusRaw = line.match(/לביצוע|לעיון|לאישור|למכרז|בתוקף|מבוטל|הוחלף/i)?.[0] || "לביצוע";
+        const title = line
+          .replace(planNo, " ")
+          .replace(dateRaw, " ")
+          .replace(scaleRaw, " ")
+          .replace(statusRaw, " ")
+          .replace(/[|,:;]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        return {
+          planNo,
+          revision: "",
+          title: title || sourceName,
+          discipline: inferPlanDisciplineFromText(`${planNo} ${title} ${sourceName}`),
+          date: normalizePlanImportDate(dateRaw),
+          status: statusRaw,
+          notes: [sourceName ? `מקור: ${sourceName}` : "", scaleRaw ? `קנ"מ: ${scaleRaw}` : ""].filter(Boolean).join(" | "),
+          attachments: [],
+        };
+      });
+    })
+    .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+};
+
 const ROAD_806_PROJECT_ID = normalizeStoredProjectId("project-806");
 
 const createRoad806SeedPlans = (projectId: unknown): PlanRecord[] => {
@@ -6752,7 +6812,7 @@ function PlansSection({
   editingId: string | null;
   onChange: (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => void;
   onAttachmentChange: (files: FileList | File[] | null) => void;
-  onImportRegister: (files: FileList | null) => void;
+  onImportRegister: (files: FileList | null) => void | Promise<void>;
   onRemoveAttachment: (index: number) => void;
   onSave: () => void;
   onNew: () => void;
@@ -6766,7 +6826,7 @@ function PlansSection({
           צרף רשימת תוכניות
           <input
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.pdf"
             style={{ display: "none" }}
             onChange={(e) => {
               onImportRegister(e.target.files);
@@ -15027,22 +15087,29 @@ export default function Page() {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
 
     try {
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
-      if (!worksheet) return alert("לא נמצאה גיליון תוכניות בקובץ");
+      const lowerName = file.name.toLowerCase();
+      let importedPlans: Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> = [];
+      if (lowerName.endsWith(".pdf") || file.type.includes("pdf")) {
+        const pdfText = await extractTextFromReferenceFile(file);
+        importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
+      } else {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+        if (!worksheet) return alert("לא נמצאה גיליון תוכניות בקובץ");
 
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-        defval: "",
-        raw: false,
-      });
-      const importedPlans = rows
-        .map((row) => parsePlanRegisterRow(row))
-        .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+          defval: "",
+          raw: false,
+        });
+        importedPlans = rows
+          .map((row) => parsePlanRegisterRow(row))
+          .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+      }
 
       if (!importedPlans.length) {
-        return alert("לא נמצאו תוכניות לקליטה. יש לוודא שיש עמודות כמו מספר תוכנית, שם תוכנית, מהדורה ותאריך.");
+        return alert("לא נמצאו תוכניות לקליטה. בקובץ Excel/CSV יש לוודא שיש עמודות כמו מספר תוכנית ושם תוכנית. בקובץ PDF יש לוודא שזה PDF טקסטואלי ולא סריקה כתמונה.");
       }
 
       const projectId = normalizeStoredProjectId(currentProjectId);
@@ -15087,7 +15154,7 @@ export default function Page() {
       alert(`נקלטו ${addedCount} תוכניות חדשות ועודכנו ${updatedCount} תוכניות קיימות.`);
     } catch (error) {
       console.error(error);
-      alert("לא ניתן לקלוט את רשימת התוכניות. יש לצרף קובץ Excel או CSV תקין.");
+      alert("לא ניתן לקלוט את רשימת התוכניות. יש לצרף קובץ Excel, CSV או PDF טקסטואלי תקין.");
     }
   };
 
