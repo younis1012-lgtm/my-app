@@ -2876,6 +2876,80 @@ const createDefaultChecklist = (
   items: buildChecklistItemsFromTemplate(templateKey),
   approval: createDefaultApproval(),
 } as any);
+
+const CHECKLIST_TEMPLATE_FOLDERS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  templateKeys: ChecklistTemplateKey[];
+}> = [
+  {
+    id: "electrical",
+    title: "רשימות תיוג חשמל",
+    description: "תאי בקרה, חציות, צנרת/כבלים ועמודי תאורה",
+    templateKeys: [
+      "electricalControlCells",
+      "electricalCrossingPipesCables",
+      "electricalLightingPole",
+    ],
+  },
+  {
+    id: "water-drainage",
+    title: "רשימות תיוג מים וניקוז",
+    description: "מערכות מים, צנרת ניקוז וריצוף תעלות",
+    templateKeys: ["waterSystems", "drainagePiping", "channelPaving"],
+  },
+  {
+    id: "roadworks",
+    title: "רשימות תיוג מבנה כביש ועבודות עפר",
+    description: "חפירה, מצעים, הידוקים, קרצוף, אספלט וריצוף",
+    templateKeys: [
+      "excavation",
+      "baseCourseSpreading",
+      "controlledCompaction",
+      "standardCompaction",
+      "milling",
+      "asphaltSite",
+      "asphaltWorks",
+      "paving",
+    ],
+  },
+  {
+    id: "concrete-structures",
+    title: "רשימות תיוג בטון ומבנים",
+    description: "יציקות, אבני שפה, מסלעות ועבודות JK",
+    templateKeys: [
+      "siteConcrete",
+      "castCurbstone",
+      "curbstones",
+      "rockWall",
+      "jkWorks",
+    ],
+  },
+  {
+    id: "road-safety",
+    title: "רשימות תיוג בטיחות דרך, תמרור וגמר",
+    description: "מעקות, שילוט, סימון, עיני חתול וצבע",
+    templateKeys: [
+      "guardrails",
+      "steelGuardrailsSupply",
+      "signage",
+      "catsEyes",
+      "paintWorks",
+    ],
+  },
+  {
+    id: "general",
+    title: "רשימות תיוג כלליות",
+    description: "רשימות כלליות או חריגות שלא שויכו לתחום ייעודי",
+    templateKeys: ["general"],
+  },
+];
+
+const getChecklistTemplateFolder = (templateKey: ChecklistTemplateKey) =>
+  CHECKLIST_TEMPLATE_FOLDERS.find((folder) =>
+    folder.templateKeys.includes(templateKey),
+  ) ?? CHECKLIST_TEMPLATE_FOLDERS[CHECKLIST_TEMPLATE_FOLDERS.length - 1];
 const createDefaultNonconformance = (): Omit<
   NonconformanceRecord,
   "id" | "projectId" | "savedAt"
@@ -4187,9 +4261,12 @@ function ChecklistsSection({
       }}
     />
   );
-  const templateEntries = Object.entries(checklistTemplates) as Array<
-    [ChecklistTemplateKey, any]
-  >;
+  const templateGroups = CHECKLIST_TEMPLATE_FOLDERS.map((folder) => ({
+    ...folder,
+    templates: folder.templateKeys
+      .map((key) => [key, checklistTemplates[key]] as [ChecklistTemplateKey, any])
+      .filter(([, template]) => Boolean(template)),
+  })).filter((folder) => folder.templates.length);
   const [digitalSignatureItemId, setDigitalSignatureItemId] = useState<string | null>(null);
   const isRoad806Checklist = isRoad806Value(projectName) || isRoad806Value(checklistForm.projectNameDisplay) || isRoad806Value(checklistForm.projectName) || isRoad806Value(checklistForm.location);
   const updateItemSignature = (itemId: string, signature: ProcessSignature) => {
@@ -4337,10 +4414,14 @@ function ChecklistsSection({
               }
               style={inputStyle}
             >
-              {templateEntries.map(([key]) => (
-                <option key={key} value={key}>
-                  {checklistTemplateLabel(key)}
-                </option>
+              {templateGroups.map((folder) => (
+                <optgroup key={folder.id} label={folder.title}>
+                  {folder.templates.map(([key]) => (
+                    <option key={key} value={key}>
+                      {checklistTemplateLabel(key)}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>
@@ -12833,6 +12914,8 @@ export default function Page() {
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
+  const selectedChecklistFolder =
+    getChecklistTemplateFolder(normalizeChecklistTemplateKey(selectedChecklistTemplateKey));
 
   const projectNonconformances = useMemo(
     () =>
@@ -17150,32 +17233,90 @@ ${invalidRecipients.join("\n")}`);
             <>
               <div
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                  gap: 12,
                   marginBottom: 14,
-                  justifyContent: "flex-start",
                 }}
               >
-                {Object.entries(checklistTemplates).map(([key, template]) => {
-                  const normalizedKey = normalizeChecklistTemplateKey(key);
-                  const isActive =
-                    normalizeChecklistTemplateKey(selectedChecklistTemplateKey) === normalizedKey;
-                  const count = projectChecklists.filter(
-                    (record) => normalizeChecklistTemplateKey(record.templateKey) === normalizedKey,
+                {CHECKLIST_TEMPLATE_FOLDERS.map((folder) => {
+                  const folderTemplates = folder.templateKeys
+                    .map((key) => [key, checklistTemplates[key]] as [ChecklistTemplateKey, any])
+                    .filter(([, template]) => Boolean(template));
+                  const folderCount = projectChecklists.filter((record) =>
+                    folder.templateKeys.includes(
+                      normalizeChecklistTemplateKey(record.templateKey),
+                    ),
                   ).length;
+                  const folderActive = folder.templateKeys.includes(
+                    normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
+                  );
+
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      style={isActive ? styles.primaryBtn : styles.secondaryBtn}
-                      onClick={() => {
-                        setSelectedChecklistTemplateKey(normalizedKey);
-                        resetChecklistForm(normalizedKey);
+                    <section
+                      key={folder.id}
+                      style={{
+                        border: folderActive ? "2px solid #0f172a" : "1px solid #dbe3ef",
+                        borderRadius: 8,
+                        padding: 12,
+                        background: folderActive ? "#f8fafc" : "#fff",
                       }}
                     >
-                      {template.label} ({count})
-                    </button>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 950, color: "#0f172a" }}>
+                            {folder.title}
+                          </div>
+                          <div style={{ color: "#64748b", fontSize: 13, marginTop: 3 }}>
+                            {folder.description}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            border: "1px solid #cbd5e1",
+                            borderRadius: 999,
+                            padding: "3px 8px",
+                            fontSize: 12,
+                            fontWeight: 900,
+                            color: "#334155",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {folderCount}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {folderTemplates.map(([key, template]) => {
+                          const normalizedKey = normalizeChecklistTemplateKey(key);
+                          const isActive =
+                            normalizeChecklistTemplateKey(selectedChecklistTemplateKey) === normalizedKey;
+                          const count = projectChecklists.filter(
+                            (record) => normalizeChecklistTemplateKey(record.templateKey) === normalizedKey,
+                          ).length;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              style={isActive ? styles.primaryBtn : styles.secondaryBtn}
+                              onClick={() => {
+                                setSelectedChecklistTemplateKey(normalizedKey);
+                                resetChecklistForm(normalizedKey);
+                              }}
+                            >
+                              {template.label} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
                   );
                 })}
               </div>
