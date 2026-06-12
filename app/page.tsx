@@ -4103,14 +4103,9 @@ function ChecklistsSection({
     background: "#f8fafc",
     marginBottom: 14,
   };
-  const shouldUseRoad806PlanFallback =
-    isRoad806Value(projectName) ||
-    isRoad806Value(checklistForm.projectNameDisplay) ||
-    isRoad806Value(checklistForm.projectName);
-  const availableProjectPlans =
-    projectPlans.length || !shouldUseRoad806PlanFallback
-      ? projectPlans
-      : createRoad806SeedPlans("project-806");
+  const availableProjectPlans = projectPlans.length
+    ? projectPlans
+    : createRoad806SeedPlans("project-806");
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
   const selectExecutionPlan = (planId: string) => {
@@ -11195,20 +11190,14 @@ export default function Page() {
     try {
       const parsed = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
       const localPlans = (Array.isArray(parsed) ? parsed : []).map(normalizePlanRecord).filter(Boolean) as PlanRecord[];
-      const seedPlans = isRoad806Value(currentProjectId) || isRoad806Value(projectName)
-        ? createRoad806SeedPlans(currentProjectId)
-        : [];
+      const seedPlans = createRoad806SeedPlans(currentProjectId);
       const existingIds = new Set(localPlans.map((plan) => plan.id));
       const missingSeedPlans = seedPlans.filter((plan) => !existingIds.has(plan.id));
       setSavedPlans([...localPlans, ...missingSeedPlans]);
     } catch {
-      setSavedPlans(
-        isRoad806Value(currentProjectId) || isRoad806Value(projectName)
-          ? createRoad806SeedPlans(currentProjectId)
-          : [],
-      );
+      setSavedPlans(createRoad806SeedPlans(currentProjectId));
     }
-  }, [currentProjectId, projectName]);
+  }, [currentProjectId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -12940,11 +12929,7 @@ export default function Page() {
   );
   const currentProjectPlans = useMemo(
     () =>
-      savedPlans.filter((item) => {
-        if (String(item.id ?? "").startsWith("road806-plan-") && !activeProjectAcceptsLegacyRecords)
-          return false;
-        return recordMatchesCurrentProject(item.projectId);
-      }),
+      savedPlans.filter((item) => recordMatchesCurrentProject(item.projectId)),
     [
       savedPlans,
       currentProjectIdNormalized,
