@@ -2558,6 +2558,81 @@ const createDefaultPlanRecord = (): Omit<PlanRecord, "id" | "projectId" | "saved
   attachments: [],
 });
 
+const normalizePlanImportHeader = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\u200e\u200f"'׳״]/g, "")
+    .replace(/\s+/g, " ");
+
+const getPlanImportValue = (row: Record<string, unknown>, aliases: string[]) => {
+  const aliasSet = new Set(aliases.map(normalizePlanImportHeader));
+  const match = Object.entries(row).find(([key]) => aliasSet.has(normalizePlanImportHeader(key)));
+  return match ? String(match[1] ?? "").trim() : "";
+};
+
+const normalizePlanImportDate = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const iso = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+  if (iso) return iso;
+  const dayFirst = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (dayFirst) {
+    const [, day, month, yearValue] = dayFirst;
+    const year = yearValue.length === 2 ? `20${yearValue}` : yearValue;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  return raw;
+};
+
+const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "id" | "projectId" | "savedAt"> | null => {
+  const planNo = getPlanImportValue(row, [
+    "מספר תוכנית",
+    "מס' תוכנית",
+    "מספר תכנית",
+    "מס' תכנית",
+    "תוכנית",
+    "תכנית",
+    "מספר",
+    "plan no",
+    "plan number",
+    "drawing no",
+    "drawing number",
+  ]);
+  const title = getPlanImportValue(row, [
+    "שם / תיאור",
+    "שם תוכנית",
+    "שם תכנית",
+    "שם התוכנית",
+    "שם התכנית",
+    "תיאור",
+    "שם",
+    "title",
+    "description",
+    "drawing title",
+  ]);
+  if (!planNo && !title) return null;
+
+  const scale = getPlanImportValue(row, ["קנ\"מ", "קנמ", "קנה מידה", "scale"]);
+  const notes = getPlanImportValue(row, ["הערות", "הערה", "notes", "remarks", "remark"]);
+  const noteParts = [notes, scale ? `קנ"מ: ${scale}` : ""].filter(Boolean);
+
+  return {
+    planNo,
+    revision: getPlanImportValue(row, ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"]),
+    title,
+    discipline: getPlanImportValue(row, ["תחום", "דיסציפלינה", "מקצוע", "discipline", "field"]),
+    date: normalizePlanImportDate(
+      getPlanImportValue(row, ["תאריך", "תאריך מהדורה", "תאריך עדכון", "date", "revision date"]),
+    ),
+    status: getPlanImportValue(row, ["סטטוס", "מטרה", "purpose", "status"]) || "לביצוע",
+    notes: noteParts.join(" | "),
+    attachments: [],
+  };
+};
+
 const ROAD_806_PROJECT_ID = normalizeStoredProjectId("project-806");
 
 const createRoad806SeedPlans = (projectId: unknown): PlanRecord[] => {
@@ -6665,6 +6740,7 @@ function PlansSection({
   editingId,
   onChange,
   onAttachmentChange,
+  onImportRegister,
   onRemoveAttachment,
   onSave,
   onNew,
@@ -6676,6 +6752,7 @@ function PlansSection({
   editingId: string | null;
   onChange: (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => void;
   onAttachmentChange: (files: FileList | File[] | null) => void;
+  onImportRegister: (files: FileList | null) => void;
   onRemoveAttachment: (index: number) => void;
   onSave: () => void;
   onNew: () => void;
@@ -6684,6 +6761,20 @@ function PlansSection({
 }) {
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <label style={{ ...styles.primaryBtn, display: "inline-flex", cursor: "pointer" }}>
+          צרף רשימת תוכניות
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              onImportRegister(e.target.files);
+              e.currentTarget.value = "";
+            }}
+          />
+        </label>
+      </div>
       <FolderRecordsTable
         title="תוכניות"
         description="תיקיית תוכניות, מהדורות וקבצים מצורפים בפרויקט."
@@ -14930,6 +15021,76 @@ export default function Page() {
     });
   };
 
+  const importPlanRegisterFile = async (files: FileList | null) => {
+    const file = Array.from(files ?? [])[0];
+    if (!file) return;
+    if (!currentProjectId) return alert("יש לבחור פרויקט");
+
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+      if (!worksheet) return alert("לא נמצאה גיליון תוכניות בקובץ");
+
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+        defval: "",
+        raw: false,
+      });
+      const importedPlans = rows
+        .map((row) => parsePlanRegisterRow(row))
+        .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+
+      if (!importedPlans.length) {
+        return alert("לא נמצאו תוכניות לקליטה. יש לוודא שיש עמודות כמו מספר תוכנית, שם תוכנית, מהדורה ותאריך.");
+      }
+
+      const projectId = normalizeStoredProjectId(currentProjectId);
+      const savedAt = nowLocal();
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      const nextPlans = [...savedPlans];
+      importedPlans.forEach((plan) => {
+        const planNoKey = normalizeAccessValue(plan.planNo);
+        const revisionKey = normalizeAccessValue(plan.revision);
+        const existingIndex = nextPlans.findIndex((item) => {
+          if (normalizeStoredProjectId(item.projectId) !== projectId) return false;
+          if (!planNoKey || normalizeAccessValue(item.planNo) !== planNoKey) return false;
+          if (!revisionKey) return true;
+          return normalizeAccessValue(item.revision) === revisionKey;
+        });
+        if (existingIndex >= 0) {
+          const existing = nextPlans[existingIndex];
+          nextPlans[existingIndex] = {
+            ...existing,
+            ...plan,
+            id: existing.id,
+            projectId,
+            attachments: normalizeAttachments(existing.attachments),
+            savedAt,
+          };
+          updatedCount += 1;
+        } else {
+          nextPlans.unshift({
+            id: crypto.randomUUID(),
+            projectId,
+            ...plan,
+            attachments: [],
+            savedAt,
+          });
+          addedCount += 1;
+        }
+      });
+      setSavedPlans(nextPlans);
+
+      alert(`נקלטו ${addedCount} תוכניות חדשות ועודכנו ${updatedCount} תוכניות קיימות.`);
+    } catch (error) {
+      console.error(error);
+      alert("לא ניתן לקלוט את רשימת התוכניות. יש לצרף קובץ Excel או CSV תקין.");
+    }
+  };
+
   const removePlanAttachment = (index: number) => {
     setPlanForm((prev) => ({
       ...prev,
@@ -17113,6 +17274,7 @@ ${invalidRecipients.join("\n")}`);
               editingId={editingPlanId}
               onChange={updatePlanForm}
               onAttachmentChange={uploadPlanAttachments}
+              onImportRegister={importPlanRegisterFile}
               onRemoveAttachment={removePlanAttachment}
               onSave={savePlan}
               onNew={resetPlanForm}
