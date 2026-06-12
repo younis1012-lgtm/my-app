@@ -114,6 +114,35 @@ const cleanDocNo = (value: unknown) => {
   return raw.replace(/^[:\s]+|[:\s]+$/g, '');
 };
 
+const cleanDocumentNameFallback = (value: unknown) =>
+  String(value ?? '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b20\d{2}[./-]\d{1,2}[./-]\d{1,2}\b/g, '')
+    .replace(/\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const compactCertificateDetails = (...values: unknown[]) => {
+  const text = values.map((value) => String(value ?? '')).filter(Boolean).join(' ').toLowerCase();
+
+  if (/\biso\b|9001|14001|45001|ניהול\s+איכות|ניהול\s+האיכות|quality\s+management/.test(text)) return 'ISO';
+  if (/תו\s*תקן|ת[״"]?י|תקן\s+ישראלי|מכון\s+התקנים|standard\s+mark/.test(text)) return 'תו תקן';
+  if (/ce\b|conformit|declaration\s+of\s+conformity/.test(text)) return 'CE';
+  if (/sds\b|msds\b|גיליון\s+בטיחות|גליון\s+בטיחות|בטיחות/.test(text)) return 'MSDS';
+  if (/כיול|calibration/.test(text)) return 'תעודת כיול';
+  if (/מעבדה|בדיקת\s+מעבדה|laboratory|test\s+report/.test(text)) return 'תעודת מעבדה';
+  if (/רישיון|רשיון|license|licence/.test(text)) return 'רישיון';
+  if (/אישור\s+ספק|ספק\s+מאושר|אישור\s+יצרן|manufacturer/.test(text)) return 'אישור ספק';
+  if (/אחריות|warranty/.test(text)) return 'תעודת אחריות';
+
+  const directType = cleanDocumentNameFallback(values[0]);
+  if (directType && directType.length <= 28 && !/\s{2,}/.test(directType)) return directType;
+
+  const fileName = cleanDocumentNameFallback(values[values.length - 1]);
+  return fileName.length > 32 ? fileName.slice(0, 32).trim() : fileName;
+};
+
 export function PreliminarySection(props: PreliminarySectionProps) {
   const form = props.preliminaryTab === 'suppliers'
     ? props.supplierPreliminaryForm
@@ -194,7 +223,12 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       const extractedCertificates = Array.isArray(data.certificates) ? data.certificates : [];
       const certificateNo = cleanDocNo(data.certificateNo ?? data.documentNo ?? data.licenseNo);
       const expiryDate = normalizeIsoDate(data.expiryDate ?? data.validUntil ?? data.expirationDate);
-      const details = String(data.documentType || data.details || data.materialName || data.supplierName || data.subcontractorName || file.name).trim();
+      const details = compactCertificateDetails(
+        data.documentType,
+        data.details,
+        data.certificateName,
+        file.name,
+      );
 
       setForm((prev) => {
         const activeNested = getNestedData(prev, props.preliminaryTab);
@@ -202,7 +236,13 @@ export function PreliminarySection(props: PreliminarySectionProps) {
         const extractedRows = extractedCertificates
           .map((item: any, index: number) => ({
             id: index === 0 ? targetId : createId(),
-            details: String(item?.details || item?.materialName || item?.supplierName || details || file.name).trim(),
+            details: compactCertificateDetails(
+              item?.documentType,
+              item?.details,
+              item?.certificateName,
+              details,
+              file.name,
+            ),
             exists: true,
             certificateNo: cleanDocNo(item?.certificateNo ?? item?.documentNo ?? item?.licenseNo),
             expiryDate: normalizeIsoDate(item?.expiryDate ?? item?.validUntil ?? item?.expirationDate),
