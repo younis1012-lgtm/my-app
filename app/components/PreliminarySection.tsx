@@ -51,6 +51,7 @@ type PreliminarySectionProps = {
   labelForPreliminary: (subtype: PreliminaryTab) => string;
   currentProjectName?: string;
   projectMeta?: ProjectMeta;
+  qualityControlApproverName?: string;
 };
 
 const dataKeyByTab: Record<PreliminaryTab, 'supplier' | 'subcontractor' | 'material'> = {
@@ -114,6 +115,9 @@ const cleanDocNo = (value: unknown) => {
   return raw.replace(/^[:\s]+|[:\s]+$/g, '');
 };
 
+const firstFilled = (...values: unknown[]) =>
+  values.map((value) => String(value ?? '').trim()).find(Boolean) ?? '';
+
 const cleanDocumentNameFallback = (value: unknown) =>
   String(value ?? '')
     .replace(/\.[a-z0-9]{2,5}$/i, '')
@@ -143,6 +147,19 @@ const compactCertificateDetails = (...values: unknown[]) => {
   return fileName.length > 32 ? fileName.slice(0, 32).trim() : fileName;
 };
 
+const shouldReplaceApproverName = (
+  currentName: unknown,
+  autoName: string,
+  companyName: unknown,
+) => {
+  const current = String(currentName ?? '').trim();
+  const company = String(companyName ?? '').trim();
+  if (!autoName) return false;
+  if (!current) return true;
+  if (company && current === company && current !== autoName) return true;
+  return /בע"מ|בע״מ|ltd|company|חברה/i.test(current) && current !== autoName;
+};
+
 export function PreliminarySection(props: PreliminarySectionProps) {
   const form = props.preliminaryTab === 'suppliers'
     ? props.supplierPreliminaryForm
@@ -166,7 +183,7 @@ export function PreliminarySection(props: PreliminarySectionProps) {
   );
 
   useEffect(() => {
-    const qc = String(projectMeta.qualityControl ?? '').trim();
+    const qc = String(props.qualityControlApproverName || projectMeta.qualityControl || '').trim();
     const qa = String(projectMeta.qualityAssurance ?? '').trim();
     if (!qc && !qa) return;
 
@@ -176,14 +193,14 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       const nextSignatures = signatures.map((sig: any) => {
         const role = String(sig?.role ?? '');
         const autoName = role.includes('QA') || role.includes('הבטחת') ? qa : qc;
-        if (!autoName || String(sig?.signerName ?? '').trim()) return sig;
+        if (!shouldReplaceApproverName(sig?.signerName, autoName, projectMeta.qualityControl)) return sig;
         changed = true;
         return { ...sig, signerName: autoName };
       });
       if (!changed) return prev;
       return { ...prev, approval: { ...prev.approval, signatures: nextSignatures } };
     });
-  }, [projectMeta.qualityAssurance, projectMeta.qualityControl, setForm]);
+  }, [props.qualityControlApproverName, projectMeta.qualityAssurance, projectMeta.qualityControl, setForm]);
 
   const updateNested = (patch: Record<string, any>) => setForm((prev) => patchNestedData(prev, props.preliminaryTab, patch));
   const updateRows = (nextRows: GenericCertificateRow[]) => updateNested({ certificates: nextRows });
@@ -223,6 +240,21 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       const extractedCertificates = Array.isArray(data.certificates) ? data.certificates : [];
       const certificateNo = cleanDocNo(data.certificateNo ?? data.documentNo ?? data.licenseNo);
       const expiryDate = normalizeIsoDate(data.expiryDate ?? data.validUntil ?? data.expirationDate);
+      const primaryCertificate = extractedCertificates[0] ?? {};
+      const extractedSupplierName = firstFilled(
+        data.supplierName,
+        primaryCertificate?.supplierName,
+      );
+      const extractedMaterialName = firstFilled(
+        data.suppliedMaterial,
+        data.materialName,
+        primaryCertificate?.materialName,
+      );
+      const extractedSubcontractorName = firstFilled(
+        data.subcontractorName,
+        primaryCertificate?.supplierName,
+        data.supplierName,
+      );
       const details = compactCertificateDetails(
         data.documentType,
         data.details,
@@ -265,7 +297,23 @@ export function PreliminarySection(props: PreliminarySectionProps) {
             ocrConfidence: Number(data.confidence ?? 0),
           } : row);
         }
-        return patchNestedData(prev, props.preliminaryTab, { certificates: nextRows });
+        const nestedPatch: Record<string, any> = { certificates: nextRows };
+        if (props.preliminaryTab === 'suppliers') {
+          nestedPatch.supplierName = activeNested.supplierName || extractedSupplierName;
+          nestedPatch.suppliedMaterial = activeNested.suppliedMaterial || extractedMaterialName;
+          nestedPatch.contactPhone = activeNested.contactPhone || firstFilled(data.contactPhone);
+          nestedPatch.approvalNo = activeNested.approvalNo || certificateNo;
+        } else if (props.preliminaryTab === 'materials') {
+          nestedPatch.materialName = activeNested.materialName || extractedMaterialName;
+          nestedPatch.source = activeNested.source || extractedSupplierName;
+        } else if (props.preliminaryTab === 'subcontractors') {
+          nestedPatch.subcontractorName = activeNested.subcontractorName || extractedSubcontractorName;
+          nestedPatch.field = activeNested.field || firstFilled(data.branch, data.details);
+          nestedPatch.workType = activeNested.workType || nestedPatch.field;
+          nestedPatch.contactPhone = activeNested.contactPhone || firstFilled(data.contactPhone);
+          nestedPatch.approvalNo = activeNested.approvalNo || certificateNo;
+        }
+        return patchNestedData(prev, props.preliminaryTab, nestedPatch);
       });
     } catch (error: any) {
       setForm((prev) => {
@@ -278,7 +326,7 @@ export function PreliminarySection(props: PreliminarySectionProps) {
   };
 
   const autoFillApprovers = () => {
-    const qc = String(projectMeta.qualityControl ?? '').trim();
+    const qc = String(props.qualityControlApproverName || projectMeta.qualityControl || '').trim();
     const qa = String(projectMeta.qualityAssurance ?? '').trim();
     setForm((prev) => ({
       ...prev,
@@ -287,7 +335,9 @@ export function PreliminarySection(props: PreliminarySectionProps) {
         signatures: (prev.approval?.signatures ?? []).map((sig: any) => {
           const role = String(sig?.role ?? '');
           const autoName = role.includes('QA') || role.includes('הבטחת') ? qa : qc;
-          return { ...sig, signerName: sig.signerName || autoName };
+          return shouldReplaceApproverName(sig?.signerName, autoName, projectMeta.qualityControl)
+            ? { ...sig, signerName: autoName }
+            : sig;
         }),
       },
     }));

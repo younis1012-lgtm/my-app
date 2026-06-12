@@ -12511,6 +12511,21 @@ export default function Page() {
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
 
+  const qualityControlApproverName = useMemo(() => {
+    const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
+    const qualityUser =
+      activeUsers.find((user) =>
+        /qc|quality|בקר|איכות/i.test(
+          `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
+        ),
+      ) ?? activeUsers.find((user) => String(user.name ?? "").trim());
+    return (
+      String(qualityUser?.name ?? "").trim() ||
+      String(qualityUser?.email ?? "").trim() ||
+      currentProjectDefaults.qualityControl
+    );
+  }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl]);
+
   const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
     let changed = false;
     const next: T = { ...form };
@@ -17473,6 +17488,7 @@ ${invalidRecipients.join("\n")}`);
               resetPreliminaryEditor={resetPreliminaryEditor}
               labelForPreliminary={labelForPreliminary}
               currentProjectName={projectName}
+              qualityControlApproverName={qualityControlApproverName}
               projectMeta={{
                 projectName: currentProjectLegend.projectName,
                 projectManagement: currentProjectLegend.projectManagement,
