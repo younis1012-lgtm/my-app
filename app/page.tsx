@@ -2594,6 +2594,14 @@ const createDefaultPlanRecord = (): Omit<PlanRecord, "id" | "projectId" | "saved
   attachments: [],
 });
 
+const inferPlanRevisionFromPlanNo = (planNo: unknown) => {
+  const normalized = String(planNo ?? "")
+    .replace(/\.[A-Za-z0-9]+$/i, "")
+    .replace(/[\u200e\u200f]/g, "")
+    .trim();
+  return normalized.match(/[-–](\d{2})$/)?.[1] ?? "";
+};
+
 const normalizePlanImportHeader = (value: unknown) =>
   String(value ?? "")
     .trim()
@@ -2721,10 +2729,11 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
   const scale = getPlanImportValue(row, ["קנ\"מ", "קנמ", "קנה מידה", "scale"]);
   const notes = getPlanImportValue(row, ["הערות", "הערה", "notes", "remarks", "remark"]);
   const noteParts = [notes, scale ? `קנ"מ: ${scale}` : ""].filter(Boolean);
+  const revision = getPlanImportValue(row, ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"]) || inferPlanRevisionFromPlanNo(planNo);
 
   return {
     planNo,
-    revision: getPlanImportValue(row, ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"]),
+    revision,
     title,
     discipline: getPlanImportValue(row, ["תחום", "דיסציפלינה", "מקצוע", "discipline", "field"]),
     date: normalizePlanImportDate(
@@ -2783,7 +2792,7 @@ const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<Pl
 
         return {
           planNo,
-          revision: "",
+          revision: inferPlanRevisionFromPlanNo(planNo),
           title: title || sourceName,
           discipline: inferPlanDisciplineFromText(`${planNo} ${title} ${sourceName}`),
           date: normalizePlanImportDate(dateRaw),
@@ -2806,7 +2815,7 @@ const createRoad806SeedPlans = (projectId: unknown): PlanRecord[] => {
     id: `road806-plan-${index + 1}`,
     projectId: normalizedProjectId,
     planNo: plan.planNo,
-    revision: plan.revision,
+    revision: plan.revision || inferPlanRevisionFromPlanNo(plan.planNo),
     title: plan.title,
     discipline: plan.discipline,
     date: plan.date,
@@ -2822,11 +2831,13 @@ const isRoad806SeedPlan = (plan: Pick<PlanRecord, "id">) =>
 
 const normalizePlanRecord = (value: any): PlanRecord | null => {
   if (!value || typeof value !== "object") return null;
+  const planNo = String(value.planNo ?? value.plan_no ?? "");
+  const revision = String(value.revision ?? value.edition ?? "") || inferPlanRevisionFromPlanNo(planNo);
   return {
     id: String(value.id ?? crypto.randomUUID()),
     projectId: normalizeStoredProjectId(value.projectId ?? value.project_id ?? ""),
-    planNo: String(value.planNo ?? value.plan_no ?? ""),
-    revision: String(value.revision ?? value.edition ?? ""),
+    planNo,
+    revision,
     title: String(value.title ?? value.planName ?? value.plan_name ?? ""),
     discipline: String(value.discipline ?? value.field ?? ""),
     date: String(value.date ?? ""),
@@ -15303,7 +15314,13 @@ export default function Page() {
   };
 
   const updatePlanForm = (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => {
-    setPlanForm((prev) => ({ ...prev, [field]: value }));
+    setPlanForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "planNo" && !String(next.revision ?? "").trim()) {
+        next.revision = inferPlanRevisionFromPlanNo(value);
+      }
+      return next;
+    });
   };
 
   const uploadPlanAttachments = (files: FileList | File[] | null) => {
@@ -15375,7 +15392,8 @@ export default function Page() {
           if (normalizeStoredProjectId(item.projectId) !== projectId) return false;
           if (!planNoKey || normalizeAccessValue(item.planNo) !== planNoKey) return false;
           if (!revisionKey) return true;
-          return normalizeAccessValue(item.revision) === revisionKey;
+          const existingRevisionKey = normalizeAccessValue(item.revision);
+          return !existingRevisionKey || existingRevisionKey === revisionKey;
         });
         if (existingIndex >= 0) {
           const existing = nextPlans[existingIndex];
@@ -15431,6 +15449,7 @@ export default function Page() {
       id,
       projectId: normalizeStoredProjectId(currentProjectId),
       ...planForm,
+      revision: planForm.revision || inferPlanRevisionFromPlanNo(planForm.planNo),
       attachments: normalizeAttachments(planForm.attachments),
       savedAt: nowLocal(),
     };
