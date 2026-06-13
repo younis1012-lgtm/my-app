@@ -6972,6 +6972,15 @@ function PlansSection({
   onLoad: (record: PlanRecord) => void;
   onDelete: (id: string) => void;
 }) {
+  const isManualPlanFormEmpty =
+    !String(`${form.planNo} ${form.revision} ${form.title} ${form.discipline} ${form.notes}`).trim() &&
+    !normalizeAttachments(form.attachments).length;
+  const saveButtonLabel = editingId
+    ? "עדכן תוכנית"
+    : isManualPlanFormEmpty && records.length
+      ? "רשימת התוכניות נשמרה"
+      : "שמור תוכנית";
+
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
@@ -7052,7 +7061,7 @@ function PlansSection({
       </div>
 
       <div style={styles.buttonRow}>
-        <button type="button" style={styles.primaryBtn} onClick={onSave}>{editingId ? "עדכן תוכנית" : "שמור תוכנית"}</button>
+        <button type="button" style={styles.primaryBtn} onClick={onSave}>{saveButtonLabel}</button>
         <button type="button" style={styles.secondaryBtn} onClick={onNew}>חדש / נקה</button>
       </div>
     </div>
@@ -15401,7 +15410,15 @@ export default function Page() {
 
   const savePlan = () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    if (!String(planForm.planNo || planForm.title).trim()) return alert("יש להזין מספר תוכנית או שם תוכנית");
+    const hasManualPlanInput =
+      Boolean(String(`${planForm.planNo} ${planForm.revision} ${planForm.title} ${planForm.discipline} ${planForm.notes}`).trim()) ||
+      normalizeAttachments(planForm.attachments).length > 0;
+    if (!String(planForm.planNo || planForm.title).trim()) {
+      if (!editingPlanId && !hasManualPlanInput && projectPlans.length) {
+        return alert("רשימת התוכניות כבר נשמרה בטבלה. לפתיחה או עריכה לחץ פתח / ערוך בשורת התוכנית, או מלא מספר/שם תוכנית להוספת תוכנית חדשה.");
+      }
+      return alert("יש להזין מספר תוכנית או שם תוכנית");
+    }
     const id = editingPlanId ?? crypto.randomUUID();
     const record: PlanRecord = {
       id,
