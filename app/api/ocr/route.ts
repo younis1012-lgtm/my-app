@@ -331,6 +331,7 @@ async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit
     const data = dataUrlToBytes(dataUrl);
     const doc = await pdfjs.getDocument({
       data,
+      disableWorker: true,
       useWorkerFetch: false,
       isEvalSupported: false,
       disableFontFace: true,
