@@ -39,6 +39,7 @@ const SUPABASE_HEADER_ERROR_FRAGMENT =
 const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 const FIXED_EMAIL_RECIPIENT = "q.controling@gmail.com";
 const NONCONFORMANCE_TABLE = "NCR";
+const PLANS_TABLE = "plans";
 
 const ROAD_806_SURVEYOR_SIGNATURE_URL = "/signatures/road-806-surveyor.png";
 const ROAD_806_SURVEYOR_NAME = "באסל שקארה";
@@ -2848,6 +2849,37 @@ const normalizePlanRecord = (value: any): PlanRecord | null => {
   };
 };
 
+const planRecordToRow = (record: PlanRecord) => ({
+  id: record.id,
+  project_id: normalizeStoredProjectId(record.projectId),
+  plan_no: record.planNo,
+  revision: record.revision || inferPlanRevisionFromPlanNo(record.planNo),
+  title: record.title,
+  discipline: record.discipline,
+  date: record.date,
+  status: record.status,
+  notes: record.notes,
+  attachments: normalizeAttachments(record.attachments).map(compactAttachmentForCloud),
+  saved_at: nowIso(),
+});
+
+const planRowToRecord = (row: any): PlanRecord | null =>
+  normalizePlanRecord({
+    id: row?.id,
+    project_id: row?.project_id,
+    plan_no: row?.plan_no,
+    revision: row?.revision,
+    title: row?.title,
+    discipline: row?.discipline,
+    date: row?.date,
+    status: row?.status,
+    notes: row?.notes,
+    attachments: row?.attachments,
+    saved_at: row?.saved_at
+      ? new Date(row.saved_at).toLocaleString("he-IL")
+      : "",
+  });
+
 type ChecklistAttachmentKind = "lab" | "measurement" | "other";
 
 type ChecklistAttachment = StoredAttachment & {
@@ -3263,13 +3295,27 @@ const recordsToCsv = (headers: Array<[string, (record: any, index: number) => un
 const collectRecordAttachments = (value: unknown): StoredAttachment[] => {
   const results: StoredAttachment[] = [];
   const seen = new Set<unknown>();
+  const pushAttachment = (item: any, dataUrl: unknown) => {
+    const url = String(dataUrl || "").trim();
+    if (!url || !(url.startsWith("data:") || /^https?:\/\//i.test(url))) return;
+    results.push({
+      name: String(item.name || item.filename || item.fileName || item.attachmentName || item.title || "קובץ מצורף"),
+      type: String(item.type || item.mimeType || item.attachmentType || ""),
+      dataUrl: url,
+      uploadedAt: String(item.uploadedAt || item.attachedAt || ""),
+    });
+  };
   const visit = (item: unknown) => {
     if (!item || typeof item !== "object") return;
     if (seen.has(item)) return;
     seen.add(item);
+    pushAttachment(item as any, (item as any).dataUrl);
+    pushAttachment(item as any, (item as any).attachmentDataUrl);
+    pushAttachment(item as any, (item as any).fileDataUrl);
+    pushAttachment(item as any, (item as any).url);
     if (
       "dataUrl" in (item as any) &&
-      String((item as any).dataUrl || "").startsWith("data:")
+      false && String((item as any).dataUrl || "").startsWith("data:")
     ) {
       results.push({
         name: String((item as any).name || (item as any).filename || "קובץ מצורף"),
@@ -3728,7 +3774,9 @@ const shouldIgnoreCloudError = (error: unknown) =>
   errorText(error).toLowerCase().includes("statement timeout") ||
   errorText(error).toLowerCase().includes("canceling statement due to statement timeout");
 const isOptionalCloudTable = (table: string) =>
-  table === CONTROL_PROCESS_TABLE || table === SUPERVISION_REPORTS_TABLE;
+  table === CONTROL_PROCESS_TABLE ||
+  table === SUPERVISION_REPORTS_TABLE ||
+  table === PLANS_TABLE;
 const readLocalCurrentProjectId = () => {
   if (typeof window === "undefined") return null;
   const normalized = normalizeStoredProjectId(
@@ -12349,6 +12397,7 @@ export default function Page() {
     controlProcessRows: any[] | null = [],
     supervisionReportRows: any[] | null = [],
     structureRows: any[] | null = [],
+    planRows: any[] | null = [],
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
@@ -12506,6 +12555,11 @@ export default function Page() {
         .map(normalizeProjectStructureNode)
         .filter(Boolean) as ProjectStructureNode[],
     );
+    setSavedPlans(
+      (planRows ?? [])
+        .map(planRowToRecord)
+        .filter(Boolean) as PlanRecord[],
+    );
   };
 
   useEffect(() => {
@@ -12526,6 +12580,7 @@ export default function Page() {
           controlRes,
           supervisionRes,
           structureRes,
+          plansRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectTable("checklists", "saved_at"),
@@ -12536,6 +12591,7 @@ export default function Page() {
           selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
           selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
           selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
+          selectTable(PLANS_TABLE, "saved_at"),
         ]);
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
@@ -12547,6 +12603,7 @@ export default function Page() {
           cloudRowsOrFallback(controlRes, savedControlProcesses),
           cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
           cloudRowsOrFallback(structureRes, projectStructureNodes),
+          cloudRowsOrFallback(plansRes, savedPlans),
         );
       } catch (error) {
         if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
@@ -12622,6 +12679,7 @@ export default function Page() {
       controlRes,
       supervisionRes,
       structureRes,
+      plansRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectTable("checklists", "saved_at"),
@@ -12632,6 +12690,7 @@ export default function Page() {
       selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
       selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
       selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
+      selectTable(PLANS_TABLE, "saved_at"),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
@@ -12643,6 +12702,7 @@ export default function Page() {
       cloudRowsOrFallback(controlRes, savedControlProcesses),
       cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
       cloudRowsOrFallback(structureRes, projectStructureNodes),
+      cloudRowsOrFallback(plansRes, savedPlans),
     );
   };
 
@@ -15436,6 +15496,15 @@ export default function Page() {
     });
   };
 
+  const persistPlansToCloud = async (plans: PlanRecord[]) => {
+    if (!cloudEnabled || !supabase || !plans.length) return;
+    const rows = plans.map(planRecordToRow);
+    const result = await supabase
+      .from(PLANS_TABLE)
+      .upsert(rows, { onConflict: "id" });
+    if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+  };
+
   const importPlanRegisterFile = async (files: FileList | File[] | null) => {
     const file = Array.from(files ?? [])[0];
     if (!file) return;
@@ -15515,6 +15584,7 @@ export default function Page() {
         }
       });
       setSavedPlans(nextPlans);
+      await persistPlansToCloud(nextPlans.filter((plan) => normalizeStoredProjectId(plan.projectId) === projectId));
 
       alert(`נקלטו ${addedCount} תוכניות חדשות ועודכנו ${updatedCount} תוכניות קיימות.`);
     } catch (error) {
@@ -15530,7 +15600,7 @@ export default function Page() {
     }));
   };
 
-  const savePlan = () => {
+  const savePlan = async () => {
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     const hasManualPlanInput =
       Boolean(String(`${planForm.planNo} ${planForm.revision} ${planForm.title} ${planForm.discipline} ${planForm.notes}`).trim()) ||
@@ -15550,7 +15620,11 @@ export default function Page() {
       attachments: normalizeAttachments(planForm.attachments),
       savedAt: nowLocal(),
     };
-    setSavedPlans((prev) => (prev.some((item) => item.id === id) ? prev.map((item) => item.id === id ? record : item) : [record, ...prev]));
+    await withSaving(async () => {
+      setSavedPlans((prev) => (prev.some((item) => item.id === id) ? prev.map((item) => item.id === id ? record : item) : [record, ...prev]));
+      await persistPlansToCloud([record]);
+      if (cloudEnabled) await refreshCloudData();
+    });
     setEditingPlanId(id);
   };
 
@@ -15569,9 +15643,16 @@ export default function Page() {
     setSection("plans");
   };
 
-  const deletePlan = (id: string) => {
+  const deletePlan = async (id: string) => {
     if (!window.confirm("למחוק את התוכנית?")) return;
-    setSavedPlans((prev) => prev.filter((item) => item.id !== id));
+    await withSaving(async () => {
+      if (cloudEnabled && supabase) {
+        const result = await supabase.from(PLANS_TABLE).delete().eq("id", id);
+        if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+      }
+      setSavedPlans((prev) => prev.filter((item) => item.id !== id));
+      if (cloudEnabled) await refreshCloudData();
+    });
     if (editingPlanId === id) resetPlanForm();
   };
 
@@ -16263,8 +16344,17 @@ export default function Page() {
         addCsv(`${folderPath}/סיכום.csv`, records, headers);
         addJson(`${folderPath}/נתונים.json`, records);
         for (const [index, record] of records.entries()) {
+          const recordTitleText = recordTitle(record, index);
           const recordFolder = `${folderPath}/${sanitizeZipSegment(`${index + 1} - ${recordTitle(record, index)}`, `רשומה ${index + 1}`)}`;
           addJson(`${recordFolder}/פרטי רשומה.json`, record);
+          await addRecordPdfToZip(
+            zip,
+            usedPaths,
+            recordFolder,
+            recordTitleText || `רשומה ${index + 1}`,
+            record,
+            headers.map(([label, getter]) => [label, getter(record, index)]),
+          );
           await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
         }
       };
@@ -16316,6 +16406,22 @@ export default function Page() {
             ["חתימה", (item) => item.signature?.name || item.signature?.signedBy || ""],
             ["תאריך", (item) => item.executionDate],
             ["הערות", (item) => item.notes],
+          ],
+        );
+        await addRecordPdfToZip(
+          zip,
+          usedPaths,
+          recordFolder,
+          getRecordTitle(record) || `רשימת תיוג ${index + 1}`,
+          record,
+          [
+            ["מספר רשימה", getChecklistDisplayNumber(record, index)],
+            ["שם רשימה", getRecordTitle(record)],
+            ["תיקייה", folder.title],
+            ["סוג רשימה", templateLabel],
+            ["מיקום", getChecklistDisplayLocation(record)],
+            ["תאריך", getRecordDate(record)],
+            ["סטטוס", getApprovalDisplayStatus(record)],
           ],
         );
         await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
@@ -16838,7 +16944,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }
   };
 
-  const buildMergedPdfBlob = async (title: string, html: string) => {
+  const buildMergedPdfBlob = async (title: string, html: string, appendicesOverride?: OutgoingEmailAttachment[]) => {
     const { PDFDocument } = await loadPdfTools();
     const formPdfBytes = await buildFormOnlyPdfBytes(html, title);
     const mergedPdf = await PDFDocument.create();
@@ -16846,13 +16952,45 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const formPages = await mergedPdf.copyPages(formPdf, formPdf.getPageIndices());
     formPages.forEach((page: any) => mergedPdf.addPage(page));
 
-    const appendices = collectCurrentFormPdfAppendices();
+    const appendices = appendicesOverride ?? collectCurrentFormPdfAppendices();
     for (const attachment of appendices) {
       await appendAttachmentToPdf(mergedPdf, attachment);
     }
 
     const mergedBytes = await mergedPdf.save();
     return new Blob([mergedBytes], { type: "application/pdf" });
+  };
+
+  const archiveRecordPdfAppendices = (record: unknown): OutgoingEmailAttachment[] =>
+    uniqueEmailAttachments(
+      collectRecordAttachments(record).map((attachment) =>
+        dataUrlToEmailAttachment(attachment.name, attachment.dataUrl, attachment.type),
+      ),
+    );
+
+  const archiveRecordHtml = (title: string, record: any, rows: Array<[string, unknown, number?]>) => {
+    const body = `${baseRows(rows)}${signaturesTable(record?.approval)}`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${exportCompanyFooter()}</div></body></html>`;
+  };
+
+  const addRecordPdfToZip = async (
+    zip: any,
+    usedPaths: Set<string>,
+    folderPath: string,
+    title: string,
+    record: any,
+    rows: Array<[string, unknown, number?]>,
+  ) => {
+    try {
+      const pdfBlob = await buildMergedPdfBlob(
+        title,
+        archiveRecordHtml(title, record, rows),
+        archiveRecordPdfAppendices(record),
+      );
+      zip.file(uniqueZipPath(usedPaths, `${folderPath}/${sanitizeZipSegment(`${title || "טופס"}.pdf`)}`), pdfBlob);
+    } catch (error) {
+      console.warn("Failed to add record PDF to project archive", title, error);
+    }
   };
 
   const blobToDataUrl = (blob: Blob) =>
