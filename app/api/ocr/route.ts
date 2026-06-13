@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import * as canvasRuntime from '@napi-rs/canvas';
+
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
@@ -246,8 +248,7 @@ function normalizeCertificateNoKey(value: string) {
 
 async function renderPdfPageToPngDataUrl(page: any) {
   try {
-    const runtimeRequire = eval('require') as NodeRequire;
-    const { createCanvas } = runtimeRequire('@napi-rs/canvas');
+    const { createCanvas } = canvasRuntime;
     const viewport = page.getViewport({ scale: 2 });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const context = canvas.getContext('2d');
@@ -263,17 +264,15 @@ async function renderPdfPageToPngDataUrl(page: any) {
 
 function ensurePdfCanvasPolyfills() {
   try {
-    const runtimeRequire = eval('require') as NodeRequire;
-    const canvas = runtimeRequire('@napi-rs/canvas');
     const globalScope = globalThis as typeof globalThis & {
-      DOMMatrix?: typeof canvas.DOMMatrix;
-      ImageData?: typeof canvas.ImageData;
-      Path2D?: typeof canvas.Path2D;
+      DOMMatrix?: typeof canvasRuntime.DOMMatrix;
+      ImageData?: typeof canvasRuntime.ImageData;
+      Path2D?: typeof canvasRuntime.Path2D;
     };
 
-    globalScope.DOMMatrix ||= canvas.DOMMatrix;
-    globalScope.ImageData ||= canvas.ImageData;
-    globalScope.Path2D ||= canvas.Path2D;
+    globalScope.DOMMatrix ||= canvasRuntime.DOMMatrix;
+    globalScope.ImageData ||= canvasRuntime.ImageData;
+    globalScope.Path2D ||= canvasRuntime.Path2D;
   } catch (error) {
     console.error('PDF canvas polyfill load failed', error);
   }
