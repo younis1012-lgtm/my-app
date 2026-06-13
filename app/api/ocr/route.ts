@@ -555,12 +555,70 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
 
     const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
     const parsed = { ...emptyData, ...(safeJsonParse(outputText) ?? {}) };
+    let scannedPageCertificates: ExtractedCertificate[] = [];
+    if (pdfAudit?.imageOnlyPages.length) {
+      try {
+        const scannedPrompt = `התמקד רק בעמודים הסרוקים/תמונתיים הבאים בקובץ: ${pdfAudit.imageOnlyPages.join(', ')}.
+אל תשתמש בעמודים אחרים.
+בדוק חזותית אם מופיע בהם אישור / כתב אישור / תעודה / רישיון.
+אם מופיע "כתב אישור מס׳" או "נספח לכתב אישור מס׳", החזר אותו כפריט certificate נפרד.
+חלץ במיוחד:
+- details: סוג האישור, למשל "כתב אישור מכון התקנים" או "נספח לכתב אישור"
+- certificateNo: מספר האישור בלבד, למשל 435
+- issueDate: תאריך "בתוקף מ" או "ניתן ביום" בפורמט yyyy-mm-dd
+- expiryDate: תאריך "עד" או "בתוקף עד" בפורמט yyyy-mm-dd
+- supplierName: שם הגוף המאושר.
+החזר JSON בלבד לפי הסכמה.`;
+        const scannedContent: any[] = [
+          { type: 'input_text', text: scannedPrompt },
+          { type: 'input_file', filename: fileName, file_data: normalizedFileData },
+        ];
+        const scannedResponse = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+            input: [{ role: 'user', content: scannedContent }],
+            temperature: 0,
+            text: {
+              format: {
+                type: 'json_schema',
+                name: 'preliminary_scanned_pages_extract',
+                schema: jsonSchema,
+                strict: true,
+              },
+            },
+          }),
+        });
+        const scannedResult = await scannedResponse.json();
+        if (scannedResponse.ok) {
+          const scannedOutputText =
+            scannedResult.output_text ||
+            scannedResult.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text ||
+            '';
+          const scannedParsed = { ...emptyData, ...(safeJsonParse(scannedOutputText) ?? {}) };
+          scannedPageCertificates = mergeCertificateItems(
+            scannedParsed.certificates,
+            scannedParsed.certificateNo || scannedParsed.expiryDate || scannedParsed.details
+              ? [normalizeCertificateItem(scannedParsed)]
+              : [],
+          );
+        } else {
+          console.error('OpenAI scanned-page OCR error', scannedResult);
+        }
+      } catch (error) {
+        console.error('Scanned-page OCR pass failed', error);
+      }
+    }
     const fallback = extractFromText(`${outputText}\n${parsed.details || ''}\n${parsed.notes || ''}`, fileName);
 
     parsed.certificateNo = cleanCertificateNo(parsed.certificateNo) || fallback.certificateNo;
     parsed.expiryDate = normalizeHebrewDate(parsed.expiryDate) || fallback.expiryDate;
     parsed.issueDate = '';
-    parsed.certificates = mergeCertificateItems(parsed.certificates, pdfAudit?.certificates ?? []);
+    parsed.certificates = mergeCertificateItems(parsed.certificates, scannedPageCertificates, pdfAudit?.certificates ?? []);
     if (!parsed.certificates.length && (parsed.certificateNo || parsed.expiryDate || parsed.details)) {
       parsed.certificates = [normalizeCertificateItem(parsed)];
     }
