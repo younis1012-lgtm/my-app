@@ -4063,6 +4063,10 @@ type InlineChecklistSectionProps = {
   ) => void;
   toggleChecklistItemPrintExclusion: (id: string) => void;
   addChecklistItem: () => void;
+  insertChecklistItem: (
+    itemId: string,
+    position: "before" | "after",
+  ) => void;
   removeChecklistItem: (id: string) => void;
   saveChecklist: () => void;
   resetChecklistForm: (templateKey?: ChecklistTemplateKey) => void;
@@ -4376,6 +4380,7 @@ function ChecklistsSection({
   updateChecklistItem,
   toggleChecklistItemPrintExclusion,
   addChecklistItem,
+  insertChecklistItem,
   removeChecklistItem,
   saveChecklist,
   resetChecklistForm,
@@ -4965,7 +4970,7 @@ function ChecklistsSection({
                   style={{
                     border: "1px solid #94a3b8",
                     padding: 8,
-                    width: 64,
+                    width: 88,
                     background: "#f8fafc",
                     fontWeight: 950,
                   }}
@@ -5343,6 +5348,85 @@ function ChecklistsSection({
                         ) : null}
                       </td>
                       <td style={{ ...cellStyle, textAlign: "center" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            gap: 6,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <details style={{ position: "relative" }}>
+                            <summary
+                              title="הוספת שורה מעל או מתחת"
+                              style={{
+                                width: 32,
+                                height: 32,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 8,
+                                background: "#fff",
+                                color: "#0f172a",
+                                cursor: "pointer",
+                                fontWeight: 950,
+                                fontSize: 18,
+                                lineHeight: "30px",
+                                textAlign: "center",
+                                listStyle: "none",
+                                userSelect: "none",
+                              }}
+                            >
+                              +
+                            </summary>
+                            <div
+                              style={{
+                                position: "absolute",
+                                zIndex: 30,
+                                left: 0,
+                                top: 36,
+                                display: "grid",
+                                gap: 4,
+                                minWidth: 92,
+                                padding: 6,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 10,
+                                background: "#fff",
+                                boxShadow: "0 12px 24px rgba(15, 23, 42, 0.16)",
+                              }}
+                            >
+                              {[
+                                ["before", "מעל"],
+                                ["after", "מתחת"],
+                              ].map(([position, label]) => (
+                                <button
+                                  key={position}
+                                  type="button"
+                                  onClick={(event) => {
+                                    (
+                                      event.currentTarget.closest(
+                                        "details",
+                                      ) as HTMLDetailsElement | null
+                                    )?.removeAttribute("open");
+                                    insertChecklistItem(
+                                      item.id,
+                                      position as "before" | "after",
+                                    );
+                                  }}
+                                  style={{
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: 8,
+                                    background: "#f8fafc",
+                                    color: "#0f172a",
+                                    cursor: "pointer",
+                                    fontWeight: 900,
+                                    padding: "7px 10px",
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </details>
                         <button
                           type="button"
                           onClick={() => removeChecklistItem(item.id)}
@@ -5350,6 +5434,7 @@ function ChecklistsSection({
                         >
                           מחק
                         </button>
+                        </div>
                       </td>
                       <td
                         style={{
@@ -13915,6 +14000,28 @@ export default function Page() {
       ...prev,
       items: [...prev.items, emptyChecklistItem(crypto.randomUUID())],
     }));
+  const insertChecklistItem = (
+    itemId: string,
+    position: "before" | "after",
+  ) =>
+    setChecklistForm((prev) => {
+      const nextItem = emptyChecklistItem(crypto.randomUUID());
+      const targetIndex = prev.items.findIndex(
+        (item: ChecklistItem) => item.id === itemId,
+      );
+      if (targetIndex < 0) {
+        return { ...prev, items: [...prev.items, nextItem] };
+      }
+      const insertAt = position === "before" ? targetIndex : targetIndex + 1;
+      return {
+        ...prev,
+        items: [
+          ...prev.items.slice(0, insertAt),
+          nextItem,
+          ...prev.items.slice(insertAt),
+        ],
+      };
+    });
   const removeChecklistItem = (id: string) =>
     setChecklistForm((prev) => ({
       ...prev,
@@ -17685,6 +17792,7 @@ ${invalidRecipients.join("\n")}`);
                   toggleChecklistItemPrintExclusion
                 }
                 addChecklistItem={addChecklistItem}
+                insertChecklistItem={insertChecklistItem}
                 removeChecklistItem={removeChecklistItem}
                 saveChecklist={saveChecklist}
                 resetChecklistForm={resetChecklistForm}
