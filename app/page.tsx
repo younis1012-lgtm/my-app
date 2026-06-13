@@ -2436,6 +2436,13 @@ const isAdminAccess = (access: ProjectAccess | null) =>
 const canWriteAccess = (access: ProjectAccess | null) =>
   access?.role === "admin" || access?.role === "readwrite";
 
+const isSelfServiceProjectCreator = (access: ProjectAccess | null) =>
+  Boolean(
+    access &&
+      access.role === "readwrite" &&
+      normalizeAccessValue(access.code ?? "").startsWith("new-project"),
+  );
+
 const projectMatchesAccess = (
   project: Project,
   access: ProjectAccess | null,
@@ -8349,6 +8356,7 @@ function UserAccessPanel({
           <tbody>
             {users.map((user, index) => {
               const isAdmin = user.role === "admin";
+              const isProjectInvite = isSelfServiceProjectCreator(user);
               const projectLink =
                 typeof window !== "undefined" && user.code
                   ? `${window.location.origin}/?project=${encodeURIComponent(user.code)}`
@@ -8452,6 +8460,11 @@ function UserAccessPanel({
                         }}
                       >
                         {projectLink}
+                      </div>
+                    ) : null}
+                    {isProjectInvite ? (
+                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
+                        קישור הזמנה: המשתמש יפתח פרויקט חדש בעצמו.
                       </div>
                     ) : null}
                   </td>
@@ -11964,6 +11977,7 @@ export default function Page() {
   };
 
   const addAccessUser = () => {
+    const nextNumber = draftAccessUsers.length + 1;
     setDraftAccessUsers((prevUsers) => [
       ...prevUsers,
       {
@@ -11971,8 +11985,8 @@ export default function Page() {
         password: "1234",
         displayName: `משתמש ${prevUsers.length + 1}`,
         role: "readwrite",
-        code: String(prevUsers.length + 1),
-        projectName: projects[0]?.name ?? "",
+        code: `new-project-${nextNumber}`,
+        projectName: "",
         signatureDataUrl: "",
         signatureFileName: "",
       },
@@ -12532,6 +12546,7 @@ export default function Page() {
       return effectiveProjects.length
         ? effectiveProjects
         : getDefaultProjectList();
+    if (isSelfServiceProjectCreator(projectAccess)) return [];
 
     const code =
       String(
@@ -12550,12 +12565,16 @@ export default function Page() {
       } as Project,
     ];
   }, [effectiveProjects, projectAccess]);
+  const canCreateProjects =
+    isAdminAccess(projectAccess) || isSelfServiceProjectCreator(projectAccess);
   const canManageProjects = isAdminAccess(projectAccess);
 
   useEffect(() => {
     if (!projectAccess) return;
-    if (!canManageProjects && section === "projects") setSection("home");
-  }, [projectAccess, canManageProjects, section]);
+    if (!canCreateProjects && section === "projects") setSection("home");
+    if (isSelfServiceProjectCreator(projectAccess) && !accessibleProjects.length)
+      setSection("projects");
+  }, [projectAccess, canCreateProjects, accessibleProjects.length, section]);
 
   useEffect(() => {
     if (!loaded || !projectAccess) return;
@@ -13746,8 +13765,11 @@ export default function Page() {
   };
 
   const addProject = async () => {
-    if (!isAdminAccess(projectAccess))
+    const selfServiceCreator = isSelfServiceProjectCreator(projectAccess);
+    if (!isAdminAccess(projectAccess) && !selfServiceCreator)
       return alert("אין הרשאה להוסיף פרויקטים במשתמש פרויקט");
+    if (selfServiceCreator && accessibleProjects.length)
+      return alert("כבר נפתח פרויקט למשתמש זה. להוספת פרויקט נוסף יש לפנות למנהל המערכת.");
     if (!newProjectName.trim()) return alert("יש להזין שם פרויקט");
     const id = crypto.randomUUID();
     const project: Project = {
@@ -13773,7 +13795,6 @@ export default function Page() {
           created_at: nowIso(),
         });
         if (result.error) throw result.error;
-        await refreshCloudData();
       } else {
         setProjects((prev) => [
           ...(prev.length ? prev : getDefaultProjectList()).map((p) => ({
@@ -13782,8 +13803,36 @@ export default function Page() {
           })),
           project,
         ]);
-        setCurrentProjectId(id);
       }
+
+      if (selfServiceCreator && projectAccess) {
+        const updatedAccess: ProjectAccess = {
+          ...projectAccess,
+          code: id,
+          projectName: project.name,
+          projectIds: [id],
+        };
+        const nextUsers = accessUsers.map((user) =>
+          user.username === projectAccess.username ||
+          user.code === projectAccess.code
+            ? {
+                ...user,
+                code: id,
+                projectName: project.name,
+              }
+            : user,
+        );
+
+        if (nextUsers.some((user) => user.username === projectAccess.username || user.code === id)) {
+          await persistAccessUsers(nextUsers);
+        }
+        setProjectAccess(updatedAccess);
+        writeAuthSession(updatedAccess);
+      }
+
+      setCurrentProjectId(id);
+      writeLocalCurrentProjectId(id);
+      if (cloudEnabled) await refreshCloudData();
     });
     setNewProjectName("");
     setNewProjectDescription("");
@@ -17073,8 +17122,14 @@ ${invalidRecipients.join("\n")}`);
     "preliminary",
     "controlProcesses",
   ].includes(section);
-  const navItems: Array<[AppSection, string]> = canManageProjects
-    ? [
+  const navItems: Array<[AppSection, string]> =
+    isSelfServiceProjectCreator(projectAccess) && !accessibleProjects.length
+      ? [
+          ["account", "החשבון שלי"],
+          ["projects", "פרויקטים"],
+        ]
+      : canManageProjects
+        ? [
         ["account", "החשבון שלי"],
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
@@ -17677,7 +17732,7 @@ ${invalidRecipients.join("\n")}`);
               setSection={setSection as any}
             />
           )}
-          {section === "projects" && canManageProjects && (
+          {section === "projects" && canCreateProjects && (
             <ProjectsSection
               projects={accessibleProjects}
               currentProjectId={currentProjectId}
@@ -17692,6 +17747,7 @@ ${invalidRecipients.join("\n")}`);
               renameProject={renameProject}
               updateProjectMeta={updateProjectMeta}
               deleteProject={deleteProject}
+              canManageExisting={canManageProjects}
             />
           )}
           {section === "projectUsers" && (

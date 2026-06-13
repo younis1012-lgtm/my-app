@@ -34,8 +34,13 @@ export function ProjectsSection(props: {
   renameProject: (id: string) => void;
   updateProjectMeta: (id: string) => void;
   deleteProject: (id: string) => void;
+  canManageExisting?: boolean;
 }) {
-  const displayProjects = props.projects.length ? props.projects : PROJECT_SECTION_FALLBACK_PROJECTS;
+  const displayProjects = props.projects.length
+    ? props.projects
+    : props.canManageExisting === false
+      ? []
+      : PROJECT_SECTION_FALLBACK_PROJECTS;
 
   return (
     <div>
@@ -47,6 +52,15 @@ export function ProjectsSection(props: {
           לחץ על “בחר פרויקט לעבודה”. לאחר הבחירה כל הרשימות, RFI, אי־התאמות, ריכוזים ותהליכי הבקרה יעבדו על הפרויקט שנבחר.
         </div>
       </div>
+
+      {props.canManageExisting === false && !props.projects.length ? (
+        <div style={{ ...styles.rowCard, background: '#f0fdf4', borderColor: '#86efac', marginBottom: 14 }}>
+          <div style={{ fontWeight: 950, color: '#166534' }}>פתיחת פרויקט חדש</div>
+          <div style={{ color: '#166534', marginTop: 6 }}>
+            זהו קישור הזמנה לפרויקט חדש. מלא שם פרויקט ולחץ “הוסף פרויקט”; לאחר השמירה הפרויקט ישויך אליך אוטומטית.
+          </div>
+        </div>
+      ) : null}
 
       <div style={styles.formGrid}>
         <Field label="שם פרויקט">
@@ -96,9 +110,13 @@ export function ProjectsSection(props: {
                 >
                   {isActive ? '✔ פרויקט פעיל' : 'בחר פרויקט לעבודה'}
                 </button>
-                <button style={styles.secondaryBtn} onClick={() => props.renameProject(project.id)}>ערוך שם</button>
-                <button style={styles.secondaryBtn} onClick={() => props.updateProjectMeta(project.id)}>ערוך פרטים</button>
-                <button style={styles.dangerBtn} onClick={() => props.deleteProject(project.id)}>מחק</button>
+                {props.canManageExisting !== false ? (
+                  <>
+                    <button style={styles.secondaryBtn} onClick={() => props.renameProject(project.id)}>ערוך שם</button>
+                    <button style={styles.secondaryBtn} onClick={() => props.updateProjectMeta(project.id)}>ערוך פרטים</button>
+                    <button style={styles.dangerBtn} onClick={() => props.deleteProject(project.id)}>מחק</button>
+                  </>
+                ) : null}
               </div>
             </div>
           );
