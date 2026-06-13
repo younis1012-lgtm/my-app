@@ -16470,12 +16470,36 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     [currentProjectEmailUsers],
   );
   const currentEmailSender = useMemo(() => {
-    const senderEmail = String(projectAccess?.email || "").trim();
+    const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
+    const qualityUser =
+      activeUsers.find((user) =>
+        /qc|quality|׳‘׳§׳¨|׳׳™׳›׳•׳×/i.test(
+          `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
+        ),
+      ) ?? null;
+    const qualityEmail = String(qualityUser?.email || "").trim();
+    const accessEmail = String(projectAccess?.email || "").trim();
+    const senderEmail = isValidEmailAddress(qualityEmail)
+      ? qualityEmail
+      : isValidEmailAddress(accessEmail)
+        ? accessEmail
+        : "";
+    const senderName =
+      String(qualityUser?.name || "").trim() ||
+      String(qualityUser?.email || "").trim() ||
+      String(projectAccess?.displayName || projectAccess?.username || "").trim() ||
+      currentProjectDefaults.qualityControl;
     return {
-      senderEmail: isValidEmailAddress(senderEmail) ? senderEmail : "",
-      senderName: String(projectAccess?.displayName || projectAccess?.username || "").trim(),
+      senderEmail,
+      senderName,
     };
-  }, [projectAccess?.displayName, projectAccess?.email, projectAccess?.username]);
+  }, [
+    currentProjectDefaults.qualityControl,
+    currentProjectEmailUsers,
+    projectAccess?.displayName,
+    projectAccess?.email,
+    projectAccess?.username,
+  ]);
 
   const sendEmailToRecipients = async (recipientEmails: string[]) => {
     try {
