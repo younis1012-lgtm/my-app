@@ -2257,6 +2257,7 @@ type StoredAuthSession = {
   username?: string;
   code?: string;
   role?: ProjectAccess["role"];
+  authProvider?: ProjectAccess["authProvider"];
   expiresAt?: number;
 };
 
@@ -2300,6 +2301,7 @@ const writeAuthSession = (access: ProjectAccess) => {
     username: access.username,
     code: access.code,
     role: access.role,
+    authProvider: access.authProvider,
     expiresAt: Date.now() + AUTH_SESSION_TIMEOUT_MS,
   };
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
@@ -11705,20 +11707,24 @@ export default function Page() {
       setAccessUsers(users);
       setDraftAccessUsers(users);
 
-      const supabaseAuthUser = await loadSupabaseAuthAccess();
+      const storedSession = readStoredAuthSession();
+      const supabaseAuthUser = storedSession ? await loadSupabaseAuthAccess() : null;
       if (cancelled) return;
       if (supabaseAuthUser) {
         setProjectAccess(supabaseAuthUser);
+        refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
         if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
         setAuthReady(true);
         return;
       }
+      if (!storedSession && isSupabaseConfigured && supabase) {
+        await supabase.auth.signOut().catch(() => {});
+      }
 
       // שומרים התחברות פעילה עד 10 דקות חוסר פעילות.
       // רענון דף בתוך הטווח לא מנתק את המשתמש.
-      const storedSession = readStoredAuthSession();
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
         setProjectAccess(storedUser);
@@ -11840,6 +11846,7 @@ export default function Page() {
         if (authAccess) {
           setLoginError("");
           setProjectAccess(authAccess);
+          writeAuthSession(authAccess);
           setSection("home");
           return;
         }
