@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Yi Quality</string>
+    <string name="title_activity_main">Yi Quality</string>
+    <string name="package_name">com.younis.yiquality</string>
+    <string name="custom_url_scheme">com.younis.yiquality</string>
+</resources>
