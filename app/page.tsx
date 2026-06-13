@@ -16469,6 +16469,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
     [currentProjectEmailUsers],
   );
+  const currentEmailSender = useMemo(() => {
+    const senderEmail = String(projectAccess?.email || "").trim();
+    return {
+      senderEmail: isValidEmailAddress(senderEmail) ? senderEmail : "",
+      senderName: String(projectAccess?.displayName || projectAccess?.username || "").trim(),
+    };
+  }, [projectAccess?.displayName, projectAccess?.email, projectAccess?.username]);
 
   const sendEmailToRecipients = async (recipientEmails: string[]) => {
     try {
@@ -16509,6 +16516,7 @@ ${invalidRecipients.join("\n")}`);
           text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
+          ...currentEmailSender,
         }),
       });
 
@@ -17020,6 +17028,7 @@ ${invalidRecipients.join("\n")}`);
           text: `מצורף PDF מאוחד הכולל דוח פיקוח עליון וכל הקבצים/התמונות מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
+          ...currentEmailSender,
         }),
       });
       if (!response.ok) {

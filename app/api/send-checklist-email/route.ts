@@ -19,6 +19,8 @@ type EmailPayload = {
   cc?: string | string[];
   bcc?: string | string[];
   replyTo?: string;
+  senderEmail?: string;
+  senderName?: string;
   subject?: string;
   text?: string;
   html?: string;
@@ -77,6 +79,12 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function formatMailbox(email: string, name?: string) {
+  const cleanEmail = email.trim();
+  const cleanName = String(name || "").replace(/["<>]/g, "").trim();
+  return cleanName ? `"${cleanName}" <${cleanEmail}>` : cleanEmail;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as EmailPayload;
@@ -97,11 +105,19 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    const senderEmail = String(body.senderEmail || body.replyTo || "").trim();
+    if (senderEmail && !validEmail(senderEmail)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid sender email", senderEmail },
+        { status: 400 },
+      );
+    }
+    const systemEmail = requireEnv("EMAIL_USER");
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: requireEnv("EMAIL_USER"),
+        user: systemEmail,
         pass: requireEnv("EMAIL_APP_PASSWORD"),
       },
     });
@@ -109,11 +125,12 @@ export async function POST(request: NextRequest) {
     const attachments = normalizeAttachments(body.attachments);
 
     const result = await transporter.sendMail({
-      from: requireEnv("EMAIL_USER"),
+      from: formatMailbox(systemEmail, body.senderName),
+      sender: systemEmail,
       to: joinEmails(toItems),
       cc: ccItems.length ? joinEmails(ccItems) : undefined,
       bcc: bccItems.length ? joinEmails(bccItems) : undefined,
-      replyTo: body.replyTo || undefined,
+      replyTo: senderEmail || undefined,
       subject: body.subject?.trim() || "Y.K QUALITY document",
       text: body.text?.trim() || "Attached PDF document from Y.K QUALITY.",
       html: body.html?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>',

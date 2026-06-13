@@ -9,6 +9,8 @@ export type SendEmailPayload = {
   cc?: string | string[];
   bcc?: string | string[];
   replyTo?: string;
+  senderEmail?: string;
+  senderName?: string;
   subject: string;
   text?: string;
   html?: string;
