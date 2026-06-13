@@ -180,6 +180,7 @@ type PdfAudit = {
   text: string;
   certificates: ExtractedCertificate[];
   imageOnlyPages: number[];
+  imageOnlyPageImages: Array<{ pageNo: number; imageDataUrl: string }>;
 };
 
 function dataUrlToBytes(dataUrl: string) {
@@ -243,6 +244,23 @@ function normalizeCertificateNoKey(value: string) {
   return cleanCertificateNo(value).replace(/^0+(\d)/, '$1').toLowerCase();
 }
 
+async function renderPdfPageToPngDataUrl(page: any) {
+  try {
+    const runtimeRequire = eval('require') as NodeRequire;
+    const { createCanvas } = runtimeRequire('@napi-rs/canvas');
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: context, viewport }).promise;
+    return `data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`;
+  } catch (error) {
+    console.error('PDF page render failed', error);
+    return '';
+  }
+}
+
 function extractAccreditationCertificateFromPage(pageText: string): ExtractedCertificate | null {
   const text = String(pageText || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
@@ -302,6 +320,7 @@ async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit
     const pages: string[] = [];
     const certificates: ExtractedCertificate[] = [];
     const imageOnlyPages: number[] = [];
+    const imageOnlyPageImages: Array<{ pageNo: number; imageDataUrl: string }> = [];
     const imageOps = new Set([
       pdfjs.OPS?.paintImageXObject,
       pdfjs.OPS?.paintJpegXObject,
@@ -321,9 +340,15 @@ async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit
         try {
           const operatorList = await page.getOperatorList();
           const hasImage = operatorList.fnArray.some((fn: unknown) => imageOps.has(fn));
-          if (hasImage) imageOnlyPages.push(pageNo);
+          if (hasImage) {
+            imageOnlyPages.push(pageNo);
+            const imageDataUrl = await renderPdfPageToPngDataUrl(page);
+            if (imageDataUrl) imageOnlyPageImages.push({ pageNo, imageDataUrl });
+          }
         } catch {
           imageOnlyPages.push(pageNo);
+          const imageDataUrl = await renderPdfPageToPngDataUrl(page);
+          if (imageDataUrl) imageOnlyPageImages.push({ pageNo, imageDataUrl });
         }
       }
     }
@@ -333,6 +358,7 @@ async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit
       text: pages.join('\n'),
       certificates: normalizeCertificateItems(certificates),
       imageOnlyPages,
+      imageOnlyPageImages,
     };
   } catch (error) {
     console.error('PDF audit failed', error);
@@ -571,8 +597,21 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
 החזר JSON בלבד לפי הסכמה.`;
         const scannedContent: any[] = [
           { type: 'input_text', text: scannedPrompt },
-          { type: 'input_file', filename: fileName, file_data: normalizedFileData },
         ];
+        if (pdfAudit.imageOnlyPageImages.length) {
+          pdfAudit.imageOnlyPageImages.forEach((image) => {
+            scannedContent.push({
+              type: 'input_text',
+              text: `עמוד סרוק ${image.pageNo}:`,
+            });
+            scannedContent.push({
+              type: 'input_image',
+              image_url: image.imageDataUrl,
+            });
+          });
+        } else {
+          scannedContent.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+        }
         const scannedResponse = await fetch('https://api.openai.com/v1/responses', {
           method: 'POST',
           headers: {
