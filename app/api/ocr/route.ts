@@ -166,6 +166,29 @@ function normalizeDataUrl(dataUrl: string, mimeType: string) {
   return `data:${mimeType || 'application/octet-stream'};base64,${raw}`;
 }
 
+type ExtractedCertificate = {
+  details: string;
+  certificateNo: string;
+  expiryDate: string;
+  issueDate: string;
+  supplierName: string;
+  materialName: string;
+};
+
+type PdfAudit = {
+  pageCount: number;
+  text: string;
+  certificates: ExtractedCertificate[];
+  imageOnlyPages: number[];
+};
+
+function dataUrlToBytes(dataUrl: string) {
+  const base64 = String(dataUrl || '').includes(',')
+    ? String(dataUrl).split(',').pop() || ''
+    : String(dataUrl || '');
+  return new Uint8Array(Buffer.from(base64, 'base64'));
+}
+
 function safeJsonParse(text: string) {
   try { return JSON.parse(text); } catch {}
   const match = text.match(/\{[\s\S]*\}/);
@@ -214,6 +237,126 @@ function cleanCertificateNo(value: string) {
   if (/^20\d{2}$/.test(candidate)) return '';
   if (/^SUB-?20\d{2}/i.test(candidate)) return '';
   return candidate;
+}
+
+function normalizeCertificateNoKey(value: string) {
+  return cleanCertificateNo(value).replace(/^0+(\d)/, '$1').toLowerCase();
+}
+
+function extractAccreditationCertificateFromPage(pageText: string): ExtractedCertificate | null {
+  const text = String(pageText || '').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const isCoverPage = /Page\s+No\.\s+1\s+of\s*:?\s+\d+/i.test(text);
+  const isAccreditation =
+    /Accreditation\s+Certificate/i.test(text) ||
+    /תעודת\s+הסמכה/.test(text) ||
+    /ISO\/IEC\s*17025/i.test(text);
+  if (!isCoverPage || !isAccreditation) return null;
+
+  const certificateNo = cleanCertificateNo(
+    text.match(/Accreditation\s+Certificate\s+No\.?\s*([A-Za-z0-9./_-]+)/i)?.[1] ||
+      text.match(/ISO\/IEC\s*17025:?\s*2017\s+([A-Za-z0-9./_-]+)\s+תעודת/)?.[1] ||
+      text.match(/תעודת\s+הסמכה\s+מס\s*'?\s*([A-Za-z0-9./_-]+)/)?.[1] ||
+      '',
+  );
+  if (!certificateNo) return null;
+
+  const expiryDate = normalizeHebrewDate(
+    text.match(/Until\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/i)?.[1] ||
+      text.match(/עד\s+יום\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/)?.[1] ||
+      '',
+  );
+  const issueDate = normalizeHebrewDate(
+    text.match(/Valid\s+from\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/i)?.[1] ||
+      text.match(/בתוקף\s+מיום\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/)?.[1] ||
+      text.match(/בתוקף\s+מיום\s+(\d{1,2}[./-]\d{1,2}[./-]20\d{2})\s*:/)?.[1] ||
+      '',
+  );
+  const supplierName = /Engineering\s*&\s*Quality\s*Group\s*Ltd/i.test(text)
+    ? 'Engineering & Quality Group Ltd.'
+    : /קבוצת\s+הנדסה\s+ואיכות/.test(text)
+      ? 'קבוצת הנדסה ואיכות בע"מ'
+      : '';
+
+  return {
+    details: 'תעודת הסמכה ISO/IEC 17025',
+    certificateNo,
+    expiryDate,
+    issueDate,
+    supplierName,
+    materialName: '',
+  };
+}
+
+async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit | null> {
+  if (!/pdf/i.test(mimeType) && !String(dataUrl || '').startsWith('data:application/pdf')) return null;
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const data = dataUrlToBytes(dataUrl);
+    const doc = await pdfjs.getDocument({
+      data,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    }).promise;
+    const pages: string[] = [];
+    const certificates: ExtractedCertificate[] = [];
+    const imageOnlyPages: number[] = [];
+    const imageOps = new Set([
+      pdfjs.OPS?.paintImageXObject,
+      pdfjs.OPS?.paintJpegXObject,
+      pdfjs.OPS?.paintInlineImageXObject,
+      pdfjs.OPS?.paintImageMaskXObject,
+    ]);
+
+    for (let pageNo = 1; pageNo <= doc.numPages; pageNo += 1) {
+      const page = await doc.getPage(pageNo);
+      const content = await page.getTextContent();
+      const text = content.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').trim();
+      pages.push(`--- PAGE ${pageNo} ---\n${text}`);
+      const certificate = extractAccreditationCertificateFromPage(text);
+      if (certificate) certificates.push(certificate);
+
+      if (text.length < 20) {
+        try {
+          const operatorList = await page.getOperatorList();
+          const hasImage = operatorList.fnArray.some((fn: unknown) => imageOps.has(fn));
+          if (hasImage) imageOnlyPages.push(pageNo);
+        } catch {
+          imageOnlyPages.push(pageNo);
+        }
+      }
+    }
+
+    return {
+      pageCount: doc.numPages,
+      text: pages.join('\n'),
+      certificates: normalizeCertificateItems(certificates),
+      imageOnlyPages,
+    };
+  } catch (error) {
+    console.error('PDF audit failed', error);
+    return null;
+  }
+}
+
+function mergeCertificateItems(...groups: unknown[]) {
+  const seen = new Set<string>();
+  const merged: ExtractedCertificate[] = [];
+  for (const group of groups) {
+    for (const item of normalizeCertificateItems(group)) {
+      const key = [
+        normalizeCertificateNoKey(item.certificateNo),
+        item.expiryDate,
+        item.issueDate,
+        item.details.toLowerCase(),
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 function extractFromText(text: string, fileName: string) {
@@ -364,7 +507,19 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
 אם יש טבלה, קרא את השורות הסמוכות לכותרות: מספר תעודה, תעודת כיול מס׳, תאריך פקיעת תוקף כיול, תוקף, בתוקף עד.`;
 
     const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
-    const content: any[] = [{ type: 'input_text', text: prompt }];
+    const pdfAudit = await auditPdfFile(normalizedFileData, mimeType);
+    const pdfAuditHint = pdfAudit
+      ? `
+בדיקת PDF מוקדמת של המערכת:
+- מספר עמודים: ${pdfAudit.pageCount}.
+- אישורי שער טקסטואליים שזוהו: ${pdfAudit.certificates.map((item) => `${item.certificateNo}${item.expiryDate ? ` עד ${item.expiryDate}` : ''}`).join(', ') || 'לא זוהו'}.
+- עמודים שהם תמונה/סריקה ללא טקסט: ${pdfAudit.imageOnlyPages.join(', ') || 'אין'}.
+אם קיימים עמודים סרוקים ללא טקסט, חובה לבדוק אותם חזותית ולא לדלג עליהם. אם הם כוללים אישור/תעודה/רישיון, החזר אותם כפריטים נוספים במערך certificates.
+אם יש שני אישורים עם אותו מספר בסיסי אבל תאריכי תוקף/הנפקה שונים, החזר את שניהם כשורות נפרדות.
+בסוף בצע בדיקה חוזרת עמוד-עמוד: אל תסתפק בעמודים הראשונים, ואל תדלג על עמודים סרוקים/תמונתיים.`
+      : '';
+    const enhancedPrompt = `${prompt}\n${pdfAuditHint}`;
+    const content: any[] = [{ type: 'input_text', text: enhancedPrompt }];
     if (isImage(mimeType)) {
       content.push({ type: 'input_image', image_url: normalizedFileData });
     } else {
@@ -405,9 +560,26 @@ issueDate אינו חשוב, החזר ריק אם לא ברור.
     parsed.certificateNo = cleanCertificateNo(parsed.certificateNo) || fallback.certificateNo;
     parsed.expiryDate = normalizeHebrewDate(parsed.expiryDate) || fallback.expiryDate;
     parsed.issueDate = '';
-    parsed.certificates = normalizeCertificateItems(parsed.certificates);
+    parsed.certificates = mergeCertificateItems(parsed.certificates, pdfAudit?.certificates ?? []);
     if (!parsed.certificates.length && (parsed.certificateNo || parsed.expiryDate || parsed.details)) {
       parsed.certificates = [normalizeCertificateItem(parsed)];
+    }
+    const minimumExpectedCertificates =
+      (pdfAudit?.certificates.length ?? 0) + (pdfAudit?.imageOnlyPages.length ? 1 : 0);
+    if (
+      pdfAudit?.imageOnlyPages.length &&
+      parsed.certificates.length < minimumExpectedCertificates
+    ) {
+      parsed.certificates = mergeCertificateItems(parsed.certificates, [
+        {
+          details: `אישור נוסף סרוק בעמודים ${pdfAudit.imageOnlyPages.join(', ')} - נדרש אימות מספר/תוקף`,
+          certificateNo: '',
+          expiryDate: '',
+          issueDate: '',
+          supplierName: parsed.supplierName || parsed.subcontractorName || '',
+          materialName: parsed.materialName || parsed.suppliedMaterial || '',
+        },
+      ]);
     }
 
     return NextResponse.json({ data: parsed });
