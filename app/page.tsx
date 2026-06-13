@@ -8275,6 +8275,9 @@ function UserAccessPanel({
             מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט
             שהוגדר לו.
           </div>
+          <div style={{ color: "#166534", marginTop: 6, fontWeight: 900 }}>
+            לפתיחת פרויקט עצמאי: לחץ “הוסף משתמש לפתיחת פרויקט חדש”, שלח לו את הקישור, שם המשתמש והסיסמה. אין צורך למלא שם פרויקט מראש.
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {hasUnsavedChanges ? (
@@ -8311,7 +8314,7 @@ function UserAccessPanel({
             onClick={onAddUser}
             style={{ ...styles.secondaryBtn }}
           >
-            הוסף משתמש
+            הוסף משתמש לפתיחת פרויקט חדש
           </button>
           <button
             type="button"
@@ -8476,9 +8479,13 @@ function UserAccessPanel({
                     }}
                   >
                     <input
-                      disabled={isAdmin}
+                      disabled={isAdmin || isProjectInvite}
                       value={
-                        isAdmin ? "כל הפרויקטים" : (user.projectName ?? "")
+                        isAdmin
+                          ? "כל הפרויקטים"
+                          : isProjectInvite
+                            ? "ימולא אוטומטית לאחר פתיחת הפרויקט"
+                            : (user.projectName ?? "")
                       }
                       onChange={(e) =>
                         onChangeUser(index, "projectName", e.target.value)
@@ -8489,9 +8496,14 @@ function UserAccessPanel({
                         borderRadius: 10,
                         padding: 8,
                         fontWeight: 800,
-                        background: isAdmin ? "#f1f5f9" : "#fff",
+                        background: isAdmin || isProjectInvite ? "#f1f5f9" : "#fff",
                       }}
                     />
+                    {isProjectInvite ? (
+                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
+                        אין צורך לציין שם פרויקט. המשתמש יפתח פרויקט חדש בעצמו, והשם יתמלא כאן אוטומטית.
+                      </div>
+                    ) : null}
                   </td>
                   <td
                     style={{
