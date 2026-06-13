@@ -2499,6 +2499,32 @@ const resolveResponsibleName = (responsible: unknown, projectName: unknown) => {
   return "";
 };
 
+const responsibleRoleMatchesUser = (
+  responsible: unknown,
+  user: Pick<ProjectEmailUser, "name" | "role" | "company" | "active">,
+) => {
+  if (user.active === false) return false;
+  const responsibleText = normalizeAccessValue(responsible);
+  if (!responsibleText) return false;
+  const userText = normalizeAccessValue(`${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`);
+
+  const includesAny = (values: string[]) =>
+    values.some((value) => userText.includes(normalizeAccessValue(value)));
+
+  if (responsibleText.includes("בקר") || responsibleText.includes("איכות"))
+    return includesAny(["בקר איכות", "בקרת איכות", "מנהל בקרת איכות", "quality", "qc"]);
+  if (responsibleText.includes("מנהל עבודה"))
+    return includesAny(["מנהל עבודה", "work manager", "foreman"]);
+  if (responsibleText.includes("מודד"))
+    return includesAny(["מודד", "מדידה", "survey", "surveyor"]);
+  if (responsibleText.includes("הבטחת איכות"))
+    return includesAny(["הבטחת איכות", "qa", "quality assurance"]);
+  if (responsibleText.includes("ניהול פרויקט") || responsibleText.includes("מנהל פרויקט"))
+    return includesAny(["ניהול פרויקט", "מנהל פרויקט", "project manager"]);
+
+  return userText.includes(responsibleText);
+};
+
 const nowLocal = () => new Date().toLocaleString("he-IL");
 const nowIso = () => new Date().toISOString();
 
@@ -4042,6 +4068,7 @@ type InlineChecklistSectionProps = {
   resetChecklistForm: (templateKey?: ChecklistTemplateKey) => void;
   projectName: string;
   projectPlans: PlanRecord[];
+  resolveResponsibleNameForProject: (responsible: unknown) => string;
   onUploadAttachment: (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -4354,6 +4381,7 @@ function ChecklistsSection({
   resetChecklistForm,
   projectName,
   projectPlans,
+  resolveResponsibleNameForProject,
   onUploadAttachment,
   onRemoveAttachment,
   savedSignatureForSigner,
@@ -4974,7 +5002,7 @@ function ChecklistsSection({
                       attachmentKinds.includes(attachment.kind),
                   );
                   const autoName =
-                    resolveResponsibleName(item.responsible, projectName) ||
+                    resolveResponsibleNameForProject(item.responsible) ||
                     item.inspector ||
                     "";
                   const signatureValue = normalizeProcessSignature(
@@ -12679,6 +12707,39 @@ export default function Page() {
     );
   }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl]);
 
+  const resolveResponsibleNameForCurrentProject = useMemo(
+    () => (responsible: unknown) => {
+      const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
+      const matchedUser = activeUsers.find((user) =>
+        responsibleRoleMatchesUser(responsible, user),
+      );
+      const userName =
+        String(matchedUser?.name ?? "").trim() ||
+        String(matchedUser?.email ?? "").trim();
+      if (userName) return userName;
+
+      const role = String(responsible ?? "");
+      if (role.includes("בקרת איכות") || role.includes("בקר איכות"))
+        return currentProjectDefaults.qualityControl;
+      if (role.includes("מנהל עבודה")) return currentProjectDefaults.workManager;
+      if (role.includes("מודד")) return currentProjectDefaults.surveyor;
+      if (role.includes("הבטחת איכות")) return currentProjectDefaults.qualityAssurance;
+      if (role.includes("ניהול פרויקט") || role.includes("מנהל פרויקט"))
+        return currentProjectDefaults.projectManagement;
+
+      return resolveResponsibleName(responsible, currentProject?.name);
+    },
+    [
+      currentProjectEmailUsers,
+      currentProjectDefaults.qualityControl,
+      currentProjectDefaults.workManager,
+      currentProjectDefaults.surveyor,
+      currentProjectDefaults.qualityAssurance,
+      currentProjectDefaults.projectManagement,
+      currentProject?.name,
+    ],
+  );
+
   const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
     let changed = false;
     const next: T = { ...form };
@@ -13020,7 +13081,7 @@ export default function Page() {
     items.map((item) => ({
       ...item,
       inspector:
-        resolveResponsibleName(item.responsible, projectName) || item.inspector,
+        resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector,
     }));
   const checklistTemplateLabel = (
     key: ChecklistTemplateKey | string | undefined,
@@ -13397,17 +13458,16 @@ export default function Page() {
   useEffect(() => {
     if (!loaded || section !== "checklists") return;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    if (!profile) return;
     setChecklistForm((prev) => ({
       ...prev,
       contractor:
-        !prev.contractor || prev.contractor.includes("פלסי הגליל")
+        profile && (!prev.contractor || prev.contractor.includes("פלסי הגליל"))
           ? profile.contractor
           : prev.contractor,
       items: prev.items.map((item) => ({
         ...item,
         inspector:
-          resolveResponsibleName(item.responsible, profile.projectName) ||
+          resolveResponsibleNameForCurrentProject(item.responsible) ||
           item.inspector,
       })),
     }));
@@ -13416,6 +13476,8 @@ export default function Page() {
     section,
     currentProjectId,
     currentProjectProfile?.projectName,
+    currentProjectEmailUsers,
+    resolveResponsibleNameForCurrentProject,
     projectName,
   ]);
 
@@ -13828,7 +13890,7 @@ export default function Page() {
       items: prev.items.map((item) => {
         if (item.id !== id) return item;
         if (field === "responsible") {
-          const autoName = resolveResponsibleName(value, projectName);
+          const autoName = resolveResponsibleNameForCurrentProject(value);
           return {
             ...item,
             responsible: value,
@@ -15543,12 +15605,12 @@ export default function Page() {
       normalizeProcessSignature(
         item.signature,
         item.responsible || "גורם אחראי",
-        resolveResponsibleName(item.responsible, projectName) || item.inspector || "",
+        resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector || "",
       );
 
     const itemSignerName = (item: any) => {
       const sig = getItemSignature(item);
-      return sig.signerName || resolveResponsibleName(item.responsible, projectName) || item.inspector || "";
+      return sig.signerName || resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector || "";
     };
 
     const itemSignature = (item: any) => {
@@ -17628,6 +17690,7 @@ ${invalidRecipients.join("\n")}`);
                 resetChecklistForm={resetChecklistForm}
                 projectName={projectName}
                 projectPlans={currentProjectPlans}
+                resolveResponsibleNameForProject={resolveResponsibleNameForCurrentProject}
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
                 savedSignatureForSigner={savedSignatureForSigner}
