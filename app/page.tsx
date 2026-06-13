@@ -3206,6 +3206,103 @@ const getChecklistTemplateFolder = (templateKey: ChecklistTemplateKey) =>
   CHECKLIST_TEMPLATE_FOLDERS.find((folder) =>
     folder.templateKeys.includes(templateKey),
   ) ?? CHECKLIST_TEMPLATE_FOLDERS[CHECKLIST_TEMPLATE_FOLDERS.length - 1];
+
+const sanitizeZipSegment = (value: unknown, fallback = "ללא שם") => {
+  const cleaned = String(value ?? "")
+    .replace(/[\u200e\u200f]/g, "")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || fallback).slice(0, 110);
+};
+
+const uniqueZipPath = (usedPaths: Set<string>, path: string) => {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (!usedPaths.has(normalized)) {
+    usedPaths.add(normalized);
+    return normalized;
+  }
+  const slashIndex = normalized.lastIndexOf("/");
+  const folder = slashIndex >= 0 ? normalized.slice(0, slashIndex + 1) : "";
+  const fileName = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
+  const dotIndex = fileName.lastIndexOf(".");
+  const base = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  const ext = dotIndex > 0 ? fileName.slice(dotIndex) : "";
+  let counter = 2;
+  let candidate = `${folder}${base} (${counter})${ext}`;
+  while (usedPaths.has(candidate)) {
+    counter += 1;
+    candidate = `${folder}${base} (${counter})${ext}`;
+  }
+  usedPaths.add(candidate);
+  return candidate;
+};
+
+const stripLargeDataUrls = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stripLargeDataUrls);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      key.toLowerCase().includes("dataurl") ? "[קובץ מצורף נשמר בתיקיית הקבצים]" : stripLargeDataUrls(item),
+    ]),
+  );
+};
+
+const csvValue = (value: unknown) =>
+  `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const recordsToCsv = (headers: Array<[string, (record: any, index: number) => unknown]>, records: any[]) =>
+  [
+    headers.map(([label]) => csvValue(label)).join(","),
+    ...records.map((record, index) =>
+      headers.map(([, getter]) => csvValue(getter(record, index))).join(","),
+    ),
+  ].join("\r\n");
+
+const collectRecordAttachments = (value: unknown): StoredAttachment[] => {
+  const results: StoredAttachment[] = [];
+  const seen = new Set<unknown>();
+  const visit = (item: unknown) => {
+    if (!item || typeof item !== "object") return;
+    if (seen.has(item)) return;
+    seen.add(item);
+    if (
+      "dataUrl" in (item as any) &&
+      String((item as any).dataUrl || "").startsWith("data:")
+    ) {
+      results.push({
+        name: String((item as any).name || (item as any).filename || "קובץ מצורף"),
+        type: String((item as any).type || ""),
+        dataUrl: String((item as any).dataUrl),
+      });
+      return;
+    }
+    Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return results;
+};
+
+const addRecordAttachmentsToZip = async (
+  zip: any,
+  usedPaths: Set<string>,
+  folderPath: string,
+  record: unknown,
+) => {
+  const attachments = collectRecordAttachments(record);
+  for (const attachment of attachments) {
+    try {
+      const response = await fetch(attachment.dataUrl);
+      const blob = await response.blob();
+      const fileName = sanitizeZipSegment(attachment.name || "קובץ מצורף");
+      zip.file(uniqueZipPath(usedPaths, `${folderPath}/קבצים מצורפים/${fileName}`), blob);
+    } catch (error) {
+      console.warn("Failed to add attachment to project archive", attachment.name, error);
+    }
+  }
+};
+
 const createDefaultNonconformance = (): Omit<
   NonconformanceRecord,
   "id" | "projectId" | "savedAt"
@@ -16126,6 +16223,206 @@ export default function Page() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadProjectArchive = async () => {
+    if (!currentProject) return alert("יש לבחור פרויקט לפני הורדת החומר");
+    try {
+      setIsSaving(true);
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const usedPaths = new Set<string>();
+      const projectRoot = sanitizeZipSegment(`חומר פרויקט - ${projectName || currentProject.name}`);
+      const now = nowLocal();
+      const allProjectChecklists = savedChecklists.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectTrialSections = savedTrialSections.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectPreliminary = savedPreliminary.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectRfis = savedRfis.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectControlProcesses = savedControlProcesses.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectSupervisionReports = savedSupervisionReports.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectPlans = currentProjectPlans;
+
+      const addText = (path: string, content: string) => {
+        zip.file(uniqueZipPath(usedPaths, path), content);
+      };
+      const addJson = (path: string, value: unknown) => {
+        addText(path, JSON.stringify(stripLargeDataUrls(value), null, 2));
+      };
+      const addCsv = (
+        path: string,
+        records: any[],
+        headers: Array<[string, (record: any, index: number) => unknown]>,
+      ) => {
+        addText(path, `\ufeff${recordsToCsv(headers, records)}`);
+      };
+      const addCollection = async (
+        folderPath: string,
+        records: any[],
+        headers: Array<[string, (record: any, index: number) => unknown]>,
+        recordTitle: (record: any, index: number) => string,
+      ) => {
+        addCsv(`${folderPath}/סיכום.csv`, records, headers);
+        addJson(`${folderPath}/נתונים.json`, records);
+        for (const [index, record] of records.entries()) {
+          const recordFolder = `${folderPath}/${sanitizeZipSegment(`${index + 1} - ${recordTitle(record, index)}`, `רשומה ${index + 1}`)}`;
+          addJson(`${recordFolder}/פרטי רשומה.json`, record);
+          await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
+        }
+      };
+
+      addJson(`${projectRoot}/פרטי פרויקט.json`, {
+        exportedAt: now,
+        project: currentProject,
+        legend: currentProjectLegend,
+        profile: currentProjectProfile,
+        counters: {
+          checklists: allProjectChecklists.length,
+          plans: allProjectPlans.length,
+          preliminary: allProjectPreliminary.length,
+          nonconformances: allProjectNonconformances.length,
+          rfi: allProjectRfis.length,
+          trialSections: allProjectTrialSections.length,
+          controlProcesses: allProjectControlProcesses.length,
+          supervisionReports: allProjectSupervisionReports.length,
+        },
+      });
+
+      addCsv(
+        `${projectRoot}/רשימות תיוג/סיכום כללי.csv`,
+        allProjectChecklists,
+        [
+          ["מספר", (record, index) => getChecklistDisplayNumber(record, index)],
+          ["כותרת", (record) => getRecordTitle(record)],
+          ["תיקייה", (record) => getChecklistTemplateFolder(normalizeChecklistTemplateKey(record.templateKey)).title],
+          ["סוג רשימה", (record) => checklistTemplateLabel(record.templateKey)],
+          ["מיקום", (record) => getChecklistDisplayLocation(record)],
+          ["תאריך", (record) => getRecordDate(record)],
+          ["סטטוס", (record) => getApprovalDisplayStatus(record)],
+        ],
+      );
+      for (const [index, record] of allProjectChecklists.entries()) {
+        const templateKey = normalizeChecklistTemplateKey(record.templateKey);
+        const folder = getChecklistTemplateFolder(templateKey);
+        const templateLabel = checklistTemplateLabel(templateKey);
+        const recordFolder = `${projectRoot}/רשימות תיוג/${sanitizeZipSegment(folder.title)}/${sanitizeZipSegment(templateLabel)}/${sanitizeZipSegment(`${getChecklistDisplayNumber(record, index)} - ${getRecordTitle(record)}`, `רשימת תיוג ${index + 1}`)}`;
+        addJson(`${recordFolder}/פרטי רשימת תיוג.json`, record);
+        addCsv(
+          `${recordFolder}/סעיפי בדיקה.csv`,
+          normalizeChecklistItems((record as any).items),
+          [
+            ["#", (_item, itemIndex) => itemIndex + 1],
+            ["תיאור פעולה", (item) => item.description],
+            ["באחריות", (item) => item.responsible],
+            ["שם", (item) => item.inspector],
+            ["חתימה", (item) => item.signature?.name || item.signature?.signedBy || ""],
+            ["תאריך", (item) => item.executionDate],
+            ["הערות", (item) => item.notes],
+          ],
+        );
+        await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
+      }
+
+      await addCollection(
+        `${projectRoot}/תוכניות`,
+        allProjectPlans,
+        [
+          ["מספר תוכנית", (record) => record.planNo],
+          ["מהדורה", (record) => record.revision],
+          ["שם / תיאור", (record) => record.title],
+          ["תחום", (record) => record.discipline],
+          ["תאריך", (record) => record.date],
+          ["סטטוס", (record) => record.status],
+        ],
+        (record) => record.planNo || record.title || "תוכנית",
+      );
+      await addCollection(
+        `${projectRoot}/בקרה מקדימה`,
+        allProjectPreliminary,
+        [
+          ["סוג", (record) => labelForPreliminary(record.subtype)],
+          ["כותרת", (record) => record.title],
+          ["תאריך", (record) => record.date],
+          ["סטטוס", (record) => record.status],
+        ],
+        (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
+      );
+      await addCollection(
+        `${projectRoot}/אי התאמות`,
+        allProjectNonconformances,
+        [
+          ["מספר", (record, index) => record.serialNumber || index + 1],
+          ["כותרת", (record) => record.title],
+          ["מיקום", (record) => record.location],
+          ["סטטוס", (record) => record.status],
+          ["תאריך", (record) => record.date],
+        ],
+        (record, index) => `${record.serialNumber || index + 1} - ${record.title || "אי התאמה"}`,
+      );
+      await addCollection(
+        `${projectRoot}/RFI`,
+        allProjectRfis,
+        [
+          ["מספר", (record) => record.rfiNumber || record.referenceNo],
+          ["כותרת", (record) => record.title],
+          ["סטטוס", (record) => record.status],
+          ["תוכנית", (record) => record.planNo],
+          ["מיקום", (record) => record.location],
+        ],
+        (record, index) => `${record.rfiNumber || index + 1} - ${record.title || "RFI"}`,
+      );
+      await addCollection(
+        `${projectRoot}/קטעי ניסוי`,
+        allProjectTrialSections,
+        [
+          ["מספר", (record, index) => record.serialNumber || index + 1],
+          ["כותרת", (record) => record.title],
+          ["מיקום", (record) => record.location],
+          ["מפרט", (record) => record.spec],
+          ["תוצאה", (record) => record.result],
+        ],
+        (record, index) => `${record.serialNumber || index + 1} - ${record.title || "קטע ניסוי"}`,
+      );
+      await addCollection(
+        `${projectRoot}/תעודות יחס וריכוזים`,
+        allProjectControlProcesses,
+        [
+          ["מספר", (record) => record.processNo],
+          ["כותרת", (record) => record.title],
+          ["תחום", (record) => record.workType],
+          ["סטטוס", (record) => record.status],
+          ["מיקום", (record) => record.location],
+        ],
+        (record) => `${record.processNo || ""} ${record.title || "תהליך בקרה"}`,
+      );
+      await addCollection(
+        `${projectRoot}/דוחות פיקוח עליון`,
+        allProjectSupervisionReports,
+        [
+          ["מספר", (record) => record.reportNo],
+          ["כותרת", (record) => record.title],
+          ["מיקום", (record) => record.location],
+          ["עורך", (record) => record.author],
+          ["סטטוס", (record) => record.status],
+        ],
+        (record) => `${record.reportNo || ""} ${record.title || "דוח פיקוח עליון"}`,
+      );
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${sanitizeZipSegment(projectName || currentProject.name || "חומר פרויקט")}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "הורדת חומר הפרויקט נכשלה");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const getExportChecklistNo = () =>
     section === "checklists" ? ensureChecklistNo() : undefined;
   const exportWord = () =>
@@ -17473,6 +17770,14 @@ ${invalidRecipients.join("\n")}`);
           onClick={() => setSection("projectStructure")}
         >
           עץ פרויקט
+        </button>
+        <button
+          type="button"
+          style={styles.secondaryBtn}
+          onClick={downloadProjectArchive}
+          disabled={!currentProject || isSaving}
+        >
+          הורד חומר פרויקט
         </button>
       </div>
 
