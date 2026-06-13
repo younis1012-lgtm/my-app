@@ -261,6 +261,24 @@ async function renderPdfPageToPngDataUrl(page: any) {
   }
 }
 
+function ensurePdfCanvasPolyfills() {
+  try {
+    const runtimeRequire = eval('require') as NodeRequire;
+    const canvas = runtimeRequire('@napi-rs/canvas');
+    const globalScope = globalThis as typeof globalThis & {
+      DOMMatrix?: typeof canvas.DOMMatrix;
+      ImageData?: typeof canvas.ImageData;
+      Path2D?: typeof canvas.Path2D;
+    };
+
+    globalScope.DOMMatrix ||= canvas.DOMMatrix;
+    globalScope.ImageData ||= canvas.ImageData;
+    globalScope.Path2D ||= canvas.Path2D;
+  } catch (error) {
+    console.error('PDF canvas polyfill load failed', error);
+  }
+}
+
 function extractAccreditationCertificateFromPage(pageText: string): ExtractedCertificate | null {
   const text = String(pageText || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
@@ -309,6 +327,7 @@ function extractAccreditationCertificateFromPage(pageText: string): ExtractedCer
 async function auditPdfFile(dataUrl: string, mimeType: string): Promise<PdfAudit | null> {
   if (!/pdf/i.test(mimeType) && !String(dataUrl || '').startsWith('data:application/pdf')) return null;
   try {
+    ensurePdfCanvasPolyfills();
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const data = dataUrlToBytes(dataUrl);
     const doc = await pdfjs.getDocument({
