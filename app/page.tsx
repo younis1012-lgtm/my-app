@@ -2500,6 +2500,17 @@ const projectMatchesAccess = (
 
   if (allowedName && projectName === allowedName) return true;
   if (allowedName && projectName.includes(allowedName)) return true;
+  const projectCodes = new Set(
+    extractProjectCodeCandidates(project.id, project.name),
+  );
+  const accessCodes = extractProjectCodeCandidates(
+    access.code,
+    access.username,
+    access.projectName,
+    ...(access.projectIds ?? []),
+  );
+  if (accessCodes.some((projectCode) => projectCodes.has(projectCode)))
+    return true;
   if (code && searchable.includes(code)) return true;
 
   return false;
@@ -13440,6 +13451,13 @@ export default function Page() {
     ]
       .map(normalizeHebrewProjectName)
       .filter(Boolean);
+    const currentProjectCodes = new Set(
+      extractProjectCodeCandidates(
+        currentProjectIdNormalized,
+        currentProject?.id,
+        currentProject?.name,
+      ),
+    );
 
     return accessUsers
       .filter((user) => {
@@ -13450,6 +13468,19 @@ export default function Page() {
         if (
           currentProjectIdNormalized &&
           userProjectIds.includes(currentProjectIdNormalized)
+        ) {
+          return true;
+        }
+        const userProjectCodes = extractProjectCodeCandidates(
+          user.code,
+          user.username,
+          user.projectName,
+          ...(user.projectIds ?? []),
+        );
+        if (
+          userProjectCodes.some((projectCode) =>
+            currentProjectCodes.has(projectCode),
+          )
         ) {
           return true;
         }
@@ -13469,6 +13500,8 @@ export default function Page() {
   }, [
     accessUsers,
     currentProject,
+    currentProject?.id,
+    currentProject?.name,
     currentProjectIdNormalized,
     currentProjectLegend.projectName,
   ]);
@@ -13477,6 +13510,7 @@ export default function Page() {
       projectIdentityKeysFromValues(
         currentProjectIdNormalized,
         currentProject?.id,
+        currentProject?.name,
         ...(isAdminAccess(projectAccess)
           ? []
           : [
@@ -13490,6 +13524,7 @@ export default function Page() {
     [
       currentProjectIdNormalized,
       currentProject?.id,
+      currentProject?.name,
       projectAccess?.role,
       projectAccess?.code,
       projectAccess?.projectName,
