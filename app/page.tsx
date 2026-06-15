@@ -9299,6 +9299,32 @@ const applyGradingLineFallbackFromText = (
     .map(clean)
     .filter(Boolean);
   const numberTokens = (value: unknown) => clean(value).match(/\d+(?:[.,]\d+)?/g)?.map((item) => item.replace(",", ".")) ?? [];
+  const isSoilSurveyTable =
+    /\bA-\d-[A-Za-z0-9]\(\d+\)/.test(text) &&
+    lines.some((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4")) &&
+    /(?:LL|PL|PI|AASHTO)/i.test(text);
+  const isPercentValue = (value: unknown) => {
+    const numeric = Number(String(value ?? "").replace(",", "."));
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100;
+  };
+  const firstSoilSurveyRow = () => {
+    for (const line of lines) {
+      const match = line.match(
+        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
+      );
+      if (!match) continue;
+      const nums = match[1].trim().split(/\s+/).map((value) => value.replace(",", "."));
+      if (nums.length < 8) continue;
+      const pi = nums.pop() ?? "";
+      const pl = nums.pop() ?? "";
+      const ll = nums.pop() ?? "";
+      const gs = nums.pop() ?? "";
+      const sieves = nums.filter(isPercentValue);
+      if (sieves.length < 5) continue;
+      return { sieves, gs, ll, pl, pi, aashto: clean(match[3]), unified: clean(match[2]).toUpperCase() };
+    }
+    return null;
+  };
   const textAfter = (patterns: RegExp[]) => firstRegexGroup(text, patterns);
   const dateValuePattern = /\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g;
   const cleanStructureValue = (value: unknown) =>
@@ -9993,6 +10019,7 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
 
   const setSieveValues = (values: string[]) => {
     const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
+    if (!cleanValues.length || !cleanValues.every(isPercentValue)) return;
     if (cleanValues.length >= 9) {
       const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
       cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
@@ -10001,6 +10028,11 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     if (cleanValues.length >= 7) {
       // בתעודות QTEST של חומר נברר לעיתים אין ערכים עבור 3/8 ו-1, ולכן שורת המדגם מכילה 7 ערכים בלבד.
       const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
+      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
+      return;
+    }
+    if (cleanValues.length >= 5) {
+      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"]];
       cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
     }
   };
@@ -10048,10 +10080,12 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     { aliases: ["#200", "נפה 200"], tests: [(line) => line.includes("#200") || line.includes("200#")], mm: ["0.075"] },
   ];
 
-  qtestSievePairs.forEach((item) => {
-    const value = firstSieveResultAfterLabel(item.tests, item.mm);
-    if (value) setMetric(item.aliases, value);
-  });
+  if (!isSoilSurveyTable) {
+    qtestSievePairs.forEach((item) => {
+      const value = firstSieveResultAfterLabel(item.tests, item.mm);
+      if (value) setMetric(item.aliases, value);
+    });
+  }
 
   const extractSieveValuesFromLines = () => {
     const headerIndex = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
@@ -10067,15 +10101,25 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     return [] as string[];
   };
 
-  const lineSieveValues = extractSieveValuesFromLines();
+  const soilSurveyRow = firstSoilSurveyRow();
+  if (soilSurveyRow) {
+    setSieveValues(soilSurveyRow.sieves);
+    setMetric(["LL", "גבול נזילות"], soilSurveyRow.ll);
+    setMetric(["PL", "LP", "גבול פלסטיות"], soilSurveyRow.pl);
+    setMetric(["PI", "IP", "אינדקס פלסטיות"], soilSurveyRow.pi);
+    setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], soilSurveyRow.aashto);
+    setMetric(["מיון אחיד"], soilSurveyRow.unified);
+  }
+
+  const lineSieveValues = soilSurveyRow ? [] : extractSieveValuesFromLines();
   if (lineSieveValues.length >= 7) {
     setSieveValues(lineSieveValues);
   } else {
     const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
     const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
-    if (qtestSieveValues.length >= 7) {
+    if (!isSoilSurveyTable && qtestSieveValues.length >= 7) {
       setSieveValues(qtestSieveValues);
-    } else {
+    } else if (!isSoilSurveyTable) {
       const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,260}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
       const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
       const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];

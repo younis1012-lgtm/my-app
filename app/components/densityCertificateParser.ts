@@ -296,6 +296,24 @@ const soilSurveyCertificateNumber = (fileName: string, text: string) => {
 const firstDateInText = (text: string) =>
   clean(text.match(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/)?.[0] ?? "");
 
+const soilSurveyTestDate = (text: string) => {
+  const dates = Array.from(text.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g))
+    .map((match) => clean(match[0]))
+    .filter(Boolean);
+  const parsed = dates
+    .map((value) => {
+      const parts = value.split(/[./-]/).map((part) => Number(part));
+      if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+      const [day, month, rawYear] = parts;
+      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+      if (year < 2020 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+      return { value, time: Date.UTC(year, month - 1, day) };
+    })
+    .filter(Boolean) as Array<{ value: string; time: number }>;
+  parsed.sort((a, b) => a.time - b.time);
+  return parsed[0]?.value ?? firstDateInText(text);
+};
+
 const parseSoilSurveyRows = (
   fileName: string,
   text: string
@@ -305,7 +323,7 @@ const parseSoilSurveyRows = (
   if (!/(?:#200|AASHTO|LL|PL|PI|סקר|רקס|קרקע|עקרק)/i.test(flatText)) return null;
 
   const certificateNo = soilSurveyCertificateNumber(fileName, text);
-  const testDate = firstDateInText(text);
+  const testDate = soilSurveyTestDate(text);
   const rows = text
     .split("\n")
     .map(clean)
