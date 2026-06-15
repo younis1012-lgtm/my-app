@@ -46,6 +46,12 @@ const ROAD_806_SURVEYOR_NAME = "באסל שקארה";
 
 const isRoad806Value = (value: unknown) => {
   const text = String(value ?? "");
+  const normalized = normalizeStoredProjectId(text);
+  if (
+    /^\d{8}-0000-0000-0000-\d{12}$/i.test(normalized) &&
+    normalized !== "80600000-0000-0000-0000-000000000000"
+  )
+    return false;
   return text.includes("806") || text.includes("צלמון");
 };
 
@@ -2494,7 +2500,7 @@ const projectMatchesAccess = (
   const allowedName = normalizeHebrewProjectName(access.projectName ?? "");
   const code = normalizeAccessValue(access.code ?? access.username ?? "");
   const searchable = normalizeAccessValue(
-    [project.id, project.name, project.description, project.manager].join(" "),
+    [project.name, project.description, project.manager].join(" "),
   );
   const projectName = normalizeHebrewProjectName(project.name);
 
