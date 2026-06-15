@@ -2603,6 +2603,13 @@ const inferPlanRevisionFromPlanNo = (planNo: unknown) => {
   return normalized.match(/[-–](\d{2})$/)?.[1] ?? "";
 };
 
+const planNameFromAttachmentName = (name: unknown) =>
+  String(name ?? "תוכנית")
+    .replace(/\.[A-Za-z0-9]+$/i, "")
+    .replace(/[_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "תוכנית";
+
 const normalizePlanImportHeader = (value: unknown) =>
   String(value ?? "")
     .trim()
@@ -15606,6 +15613,34 @@ export default function Page() {
       Boolean(String(`${planForm.planNo} ${planForm.revision} ${planForm.title} ${planForm.discipline} ${planForm.notes}`).trim()) ||
       normalizeAttachments(planForm.attachments).length > 0;
     if (!String(planForm.planNo || planForm.title).trim()) {
+      const attachedPlans = normalizeAttachments(planForm.attachments);
+      if (!editingPlanId && attachedPlans.length) {
+        const projectId = normalizeStoredProjectId(currentProjectId);
+        const savedAt = nowLocal();
+        const records: PlanRecord[] = attachedPlans.map((attachment) => {
+          const name = planNameFromAttachmentName(attachment.name);
+          return {
+            id: crypto.randomUUID(),
+            projectId,
+            planNo: name,
+            revision: inferPlanRevisionFromPlanNo(name),
+            title: name,
+            discipline: planForm.discipline,
+            date: planForm.date,
+            status: planForm.status,
+            notes: planForm.notes,
+            attachments: [attachment],
+            savedAt,
+          };
+        });
+        await withSaving(async () => {
+          setSavedPlans((prev) => [...records, ...prev]);
+          await persistPlansToCloud(records);
+          if (cloudEnabled) await refreshCloudData();
+        });
+        resetPlanForm();
+        return;
+      }
       if (!editingPlanId && !hasManualPlanInput && projectPlans.length) {
         return alert("רשימת התוכניות כבר נשמרה בטבלה. לפתיחה או עריכה לחץ פתח / ערוך בשורת התוכנית, או מלא מספר/שם תוכנית להוספת תוכנית חדשה.");
       }
