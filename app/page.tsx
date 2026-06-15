@@ -223,6 +223,37 @@ const normalizeStoredProjectId = (value: unknown) => {
 const normalizeProjectIdValue = (value: unknown) =>
   normalizeStoredProjectId(value);
 
+const extractProjectCodeCandidates = (...values: unknown[]) => {
+  const codes = new Set<string>();
+  values.forEach((value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return;
+    const normalized = normalizeStoredProjectId(text);
+    const deterministic = normalized.match(/^(\d{3})\d{5}-0000-0000-0000-000000000000$/i);
+    if (deterministic?.[1]) codes.add(String(Number(deterministic[1])));
+    const explicit = text.match(/\bproject[-_\s]*(\d{1,8})\b/i);
+    if (explicit?.[1]) codes.add(String(Number(explicit[1])));
+    const roadOrProject = text.match(/(?:כביש|פרויקט|project)\s*[-:]?\s*(\d{1,8})/i);
+    if (roadOrProject?.[1]) codes.add(String(Number(roadOrProject[1])));
+    if (/^\d{1,8}$/.test(text)) codes.add(String(Number(text)));
+  });
+  return Array.from(codes).filter(Boolean);
+};
+
+const projectIdentityKeysFromValues = (...values: unknown[]) => {
+  const keys = new Set<string>();
+  values.forEach((value) => {
+    const normalized = normalizeStoredProjectId(value);
+    if (normalized) keys.add(normalized);
+  });
+  extractProjectCodeCandidates(...values).forEach((code) => {
+    keys.add(code);
+    const uuid = projectCodeToUuid(code);
+    if (uuid) keys.add(uuid);
+  });
+  return keys;
+};
+
 const sanitizeCloudPayload = <T,>(value: T): T => {
   if (Array.isArray(value))
     return value.map((item) => sanitizeCloudPayload(item)) as T;
@@ -13401,11 +13432,58 @@ export default function Page() {
     !currentProjectIdNormalized ||
     isRoad806Value(currentProjectIdNormalized) ||
     isRoad806Value(projectName);
+  const currentProjectIdentityKeys = useMemo(
+    () =>
+      projectIdentityKeysFromValues(
+        currentProjectIdNormalized,
+        currentProject?.id,
+        currentProject?.name,
+        currentProject?.description,
+        currentProject?.manager,
+        projectName,
+        currentProjectLegend.projectName,
+        projectAccess?.code,
+        projectAccess?.projectName,
+        ...(projectAccess?.projectIds ?? []),
+        ...currentProjectEmailUsers.map((user) => user.projectId),
+        ...accessUsers
+          .filter((user) => currentProject && !isAdminAccess(user) && projectMatchesAccess(currentProject, user))
+          .flatMap((user) => [
+            user.code,
+            user.projectName,
+            ...(user.projectIds ?? []),
+          ]),
+      ),
+    [
+      currentProjectIdNormalized,
+      currentProject?.id,
+      currentProject?.name,
+      currentProject?.description,
+      currentProject?.manager,
+      projectName,
+      currentProjectLegend.projectName,
+      projectAccess?.code,
+      projectAccess?.projectName,
+      projectAccess?.projectIds,
+      currentProjectEmailUsers,
+      accessUsers,
+    ],
+  );
+  const currentProjectIdentitySignature = useMemo(
+    () => Array.from(currentProjectIdentityKeys).sort().join("|"),
+    [currentProjectIdentityKeys],
+  );
   const recordMatchesCurrentProject = (projectId: unknown) => {
     const recordProjectId = normalizeStoredProjectId(projectId);
     if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
     if (!currentProjectIdNormalized) return true;
-    return recordProjectId === currentProjectIdNormalized;
+    if (recordProjectId === currentProjectIdNormalized) return true;
+
+    const recordKeys = projectIdentityKeysFromValues(projectId, recordProjectId);
+    for (const key of recordKeys) {
+      if (currentProjectIdentityKeys.has(key)) return true;
+    }
+    return false;
   };
   const currentProjectStructureNodes = useMemo(
     () =>
@@ -13418,6 +13496,7 @@ export default function Page() {
       projectStructureNodes,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
     ],
   );
 
@@ -13437,6 +13516,7 @@ export default function Page() {
       savedChecklists,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13469,6 +13549,7 @@ export default function Page() {
       savedNonconformances,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13494,6 +13575,7 @@ export default function Page() {
       savedRfis,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13531,6 +13613,7 @@ export default function Page() {
       savedControlProcesses,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13550,6 +13633,7 @@ export default function Page() {
       savedSupervisionReports,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13559,6 +13643,7 @@ export default function Page() {
       savedPlans,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
     ],
   );
   const currentProjectPlans = useMemo(() => {
@@ -13587,6 +13672,7 @@ export default function Page() {
     savedProjectPlans,
     currentProjectIdNormalized,
     activeProjectAcceptsLegacyRecords,
+    currentProjectIdentitySignature,
     projectName,
   ]);
   const projectPlans = useMemo(
@@ -13617,6 +13703,7 @@ export default function Page() {
       savedTrialSections,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -13653,6 +13740,7 @@ export default function Page() {
     savedPreliminary,
     currentProjectIdNormalized,
     activeProjectAcceptsLegacyRecords,
+    currentProjectIdentitySignature,
     normalizedSearchTerm,
   ]);
   const approvedPreliminarySupplierNames = useMemo(
