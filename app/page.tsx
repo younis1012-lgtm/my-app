@@ -9097,8 +9097,7 @@ const extractGradingLinePdfCellResults = (textValue: string) => {
   const text = normalizeReferencePdfText(textValue);
   const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
     .map((match) => normalizeDateValue(match[0]))
-    .filter(Boolean)
-    .sort();
+    .filter(Boolean);
   if (allDates[0]) results["תאריך בדיקה"] = allDates[0];
 
   const certNo = extractReferencePdfNumber(text);
@@ -9301,6 +9300,14 @@ const applyGradingLineFallbackFromText = (
     .filter(Boolean);
   const numberTokens = (value: unknown) => clean(value).match(/\d+(?:[.,]\d+)?/g)?.map((item) => item.replace(",", ".")) ?? [];
   const textAfter = (patterns: RegExp[]) => firstRegexGroup(text, patterns);
+  const dateValuePattern = /\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g;
+  const cleanStructureValue = (value: unknown) =>
+    clean(value)
+      .replace(dateValuePattern, " ")
+      .replace(/\b(?:19|20)\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
+      .replace(/\s+\d{1,4}\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   const certNo =
     extractReferencePdfNumber(text) ||
     firstRegexGroup(text, [/(?:דו["״']?ח|תעודה|מס["׳']?)\s*(?:מס["׳']?)?\s*(\d{4,6})/i]) ||
@@ -9319,6 +9326,8 @@ const applyGradingLineFallbackFromText = (
   set(["צד"], textAfter([/\b([RL])\b/i]));
   set(["מהות העבודה", "סוג העבודה"], textAfter([/(שתית\s+טבעית)/i, /(קרקע\s+יסוד)/i, /(מילוי\s+[^\n]{2,30})/i]));
   set(["מיון AASHTO", "מיון", "AASHTO"], textAfter([/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]));
+
+  set(["מבנה"], cleanStructureValue(textAfter([/(כביש[^\n]{1,80})/i])));
 
   const metrics = [
     { aliases: ['3"', "3 אינץ"], anchors: ['3"', "75.0mm", "75mm"] },
@@ -9399,6 +9408,8 @@ const applyGradingLineFallbackFromText = (
         (numberTokens(lines[sectionLineIndex + 1] ?? "")[0] ?? "")
       : "";
   if (sectionValue) set(["מחתך"], sectionValue);
+
+  if (allDates.length) set(["תאריך בדיקה", "תאריך"], allDates[allDates.length - 1]);
 
   const splitCompactGradingValues = (line: string) => {
     const spaced = numberTokens(line).filter((value) => !["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"].includes(value));
