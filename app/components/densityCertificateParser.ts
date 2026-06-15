@@ -1,4 +1,4 @@
-export type DensityCertificateResults = Record<string, string>;
+export type DensityCertificateResults = Record<string, any>;
 
 const PDFJS_VERSION = "3.11.174";
 const PDFJS_SCRIPT = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.min.js`;
@@ -278,12 +278,119 @@ const certificateNumberFromFileName = (fileName: string) => {
   return match?.[1] ?? "";
 };
 
+const soilSurveyCertificateNumber = (fileName: string, text: string) => {
+  const fileNumbers = Array.from(clean(fileName).matchAll(/\d{4,}/g)).map((match) => match[0]);
+  const dohReport = clean(fileName).match(/^DOH[_-]\d+[_-](\d{4,})/i)?.[1];
+  if (dohReport) return dohReport;
+
+  const lines = text.split("\n").map(clean).filter(Boolean);
+  for (const line of lines) {
+    if (!/(?:דו"ח|ח"וד|דוח|חוד)/.test(line)) continue;
+    const numbers = Array.from(line.matchAll(/\b\d{4,}\b/g)).map((match) => match[0]);
+    if (numbers.length) return numbers[0];
+  }
+
+  return fileNumbers[fileNumbers.length - 1] ?? certificateNumberFromFileName(fileName);
+};
+
+const firstDateInText = (text: string) =>
+  clean(text.match(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/)?.[0] ?? "");
+
+const parseSoilSurveyRows = (
+  fileName: string,
+  text: string
+): DensityCertificateResults | null => {
+  const flatText = clean(text);
+  if (!/\bA-\d-[A-Za-z0-9]\(\d+\)/.test(flatText)) return null;
+  if (!/(?:#200|AASHTO|LL|PL|PI|סקר|רקס|קרקע|עקרק)/i.test(flatText)) return null;
+
+  const certificateNo = soilSurveyCertificateNumber(fileName, text);
+  const testDate = firstDateInText(text);
+  const rows = text
+    .split("\n")
+    .map(clean)
+    .map((line) => {
+      const match = line.match(
+        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
+      );
+      if (!match) return null;
+
+      const nums = match[1]
+        .trim()
+        .split(/\s+/)
+        .map((value) => value.replace(",", "."));
+      if (nums.length < 8) return null;
+
+      const pi = nums.pop() ?? "";
+      const pl = nums.pop() ?? "";
+      const ll = nums.pop() ?? "";
+      const depth = nums.pop() ?? "";
+      const sieveValues = nums;
+      const sieveValue = (index: number) => sieveValues[index] ?? "";
+
+      const section = match[5];
+      const side = match[6].toUpperCase();
+      const materialDescription = clean(match[4]);
+      const aashto = clean(match[3]);
+      const unified = clean(match[2]).toUpperCase();
+      const testNo = match[7];
+
+      return {
+        "מספר בדיקה": testNo,
+        "מספר תעודת בדיקה": certificateNo,
+        "מספר תעודת בדיקה אפיון - 100%": certificateNo,
+        "תאריך הבדיקה": testDate,
+        "מחתך": section,
+        "עד חתך": section,
+        "צד": side,
+        "מקום נטילה": `${section}${side}`,
+        "עומק": depth,
+        "תאור החומר": materialDescription,
+        "תיאור החומר": materialDescription,
+        "מיון החומר": aashto,
+        "מיון AASHTO": aashto,
+        "AASHTO": aashto,
+        "מיון אחיד": unified,
+        "#200": sieveValue(0),
+        "#40": sieveValue(1),
+        "#10": sieveValue(2),
+        "#4": sieveValue(3),
+        "3/4\"": sieveValue(4),
+        "1.5\"": sieveValue(5),
+        "3\"": sieveValue(6),
+        "LL": ll,
+        "PL": pl,
+        "PI": pi,
+        "IP": pi,
+        "מעמד תוצאות": "OK",
+        "סוג העבודה": "סקר קרקע - בורות וקידוחי ניסיון",
+      };
+    })
+    .filter(Boolean) as Array<Record<string, string>>;
+
+  if (!rows.length) return null;
+
+  return {
+    "סוג תעודה": "סקר קרקע",
+    "מספר תעודת בדיקה": certificateNo,
+    "מספר תעודת בדיקה אפיון - 100%": certificateNo,
+    "תאריך הבדיקה": testDate,
+    "כמות חתכים": String(rows.length),
+    "sampleRows": rows,
+    "rows": rows,
+    "הערות": "נקלט אוטומטית מתעודת סקר קרקע לפי חתכים",
+  };
+};
+
 export const parseEarthworksDensityText = (
   fileName: string,
   rawText: string
 ): DensityCertificateResults => {
   const text = cleanMultiline(rawText);
   const flatText = clean(text);
+
+  const soilSurvey = parseSoilSurveyRows(fileName, text);
+  if (soilSurvey) return soilSurvey;
 
   const results: DensityCertificateResults = {};
 

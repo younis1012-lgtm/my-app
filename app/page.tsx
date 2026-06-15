@@ -14397,7 +14397,7 @@ export default function Page() {
         file.name,
       ].join(" ");
       const shouldExtractAsphalt = kind === "lab" && isAsphaltReference(attachmentContext);
-      let autoDensityResults: Record<string, string> = {};
+      let autoDensityResults: Record<string, any> = {};
       let autoAsphaltResults: Record<string, string> = {};
       let autoAsphaltRows: ReferenceResultRow[] = [];
       let autoAsphaltBatches: AsphaltBatchResult[] = [];

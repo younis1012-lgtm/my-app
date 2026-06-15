@@ -1756,6 +1756,47 @@ const earthworksAttachmentOnlyText = (attachment: any): string => [
   safeStringify(attachment?.results ?? attachment?.labResults ?? attachment?.densityResults ?? attachment?.details ?? {}),
 ].map(cleanText).filter(Boolean).join(" ");
 
+const earthworksAttachmentSampleRows = (attachment: any): any[] => {
+  const candidates = [
+    attachment?.labResults?.sampleRows,
+    attachment?.labResults?.rows,
+    attachment?.densityResults?.sampleRows,
+    attachment?.densityResults?.rows,
+    attachment?.results?.sampleRows,
+    attachment?.results?.rows,
+  ];
+  const rows = candidates.find((value) => Array.isArray(value) && value.length);
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => row && typeof row === "object");
+};
+
+const expandEarthworksAttachmentRows = (attachment: any): any[] => {
+  const rows = earthworksAttachmentSampleRows(attachment);
+  if (!rows.length) return [attachment];
+  return rows.map((row, index) => ({
+    ...attachment,
+    id: `${attachment?.id ?? attachmentName(attachment) ?? "attachment"}-sample-${index + 1}`,
+    labResults: {
+      ...(attachment?.labResults ?? {}),
+      ...row,
+      sampleRows: undefined,
+      rows: undefined,
+    },
+    densityResults: {
+      ...(attachment?.densityResults ?? {}),
+      ...row,
+      sampleRows: undefined,
+      rows: undefined,
+    },
+    results: {
+      ...(attachment?.results ?? {}),
+      ...row,
+      sampleRows: undefined,
+      rows: undefined,
+    },
+  }));
+};
+
 const isEarthworksMeasurementAttachment = (attachment: any, item: any): boolean => {
   if (!isRealAttachment(attachment)) return false;
   const text = earthworksAttachmentOnlyText(attachment);
@@ -2349,11 +2390,20 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
         return merged;
       };
 
-      const combinedRow = earthworksAttachments
-        .map((attachment: any) => earthworksRowFromSources([checklist, item], attachment, rows.length + 1, checklistIndex))
-        .reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
+      const expandedAttachments = earthworksAttachments.flatMap((attachment: any) => expandEarthworksAttachmentRows(attachment));
+      const hasSampleRows = expandedAttachments.length > earthworksAttachments.length;
 
-      if (combinedRow) rows.push(combinedRow);
+      if (hasSampleRows) {
+        expandedAttachments.forEach((attachment: any) => {
+          rows.push(earthworksRowFromSources([checklist, item], attachment, rows.length + 1, checklistIndex));
+        });
+      } else {
+        const combinedRow = expandedAttachments
+          .map((attachment: any) => earthworksRowFromSources([checklist, item], attachment, rows.length + 1, checklistIndex))
+          .reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
+
+        if (combinedRow) rows.push(combinedRow);
+      }
     });
 
     const checklistAttachments = directRecordAttachments(checklist).filter((attachment: any) =>
@@ -2362,11 +2412,20 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     ).filter(rememberAttachment);
 
     if (checklistAttachments.length) {
-      const combinedRow = checklistAttachments
-        .map((attachment: any) => earthworksRowFromSources([checklist, {}], attachment, rows.length + 1, checklistIndex))
-        .reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
+      const expandedAttachments = checklistAttachments.flatMap((attachment: any) => expandEarthworksAttachmentRows(attachment));
+      const hasSampleRows = expandedAttachments.length > checklistAttachments.length;
 
-      if (combinedRow) rows.push(combinedRow);
+      if (hasSampleRows) {
+        expandedAttachments.forEach((attachment: any) => {
+          rows.push(earthworksRowFromSources([checklist, {}], attachment, rows.length + 1, checklistIndex));
+        });
+      } else {
+        const combinedRow = expandedAttachments
+          .map((attachment: any) => earthworksRowFromSources([checklist, {}], attachment, rows.length + 1, checklistIndex))
+          .reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
+
+        if (combinedRow) rows.push(combinedRow);
+      }
     }
   });
 
