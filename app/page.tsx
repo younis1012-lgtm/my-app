@@ -202,6 +202,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
+  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
@@ -338,7 +339,31 @@ const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
     }))
     .filter((project) => project.id && project.name);
 
-  const source = mapped.length ? mapped : getDefaultProjectList();
+  const merged = Array.from(
+    mapped.reduce((projectsById, project) => {
+      const previous = projectsById.get(project.id);
+      if (!previous) {
+        projectsById.set(project.id, project);
+        return projectsById;
+      }
+      const previousLooksGeneric =
+        !previous.name || previous.name.includes("שם הפרויקט כפי שמופיע במערכת");
+      const projectLooksSpecific =
+        project.name && !project.name.includes("שם הפרויקט כפי שמופיע במערכת");
+      projectsById.set(project.id, {
+        ...previous,
+        ...project,
+        name: previousLooksGeneric && projectLooksSpecific ? project.name : previous.name,
+        description: previous.description || project.description,
+        manager: previous.manager || project.manager,
+        isActive: previous.isActive || project.isActive,
+        createdAt: previous.createdAt || project.createdAt,
+      });
+      return projectsById;
+    }, new Map<string, Project>()).values(),
+  );
+
+  const source = merged.length ? merged : getDefaultProjectList();
   return source.map((project, index) => ({
     ...project,
     isActive: source.some((item) => item.isActive)
