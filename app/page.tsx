@@ -13431,42 +13431,71 @@ export default function Page() {
   const activeProjectAcceptsLegacyRecords =
     !currentProjectIdNormalized ||
     isRoad806Value(currentProjectIdNormalized) ||
-    isRoad806Value(projectName);
+    isRoad806Value(currentProject?.name) ||
+    isRoad806Value(currentProjectLegend.projectName);
+  const currentProjectStrictAliasValues = useMemo(() => {
+    const currentNames = [
+      currentProject?.name,
+      currentProjectLegend.projectName,
+    ]
+      .map(normalizeHebrewProjectName)
+      .filter(Boolean);
+
+    return accessUsers
+      .filter((user) => {
+        if (!currentProject || isAdminAccess(user)) return false;
+        const userProjectIds = Array.isArray(user.projectIds)
+          ? user.projectIds.map(normalizeStoredProjectId).filter(Boolean)
+          : [];
+        if (
+          currentProjectIdNormalized &&
+          userProjectIds.includes(currentProjectIdNormalized)
+        ) {
+          return true;
+        }
+        const userProjectName = normalizeHebrewProjectName(user.projectName ?? "");
+        return Boolean(
+          userProjectName &&
+            currentNames.some(
+              (name) => name === userProjectName,
+            ),
+        );
+      })
+      .flatMap((user) => [
+        user.code,
+        ...(user.projectIds ?? []),
+      ])
+      .filter(Boolean);
+  }, [
+    accessUsers,
+    currentProject,
+    currentProjectIdNormalized,
+    currentProjectLegend.projectName,
+  ]);
   const currentProjectIdentityKeys = useMemo(
     () =>
       projectIdentityKeysFromValues(
         currentProjectIdNormalized,
         currentProject?.id,
-        currentProject?.name,
-        currentProject?.description,
-        currentProject?.manager,
-        projectName,
-        currentProjectLegend.projectName,
-        projectAccess?.code,
-        projectAccess?.projectName,
-        ...(projectAccess?.projectIds ?? []),
+        ...(isAdminAccess(projectAccess)
+          ? []
+          : [
+              projectAccess?.code,
+              projectAccess?.projectName,
+              ...(projectAccess?.projectIds ?? []),
+            ]),
         ...currentProjectEmailUsers.map((user) => user.projectId),
-        ...accessUsers
-          .filter((user) => currentProject && !isAdminAccess(user) && projectMatchesAccess(currentProject, user))
-          .flatMap((user) => [
-            user.code,
-            user.projectName,
-            ...(user.projectIds ?? []),
-          ]),
+        ...currentProjectStrictAliasValues,
       ),
     [
       currentProjectIdNormalized,
       currentProject?.id,
-      currentProject?.name,
-      currentProject?.description,
-      currentProject?.manager,
-      projectName,
-      currentProjectLegend.projectName,
+      projectAccess?.role,
       projectAccess?.code,
       projectAccess?.projectName,
       projectAccess?.projectIds,
       currentProjectEmailUsers,
-      accessUsers,
+      currentProjectStrictAliasValues,
     ],
   );
   const currentProjectIdentitySignature = useMemo(
