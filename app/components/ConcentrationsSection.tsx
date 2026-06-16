@@ -2194,6 +2194,7 @@ const mergeEarthworksRows = (base: Row, next: Row): Row => {
 };
 
 const isGradingLineReferenceProcess = (process: any): boolean => {
+  if (Array.isArray(process?.sampleRows) && process.sampleRows.length) return true;
   const text = [
     process?.workType,
     process?.title,
@@ -2220,6 +2221,18 @@ const gradingLineResultValue = (process: any, aliases: string[]): string => {
   const match = rows.find((row: any) => aliases.some((alias) => fieldKeyMatchesAlias(firstText(row?.metric, row?.label, row?.name), alias)));
   return firstText(match?.resultValue, match?.value, match?.result);
 };
+
+const sampleRowReferenceResults = (row: any): ReferenceResultRow[] =>
+  Object.entries(row ?? {})
+    .filter(([, value]) => cleanText(value))
+    .map(([metric, value], index) => ({
+      id: `sample-${index + 1}-${metric}`,
+      metric,
+      resultValue: String(value ?? ""),
+      qualityStatus: "",
+      minValue: "",
+      maxValue: "",
+    }));
 
 const gradingLineSummary = (process: any): string => {
   const metrics = [
@@ -2802,6 +2815,19 @@ const earthworksMaterialResultRow = (process: any, serial: number): Row => {
 const buildEarthworksMaterialResultsRows = (processes: any[] = []): Row[] =>
   processes
     .filter(isGradingLineReferenceProcess)
+    .flatMap((process: any) => {
+      const sampleRows = Array.isArray(process?.sampleRows)
+        ? process.sampleRows.filter((row: any) => row && typeof row === "object")
+        : [];
+      if (!sampleRows.length) return [process];
+      return sampleRows.map((sampleRow: any) => ({
+        ...process,
+        referenceResults: sampleRowReferenceResults(sampleRow),
+        fromSection: firstText(sampleRow["מחתך"], process?.fromSection),
+        toSection: firstText(sampleRow["עד חתך"], process?.toSection),
+        date: firstText(sampleRow["תאריך הבדיקה"], process?.date),
+      }));
+    })
     .map((process: any, index: number) => earthworksMaterialResultRow(process, index + 1));
 
 const definitions: ConcentrationDefinition[] = [

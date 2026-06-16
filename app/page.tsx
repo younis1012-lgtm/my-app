@@ -31,7 +31,7 @@ import { TrialSectionsSection } from "./components/TrialSectionsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
-import { extractEarthworksDensityFromFile } from "./components/densityCertificateParser";
+import { extractEarthworksDensityFromFile, parseEarthworksDensityText } from "./components/densityCertificateParser";
 const STORAGE_KEY = "yk-quality-stage4-multifile";
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const SUPABASE_HEADER_ERROR_FRAGMENT =
@@ -609,6 +609,7 @@ type ControlProcessRecord = {
   nonconformanceIds: string[];
   requiredDocuments: RequiredDocument[];
   referenceResults: ReferenceResultRow[];
+  sampleRows?: Array<Record<string, any>>;
   auditTrail: AuditEntry[];
   approval: ApprovalFlow;
   lockedAt: string;
@@ -676,6 +677,7 @@ const isAsphaltReference = (value: unknown) =>
   String(value ?? "").includes("אספלט") || String(value ?? "").includes("מרשל");
 
 const REFERENCE_RESULTS_AUDIT_ACTION = "__reference_results__";
+const SAMPLE_ROWS_AUDIT_ACTION = "__sample_rows__";
 
 const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   metric: string;
@@ -1412,10 +1414,26 @@ const extractReferenceResultsFromAudit = (value: any): ReferenceResultRow[] => {
   }
 };
 
+const extractSampleRowsFromAudit = (value: any): Array<Record<string, any>> => {
+  const audit = Array.isArray(value?.auditTrail ?? value?.audit_log)
+    ? (value.auditTrail ?? value.audit_log)
+    : [];
+  const entry = [...audit]
+    .reverse()
+    .find((item: any) => item?.action === SAMPLE_ROWS_AUDIT_ACTION);
+  if (!entry?.note) return [];
+  try {
+    const parsed = JSON.parse(String(entry.note));
+    return Array.isArray(parsed) ? parsed.filter((row) => row && typeof row === "object") : [];
+  } catch {
+    return [];
+  }
+};
+
 const auditWithoutReferenceResults = (value: unknown): AuditEntry[] =>
   Array.isArray(value)
     ? value
-        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION)
+        .filter((entry: any) => entry?.action !== REFERENCE_RESULTS_AUDIT_ACTION && entry?.action !== SAMPLE_ROWS_AUDIT_ACTION)
         .map((entry: any) => ({
           action: String(entry?.action ?? ""),
           by: String(entry?.by ?? ""),
@@ -1565,6 +1583,9 @@ const normalizeControlProcess = (value: any): ControlProcessRecord | null => {
       value.requiredDocuments ?? value.required_documents,
     ),
     referenceResults,
+    sampleRows: Array.isArray(value.sampleRows ?? value.sample_rows)
+      ? (value.sampleRows ?? value.sample_rows).filter((row: any) => row && typeof row === "object")
+      : extractSampleRowsFromAudit(value),
     auditTrail: auditWithoutReferenceResults(value.auditTrail ?? value.audit_log),
     approval: normalizeApproval(value.approval),
     lockedAt: String(value.lockedAt ?? value.locked_at ?? ""),
@@ -1597,6 +1618,16 @@ const controlProcessToRow = (record: ControlProcessRecord) => ({
       at: nowIso(),
       note: JSON.stringify(normalizeReferenceResults(record.referenceResults)),
     },
+    ...(Array.isArray(record.sampleRows) && record.sampleRows.length
+      ? [
+          {
+            action: SAMPLE_ROWS_AUDIT_ACTION,
+            by: "system",
+            at: nowIso(),
+            note: JSON.stringify(record.sampleRows),
+          },
+        ]
+      : []),
   ],
   approval: record.approval,
   locked_at: record.lockedAt || null,
@@ -10403,10 +10434,15 @@ function ControlProcessesSection({
     if (readOnly || !showReferenceResultsTable) return 0;
     try {
       let parsedRows: ReferenceResultRow[] = [];
+      let parsedSampleRows: Array<Record<string, any>> = [];
       let parsedText = "";
       try {
         const text = await extractTextFromReferenceFile(file);
         parsedText = text;
+        const earthworksResults = parseEarthworksDensityText(file.name, text);
+        parsedSampleRows = Array.isArray((earthworksResults as any).sampleRows)
+          ? (earthworksResults as any).sampleRows.filter((row: any) => row && typeof row === "object")
+          : [];
         parsedRows = parseReferenceCertificateResultsFromText(
           showGradingLineForm ? "קו דירוג" : selectedMaterial,
           text,
@@ -10482,11 +10518,16 @@ function ControlProcessesSection({
                 }
               : {}),
             referenceResults: finalRows,
+            sampleRows: parsedSampleRows,
           };
         });
       });
-      alert(`נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`);
-      return filledRows.length;
+      alert(
+        parsedSampleRows.length
+          ? `נקלטו אוטומטית ${parsedSampleRows.length} שורות מדגם מתוך תעודת סקר הקרקע, ועוד ${filledRows.length} ערכים לתצוגת הטופס. נא לבדוק ולאשר שמירה.`
+          : `נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`
+      );
+      return Math.max(filledRows.length, parsedSampleRows.length);
     } catch (error) {
       console.warn("Reference certificate auto parsing failed", error);
       if (isAsphaltReference(selectedMaterial)) return 0;
@@ -14818,6 +14859,9 @@ export default function Page() {
         controlProcessForm.requiredDocuments,
       ),
       referenceResults: syncedReferenceResults.map(applyReferenceQualityStatus),
+      sampleRows: Array.isArray((controlProcessForm as any).sampleRows)
+        ? (controlProcessForm as any).sampleRows.filter((row: any) => row && typeof row === "object")
+        : [],
       auditTrail: [
         ...(existing?.auditTrail ?? []),
         {
