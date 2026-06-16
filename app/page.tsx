@@ -12746,6 +12746,7 @@ export default function Page() {
         return;
       }
       try {
+        const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
         const [
           projectsRes,
           checklistsRes,
@@ -12777,7 +12778,15 @@ export default function Page() {
           cloudRowsOrFallback(prelimRes, savedPreliminary),
           cloudRowsOrFallback(rfiRes, savedRfis),
           cloudRowsOrFallback(controlRes, savedControlProcesses),
-          cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
+          cloudRowsOrFallback(
+            supervisionRes,
+            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
+          ).length
+            ? cloudRowsOrFallback(
+                supervisionRes,
+                savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
+              )
+            : browserSupervisionReports,
           cloudRowsOrFallback(structureRes, projectStructureNodes),
           cloudRowsOrFallback(plansRes, savedPlans),
         );
@@ -12845,6 +12854,7 @@ export default function Page() {
 
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
+    const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
     const [
       projectsRes,
       checklistsRes,
@@ -12876,7 +12886,15 @@ export default function Page() {
       cloudRowsOrFallback(prelimRes, savedPreliminary),
       cloudRowsOrFallback(rfiRes, savedRfis),
       cloudRowsOrFallback(controlRes, savedControlProcesses),
-      cloudRowsOrFallback(supervisionRes, savedSupervisionReports),
+      cloudRowsOrFallback(
+        supervisionRes,
+        savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
+      ).length
+        ? cloudRowsOrFallback(
+            supervisionRes,
+            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
+          )
+        : browserSupervisionReports,
       cloudRowsOrFallback(structureRes, projectStructureNodes),
       cloudRowsOrFallback(plansRes, savedPlans),
     );
@@ -17660,6 +17678,35 @@ ${invalidRecipients.join("\n")}`);
     return uploaded;
   };
 
+  const saveSupervisionReportPayload = async (
+    record: SupervisionReportRecord,
+    isUpdate: boolean,
+  ) => {
+    if (!cloudEnabled || !supabase) return false;
+    const save = (payload: Record<string, any>) =>
+      isUpdate
+        ? supabase.from(SUPERVISION_REPORTS_TABLE).update(payload).eq("id", record.id)
+        : supabase.from(SUPERVISION_REPORTS_TABLE).insert(payload);
+
+    let payload = sanitizeCloudPayload(supervisionReportRecordToRow(record));
+    let result = await save(payload);
+    if (result.error && shouldIgnoreCloudError(result.error)) {
+      console.warn("Supervision reports cloud table unavailable; keeping browser copy.", result.error);
+      return false;
+    }
+    if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
+      const { structure_node_id, ...fallbackPayload } = payload;
+      payload = fallbackPayload;
+      result = await save(payload);
+    }
+    if (result.error && shouldIgnoreCloudError(result.error)) {
+      console.warn("Supervision reports cloud table unavailable; keeping browser copy.", result.error);
+      return false;
+    }
+    if (result.error) throw result.error;
+    return true;
+  };
+
   const uploadInlineTrialSectionAttachmentToCloud = async (
     attachment: StoredAttachment,
     recordId: string,
@@ -17828,22 +17875,12 @@ ${invalidRecipients.join("\n")}`);
       : [record, ...savedSupervisionReports];
     if (cloudEnabled) {
       await withSaving(async () => {
-        const row = supervisionReportRecordToRow(record);
-        let { error } = await supabase!
-          .from(SUPERVISION_REPORTS_TABLE)
-          .upsert(row, { onConflict: "id" });
-        if (error && isMissingColumnError(error, "structure_node_id")) {
-          const { structure_node_id, ...fallbackRow } = row;
-          const fallback = await supabase!
-            .from(SUPERVISION_REPORTS_TABLE)
-            .upsert(fallbackRow, { onConflict: "id" });
-          error = fallback.error;
-        }
-        if (error) throw error;
+        const savedToCloud = await saveSupervisionReportPayload(record, Boolean(editingSupervisionReportId));
         setSavedSupervisionReports(nextReports);
         void writeSupervisionReportsToBrowser(nextReports);
         setEditingSupervisionReportId(id);
-        alert("דוח פיקוח עליון נשמר בהצלחה בענן.");
+        if (savedToCloud) await refreshCloudData();
+        alert(savedToCloud ? "דוח פיקוח עליון נשמר בהצלחה בענן." : "דוח פיקוח עליון נשמר במערכת המקומית. טבלת הענן של פיקוח עליון עדיין לא זמינה.");
       });
       return;
     }
@@ -17892,7 +17929,7 @@ ${invalidRecipients.join("\n")}`);
           .from(SUPERVISION_REPORTS_TABLE)
           .delete()
           .eq("id", id);
-        if (error) throw error;
+        if (error && !shouldIgnoreCloudError(error)) throw error;
         const next = savedSupervisionReports.filter((item) => item.id !== id);
         setSavedSupervisionReports(next);
         void writeSupervisionReportsToBrowser(next);
