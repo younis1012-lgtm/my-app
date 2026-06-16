@@ -2721,14 +2721,58 @@ const normalizePlanImportHeader = (value: unknown) =>
     .replace(/[\u200e\u200f"'׳״]/g, "")
     .replace(/\s+/g, " ");
 
+const normalizeLoosePlanHeader = (value: unknown) =>
+  normalizePlanImportHeader(value)
+    .replace(/[^a-z0-9\u0590-\u05ff]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const PLAN_NUMBER_PATTERN = /[A-Z]{2,}[A-Z0-9]*[-–][A-Z0-9][A-Z0-9\-–]{5,}\d/i;
+
+const isLikelyPlanNumber = (value: unknown) => {
+  const text = String(value ?? "").replace(/\s+/g, "").trim();
+  if (!text) return false;
+  if (PLAN_NUMBER_PATTERN.test(text)) return true;
+  const dashCount = (text.match(/[-–]/g) ?? []).length;
+  const hasLetter = /[A-Za-z]/.test(text);
+  const digitCount = (text.match(/\d/g) ?? []).length;
+  return hasLetter && dashCount >= 2 && digitCount >= 3 && text.length >= 8;
+};
+
+const planImportHeaderMatches = (cell: unknown, aliases: string[]) => {
+  const normalizedCell = normalizeLoosePlanHeader(cell);
+  if (!normalizedCell) return false;
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeLoosePlanHeader(alias);
+    if (!normalizedAlias) return false;
+    if (normalizedCell === normalizedAlias) return true;
+    const compactCell = normalizedCell.replace(/\s+/g, "");
+    const compactAlias = normalizedAlias.replace(/\s+/g, "");
+    return (
+      compactCell === compactAlias ||
+      (compactAlias.length >= 3 && compactCell.includes(compactAlias)) ||
+      (compactCell.length >= 3 && compactAlias.includes(compactCell))
+    );
+  });
+};
+
 const getPlanImportValue = (row: Record<string, unknown>, aliases: string[]) => {
-  const aliasSet = new Set(aliases.map(normalizePlanImportHeader));
-  const match = Object.entries(row).find(([key]) => aliasSet.has(normalizePlanImportHeader(key)));
+  const match = Object.entries(row).find(([key]) => planImportHeaderMatches(key, aliases));
   return match ? String(match[1] ?? "").trim() : "";
 };
 
 const PLAN_IMPORT_ALIASES = {
   planNo: [
+    "#",
+    "מס",
+    "מס׳",
+    "מס'",
+    "מספר תוכנית",
+    "מס׳ תוכנית",
+    "מס' תוכנית",
+    "מספר תכנית",
+    "מס׳ תכנית",
+    "מס' תכנית",
     "מספר תוכנית",
     "מס' תוכנית",
     "מספר תכנית",
@@ -2743,6 +2787,10 @@ const PLAN_IMPORT_ALIASES = {
   ],
   revision: ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"],
   title: [
+    "שם תוכנית",
+    "שם התוכנית",
+    "שם תכנית",
+    "שם התכנית",
     "שם / תיאור",
     "שם תוכנית",
     "שם תכנית",
@@ -2771,15 +2819,56 @@ const planRegisterHeaderScore = (row: unknown[]) => {
     PLAN_IMPORT_ALIASES.status,
     PLAN_IMPORT_ALIASES.scale,
   ];
-  return groups.filter((aliases) => cells.some((cell) => aliases.some((alias) => cell === normalizePlanImportHeader(alias)))).length;
+  return groups.filter((aliases) => cells.some((cell) => planImportHeaderMatches(cell, aliases))).length;
+};
+
+const parsePlanRegisterRowsByHeuristic = (
+  rows: unknown[][],
+): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
+  const seen = new Set<string>();
+  return rows
+    .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "").trim()) : []))
+    .filter((row) => row.some(Boolean))
+    .map((row) => {
+      const planNoIndex = row.findIndex(isLikelyPlanNumber);
+      if (planNoIndex < 0) return null;
+      const planNo = row[planNoIndex].replace(/\s+/g, "").replace(/–/g, "-");
+      const key = normalizeAccessValue(planNo);
+      if (!key || seen.has(key)) return null;
+      seen.add(key);
+
+      const dateRaw = row.find((cell) => /\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(cell)) ?? "";
+      const scaleRaw = row.find((cell) => /^1\s*[:/-]\s*\d{2,5}$/.test(cell)) ?? "";
+      const statusRaw =
+        row.find((cell) => /לביצוע|לעיון|לאישור|למכרז|בתוקף|מבוטל|הוחלף|טיוטה/i.test(cell)) ?? "לביצוע";
+      const title =
+        row
+          .filter((cell, index) => index !== planNoIndex)
+          .filter((cell) => cell && cell !== dateRaw && cell !== scaleRaw && cell !== statusRaw)
+          .filter((cell) => !isLikelyPlanNumber(cell))
+          .filter((cell) => !/^\d+$/.test(cell))
+          .sort((a, b) => b.length - a.length)[0] ?? "";
+
+      return {
+        planNo,
+        revision: inferPlanRevisionFromPlanNo(planNo),
+        title: title || planNameFromAttachmentName(planNo),
+        discipline: inferPlanDisciplineFromText(`${planNo} ${title}`),
+        date: normalizePlanImportDate(dateRaw),
+        status: statusRaw,
+        notes: scaleRaw ? `קנ"מ: ${scaleRaw}` : "",
+        attachments: [],
+      };
+    })
+    .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
 };
 
 const parsePlanRegisterSheetRows = (rows: unknown[][]): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
   const headerIndex = rows.findIndex((row) => planRegisterHeaderScore(row) >= 2);
-  if (headerIndex < 0) return [];
+  if (headerIndex < 0) return parsePlanRegisterRowsByHeuristic(rows);
 
   const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
-  return rows
+  const parsedByHeaders = rows
     .slice(headerIndex + 1)
     .map((row) => {
       const values = Array.isArray(row) ? row : [];
@@ -2792,6 +2881,7 @@ const parsePlanRegisterSheetRows = (rows: unknown[][]): Array<Omit<PlanRecord, "
     .filter((row) => Object.values(row).some((value) => String(value ?? "").trim()))
     .map((row) => parsePlanRegisterRow(row))
     .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+  return parsedByHeaders.length ? parsedByHeaders : parsePlanRegisterRowsByHeuristic(rows.slice(headerIndex + 1));
 };
 
 const normalizePlanImportDate = (value: unknown) => {
@@ -2811,52 +2901,28 @@ const normalizePlanImportDate = (value: unknown) => {
 };
 
 const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "id" | "projectId" | "savedAt"> | null => {
-  const planNo = getPlanImportValue(row, [
-    "מספר תוכנית",
-    "מס' תוכנית",
-    "מספר תכנית",
-    "מס' תכנית",
-    "תוכנית",
-    "תכנית",
-    "מספר",
-    "plan no",
-    "plan number",
-    "drawing no",
-    "drawing number",
-  ]);
-  const title = getPlanImportValue(row, [
-    "שם / תיאור",
-    "שם תוכנית",
-    "שם תכנית",
-    "שם התוכנית",
-    "שם התכנית",
-    "תיאור",
-    "שם",
-    "title",
-    "description",
-    "drawing title",
-  ]);
+  const planNo = getPlanImportValue(row, PLAN_IMPORT_ALIASES.planNo);
+  const title = getPlanImportValue(row, PLAN_IMPORT_ALIASES.title);
   if (!planNo && !title) return null;
 
-  const scale = getPlanImportValue(row, ["קנ\"מ", "קנמ", "קנה מידה", "scale"]);
-  const notes = getPlanImportValue(row, ["הערות", "הערה", "notes", "remarks", "remark"]);
-  const noteParts = [notes, scale ? `קנ"מ: ${scale}` : ""].filter(Boolean);
-  const revision = getPlanImportValue(row, ["מהדורה", "רוויזיה", "עדכון", "revision", "rev"]) || inferPlanRevisionFromPlanNo(planNo);
+  const scale = getPlanImportValue(row, PLAN_IMPORT_ALIASES.scale);
+  const notes = getPlanImportValue(row, PLAN_IMPORT_ALIASES.notes);
+  const noteParts = [notes, scale ? `׳§׳ "׳: ${scale}` : ""].filter(Boolean);
+  const revision = getPlanImportValue(row, PLAN_IMPORT_ALIASES.revision) || inferPlanRevisionFromPlanNo(planNo);
 
   return {
     planNo,
     revision,
     title,
-    discipline: getPlanImportValue(row, ["תחום", "דיסציפלינה", "מקצוע", "discipline", "field"]),
-    date: normalizePlanImportDate(
-      getPlanImportValue(row, ["תאריך", "תאריך מהדורה", "תאריך עדכון", "date", "revision date"]),
-    ),
-    status: getPlanImportValue(row, ["סטטוס", "מטרה", "purpose", "status"]) || "לביצוע",
+    discipline: getPlanImportValue(row, PLAN_IMPORT_ALIASES.discipline),
+    date: normalizePlanImportDate(getPlanImportValue(row, PLAN_IMPORT_ALIASES.date)),
+    status: getPlanImportValue(row, PLAN_IMPORT_ALIASES.status) || "׳׳‘׳™׳¦׳•׳¢",
     notes: noteParts.join(" | "),
+    status: getPlanImportValue(row, PLAN_IMPORT_ALIASES.status) || "לביצוע",
+    notes: [notes, scale ? `קנ"מ: ${scale}` : ""].filter(Boolean).join(" | "),
     attachments: [],
   };
 };
-
 const inferPlanDisciplineFromText = (value: string) => {
   const text = value.toLowerCase();
   if (/תאורה|חשמל|lighting|\bel\b/.test(text)) return "תאורה / חשמל";
