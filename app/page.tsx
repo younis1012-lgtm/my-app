@@ -3950,6 +3950,8 @@ const shouldIgnoreCloudError = (error: unknown) =>
   errorText(error).includes("57014") ||
   errorText(error).toLowerCase().includes("statement timeout") ||
   errorText(error).toLowerCase().includes("canceling statement due to statement timeout");
+const isMissingRelationError = (error: unknown) =>
+  /relation .* does not exist|could not find the table/i.test(errorText(error));
 const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE ||
   table === SUPERVISION_REPORTS_TABLE ||
@@ -16005,11 +16007,27 @@ export default function Page() {
 
   const persistPlansToCloud = async (plans: PlanRecord[]) => {
     if (!cloudEnabled || !supabase || !plans.length) return;
-    const rows = plans.map(planRecordToRow);
-    const result = await supabase
-      .from(PLANS_TABLE)
-      .upsert(rows, { onConflict: "id" });
-    if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+    let rows = plans.map(planRecordToRow).map(sanitizeCloudPayload);
+    const optionalColumns = ["revision", "discipline", "date", "status", "notes", "attachments", "saved_at"] as const;
+    const omittedColumns = new Set<string>();
+    let result = await supabase.from(PLANS_TABLE).upsert(rows, { onConflict: "id" });
+
+    while (result.error) {
+      if (isMissingRelationError(result.error)) {
+        throw new Error("טבלת plans לא קיימת ב-Supabase. יש להריץ את SQL טבלת התוכניות.");
+      }
+      const missingColumn = optionalColumns.find(
+        (column) => !omittedColumns.has(column) && isMissingColumnError(result.error, column),
+      );
+      if (!missingColumn) break;
+      rows = rows.map(({ [missingColumn]: _omitted, ...row }) => row);
+      omittedColumns.add(missingColumn);
+      result = await supabase.from(PLANS_TABLE).upsert(rows, { onConflict: "id" });
+    }
+
+    if (result.error && !shouldIgnoreCloudError(result.error)) {
+      throw new Error(errorText(result.error) || "שמירת התוכניות ב-Supabase נכשלה");
+    }
   };
 
   const importPlanRegisterFile = async (files: FileList | File[] | null) => {
@@ -16091,7 +16109,15 @@ export default function Page() {
         }
       });
       setSavedPlans(nextPlans);
-      await persistPlansToCloud(nextPlans.filter((plan) => normalizeStoredProjectId(plan.projectId) === projectId));
+      try {
+        await persistPlansToCloud(nextPlans.filter((plan) => normalizeStoredProjectId(plan.projectId) === projectId));
+      } catch (cloudError) {
+        console.error("Plans were parsed but cloud save failed", cloudError);
+        alert(
+          `התוכניות נקלטו במסך, אבל השמירה לענן נכשלה ולכן הן עלולות לא להישמר אחרי רענון.\n\n${errorText(cloudError)}`,
+        );
+        return;
+      }
 
       alert(`נקלטו ${addedCount} תוכניות חדשות ועודכנו ${updatedCount} תוכניות קיימות.`);
     } catch (error) {
