@@ -2714,6 +2714,15 @@ const planNameFromAttachmentName = (name: unknown) =>
     .replace(/\s+/g, " ")
     .trim() || "תוכנית";
 
+const cleanPlanImportText = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/[\u00d0\u00f0\ufffd]/g, "")
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const normalizePlanImportHeader = (value: unknown) =>
   String(value ?? "")
     .trim()
@@ -2727,16 +2736,42 @@ const normalizeLoosePlanHeader = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const PLAN_NUMBER_PATTERN = /[A-Z]{2,}[A-Z0-9]*[-–][A-Z0-9][A-Z0-9\-–]{5,}\d/i;
+const PLAN_NUMBER_PATTERN = /[A-Z]{2,}[A-Z0-9]*[-–—][A-Z0-9][A-Z0-9\-–—]{5,}\d/i;
+
+const extractLikelyPlanNumber = (value: unknown) => {
+  const compact = cleanPlanImportText(value).replace(/\s+/g, "");
+  const match = compact.match(PLAN_NUMBER_PATTERN);
+  return match?.[0]?.replace(/[–—]/g, "-") ?? "";
+};
 
 const isLikelyPlanNumber = (value: unknown) => {
-  const text = String(value ?? "").replace(/\s+/g, "").trim();
+  const text = cleanPlanImportText(value).replace(/\s+/g, "").trim();
   if (!text) return false;
-  if (PLAN_NUMBER_PATTERN.test(text)) return true;
-  const dashCount = (text.match(/[-–]/g) ?? []).length;
+  if (extractLikelyPlanNumber(text)) return true;
+  const dashCount = (text.match(/[-–—]/g) ?? []).length;
   const hasLetter = /[A-Za-z]/.test(text);
   const digitCount = (text.match(/\d/g) ?? []).length;
   return hasLetter && dashCount >= 2 && digitCount >= 3 && text.length >= 8;
+};
+
+const cleanPlanTitleText = (value: unknown, planNo?: unknown) => {
+  let text = cleanPlanImportText(value)
+    .replace(/\.(?:dwg|dxf|pdf|xlsx?|csv)\b/gi, " ")
+    .replace(/\b(?:dwg|dxf|pdf)\b/gi, " ");
+  const numbersToRemove = [
+    cleanPlanImportText(planNo),
+    extractLikelyPlanNumber(value),
+  ].filter(Boolean);
+  numbersToRemove.forEach((number) => {
+    const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text
+      .replace(new RegExp(escaped, "gi"), " ")
+      .replace(new RegExp(escaped.replace(/-/g, "\\s*-\\s*"), "gi"), " ");
+  });
+  return text
+    .replace(/^[\s\-_:|.,/\\]+|[\s\-_:|.,/\\]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const planImportHeaderMatches = (cell: unknown, aliases: string[]) => {
@@ -2758,7 +2793,7 @@ const planImportHeaderMatches = (cell: unknown, aliases: string[]) => {
 
 const getPlanImportValue = (row: Record<string, unknown>, aliases: string[]) => {
   const match = Object.entries(row).find(([key]) => planImportHeaderMatches(key, aliases));
-  return match ? String(match[1] ?? "").trim() : "";
+  return match ? cleanPlanImportText(match[1]) : "";
 };
 
 const PLAN_IMPORT_ALIASES = {
@@ -2827,12 +2862,14 @@ const parsePlanRegisterRowsByHeuristic = (
 ): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
   const seen = new Set<string>();
   return rows
-    .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "").trim()) : []))
+    .map((row) => (Array.isArray(row) ? row.map(cleanPlanImportText) : []))
     .filter((row) => row.some(Boolean))
     .map((row) => {
       const planNoIndex = row.findIndex(isLikelyPlanNumber);
       if (planNoIndex < 0) return null;
-      const planNo = row[planNoIndex].replace(/\s+/g, "").replace(/–/g, "-");
+      const planNo =
+        extractLikelyPlanNumber(row[planNoIndex]) ||
+        row[planNoIndex].replace(/\s+/g, "").replace(/[–—]/g, "-");
       const key = normalizeAccessValue(planNo);
       if (!key || seen.has(key)) return null;
       seen.add(key);
@@ -2841,13 +2878,13 @@ const parsePlanRegisterRowsByHeuristic = (
       const scaleRaw = row.find((cell) => /^1\s*[:/-]\s*\d{2,5}$/.test(cell)) ?? "";
       const statusRaw =
         row.find((cell) => /לביצוע|לעיון|לאישור|למכרז|בתוקף|מבוטל|הוחלף|טיוטה/i.test(cell)) ?? "לביצוע";
-      const title =
+      const rawTitle =
         row
           .filter((cell, index) => index !== planNoIndex)
           .filter((cell) => cell && cell !== dateRaw && cell !== scaleRaw && cell !== statusRaw)
-          .filter((cell) => !isLikelyPlanNumber(cell))
           .filter((cell) => !/^\d+$/.test(cell))
           .sort((a, b) => b.length - a.length)[0] ?? "";
+      const title = cleanPlanTitleText(rawTitle, planNo);
 
       return {
         planNo,
@@ -2867,7 +2904,7 @@ const parsePlanRegisterSheetRows = (rows: unknown[][]): Array<Omit<PlanRecord, "
   const headerIndex = rows.findIndex((row) => planRegisterHeaderScore(row) >= 2);
   if (headerIndex < 0) return parsePlanRegisterRowsByHeuristic(rows);
 
-  const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
+  const headers = rows[headerIndex].map(cleanPlanImportText);
   const parsedByHeaders = rows
     .slice(headerIndex + 1)
     .map((row) => {
@@ -2901,8 +2938,13 @@ const normalizePlanImportDate = (value: unknown) => {
 };
 
 const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "id" | "projectId" | "savedAt"> | null => {
-  const planNo = getPlanImportValue(row, PLAN_IMPORT_ALIASES.planNo);
-  const title = getPlanImportValue(row, PLAN_IMPORT_ALIASES.title);
+  const planNoRaw = getPlanImportValue(row, PLAN_IMPORT_ALIASES.planNo);
+  const titleRaw = getPlanImportValue(row, PLAN_IMPORT_ALIASES.title);
+  const planNo = extractLikelyPlanNumber(planNoRaw) || extractLikelyPlanNumber(titleRaw) || cleanPlanImportText(planNoRaw);
+  const title =
+    cleanPlanTitleText(titleRaw, planNo) ||
+    cleanPlanTitleText(planNoRaw, planNo) ||
+    planNameFromAttachmentName(planNo);
   if (!planNo && !title) return null;
 
   const scale = getPlanImportValue(row, PLAN_IMPORT_ALIASES.scale);
@@ -2914,7 +2956,7 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
     planNo,
     revision,
     title,
-    discipline: getPlanImportValue(row, PLAN_IMPORT_ALIASES.discipline),
+    discipline: getPlanImportValue(row, PLAN_IMPORT_ALIASES.discipline) || inferPlanDisciplineFromText(`${planNo} ${title}`),
     date: normalizePlanImportDate(getPlanImportValue(row, PLAN_IMPORT_ALIASES.date)),
     status: getPlanImportValue(row, PLAN_IMPORT_ALIASES.status) || "׳׳‘׳™׳¦׳•׳¢",
     notes: noteParts.join(" | "),
