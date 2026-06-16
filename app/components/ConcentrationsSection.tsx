@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import JSZip from "jszip";
 
@@ -26,6 +26,7 @@ type Props = {
   savedSupervisionReports?: any[];
   currentProjectName?: string;
   projectMeta?: ProjectConcentrationMeta;
+  onImportSoilSurvey?: (file: File) => Promise<number> | number;
 };
 
 type ConcentrationId =
@@ -4101,10 +4102,12 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta }: Props) {
+export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
+  const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
+  const soilSurveyInputRef = useRef<HTMLInputElement | null>(null);
 
   const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
   const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, meta]);
@@ -4153,6 +4156,21 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     }
   };
 
+  const importSoilSurvey = async (file: File | null | undefined) => {
+    if (!file || !onImportSoilSurvey) return;
+    setSoilSurveyImporting(true);
+    try {
+      const count = await onImportSoilSurvey(file);
+      alert(count ? `נקלטו ${count} שורות סקר קרקע לריכוז עבודות עפר.` : "לא נמצאו שורות סקר קרקע לקליטה בקובץ.");
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "אירעה שגיאה בקליטת סקר הקרקע");
+    } finally {
+      setSoilSurveyImporting(false);
+      if (soilSurveyInputRef.current) soilSurveyInputRef.current.value = "";
+    }
+  };
+
   return (
     <section dir="rtl" style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -4188,6 +4206,25 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                 <button type="button" disabled={busyId === definition.id} onClick={() => exportOne(definition)} style={{ ...btnStyle, cursor: busyId === definition.id ? "wait" : "pointer" }}>
                   {busyId === definition.id ? "מפיק Excel..." : "הורד Excel חדש"}
                 </button>
+                {definition.id === "earthworks-material-results" && onImportSoilSurvey && (
+                  <>
+                    <input
+                      ref={soilSurveyInputRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      style={{ display: "none" }}
+                      onChange={(event) => importSoilSurvey(event.target.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      disabled={soilSurveyImporting}
+                      onClick={() => soilSurveyInputRef.current?.click()}
+                      style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: soilSurveyImporting ? "wait" : "pointer" }}
+                    >
+                      {soilSurveyImporting ? "קולט סקר קרקע..." : "קליטת סקר קרקע PDF"}
+                    </button>
+                  </>
+                )}
                 <button type="button" onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}>
                   {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
                 </button>

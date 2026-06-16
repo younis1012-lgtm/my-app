@@ -14898,6 +14898,100 @@ export default function Page() {
     resetControlProcessForm();
   };
 
+  const importSoilSurveyToEarthworksConcentration = async (file: File): Promise<number> => {
+    const parsed = await extractEarthworksDensityFromFile(file);
+    const sampleRows = Array.isArray((parsed as any).sampleRows)
+      ? (parsed as any).sampleRows.filter((row: any) => row && typeof row === "object")
+      : [];
+    if (!sampleRows.length) return 0;
+
+    const firstSample = sampleRows[0] ?? {};
+    const certificateNo = firstText(
+      (parsed as any)["מספר תעודת בדיקה"],
+      (parsed as any)["מס׳ תעודת בדיקה"],
+      firstSample["מספר תעודת בדיקה"],
+      firstSample["מס׳ תעודת בדיקה"],
+      file.name,
+    );
+    const testDate = normalizeDateValue(
+      firstText(
+        (parsed as any)["תאריך הבדיקה"],
+        (parsed as any)["תאריך בדיקה"],
+        firstSample["תאריך הבדיקה"],
+        firstSample["תאריך בדיקה"],
+      ),
+    );
+    const actor = projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
+    const referenceResults: ReferenceResultRow[] = Object.entries(firstSample)
+      .filter(([, value]) => String(value ?? "").trim())
+      .map(([metric, value], index) =>
+        applyReferenceQualityStatus({
+          id: `soil-survey-${index + 1}-${metric}`,
+          metric,
+          resultValue: String(value ?? ""),
+          qualityStatus: "",
+          minValue: "",
+          maxValue: "",
+        }),
+      );
+
+    const record: ControlProcessRecord = {
+      id: crypto.randomUUID(),
+      projectId: normalizeStoredProjectId(currentProjectId),
+      processNo: nextControlProcessNo(),
+      title: `סקר קרקע ${certificateNo}`.trim(),
+      workType: "סקר קרקע - קווי דירוג",
+      specSection: "",
+      structureNodeId: "",
+      location: firstText((parsed as any)["מבנה"], currentProjectLegend.projectName, projectName),
+      date: testDate,
+      fromSection: String(firstSample["מחתך"] ?? ""),
+      toSection: String(firstSample["עד חתך"] ?? firstSample["מחתך"] ?? ""),
+      status: "טיוטה",
+      checklistIds: [],
+      rfiIds: [],
+      nonconformanceIds: [],
+      requiredDocuments: [
+        {
+          id: crypto.randomUUID(),
+          type: "תעודת מעבדה",
+          description: "תעודת סקר קרקע מרובת מדגמים",
+          required: true,
+          attached: true,
+          attachmentName: file.name,
+          attachedAt: nowLocal(),
+          attachmentType: file.type || "application/pdf",
+        },
+      ],
+      referenceResults,
+      sampleRows,
+      auditTrail: [
+        {
+          action: "קליטת סקר קרקע לריכוז עבודות עפר",
+          by: actor,
+          at: nowLocal(),
+          note: `${sampleRows.length} שורות מדגם נקלטו מתוך ${file.name}`,
+        },
+      ],
+      approval: createDefaultApproval(),
+      lockedAt: "",
+      savedAt: nowLocal(),
+    };
+
+    await withSaving(async () => {
+      if (cloudEnabled) {
+        await saveWithApprovalFallback(
+          CONTROL_PROCESS_TABLE,
+          controlProcessToRow(record),
+          "insert",
+        );
+      }
+      setSavedControlProcesses((prev) => [record, ...prev]);
+    });
+
+    return sampleRows.length;
+  };
+
   const loadControlProcess = (record: ControlProcessRecord) => {
     setSection("controlProcesses");
     setEditingControlProcessId(record.id);
@@ -18845,6 +18939,7 @@ ${invalidRecipients.join("\n")}`);
                 savedControlProcesses={projectControlProcesses}
                 savedSupervisionReports={projectSupervisionReports}
                 currentProjectName={projectName}
+                onImportSoilSurvey={importSoilSurveyToEarthworksConcentration}
                 projectMeta={
                   {
                     projectName: currentProjectLegend.projectName,
