@@ -17672,10 +17672,11 @@ ${invalidRecipients.join("\n")}`);
       });
     if (uploadResult.error) {
       if (isStorageBucketMissingError(uploadResult.error)) {
-        console.warn("Supabase storage bucket missing; saving supervision attachment metadata without inline data.", uploadResult.error);
-        return { ...attachment, dataUrl: "" };
+        console.warn("Supabase storage bucket missing; keeping supervision attachment inline.", uploadResult.error);
+        return attachment;
       }
-      throw uploadResult.error;
+      console.warn("Supabase storage upload failed; keeping supervision attachment inline.", uploadResult.error);
+      return attachment;
     }
     const { data } = supabase.storage
       .from("attachments")
@@ -17686,7 +17687,12 @@ ${invalidRecipients.join("\n")}`);
   const prepareSupervisionAttachmentsForCloud = async (attachments: StoredAttachment[]) => {
     const uploaded: StoredAttachment[] = [];
     for (const attachment of attachments) {
-      uploaded.push(await uploadInlineSupervisionAttachmentToCloud(attachment));
+      try {
+        uploaded.push(await uploadInlineSupervisionAttachmentToCloud(attachment));
+      } catch (error) {
+        console.warn("Supervision attachment upload failed; keeping inline attachment.", error);
+        uploaded.push(attachment);
+      }
     }
     return uploaded;
   };
