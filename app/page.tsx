@@ -7875,6 +7875,9 @@ function RfiSection({
   closeRfi,
   deleteRfi,
   loadRfi,
+  downloadRfiPdf,
+  downloadRfiExcel,
+  sendRfiEmail,
   projectMeta,
 }: {
   guardedBody: React.ReactNode;
@@ -7887,6 +7890,9 @@ function RfiSection({
   closeRfi: () => void;
   deleteRfi: (id: string) => void | Promise<void>;
   loadRfi: (record: RfiRecord) => void;
+  downloadRfiPdf: (record: RfiRecord) => void | Promise<void>;
+  downloadRfiExcel: (record: RfiRecord) => void;
+  sendRfiEmail: (record: RfiRecord) => void | Promise<void>;
   projectMeta: ProjectLegend;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
@@ -8191,6 +8197,27 @@ function RfiSection({
                     onClick={() => loadRfi(item)}
                   >
                     פתח
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.secondaryBtn}
+                    onClick={() => void downloadRfiPdf(item)}
+                  >
+                    PDF
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.secondaryBtn}
+                    onClick={() => downloadRfiExcel(item)}
+                  >
+                    Excel
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.secondaryBtn}
+                    onClick={() => void sendRfiEmail(item)}
+                  >
+                    שלח מייל
                   </button>
                   <button
                     type="button"
@@ -18072,6 +18099,138 @@ ${invalidRecipients.join("\n")}`);
     }
   };
 
+  const rfiExportTitle = (record: RfiRecord) => record.title || "RFI";
+
+  const rfiExportRows = (record: RfiRecord): Array<[string, unknown, number?]> => [
+    ["מספר RFI", record.title],
+    ["מספר ייחוס", record.referenceNo],
+    ["סטטוס", record.status],
+    ["תאריך פתיחה", record.openDate],
+    ["מיקום", record.location],
+    ["מספר תוכנית", record.planNo],
+    ["מהדורה", record.revision],
+    ["שם תוכנית", record.planName],
+    ["פרטי מבנה", record.buildingDetails],
+    ["מבנה", record.building],
+    ["פעילות עבודה", record.workActivity],
+    ["תוכניות רלוונטיות", record.relevantPlans],
+    ["מחתך", record.fromSection],
+    ["עד חתך", record.toSection],
+    ["השפעה תקציבית", record.budgetImpact],
+    ["השפעה על לוח זמנים", record.scheduleImpact],
+    ["תיאור הבקשה", record.requestDescription, 2],
+    ["תשובת RFI / התייחסות שהתקבלה", record.response, 2],
+    ["תאריך סגירה", record.closeDate || record.closedAt],
+    ["נסגר על ידי", record.closedBy],
+    ["נפתח על ידי", record.createdBy],
+    ["עודכן על ידי", record.updatedBy],
+    ["עדכון אחרון", record.updatedAt],
+  ];
+
+  const rfiExportHtml = (record: RfiRecord) => {
+    const docs = normalizeAttachments(record.documents);
+    const docsRows = docs.length
+      ? docs
+          .map(
+            (doc, index) =>
+              `<tr><td>${index + 1}</td><td>${safeText(doc.name)}</td><td>${safeText(doc.type || "-")}</td><td>${safeText(doc.uploadedAt || "-")}</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4">אין קבצים מצורפים</td></tr>`;
+
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(
+      rfiExportTitle(record),
+    )}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(
+      rfiExportTitle(record),
+    )}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${baseRows(rfiExportRows(record))}<h2>קבצים מצורפים</h2><table><thead><tr><th>#</th><th>שם קובץ</th><th>סוג</th><th>תאריך צירוף</th></tr></thead><tbody>${docsRows}</tbody></table>${exportCompanyFooter()}</div></body></html>`;
+  };
+
+  const buildRfiMergedPdfBlob = (record: RfiRecord) =>
+    buildMergedPdfBlob(rfiExportTitle(record), rfiExportHtml(record), archiveRecordPdfAppendices(record));
+
+  const downloadRfiPdf = async (record: RfiRecord) => {
+    try {
+      const blob = await buildRfiMergedPdfBlob(record);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${rfiExportTitle(record)} - כולל נספחים.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "יצירת PDF עבור RFI נכשלה");
+    }
+  };
+
+  const downloadRfiExcel = (record: RfiRecord) => {
+    const docs = normalizeAttachments(record.documents);
+    const detailRows = rfiExportRows(record)
+      .map(([label, value]) => `<tr><th>${safeText(label)}</th><td>${safeText(value)}</td></tr>`)
+      .join("");
+    const docsRows = docs.length
+      ? docs
+          .map(
+            (doc, index) =>
+              `<tr><td>${index + 1}</td><td>${safeText(doc.name)}</td><td>${safeText(doc.type || "-")}</td><td>${safeText(doc.uploadedAt || "-")}</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4">אין קבצים מצורפים</td></tr>`;
+    const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;direction:rtl}table{border-collapse:collapse}th,td{border:1px solid #111;padding:6px 10px;text-align:right;vertical-align:top}th{background:#e8eef7}</style></head><body><h1>${safeText(
+      rfiExportTitle(record),
+    )}</h1><h2>פרטי RFI</h2><table>${detailRows}</table><h2>קבצים מצורפים</h2><table><thead><tr><th>#</th><th>שם קובץ</th><th>סוג</th><th>תאריך צירוף</th></tr></thead><tbody>${docsRows}</tbody></table></body></html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${rfiExportTitle(record)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  const sendRfiEmail = async (record: RfiRecord) => {
+    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const recipients = normalizeEmailList(recipientInput);
+    if (!recipients.length) return;
+    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
+    if (invalidRecipients.length) {
+      alert(`כתובות המייל הבאות אינן תקינות:
+${invalidRecipients.join("\n")}`);
+      return;
+    }
+    try {
+      const blob = await buildRfiMergedPdfBlob(record);
+      const pdfDataUrl = await blobToDataUrl(blob);
+      const attachments = uniqueEmailAttachments([
+        dataUrlToEmailAttachment(`${rfiExportTitle(record)} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
+      ]);
+      const response = await fetch("/api/send-checklist-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: Array.from(new Set(recipients)).join(", "),
+          subject: `${rfiExportTitle(record)} - ${projectName}`,
+          html: `<div dir="rtl">מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div>`,
+          text: `מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
+          attachments,
+          projectId: currentProject?.id || projectName || "806",
+          ...currentEmailSender,
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
+        return;
+      }
+      alert("המייל נשלח בהצלחה עם PDF של ה-RFI והנספחים.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
+    }
+  };
+
   const showExportButtons = [
     "checklists",
     "nonconformances",
@@ -18540,6 +18699,9 @@ ${invalidRecipients.join("\n")}`);
               closeRfi={closeRfi}
               deleteRfi={deleteRfi}
               loadRfi={loadRfi}
+              downloadRfiPdf={downloadRfiPdf}
+              downloadRfiExcel={downloadRfiExcel}
+              sendRfiEmail={sendRfiEmail}
               projectMeta={currentProjectLegend}
             />
             </>
