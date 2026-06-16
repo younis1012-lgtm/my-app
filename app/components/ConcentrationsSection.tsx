@@ -2808,8 +2808,8 @@ const earthworksMaterialResultRow = (process: any, serial: number): Row => {
     "רטיבות מחושבת": gradingLineResultValue(process, ["רטיבות מחושבת", "רטיבות כוללת"]),
     "תפיחה חופשית": gradingLineResultValue(process, ["תפיחה חופשית"]),
     "תכולת קרבונטים": gradingLineResultValue(process, ["תכולת קרבונטים"]),
-    "מעמד החומר": firstText(gradingLineResultValue(process, ["מעמד החומר"]), process?.status, process?.approval?.status),
-    "הערות": firstText(gradingLineResultValue(process, ["הערות", "מיון אחיד", "USCS"]), process?.notes, process?.description),
+    "מעמד החומר": gradingLineResultValue(process, ["מעמד החומר"]),
+    "הערות": firstText(gradingLineResultValue(process, ["הערות"]), process?.notes),
   };
 };
 
@@ -3976,18 +3976,9 @@ const buildEarthworksMaterialResultsWorksheetXml = (
     emptyRowXml(1, 14),
     rowXmlFromColumn(2, 8, [definition.title, "", "", "", "", "", "", "", "", "", "", ""], 1, 22),
     emptyRowXml(3, 18),
-    sparseRowXml(4, [
-      ...rangeCells(8, ["שם הקבלן", "", "", meta.contractor], 2),
-      ...rangeCells(14, ["שם פרויקט", "", "", meta.projectName], 2),
-    ], 20),
-    sparseRowXml(5, [
-      ...rangeCells(8, ["חברת ניהול", "", "", meta.projectManager || meta.projectManagement], 2),
-      ...rangeCells(14, ["חוזה מס'", "", "", ""], 2),
-    ], 20),
-    sparseRowXml(6, [
-      ...rangeCells(8, ["חברת בקרת איכות", "", "", meta.qualityControl], 2),
-      ...rangeCells(14, ["חברת הבטחת איכות", "", "", meta.qualityAssurance], 2),
-    ], 20),
+    rowXmlFromColumn(4, 8, ["שם הקבלן", "", "", meta.contractor, "", "", "שם פרויקט", "", "", meta.projectName, "", ""], 2, 20),
+    rowXmlFromColumn(5, 8, ["חברת ניהול", "", "", meta.projectManager || meta.projectManagement, "", "", "חוזה מס'", "", "", "", "", ""], 2, 20),
+    rowXmlFromColumn(6, 8, ["חברת בקרת איכות", "", "", meta.qualityControl, "", "", "חברת הבטחת איכות", "", "", meta.qualityAssurance, "", ""], 2, 20),
     emptyRowXml(7, 16),
     rowXml(8, topHeader, 3, 38),
     rowXml(9, sizeHeader, 4, 22),
