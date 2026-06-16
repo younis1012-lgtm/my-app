@@ -7913,6 +7913,19 @@ function RfiSection({
       }));
     };
 
+    const localReader = new FileReader();
+    localReader.onload = () => {
+      appendAttachment({
+        name: file.name,
+        type: file.type,
+        dataUrl: String(localReader.result ?? ""),
+        uploadedAt: nowLocal(),
+      });
+    };
+    localReader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
+    localReader.readAsDataURL(file);
+    return;
+
     if (isSupabaseConfigured && supabase) {
       try {
         const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
