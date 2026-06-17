@@ -10425,6 +10425,60 @@ const extractAsphaltJmfRowsByOcr = async (
   }
 };
 
+const extractReferenceResultRowsByOcr = async (
+  file: File,
+  workType: unknown,
+  templateRows: ReferenceResultRow[],
+): Promise<ReferenceResultRow[]> => {
+  try {
+    const rowsForPrompt = templateRows.length ? templateRows : ensureReferenceResultsForMaterial(workType, []);
+    if (!rowsForPrompt.length) return [];
+    const dataUrl = await readReferenceFileAsDataUrl(file);
+    const response = await fetch("/api/ocr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subtype: "reference-results",
+        fileName: file.name,
+        mimeType: file.type || "application/pdf",
+        dataUrl,
+        workType: String(workType ?? ""),
+        expectedMetrics: rowsForPrompt.map((row) => row.metric),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn("Reference results OCR failed", payload);
+      return [];
+    }
+
+    const data = payload?.data ?? {};
+    let rows = rowsForPrompt.map((row) => ({ ...row, resultValue: "" }));
+    const set = (aliases: string[], value: unknown) => {
+      rows = setReferenceMetricValue(rows, aliases, value);
+    };
+
+    (Array.isArray(data.rows) ? data.rows : []).forEach((row: any) => {
+      const metric = String(row?.metric ?? "").trim();
+      const resultValue = String(row?.resultValue ?? "").trim();
+      if (metric && resultValue) set([metric], resultValue);
+    });
+
+    const fields = data.fields ?? {};
+    set(["תעודה מס׳", "תעודה מס'", "מספר תעודה", "מספר תעודת מעבדה"], fields.certificateNo);
+    set(["תאריך בדיקה", "תאריך"], fields.testDate);
+    set(["מקור החומר", "מקור"], fields.source);
+    set(["תיאור החומר", "סוג החומר"], fields.materialDescription);
+    set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], fields.aashto);
+    set(["מיון אחיד"], fields.unified);
+
+    return rows.filter((row) => String(row.resultValue ?? "").trim());
+  } catch (error) {
+    console.warn("Reference results OCR fallback failed", error);
+    return [];
+  }
+};
+
 const extractAsphaltBatchesByOcr = async (
   file: File,
   workType: unknown,
@@ -10610,6 +10664,27 @@ function ControlProcessesSection({
         console.warn("Reference certificate text parsing failed", error);
       }
       let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
+      const ocrTemplateRows = showGradingLineForm
+        ? ensureReferenceResultsForMaterial("קו דירוג", [])
+        : isAsphaltReference(selectedMaterial)
+          ? buildAsphaltRowsForMix(
+              form.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(form.referenceResults)) || getDefaultAsphaltMixTemplate().label,
+              [],
+              false,
+            )
+          : ensureReferenceResultsForMaterial(selectedMaterial, []);
+      if (!isAsphaltReference(selectedMaterial) && ocrTemplateRows.length && filledRows.length < 5) {
+        const ocrRows = await extractReferenceResultRowsByOcr(
+          file,
+          showGradingLineForm ? "קו דירוג" : selectedMaterial,
+          ocrTemplateRows,
+        );
+        const ocrFilledRows = ocrRows.filter((row) => String(row.resultValue ?? "").trim());
+        if (ocrFilledRows.length > filledRows.length) {
+          parsedRows = ocrRows;
+          filledRows = ocrFilledRows;
+        }
+      }
       if (!filledRows.length && isAsphaltReference(selectedMaterial)) {
         parsedRows = await extractAsphaltJmfRowsByOcr(file, selectedMaterial);
         filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());

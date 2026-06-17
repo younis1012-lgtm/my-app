@@ -9,7 +9,9 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results';
+  workType?: string;
+  expectedMetrics?: string[];
 };
 
 const emptyData = {
@@ -159,6 +161,55 @@ const asphaltJmfJsonSchema = {
     notes: { type: 'string' },
   },
   required: ['rows', 'batches', 'fields', 'confidence', 'notes'],
+};
+
+const referenceResultsEmptyData = {
+  rows: [] as Array<{ metric: string; resultValue: string }>,
+  fields: {
+    certificateNo: '',
+    testDate: '',
+    source: '',
+    materialDescription: '',
+    aashto: '',
+    unified: '',
+  },
+  confidence: 0,
+  notes: '',
+};
+
+const referenceResultsJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          metric: { type: 'string' },
+          resultValue: { type: 'string' },
+        },
+        required: ['metric', 'resultValue'],
+      },
+    },
+    fields: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        certificateNo: { type: 'string' },
+        testDate: { type: 'string' },
+        source: { type: 'string' },
+        materialDescription: { type: 'string' },
+        aashto: { type: 'string' },
+        unified: { type: 'string' },
+      },
+      required: ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified'],
+    },
+    confidence: { type: 'number' },
+    notes: { type: 'string' },
+  },
+  required: Object.keys(referenceResultsEmptyData),
 };
 
 function normalizeDataUrl(dataUrl: string, mimeType: string) {
@@ -536,6 +587,73 @@ For dates, return yyyy-mm-dd when possible. Do not invent values.`;
 
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       const parsed = { ...asphaltJmfEmptyData, ...(safeJsonParse(outputText) ?? {}) };
+      return NextResponse.json({ data: parsed });
+    }
+
+    if (subtype === 'reference-results') {
+      const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const expectedMetrics = Array.isArray(body.expectedMetrics)
+        ? body.expectedMetrics.map((item) => String(item ?? '').trim()).filter(Boolean)
+        : [];
+      const workType = String(body.workType ?? '').trim();
+      const metricsHint = expectedMetrics.length
+        ? expectedMetrics.map((metric) => `- ${metric}`).join('\n')
+        : '- מספר תעודה\n- תאריך בדיקה\n- מקור החומר\n- תיאור החומר\n- מיון AASHTO\n- 3"\n- 1.5"\n- 1"\n- 3/4"\n- #4\n- #10\n- #40\n- #200\n- LL\n- PL\n- IP';
+      const prompt = `אתה מחלץ תוצאות מתעודת מעבדה / תעודת ייחוס עבור בקרת איכות בפרויקט תשתיות בישראל.
+קרא את הקובץ המצורף חזותית אם צריך והחזר JSON בלבד.
+סוג חומר / טופס: ${workType || 'לא צוין'}.
+
+מטרת החילוץ:
+להחזיר rows[] של מדד ותוצאה, לפי המדדים הבאים בלבד ככל שהם מופיעים או ניתנים לזיהוי בתעודה:
+${metricsHint}
+
+כללים חשובים:
+- rows[].metric חייב להיות אחד משמות המדדים ברשימה, בדיוק ככל האפשר.
+- rows[].resultValue הוא הערך שנמדד בתעודה, ללא יחידות מיותרות.
+- עבור נפות ודירוג, החזר אחוז עובר לכל נפה: 3", 1.5", 1", 3/4", #4, #10, #40, #200.
+- עבור גבולות אטרברג החזר LL, PL, IP. אם מופיע NP או ב״פ, החזר NP.
+- עבור מיון החזר מיון AASHTO אם מופיע, למשל A-1-b או A-2-4(0).
+- עבור חומר נברר / מצע / קרקע יסוד, אל תחליף בטעות בין גבולות הסומך לבין קווי דירוג. קווי דירוג הם ערכי הנפות.
+- עבור אספלט, החזר את המדדים שמופיעים ברשימת המדדים בלבד.
+- אם ערך לא מופיע בבירור, אל תמציא אותו ואל תחזיר אותו.
+- תאריכים החזר yyyy-mm-dd כאשר אפשר.
+- מלא גם fields עם מספר תעודה, תאריך בדיקה, מקור החומר, תיאור חומר, aashto ומיון אחיד אם קיימים.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (isImage(mimeType)) {
+        content.push({ type: 'input_image', image_url: normalizedFileData });
+      } else {
+        content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+      }
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'reference_results_extract',
+              schema: referenceResultsJsonSchema,
+              strict: true,
+            },
+          },
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI reference results OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Reference results OCR failed' }, { status: 500 });
+      }
+
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      const parsed = { ...referenceResultsEmptyData, ...(safeJsonParse(outputText) ?? {}) };
       return NextResponse.json({ data: parsed });
     }
 
