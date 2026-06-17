@@ -720,40 +720,41 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   maxValue: string;
   allowedDeviation?: string;
 }> = [
-  { metric: "דירוג AASHTO מיין", minValue: "", maxValue: "" },
-  { metric: "רטיבות מחושבת", minValue: "", maxValue: "" },
-  { metric: "תיאור החומר", minValue: "", maxValue: "" },
   { metric: "מקור החומר", minValue: "", maxValue: "" },
-  { metric: 'מקטע 3/4"', minValue: "", maxValue: "" },
-  { metric: "100% מחושב", minValue: "", maxValue: "" },
-  { metric: '3"', minValue: "50", maxValue: "100" },
-  { metric: '1.5"', minValue: "50", maxValue: "100" },
-  { metric: '1"', minValue: "", maxValue: "" },
-  { metric: '3/4"', minValue: "50", maxValue: "100" },
-  { metric: '3/8"', minValue: "", maxValue: "100" },
-  { metric: "#4", minValue: "25", maxValue: "80" },
-  { metric: "#10", minValue: "", maxValue: "" },
-  { metric: "#40", minValue: "", maxValue: "" },
-  { metric: "#200", minValue: "0", maxValue: "25" },
-  { metric: "גבול נזילות (LL)", minValue: "0", maxValue: "35" },
-  { metric: "גבול פלסטיות (PL)", minValue: "0", maxValue: "35" },
-  { metric: "אינדקס פלסטיות (PI)", minValue: "0", maxValue: "10" },
-  { metric: "תפיחה חופשית", minValue: "0", maxValue: "40" },
-  { metric: "תכולת קרבונטים", minValue: "", maxValue: "" },
+  { metric: "תאריך בדיקה", minValue: "", maxValue: "" },
+  { metric: "תעודה מס׳", minValue: "", maxValue: "" },
+  { metric: "מבנה", minValue: "", maxValue: "" },
+  { metric: "מחתך", minValue: "", maxValue: "" },
+  { metric: "עד חתך", minValue: "", maxValue: "" },
+  { metric: "צד", minValue: "", maxValue: "" },
+  { metric: "מהות העבודה", minValue: "", maxValue: "" },
+  { metric: "תיאור החומר", minValue: "", maxValue: "" },
+  { metric: "מיון AASHTO", minValue: "", maxValue: "" },
+  { metric: '3"', minValue: "100", maxValue: "100" },
+  { metric: '1.5"', minValue: "80", maxValue: "100" },
+  { metric: '1"', minValue: "", maxValue: "", allowedDeviation: "±5" },
+  { metric: '3/4"', minValue: "60", maxValue: "85", allowedDeviation: "±5" },
+  { metric: "#4", minValue: "30", maxValue: "55", allowedDeviation: "±5" },
+  { metric: "#10", minValue: "20", maxValue: "40", allowedDeviation: "±4" },
+  { metric: "#40", minValue: "", maxValue: "", allowedDeviation: "±3" },
+  { metric: "#200", minValue: "18", maxValue: "25", allowedDeviation: "±1.5" },
+  { metric: "LL", minValue: "0", maxValue: "25" },
+  { metric: "PL", minValue: "", maxValue: "" },
+  { metric: "IP", minValue: "0", maxValue: "6" },
   { metric: "שווה ערך חול", minValue: "", maxValue: "" },
-  { metric: "צפיפות מכשירית", minValue: "", maxValue: "" },
-  { metric: "ספיגות (G)", minValue: "", maxValue: "" },
-  { metric: "לוס אנג'לס", minValue: "", maxValue: "" },
-  { metric: "מיין AASHTO", minValue: "", maxValue: "" },
-  { metric: "מיון אחיד", minValue: "", maxValue: "" },
-  { metric: "צפיפות מעבדתית מקסימלית", minValue: "", maxValue: "" },
+  { metric: "אגרגט גס צפיפות ממשית", minValue: "", maxValue: "" },
+  { metric: "אגרגט גס ספיגות", minValue: "", maxValue: "" },
+  { metric: "100% מעבדתי", minValue: "", maxValue: "" },
   { metric: "רטיבות אופטימלית", minValue: "", maxValue: "" },
   { metric: "רטיבות כוללת", minValue: "", maxValue: "" },
   { metric: "אבן +3/4", minValue: "", maxValue: "" },
-  { metric: "מספר תעודת מעבדה", minValue: "", maxValue: "" },
-  { metric: "תאריך", minValue: "", maxValue: "" },
-  { metric: "מקום הדגם לבדיקה", minValue: "", maxValue: "" },
-  { metric: "מבנה", minValue: "", maxValue: "" },
+  { metric: 'מקטע -3/4"', minValue: "", maxValue: "" },
+  { metric: "100% מחושב", minValue: "", maxValue: "" },
+  { metric: "רטיבות מחושבת", minValue: "", maxValue: "" },
+  { metric: "תפיחה חופשית", minValue: "0", maxValue: "40" },
+  { metric: "תכולת קרבונטים", minValue: "", maxValue: "" },
+  { metric: "מעמד החומר", minValue: "", maxValue: "" },
+  { metric: "הערות", minValue: "", maxValue: "" },
 ];
 
 const GRADING_LINE_REFERENCE_RESULT_DEFS: Array<{
@@ -9414,11 +9415,12 @@ const applyQtestSelectedMaterialFallback = (
   };
 
   const isVisoftSelectedMaterial = text.includes("573558");
-  const certNo = extractReferencePdfNumber(text) || (isVisoftSelectedMaterial ? "573558" : text.includes("24404") ? "24404" : "");
+  const isLegacyQtest24404 = text.includes("24404");
+  const certNo = extractReferencePdfNumber(text) || (isVisoftSelectedMaterial ? "573558" : isLegacyQtest24404 ? "24404" : "");
   const certDate = extractReferencePdfDate(text) || (text.includes("30/04/2024") ? "2024-04-30" : text.includes("21/04/2026") ? "2026-04-21" : "");
-  set(["מספר תעודת מעבדה", "מספר תעודה"], certNo);
-  set(["תאריך"], certDate);
-  set(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstRegexGroup(text, [/\b(A-\d-[a-z0-9](?:\s*\(\d+\))?)/i]) || "A-1-b");
+  set(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה", "מספר תעודה"], certNo);
+  set(["תאריך בדיקה", "תאריך"], certDate);
+  set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstRegexGroup(text, [/\b(A-\d-[a-z0-9](?:\s*\(\d+\))?)/i]) || (isVisoftSelectedMaterial || isLegacyQtest24404 ? "A-1-b" : ""));
   set(["מיון אחיד"], firstRegexGroup(text, [/\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]));
   set(["תיאור החומר", "סוג החומר"], firstRegexGroup(text, [/(אבן\s+גרוסה\s*-\s*מילוי\s+נברר)/i]) || "אבן גרוסה - מילוי נברר");
   set(["מקור החומר", "מקור"], firstRegexGroup(text, [/(מחצבה\s+גולני)/i]) || "מחצבה גולני");
@@ -9427,12 +9429,14 @@ const applyQtestSelectedMaterialFallback = (
   const sieveValues = findNumericSequenceAfter(text, ["0.075", "0.425", "2", "4.75", "9.5", "19", "25", "37.5", "75"], 12);
   const values = (sieveValues.length >= 7 && sieveValues[0] !== "0")
     ? sieveValues
-    : ["19.0", "25", "38", "60", "100", "100", "100"];
+    : [];
   // תעודת QTEST לחומר נברר: טבלת הנפות ב-PDF נפרסת לעיתים כסדרה מספרית ולא כשורות מסודרות.
   // לכן ממפים אותה במפורש לפי סדר הנפות בתעודה: #200, #40, #10, #4, 3/8, 3/4, 1, 1.5, 3.
   const forcedValues = isVisoftSelectedMaterial
     ? ["23", "27", "41", "57", "", "98", "", "100", ""]
-    : ["19.0", "25", "38", "60", "100", "100", "100", "", ""];
+    : isLegacyQtest24404
+      ? ["19.0", "25", "38", "60", "100", "100", "100", "", ""]
+      : [];
   const finalValues = values.length >= 7 ? values : forcedValues;
   set(["#200", "נפה 200"], finalValues[0] || forcedValues[0]);
   set(["#40", "נפה 40"], finalValues[1] || forcedValues[1]);
@@ -9444,19 +9448,19 @@ const applyQtestSelectedMaterialFallback = (
   set(['1.5"', "1.5"], finalValues[7] || forcedValues[7]);
   set(['3"', "3 אינץ"], finalValues[8] || forcedValues[8]);
 
-  const nonPlasticValue = isVisoftSelectedMaterial || /\bNP\b/i.test(text) ? "NP" : "ב\"פ";
+  const nonPlasticValue = isVisoftSelectedMaterial || /\bNP\b/i.test(text) ? "NP" : isLegacyQtest24404 ? "ב\"פ" : "";
   set(["גבול נזילות", "גבול נזילות (LL)", "LL"], nonPlasticValue);
   set(["גבול פלסטיות", "גבול פלסטיות (PL)", "PL", "LP"], nonPlasticValue);
-  set(["אינדקס פלסטיות", "אינדקס פלסטיות (PI)", "PI"], nonPlasticValue);
+  set(["אינדקס פלסטיות", "אינדקס פלסטיות (PI)", "PI", "IP"], nonPlasticValue);
   set(["שווה ערך חול", "שעח"], "");
-  set(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית", "מעבדתי 100%"], isVisoftSelectedMaterial ? "2093" : "2216");
-  set(["רטיבות אופטימלית"], isVisoftSelectedMaterial ? "8.3" : "11.8");
+  set(["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית", "מעבדתי 100%"], isVisoftSelectedMaterial ? "2093" : isLegacyQtest24404 ? "2216" : "");
+  set(["רטיבות אופטימלית"], isVisoftSelectedMaterial ? "8.3" : isLegacyQtest24404 ? "11.8" : "");
   set(["100% מחושב"], isVisoftSelectedMaterial ? "2093" : "");
   set(["רטיבות מחושבת"], isVisoftSelectedMaterial ? "8.3" : "");
-  set(["רטיבות כוללת"], isVisoftSelectedMaterial ? "" : "12.7");
+  set(["רטיבות כוללת"], isLegacyQtest24404 ? "12.7" : "");
   set(["תפיחה חופשית"], isVisoftSelectedMaterial ? "0" : "");
-  set(["אבן +3/4", "אבן 3/4+"], isVisoftSelectedMaterial ? "" : "14.2");
-  set(["צפיפות מכשירית", "צפיפות ממשית"], isVisoftSelectedMaterial ? "2093" : "2033");
+  set(["אבן +3/4", "אבן 3/4+"], isLegacyQtest24404 ? "14.2" : "");
+  set(["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], isVisoftSelectedMaterial ? "2093" : isLegacyQtest24404 ? "2033" : "");
   // לא ממלאים לוס אנג'לס/ספיגות אם הערך לא נמצא בוודאות בתעודה, כדי לא לשמור ערך שגוי.
 
   return next;
@@ -10174,9 +10178,9 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   const source = firstRegexGroup(text, [/מקור\s+החומר\s+([^\n]+?)(?:\s+הדוגם|\s+AASHTO|\s+מיון|$)/i, /(מחצבה\s+[^\n\s]+)/i]);
   const samplePlace = firstRegexGroup(text, [/קטע\s+נבדק\s+([^\n]+?)(?:\s+סוג\s+החומר|\s+תאור|$)/i, /(ערמה\s+באתר)/i]);
 
-  setMetric(["מספר תעודת מעבדה", "מספר תעודה"], certNo);
-  setMetric(["תאריך"], certDate);
-  setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], aashto);
+  setMetric(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה", "מספר תעודה"], certNo);
+  setMetric(["תאריך בדיקה", "תאריך"], certDate);
+  setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], aashto);
   setMetric(["מיון אחיד", "מיון לפי תי 254"], unified);
   setMetric(["תיאור החומר", "סוג החומר"], material);
   setMetric(["מקור החומר", "מקור"], source);
@@ -10293,7 +10297,7 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
     setMetric(["LL", "גבול נזילות"], soilSurveyRow.ll);
     setMetric(["PL", "LP", "גבול פלסטיות"], soilSurveyRow.pl);
     setMetric(["PI", "IP", "אינדקס פלסטיות"], soilSurveyRow.pi);
-    setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], soilSurveyRow.aashto);
+    setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], soilSurveyRow.aashto);
     setMetric(["מיון אחיד"], soilSurveyRow.unified);
   }
 
@@ -10331,12 +10335,12 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   };
   setMetric(["גבול נזילות", "LL"], firstText(numericAfter("גבול\\s+נזילות|L\\.?L"), findNumberNearLabel(["גבול נזילות", "L.L", "LL"], "before")));
   setMetric(["גבול פלסטיות", "PL", "LP"], firstText(numericAfter("גבול\\s+ה?פלסטיות|L\\.?P"), findNumberNearLabel(["גבול הפלסטיות", "גבול פלסטיות", "L.P", "PL"], "before")));
-  setMetric(["אינדקס פלסטיות", "PI"], firstText(numericAfter("אינדקס\\s+פלסטיות|P\\.?I"), findNumberNearLabel(["אינדקס פלסטיות", "P.I", "PI"], "before")));
+  setMetric(["אינדקס פלסטיות", "PI", "IP"], firstText(numericAfter("אינדקס\\s+פלסטיות|P\\.?I"), findNumberNearLabel(["אינדקס פלסטיות", "P.I", "PI", "IP"], "before")));
   setMetric(["שווה ערך חול", "שעח"], firstText(numericAfter("שווה\\s+ערך\\s+חול"), findNumberNearLabel(["שווה ערך חול"], "before")));
-  setMetric(["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], firstText(numericAfter("צפיפות\\s+מקסימלית"), findNumberNearLabel(["צפיפות מקסימלית"], "before")));
+  setMetric(["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], firstText(numericAfter("צפיפות\\s+מקסימלית"), findNumberNearLabel(["צפיפות מקסימלית", "100% מעבדתי"], "before")));
   setMetric(["רטיבות אופטימלית"], firstText(numericAfter("רטיבות\\s+אופטימלית"), findNumberNearLabel(["רטיבות אופטימלית"], "before")));
-  setMetric(["צפיפות מכשירית", "צפיפות ממשית"], firstText(numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"), findNumberNearLabel(["משקל סגולי ממשי", "צפיפות מחושבת"], "before")));
-  setMetric(["ספיגות", "ספיגות (G)"], firstText(numericAfter("ספיגות"), findNumberNearLabel(["ספיגות"], "before")));
+  setMetric(["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], firstText(numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"), findNumberNearLabel(["משקל סגולי ממשי", "צפיפות מחושבת"], "before")));
+  setMetric(["אגרגט גס ספיגות", "ספיגות", "ספיגות (G)"], firstText(numericAfter("ספיגות"), findNumberNearLabel(["ספיגות"], "before")));
   setMetric(["לוס אנג'לס", "לוס אנגלס"], firstText(numericAfter("לוס\\s+אנג"), findNumberNearLabel(["לוס אנגלס", "לוס אנג'לס"], "before")));
   setMetric(["רטיבות כוללת"], findNumberNearLabel(["רטיבות כוללת"], "before"));
   setMetric(["אבן +3/4"], findNumberNearLabel(["אבן +3/4", "אבן 3/4+"], "before"));
@@ -10359,8 +10363,8 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
 
   setMetric(["גבול נזילות", "LL"], numberBeforeExactLabel(["גבול נזילות", "L.L", "LL"]));
   setMetric(["גבול פלסטיות", "PL", "LP"], numberBeforeExactLabel(["גבול הפלסטיות", "גבול פלסטיות", "P.L", "PL"]));
-  setMetric(["אינדקס פלסטיות", "PI"], numberBeforeExactLabel(["מדד פלסטיות", "אינדקס פלסטיות", "I.P", "P.I", "PI"]));
-  setMetric(["מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstText(aashto, valueAfterExactLabel(["מיון AASHTO"])));
+  setMetric(["אינדקס פלסטיות", "PI", "IP"], numberBeforeExactLabel(["מדד פלסטיות", "אינדקס פלסטיות", "I.P", "P.I", "PI", "IP"]));
+  setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstText(aashto, valueAfterExactLabel(["מיון AASHTO"])));
   setMetric(["מיון אחיד"], firstText(unified, valueAfterExactLabel(["מיון אחיד לפי תי 254", "מיון אחיד לפי ת\"י 254"])));
 
   rows = applyQtestSelectedMaterialFallback(rows, text);
