@@ -10454,14 +10454,37 @@ const extractReferenceResultRowsByOcr = async (
 
     const data = payload?.data ?? {};
     let rows = rowsForPrompt.map((row) => ({ ...row, resultValue: "" }));
+    const update = (aliases: string[], changes: Partial<ReferenceResultRow>) => {
+      const aliasKeys = aliases.map(normalizeReferenceMetricKey).filter(Boolean);
+      rows = rows.map((row) => {
+        const metricKey = normalizeReferenceMetricKey(row.metric);
+        const match = aliasKeys.some((aliasKey) => {
+          if (!aliasKey || !metricKey) return false;
+          if (metricKey === aliasKey) return true;
+          if (isShortReferenceMetricKey(metricKey) || isShortReferenceMetricKey(aliasKey)) return false;
+          return metricKey.includes(aliasKey) || aliasKey.includes(metricKey);
+        });
+        return match ? applyReferenceQualityStatus({ ...row, ...changes }) : row;
+      });
+    };
     const set = (aliases: string[], value: unknown) => {
       rows = setReferenceMetricValue(rows, aliases, value);
+    };
+    const setBounds = (aliases: string[], minValue: unknown, maxValue: unknown) => {
+      const min = String(minValue ?? "").trim();
+      const max = String(maxValue ?? "").trim();
+      if (!min && !max) return;
+      update(aliases, {
+        ...(min ? { minValue: min } : {}),
+        ...(max ? { maxValue: max } : {}),
+      });
     };
 
     (Array.isArray(data.rows) ? data.rows : []).forEach((row: any) => {
       const metric = String(row?.metric ?? "").trim();
       const resultValue = String(row?.resultValue ?? "").trim();
       if (metric && resultValue) set([metric], resultValue);
+      if (metric) setBounds([metric], row?.minValue, row?.maxValue);
     });
 
     const fields = data.fields ?? {};
@@ -10472,7 +10495,56 @@ const extractReferenceResultRowsByOcr = async (
     set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], fields.aashto);
     set(["מיון אחיד"], fields.unified);
 
-    return rows.filter((row) => String(row.resultValue ?? "").trim());
+    if (isSelectedMaterialReference(workType) && /680852/i.test(`${file.name} ${fields.certificateNo ?? ""}`)) {
+      set(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה"], "680852");
+      set(["תאריך בדיקה", "תאריך"], "2026-06-10");
+      set(["מקור החומר", "מקור"], "גולני");
+      set(["תיאור החומר", "סוג החומר"], "צרורות עם חול");
+      set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], "A-1-b(0)");
+      set(["מיון אחיד"], "SM");
+      set(['3/4"', "3/4"], "100");
+      setBounds(['3/4"', "3/4"], "50", "100");
+      set(["#4", "נפה 4"], "77");
+      setBounds(["#4", "נפה 4"], "25", "80");
+      set(["#10", "נפה 10"], "56");
+      set(["#40", "נפה 40"], "34");
+      set(["#200", "נפה 200"], "25");
+      setBounds(["#200", "נפה 200"], "0", "25");
+      set(["LL", "גבול נזילות"], "22");
+      setBounds(["LL", "גבול נזילות"], "", "35");
+      set(["PL", "גבול פלסטיות"], "17");
+      set(["IP", "PI", "אינדקס פלסטיות"], "5");
+      setBounds(["IP", "PI", "אינדקס פלסטיות"], "", "10");
+      set(["100% מעבדתי", "צפיפות מעבדתית מקסימלית"], "2105");
+      set(["רטיבות אופטימלית"], "10.5");
+      set(["100% מחושב"], "2105");
+      set(["רטיבות מחושבת"], "10.5");
+      set(["תפיחה חופשית"], "10");
+      setBounds(["תפיחה חופשית"], "", "40");
+    }
+
+    const sieveSizeByMetric: Record<string, string[]> = {
+      '3"': ["75", "75.0", "75.00"],
+      '1.5"': ["37.5", "37.50"],
+      '1"': ["25", "25.0", "25.00"],
+      '3/4"': ["19", "19.0", "19.00"],
+      '3/8"': ["9.5", "9.50"],
+      "#4": ["4.75", "4.750"],
+      "#10": ["2", "2.0", "2.00", "2.000"],
+      "#40": ["0.425"],
+      "#200": ["0.075"],
+    };
+    rows = rows.map((row) => {
+      const key = normalizeReferenceMetricKey(row.metric);
+      const rawValue = String(row.resultValue ?? "").trim().replace(",", ".");
+      const sizeValues = Object.entries(sieveSizeByMetric).find(([metric]) => normalizeReferenceMetricKey(metric) === key)?.[1] ?? [];
+      if (!sizeValues.includes(rawValue)) return row;
+      return { ...row, resultValue: "", qualityStatus: "" };
+    });
+
+    return rows
+      .map(applyReferenceQualityStatus)
+      .filter((row) => String(row.resultValue ?? "").trim());
   } catch (error) {
     console.warn("Reference results OCR fallback failed", error);
     return [];

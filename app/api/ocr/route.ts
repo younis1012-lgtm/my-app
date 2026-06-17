@@ -164,7 +164,7 @@ const asphaltJmfJsonSchema = {
 };
 
 const referenceResultsEmptyData = {
-  rows: [] as Array<{ metric: string; resultValue: string }>,
+  rows: [] as Array<{ metric: string; resultValue: string; minValue: string; maxValue: string }>,
   fields: {
     certificateNo: '',
     testDate: '',
@@ -189,8 +189,10 @@ const referenceResultsJsonSchema = {
         properties: {
           metric: { type: 'string' },
           resultValue: { type: 'string' },
+          minValue: { type: 'string' },
+          maxValue: { type: 'string' },
         },
-        required: ['metric', 'resultValue'],
+        required: ['metric', 'resultValue', 'minValue', 'maxValue'],
       },
     },
     fields: {
@@ -610,8 +612,13 @@ ${metricsHint}
 כללים חשובים:
 - rows[].metric חייב להיות אחד משמות המדדים ברשימה, בדיוק ככל האפשר.
 - rows[].resultValue הוא הערך שנמדד בתעודה, ללא יחידות מיותרות.
+- rows[].minValue ו-rows[].maxValue הם דרישת המינימום והמקסימום מהתעודה אם קיימים. אם אין דרישה כתובה, החזר מחרוזת ריקה.
 - עבור נפות ודירוג, החזר אחוז עובר לכל נפה: 3", 1.5", 1", 3/4", #4, #10, #40, #200.
+- אל תחזיר בשום אופן את גודל הנפה במ"מ בתור תוצאה. לדוגמה: 0.075, 0.425, 2.000, 4.750, 19.0 הם גדלי נפה ולא תוצאות.
+- אם קיימת טבלת נפות עם שורות כגון "מ״מ", "עובר %", "MAX", "MIN", "מתאים": resultValue חייב להגיע רק משורת "עובר %"; maxValue משורת MAX; minValue משורת MIN.
+- דוגמה: אם הכותרות הן #200 #40 #10 #4 3/4 והערכים בשורת "עובר %" הם 25 34 56 77 100, החזר #200=25, #40=34, #10=56, #4=77, 3/4"=100.
 - עבור גבולות אטרברג החזר LL, PL, IP. אם מופיע NP או ב״פ, החזר NP.
+- עבור טבלת גבולות/פלסטיות עם עמודות "תוצאה", "דרישה min", "max", החזר את התוצאה ואת min/max לפי אותה שורה.
 - עבור מיון החזר מיון AASHTO אם מופיע, למשל A-1-b או A-2-4(0).
 - עבור חומר נברר / מצע / קרקע יסוד, אל תחליף בטעות בין גבולות הסומך לבין קווי דירוג. קווי דירוג הם ערכי הנפות.
 - עבור אספלט, החזר את המדדים שמופיעים ברשימת המדדים בלבד.
