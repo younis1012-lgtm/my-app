@@ -299,10 +299,10 @@ function normalizeCertificateNoKey(value: string) {
   return cleanCertificateNo(value).replace(/^0+(\d)/, '$1').toLowerCase();
 }
 
-async function renderPdfPageToPngDataUrl(page: any) {
+async function renderPdfPageToPngDataUrl(page: any, scale = 2) {
   try {
     const { createCanvas } = canvasRuntime;
-    const viewport = page.getViewport({ scale: 2 });
+    const viewport = page.getViewport({ scale });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const context = canvas.getContext('2d');
     context.fillStyle = '#fff';
@@ -312,6 +312,86 @@ async function renderPdfPageToPngDataUrl(page: any) {
   } catch (error) {
     console.error('PDF page render failed', error);
     return '';
+  }
+}
+
+async function renderPdfPagesToPngDataUrls(
+  dataUrl: string,
+  mimeType: string,
+  maxPages = 4,
+): Promise<string[]> {
+  if (!/pdf/i.test(mimeType) && !String(dataUrl || '').startsWith('data:application/pdf')) return [];
+  try {
+    ensurePdfCanvasPolyfills();
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const doc = await pdfjs.getDocument({
+      data: dataUrlToBytes(dataUrl),
+      disableWorker: true,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    }).promise;
+    const images: string[] = [];
+    const pageCount = Math.min(doc.numPages, maxPages);
+    for (let pageNo = 1; pageNo <= pageCount; pageNo += 1) {
+      const page = await doc.getPage(pageNo);
+      const imageDataUrl = await renderPdfPageToPngDataUrl(page, 3.5);
+      if (imageDataUrl) images.push(imageDataUrl);
+    }
+    return images;
+  } catch (error) {
+    console.error('Reference PDF visual render failed', error);
+    return [];
+  }
+}
+
+async function renderMbdCertificateRegions(
+  dataUrl: string,
+  mimeType: string,
+): Promise<Array<{ label: string; imageDataUrl: string }>> {
+  if (!/pdf/i.test(mimeType) && !String(dataUrl || '').startsWith('data:application/pdf')) return [];
+  try {
+    ensurePdfCanvasPolyfills();
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const doc = await pdfjs.getDocument({
+      data: dataUrlToBytes(dataUrl),
+      disableWorker: true,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    }).promise;
+    const page = await doc.getPage(1);
+    const viewport = page.getViewport({ scale: 4 });
+    const source = canvasRuntime.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const sourceContext = source.getContext('2d');
+    sourceContext.fillStyle = '#fff';
+    sourceContext.fillRect(0, 0, source.width, source.height);
+    await page.render({ canvasContext: sourceContext, viewport }).promise;
+
+    const regions = [
+      { label: 'compaction density and moisture block', x: 0.50, y: 0.34, width: 0.48, height: 0.17 },
+      { label: 'grading sieve table', x: 0.50, y: 0.49, width: 0.48, height: 0.18 },
+      { label: 'Atterberg limits and free swell table', x: 0.04, y: 0.65, width: 0.94, height: 0.15 },
+    ];
+
+    return regions.map((region) => {
+      const sx = Math.floor(source.width * region.x);
+      const sy = Math.floor(source.height * region.y);
+      const sw = Math.floor(source.width * region.width);
+      const sh = Math.floor(source.height * region.height);
+      const crop = canvasRuntime.createCanvas(sw, sh);
+      const cropContext = crop.getContext('2d');
+      cropContext.fillStyle = '#fff';
+      cropContext.fillRect(0, 0, sw, sh);
+      cropContext.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
+      return {
+        label: region.label,
+        imageDataUrl: `data:image/png;base64,${crop.toBuffer('image/png').toString('base64')}`,
+      };
+    });
+  } catch (error) {
+    console.error('MBD certificate region render failed', error);
+    return [];
   }
 }
 
@@ -625,11 +705,53 @@ ${metricsHint}
 - אם ערך לא מופיע בבירור, אל תמציא אותו ואל תחזיר אותו.
 - תאריכים החזר yyyy-mm-dd כאשר אפשר.
 - מלא גם fields עם מספר תעודה, תאריך בדיקה, מקור החומר, תיאור חומר, aashto ומיון אחיד אם קיימים.`;
-      const content: any[] = [{ type: 'input_text', text: prompt }];
+      const labFormatHint = /^MBD[_-]/i.test(fileName)
+        ? `
+Laboratory format adapter: this is an MBD certificate from Engineering & Quality Group.
+- In its grading table, return only sieve columns whose headers are visibly printed. Do not shift values into earlier expected sieve metrics.
+- The common visible order from right to left is 3/4", #4, #10, #40, #200. Map the "עובר %" row to those exact headers.
+- If 3", 1.5" or 1" are not printed as grading headers, leave them empty.
+- In the lower properties table, process each row independently. The Hebrew row labels are "גבול נזילות", "גבול פלסטיות", "אינדקס פלסטיות", and "תפיחה חופשית". Use the measured "תוצאה" cell from that same horizontal row. Do not use a value from the row above or below. Use only that same row's "דרישה min/max" cells for minValue/maxValue.
+- In the upper-right compaction block, extract the values beside these exact Hebrew labels: "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "צפיפות מקסימלית מחושבת", and "רטיבות מחושבת".
+- Do not derive PL or PI by arithmetic when their measured values are printed. Read each printed result directly.
+`
+        : '';
+      const extractionPrompt = `${prompt}
+${labFormatHint}
+
+Accuracy requirements for reference certificates:
+- Inspect the complete document visually, including scanned pages and image-only tables. Do not rely only on embedded PDF text.
+- Extract every visible requested metric, not only the grading row.
+- Identify table row and column headers before assigning any number.
+- Sieve apertures such as 19.0, 4.750, 2.000, 0.425 and 0.075 are labels, never measured grading results.
+- Extract Atterberg limits LL, PL and PI/IP, free swell, maximum laboratory density, optimum moisture, calculated density and moisture, absorption, specific gravity, sand equivalent, and every other visible metric from expectedMetrics.
+- Preserve textual results such as NP.
+- Copy certificate requirements from MIN/MAX columns into minValue/maxValue. Never copy a measured result into a limit field.
+- Verify internally that every returned value belongs to the same metric row.`;
+      let mbdRegions: Array<{ label: string; imageDataUrl: string }> = [];
+      const content: any[] = [{ type: 'input_text', text: extractionPrompt }];
       if (isImage(mimeType)) {
         content.push({ type: 'input_image', image_url: normalizedFileData });
       } else {
         content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+        const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType);
+        renderedPages.forEach((imageDataUrl, index) => {
+          content.push({
+            type: 'input_text',
+            text: `Visual rendering of PDF page ${index + 1}. Use this image to verify table row and column alignment.`,
+          });
+          content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
+        });
+        if (/^MBD[_-]/i.test(fileName)) {
+          mbdRegions = await renderMbdCertificateRegions(normalizedFileData, mimeType);
+          mbdRegions.forEach((region) => {
+            content.push({
+              type: 'input_text',
+              text: `Enlarged ${region.label}. Read every result directly from this crop and use it to override uncertain values from the full page.`,
+            });
+            content.push({ type: 'input_image', image_url: region.imageDataUrl, detail: 'high' });
+          });
+        }
       }
 
       const response = await fetch('https://api.openai.com/v1/responses', {
@@ -639,7 +761,7 @@ ${metricsHint}
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          model: process.env.OPENAI_REFERENCE_OCR_MODEL || 'gpt-4.1',
           input: [{ role: 'user', content }],
           temperature: 0,
           text: {

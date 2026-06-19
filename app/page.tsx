@@ -10745,17 +10745,44 @@ function ControlProcessesSection({
               false,
             )
           : ensureReferenceResultsForMaterial(selectedMaterial, []);
-      if (!isAsphaltReference(selectedMaterial) && ocrTemplateRows.length && filledRows.length < 5) {
+      if (!isAsphaltReference(selectedMaterial) && ocrTemplateRows.length) {
         const ocrRows = await extractReferenceResultRowsByOcr(
           file,
           showGradingLineForm ? "קו דירוג" : selectedMaterial,
           ocrTemplateRows,
         );
         const ocrFilledRows = ocrRows.filter((row) => String(row.resultValue ?? "").trim());
-        if (ocrFilledRows.length > filledRows.length) {
-          parsedRows = ocrRows;
-          filledRows = ocrFilledRows;
-        }
+        const textRowsByMetric = new Map(
+          parsedRows.map((row) => [normalizeReferenceMetricKey(row.metric), row]),
+        );
+        const ocrRowsByMetric = new Map(
+          ocrRows.map((row) => [normalizeReferenceMetricKey(row.metric), row]),
+        );
+        parsedRows = ocrTemplateRows.map((templateRow) => {
+          const key = normalizeReferenceMetricKey(templateRow.metric);
+          const textRow = textRowsByMetric.get(key);
+          const ocrRow = ocrRowsByMetric.get(key);
+          const resultValue =
+            String(ocrRow?.resultValue ?? "").trim() ||
+            String(textRow?.resultValue ?? "").trim();
+          const minValue =
+            String(templateRow.minValue ?? "").trim() ||
+            String(ocrRow?.minValue ?? "").trim() ||
+            String(textRow?.minValue ?? "").trim();
+          const maxValue =
+            String(templateRow.maxValue ?? "").trim() ||
+            String(ocrRow?.maxValue ?? "").trim() ||
+            String(textRow?.maxValue ?? "").trim();
+          return applyReferenceQualityStatus({
+            ...templateRow,
+            ...(textRow ?? {}),
+            ...(ocrRow ?? {}),
+            resultValue,
+            minValue,
+            maxValue,
+          });
+        });
+        filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
       }
       if (!filledRows.length && isAsphaltReference(selectedMaterial)) {
         parsedRows = await extractAsphaltJmfRowsByOcr(file, selectedMaterial);
@@ -10787,7 +10814,15 @@ function ControlProcessesSection({
             const parsed = parsedRows.find(
               (item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric),
             );
-            return parsed?.resultValue ? applyReferenceQualityStatus({ ...row, resultValue: parsed.resultValue }) : row;
+            if (!parsed) return row;
+            return applyReferenceQualityStatus({
+              ...row,
+              resultValue: String(parsed.resultValue ?? "").trim(),
+              minValue: row.minValue || String(parsed.minValue ?? "").trim(),
+              maxValue: row.maxValue || String(parsed.maxValue ?? "").trim(),
+              allowedDeviation:
+                String(parsed.allowedDeviation ?? "").trim() || row.allowedDeviation,
+            });
           });
           const exactGradingCells = isGradingLineReferenceRecord(prev) ? extractGradingLinePdfCellResults(parsedText) : null;
           const finalRows = exactGradingCells
