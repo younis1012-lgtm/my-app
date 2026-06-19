@@ -59,6 +59,7 @@ const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מוד�
 
 const APP_VERSION = "2026-06-19-soil-survey-full-table-parser-v1";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
+const PUBLIC_APP_URL = "https://yi-quality.vercel.app";
 
 type AppSection =
   | Section
@@ -8709,6 +8710,9 @@ function UserAccessPanel({
           <div style={{ color: "#166534", marginTop: 6, fontWeight: 900 }}>
             לפתיחת פרויקט עצמאי: לחץ “הוסף משתמש לפתיחת פרויקט חדש”, שלח לו את הקישור, שם המשתמש והסיסמה. אין צורך למלא שם פרויקט מראש.
           </div>
+          <div style={{ color: "#1d4ed8", marginTop: 6, fontWeight: 900 }}>
+            לשיוך לפרויקט שכבר קיים: החלף את הקוד `new-project-*` בקוד ייחודי, הזן בשדה שם הפרויקט את שמו המדויק, שמור את השינויים ושלח את הקישור הראשי.
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {hasUnsavedChanges ? (
@@ -8792,8 +8796,8 @@ function UserAccessPanel({
               const isAdmin = user.role === "admin";
               const isProjectInvite = isSelfServiceProjectCreator(user);
               const projectLink =
-                typeof window !== "undefined" && user.code
-                  ? `${window.location.origin}/?project=${encodeURIComponent(user.code)}`
+                user.code
+                  ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}`
                   : (user.code ?? "");
               return (
                 <tr key={`access-user-${index}`}>
@@ -8884,16 +8888,28 @@ function UserAccessPanel({
                       }}
                     />
                     {!isAdmin && projectLink ? (
-                      <div
-                        style={{
-                          color: "#64748b",
-                          marginTop: 6,
-                          fontSize: 12,
-                          direction: "ltr",
-                          textAlign: "left",
-                        }}
-                      >
-                        {projectLink}
+                      <div style={{ marginTop: 6 }}>
+                        <div
+                          style={{
+                            color: "#64748b",
+                            fontSize: 12,
+                            direction: "ltr",
+                            textAlign: "left",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {projectLink}
+                        </div>
+                        <button
+                          type="button"
+                          style={{ ...styles.secondaryBtn, marginTop: 6, padding: "6px 10px" }}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(projectLink);
+                            alert("הקישור הראשי הועתק");
+                          }}
+                        >
+                          העתק קישור
+                        </button>
                       </div>
                     ) : null}
                     {isProjectInvite ? (
