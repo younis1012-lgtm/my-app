@@ -164,7 +164,15 @@ const asphaltJmfJsonSchema = {
 };
 
 const referenceResultsEmptyData = {
-  rows: [] as Array<{ metric: string; resultValue: string; minValue: string; maxValue: string }>,
+  rows: [] as Array<{
+    metric: string;
+    resultValue: string;
+    minValue: string;
+    maxValue: string;
+    evidence: string;
+    sourceRegion: string;
+    confidence: number;
+  }>,
   fields: {
     certificateNo: '',
     testDate: '',
@@ -172,6 +180,14 @@ const referenceResultsEmptyData = {
     materialDescription: '',
     aashto: '',
     unified: '',
+  },
+  fieldEvidence: {
+    certificateNo: { evidence: '', confidence: 0 },
+    testDate: { evidence: '', confidence: 0 },
+    source: { evidence: '', confidence: 0 },
+    materialDescription: { evidence: '', confidence: 0 },
+    aashto: { evidence: '', confidence: 0 },
+    unified: { evidence: '', confidence: 0 },
   },
   confidence: 0,
   notes: '',
@@ -191,8 +207,11 @@ const referenceResultsJsonSchema = {
           resultValue: { type: 'string' },
           minValue: { type: 'string' },
           maxValue: { type: 'string' },
+          evidence: { type: 'string' },
+          sourceRegion: { type: 'string' },
+          confidence: { type: 'number' },
         },
-        required: ['metric', 'resultValue', 'minValue', 'maxValue'],
+        required: ['metric', 'resultValue', 'minValue', 'maxValue', 'evidence', 'sourceRegion', 'confidence'],
       },
     },
     fields: {
@@ -206,6 +225,25 @@ const referenceResultsJsonSchema = {
         aashto: { type: 'string' },
         unified: { type: 'string' },
       },
+      required: ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified'],
+    },
+    fieldEvidence: {
+      type: 'object',
+      additionalProperties: false,
+      properties: Object.fromEntries(
+        ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified'].map((key) => [
+          key,
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              evidence: { type: 'string' },
+              confidence: { type: 'number' },
+            },
+            required: ['evidence', 'confidence'],
+          },
+        ]),
+      ),
       required: ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified'],
     },
     confidence: { type: 'number' },
@@ -369,9 +407,15 @@ async function renderMbdCertificateRegions(
     await page.render({ canvasContext: sourceContext, viewport }).promise;
 
     const regions = [
-      { label: 'compaction density and moisture block', x: 0.50, y: 0.34, width: 0.48, height: 0.17 },
-      { label: 'grading sieve table', x: 0.50, y: 0.49, width: 0.48, height: 0.18 },
-      { label: 'Atterberg limits and free swell table', x: 0.04, y: 0.65, width: 0.94, height: 0.15 },
+      // MBD / קבוצת הנדסה ואיכות: התעודה היא לרוב צילום בתוך PDF.
+      // לכן קוראים תקריבים ממוקדים של הטבלאות, ולא את כל הדף/גרפים.
+      { label: 'metadata', x: 0.04, y: 0.10, width: 0.93, height: 0.26 },
+      { label: 'classification', x: 0.04, y: 0.21, width: 0.94, height: 0.15 },
+      { label: 'material-details', x: 0.60, y: 0.285, width: 0.36, height: 0.06 },
+      { label: 'classification-values', x: 0.08, y: 0.245, width: 0.44, height: 0.11 },
+      { label: 'compaction', x: 0.49, y: 0.32, width: 0.49, height: 0.24 },
+      { label: 'grading', x: 0.50, y: 0.50, width: 0.48, height: 0.20 },
+      { label: 'atterberg', x: 0.43, y: 0.66, width: 0.55, height: 0.16 },
     ];
 
     return regions.map((region) => {
@@ -603,6 +647,184 @@ function normalizeCertificateItems(value: unknown) {
     });
 }
 
+
+function normalizeMbdReferenceRows(value: unknown) {
+  const sourceRows = Array.isArray(value) ? value : [];
+  const normalizeMetric = (metric: string) =>
+    String(metric || '')
+      .replace(/[״"׳'`’]/g, '')
+      .replace(/\s+/g, '')
+      .toLowerCase();
+  const canonicalMetric = (metric: string) => {
+    const key = normalizeMetric(metric);
+    if (key.includes('תעודה')) return 'תעודה מס׳';
+    if (key.includes('תאריך')) return 'תאריך בדיקה';
+    if (key.includes('מקורהחומר') || key === 'מקור') return 'מקור החומר';
+    if (key.includes('תיאורהחומר') || key.includes('סוגהחומר')) return 'תיאור החומר';
+    if (key.includes('aashto') || key.includes('מיוןהחומר')) return 'מיון AASHTO';
+    if (key.includes('מיוןאחיד')) return 'מיון אחיד';
+    if (key === '34' || key === '3/4' || key.includes('3/4')) return '3/4"';
+    if (key === '4#' || key === '#4' || key.includes('נפה4')) return '#4';
+    if (key === '10#' || key === '#10' || key.includes('נפה10')) return '#10';
+    if (key === '40#' || key === '#40' || key.includes('נפה40')) return '#40';
+    if (key === '200#' || key === '#200' || key.includes('נפה200')) return '#200';
+    if (key === 'll' || key.includes('גבולנזילות')) return 'LL';
+    if (key === 'pl' || key.includes('גבולפלסטיות')) return 'PL';
+    if (key === 'ip' || key === 'pi' || key.includes('אינדקספלסטיות') || key.includes('מדדפלסטיות')) return 'IP';
+    if (key.includes('צפיפותמעבדתיתמקסימלית') || key.includes('100%מעבדתי')) return '100% מעבדתי';
+    if (key.includes('רטיבותאופטימלית')) return 'רטיבות אופטימלית';
+    if (key.includes('צפיפותמקסימליתמחושבת') || key.includes('100%מחושב')) return '100% מחושב';
+    if (key.includes('רטיבותמחושבת') || key.includes('רטיבותכוללת')) return 'רטיבות מחושבת';
+    if (key.includes('תפיחהחופשית')) return 'תפיחה חופשית';
+    return String(metric || '').trim();
+  };
+  const cleanNumber = (raw: unknown) => String(raw ?? '').trim().replace(/,/g, '.').replace(/\s+/g, ' ');
+  const normalizeEvidence = (raw: unknown) => String(raw ?? '').trim().replace(/,/g, '.').replace(/\s+/g, ' ');
+  const expectedRegionByMetric: Record<string, string> = {
+    'תעודה מס׳': 'metadata',
+    'תאריך בדיקה': 'metadata',
+    'מקור החומר': 'metadata',
+    'תיאור החומר': 'metadata',
+    'מיון AASHTO': 'metadata',
+    'מיון אחיד': 'metadata',
+    '3/4"': 'grading',
+    '#4': 'grading',
+    '#10': 'grading',
+    '#40': 'grading',
+    '#200': 'grading',
+    'LL': 'atterberg',
+    'PL': 'atterberg',
+    'IP': 'atterberg',
+    'תפיחה חופשית': 'atterberg',
+    '100% מעבדתי': 'compaction',
+    'רטיבות אופטימלית': 'compaction',
+    '100% מחושב': 'compaction',
+    'רטיבות מחושבת': 'compaction',
+  };
+  const sieveSizes: Record<string, Set<string>> = {
+    '3/4"': new Set(['19', '19.0', '19.00']),
+    '#4': new Set(['4.75', '4.750']),
+    '#10': new Set(['2', '2.0', '2.00', '2.000']),
+    '#40': new Set(['0.425']),
+    '#200': new Set(['0.075']),
+  };
+  const byMetric = new Map<string, any>();
+  for (const row of sourceRows) {
+    const metric = canonicalMetric(String((row as any)?.metric ?? ''));
+    if (!metric) continue;
+    let resultValue = cleanNumber((row as any)?.resultValue);
+    let minValue = cleanNumber((row as any)?.minValue);
+    let maxValue = cleanNumber((row as any)?.maxValue);
+    const evidence = normalizeEvidence((row as any)?.evidence);
+    const sourceRegion = String((row as any)?.sourceRegion ?? '').trim().toLowerCase();
+    const confidence = Number((row as any)?.confidence ?? 0);
+    const expectedRegion = expectedRegionByMetric[metric];
+    const evidenceContainsResult =
+      !resultValue ||
+      evidence.toLowerCase().includes(resultValue.toLowerCase()) ||
+      (resultValue.toUpperCase() === 'NP' && /(?:NP|ב["״']?פ)/i.test(evidence));
+    const evidenceContainsLimits =
+      (!minValue || evidence.includes(minValue)) &&
+      (!maxValue || evidence.includes(maxValue));
+
+    // תוצאה נשמרת רק כאשר המודל מצביע על התא והשורה שמהם העתיק אותה.
+    // כך מספר מהגרף או מידת נפה לא יכול להיכנס לטבלה רק מפני שהוא מופיע בדף.
+    if (
+      confidence < 0.9 ||
+      !evidence ||
+      !evidenceContainsResult ||
+      !evidenceContainsLimits ||
+      (expectedRegion && sourceRegion !== expectedRegion)
+    ) {
+      resultValue = '';
+      minValue = '';
+      maxValue = '';
+    }
+    if (sieveSizes[metric]?.has(resultValue)) resultValue = '';
+    if (sieveSizes[metric]?.has(minValue)) minValue = '';
+    if (sieveSizes[metric]?.has(maxValue)) maxValue = '';
+    // בתבנית MBD ערך MIN=0 מופיע בדרך כלל בעמודת #200.
+    // אם ה-OCR שייך אותו לנפה אחרת, עדיף להשאיר ריק ולא לשמור הסטת עמודה שגויה.
+    if (metric !== '#200' && minValue === '0') minValue = '';
+    // צפיפות MBD מודפסת בק״ג/מ״ק. אם OCR החזיר 2.105/2.097 מהגרף או המרה, לא נשמור אותה אוטומטית.
+    if ((metric === '100% מעבדתי' || metric === '100% מחושב') && /^2[.,]\d{2,3}$/.test(resultValue)) resultValue = '';
+    if (!resultValue && !minValue && !maxValue) continue;
+    const previous = byMetric.get(metric);
+    if (!previous || (!previous.resultValue && resultValue)) {
+      byMetric.set(metric, { metric, resultValue, minValue, maxValue });
+    } else if (previous) {
+      previous.minValue ||= minValue;
+      previous.maxValue ||= maxValue;
+    }
+  }
+  return Array.from(byMetric.values());
+}
+
+function normalizeMbdReferenceFields(fieldsValue: unknown, evidenceValue: unknown) {
+  const fields = fieldsValue && typeof fieldsValue === 'object'
+    ? { ...(fieldsValue as Record<string, unknown>) }
+    : {};
+  const fieldEvidence = evidenceValue && typeof evidenceValue === 'object'
+    ? evidenceValue as Record<string, any>
+    : {};
+
+  for (const key of ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified']) {
+    const value = String(fields[key] ?? '').trim();
+    if (!value) continue;
+    const evidence = String(fieldEvidence[key]?.evidence ?? '').trim();
+    const confidence = Number(fieldEvidence[key]?.confidence ?? 0);
+    const valueForComparison = key === 'testDate' ? normalizeHebrewDate(value) : value;
+    const evidenceForComparison = key === 'testDate' ? normalizeHebrewDate(evidence) : evidence;
+    const comparableValue = valueForComparison.replace(/[״"׳'`’]/g, '').replace(/\s+/g, '').toLowerCase();
+    const comparableEvidence = evidenceForComparison.replace(/[״"׳'`’]/g, '').replace(/\s+/g, '').toLowerCase();
+    if (confidence < 0.9 || !evidence || !comparableEvidence.includes(comparableValue)) {
+      fields[key] = '';
+    }
+  }
+
+  const aashto = String(fields.aashto ?? '').trim();
+  if (
+    aashto &&
+    !/^A-(?:1-[ab]|2-[4567]|3|4|5|6|7(?:-[56])?)(?:\(\d+\))?$/i.test(aashto.replace(/\s+/g, ''))
+  ) {
+    fields.aashto = '';
+  }
+
+  return fields;
+}
+
+function intersectVerifiedMbdFields(primaryValue: unknown, verifierValue: unknown) {
+  const primary = primaryValue && typeof primaryValue === 'object'
+    ? { ...(primaryValue as Record<string, unknown>) }
+    : {};
+  const verifier = verifierValue && typeof verifierValue === 'object'
+    ? verifierValue as Record<string, unknown>
+    : {};
+  const normalizeComparable = (key: string, value: unknown) => {
+    const raw = key === 'testDate'
+      ? normalizeHebrewDate(String(value ?? ''))
+      : String(value ?? '');
+    return raw
+      .replace(/[״"׳'`’]/g, '')
+      .replace(/[^\p{L}\p{N}./()-]+/gu, '')
+      .toLowerCase();
+  };
+
+  for (const key of ['certificateNo', 'testDate', 'source', 'materialDescription', 'aashto', 'unified']) {
+    const primaryText = String(primary[key] ?? '').trim();
+    const verifierText = String(verifier[key] ?? '').trim();
+    if (
+      !primaryText ||
+      !verifierText ||
+      normalizeComparable(key, primaryText) !== normalizeComparable(key, verifierText)
+    ) {
+      primary[key] = '';
+    }
+  }
+
+  return primary;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -693,6 +915,11 @@ ${metricsHint}
 - rows[].metric חייב להיות אחד משמות המדדים ברשימה, בדיוק ככל האפשר.
 - rows[].resultValue הוא הערך שנמדד בתעודה, ללא יחידות מיותרות.
 - rows[].minValue ו-rows[].maxValue הם דרישת המינימום והמקסימום מהתעודה אם קיימים. אם אין דרישה כתובה, החזר מחרוזת ריקה.
+- rows[].evidence חייב להכיל תעתיק קצר ומדויק של שם השורה והערכים המודפסים באותו תא/שורה. חובה לכלול בתעתיק את resultValue ואת minValue/maxValue כאשר הוחזרו.
+- rows[].sourceRegion הוא אחד מהערכים: metadata, compaction, grading, atterberg, full-page.
+- rows[].confidence הוא מספר בין 0 ל-1. החזר 0.9 ומעלה רק אם הערך נראה בבירור בתא הנכון. אם אינך בטוח, השאר את הערך ריק והחזר confidence נמוך.
+- לכל שדה בתוך fields חובה להחזיר fieldEvidence תואם עם תעתיק מדויק מהמסמך ורמת confidence.
+- אין לנסח מחדש שדות טקסט. לדוגמה materialDescription חייב להיות העתק מדויק של הטקסט שמופיע אחרי "תיאור מדגם" או "תיאור החומר".
 - עבור נפות ודירוג, החזר אחוז עובר לכל נפה: 3", 1.5", 1", 3/4", #4, #10, #40, #200.
 - אל תחזיר בשום אופן את גודל הנפה במ"מ בתור תוצאה. לדוגמה: 0.075, 0.425, 2.000, 4.750, 19.0 הם גדלי נפה ולא תוצאות.
 - אם קיימת טבלת נפות עם שורות כגון "מ״מ", "עובר %", "MAX", "MIN", "מתאים": resultValue חייב להגיע רק משורת "עובר %"; maxValue משורת MAX; minValue משורת MIN.
@@ -705,15 +932,51 @@ ${metricsHint}
 - אם ערך לא מופיע בבירור, אל תמציא אותו ואל תחזיר אותו.
 - תאריכים החזר yyyy-mm-dd כאשר אפשר.
 - מלא גם fields עם מספר תעודה, תאריך בדיקה, מקור החומר, תיאור חומר, aashto ומיון אחיד אם קיימים.`;
-      const labFormatHint = /^MBD[_-]/i.test(fileName)
+      const isMbdEngineeringQuality = /^MBD[_-]/i.test(fileName) || /קבוצת\s+הנדסה\s+ואיכות|Engineering\s*&\s*Quality/i.test(fileName);
+      const labFormatHint = isMbdEngineeringQuality
         ? `
-Laboratory format adapter: this is an MBD certificate from Engineering & Quality Group.
-- In its grading table, return only sieve columns whose headers are visibly printed. Do not shift values into earlier expected sieve metrics.
-- The common visible order from right to left is 3/4", #4, #10, #40, #200. Map the "עובר %" row to those exact headers.
-- If 3", 1.5" or 1" are not printed as grading headers, leave them empty.
-- In the lower properties table, process each row independently. The Hebrew row labels are "גבול נזילות", "גבול פלסטיות", "אינדקס פלסטיות", and "תפיחה חופשית". Use the measured "תוצאה" cell from that same horizontal row. Do not use a value from the row above or below. Use only that same row's "דרישה min/max" cells for minValue/maxValue.
-- In the upper-right compaction block, extract the values beside these exact Hebrew labels: "צפיפות מעבדתית מקסימלית", "רטיבות אופטימלית", "צפיפות מקסימלית מחושבת", and "רטיבות מחושבת".
-- Do not derive PL or PI by arithmetic when their measured values are printed. Read each printed result directly.
+תבנית מעבדה מזוהה: MBD - קבוצת הנדסה ואיכות בע״מ.
+חובה לקרוא חזותית מתוך תקריבי הטבלאות המצורפים בלבד. אין להשתמש בגרפים ואין להמיר יחידות.
+החזר רק ערכים שאתה רואה בבירור בתאים של הטבלה.
+
+מיפוי תבנית MBD:
+1) כותרת/סיווג חומר:
+- certificateNo מתוך "תעודה מס׳".
+- testDate מתוך תאריך נטילה/בדיקה של המדגם, לא תאריך הפקת הדוח אם מופיעים שניהם.
+- source מתוך מקור/מיקום/שם ספק אם מופיע.
+- materialDescription מתוך סוג/תיאור החומר, למשל מילוי נברר.
+- materialDescription הוא תעתיק מילולי בלבד. אסור לסכם, לתקן או להחליף אותו בשם קטגוריה כללי.
+- aashto מתוך "מיון החומר".
+- unified מתוך "מיון אחיד".
+לכל השדות והמדדים באזור זה sourceRegion חייב להיות metadata.
+
+2) טבלת צפיפות/רטיבות בצד ימין:
+- "100% מעבדתי" = הערך ליד "צפיפות מעבדתית מקסימלית".
+- "רטיבות אופטימלית" = הערך ליד "רטיבות אופטימלית".
+- "100% מחושב" = הערך ליד "צפיפות מקסימלית מחושבת".
+- "רטיבות מחושבת" = הערך ליד "רטיבות מחושבת".
+אסור לקחת ערכים מהגרף הצמוד. אל תחזיר 2.097/5.5 אם הם לא מופיעים בתאי הטבלה האלה.
+לכל המדדים בסעיף זה sourceRegion חייב להיות compaction.
+
+3) טבלת נפות:
+- קרא את שורת הכותרות של הנפות בדיוק כפי שמודפסות.
+- resultValue מגיע רק משורת "עובר %".
+- maxValue מגיע רק משורת MAX.
+- minValue מגיע רק משורת MIN.
+- גדלי נפה במ״מ כגון 19.0, 4.750, 2.000, 0.425, 0.075 הם כותרות/מידות, לא תוצאות.
+לכל המדדים בסעיף זה sourceRegion חייב להיות grading.
+
+4) טבלת גבולות/תפיחה:
+- LL = שורת "גבול נזילות".
+- PL = שורת "גבול פלסטיות".
+- IP/PI = שורת "אינדקס פלסטיות".
+- תפיחה חופשית = שורת "תפיחה חופשית".
+- resultValue מהעמודה "תוצאה" באותה שורה בלבד.
+- minValue/maxValue מעמודות הדרישה באותה שורה בלבד.
+- אסור לחשב IP מתוך LL ו-PL. אם מודפס ערך IP, העתק אותו כפי שהוא.
+לכל המדדים בסעיף זה sourceRegion חייב להיות atterberg.
+
+אם אינך בטוח בערך - השאר אותו ריק. אל תנחש.
 `
         : '';
       const extractionPrompt = `${prompt}
@@ -731,27 +994,29 @@ Accuracy requirements for reference certificates:
       let mbdRegions: Array<{ label: string; imageDataUrl: string }> = [];
       const content: any[] = [{ type: 'input_text', text: extractionPrompt }];
       if (isImage(mimeType)) {
-        content.push({ type: 'input_image', image_url: normalizedFileData });
+        content.push({ type: 'input_image', image_url: normalizedFileData, detail: 'high' });
+      } else if (isMbdEngineeringQuality) {
+        // MBD הוא PDF סרוק; לא שולחים input_file כדי שלא יופעל חילוץ טקסט ריק/מטעה.
+        const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType, 1);
+        renderedPages.forEach((imageDataUrl, index) => {
+          content.push({ type: 'input_text', text: `Full visual page ${index + 1} for orientation only. Prefer the enlarged table crops for values.` });
+          content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
+        });
+        mbdRegions = await renderMbdCertificateRegions(normalizedFileData, mimeType);
+        mbdRegions.forEach((region) => {
+          content.push({
+            type: 'input_text',
+            text: `SOURCE REGION: ${region.label}. Read only the values that belong to this region. Set rows[].sourceRegion to exactly "${region.label}" for values copied from this crop.`,
+          });
+          content.push({ type: 'input_image', image_url: region.imageDataUrl, detail: 'high' });
+        });
       } else {
         content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
         const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType);
         renderedPages.forEach((imageDataUrl, index) => {
-          content.push({
-            type: 'input_text',
-            text: `Visual rendering of PDF page ${index + 1}. Use this image to verify table row and column alignment.`,
-          });
+          content.push({ type: 'input_text', text: `Visual rendering of PDF page ${index + 1}. Use this image to verify table row and column alignment.` });
           content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
         });
-        if (/^MBD[_-]/i.test(fileName)) {
-          mbdRegions = await renderMbdCertificateRegions(normalizedFileData, mimeType);
-          mbdRegions.forEach((region) => {
-            content.push({
-              type: 'input_text',
-              text: `Enlarged ${region.label}. Read every result directly from this crop and use it to override uncertain values from the full page.`,
-            });
-            content.push({ type: 'input_image', image_url: region.imageDataUrl, detail: 'high' });
-          });
-        }
       }
 
       const response = await fetch('https://api.openai.com/v1/responses', {
@@ -783,6 +1048,75 @@ Accuracy requirements for reference certificates:
 
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       const parsed = { ...referenceResultsEmptyData, ...(safeJsonParse(outputText) ?? {}) };
+      if (isMbdEngineeringQuality) {
+        parsed.rows = normalizeMbdReferenceRows(parsed.rows);
+        parsed.fields = normalizeMbdReferenceFields(parsed.fields, parsed.fieldEvidence);
+
+        // קריאה עצמאית נוספת של הכותרת מונעת שמירת תיאור חומר שהמודל ניסח או
+        // קרא באופן שונה. רק שדות ששתי הקריאות מסכימות עליהם נשמרים אוטומטית.
+        const verificationRegions = [
+          mbdRegions.find((region) => region.label === 'metadata'),
+          mbdRegions.find((region) => region.label === 'material-details'),
+          mbdRegions.find((region) => region.label === 'classification-values'),
+        ].filter((region): region is { label: string; imageDataUrl: string } => Boolean(region));
+        if (verificationRegions.length) {
+          const verifierPrompt = `Read the attached cropped header of an MBD / Engineering & Quality Group laboratory certificate.
+Return JSON only using the supplied schema.
+Transcribe fields exactly as printed. Do not summarize, correct spelling, infer a material category, or use the filename.
+Pay special attention to the exact text after "תיאור מדגם", "מקור מדגם", "מיון החומר", "מיון אחיד", and the printed test/sample date.
+For every non-empty field, fieldEvidence.evidence must quote the exact visible label and value.
+Keep rows empty. If any character is uncertain, leave that field empty.`;
+          const verifierResponse = await fetch('https://api.openai.com/v1/responses', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: process.env.OPENAI_REFERENCE_OCR_MODEL || 'gpt-4.1',
+              input: [{
+                role: 'user',
+                content: [
+                  { type: 'input_text', text: verifierPrompt },
+                  ...verificationRegions.flatMap((region) => [
+                    { type: 'input_text', text: `Crop: ${region.label}` },
+                    { type: 'input_image', image_url: region.imageDataUrl, detail: 'high' },
+                  ]),
+                ],
+              }],
+              temperature: 0,
+              text: {
+                format: {
+                  type: 'json_schema',
+                  name: 'mbd_metadata_verify',
+                  schema: referenceResultsJsonSchema,
+                  strict: true,
+                },
+              },
+            }),
+          });
+          const verifierResult = await verifierResponse.json();
+          if (verifierResponse.ok) {
+            const verifierText = verifierResult.output_text ||
+              verifierResult.output?.flatMap((item: any) => item.content ?? [])
+                .find((part: any) => part.type === 'output_text')?.text ||
+              '';
+            const verifierParsed = safeJsonParse(verifierText) ?? {};
+            const verifiedFields = normalizeMbdReferenceFields(
+              verifierParsed.fields,
+              verifierParsed.fieldEvidence,
+            );
+            parsed.fields = intersectVerifiedMbdFields(parsed.fields, verifiedFields);
+          } else {
+            // אם אימות הכותרת נכשל, לא שומרים אוטומטית שדות טקסט שעלולים להיות מנוחשים.
+            parsed.fields = {
+              ...parsed.fields,
+              source: '',
+              materialDescription: '',
+            };
+          }
+        }
+      }
       return NextResponse.json({ data: parsed });
     }
 

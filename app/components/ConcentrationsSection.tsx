@@ -1208,9 +1208,9 @@ const matzeaAProcessRow = (record: any, index: number): Row => ({
   "מס׳ סדורי": index + 1,
   "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
   "מס׳ תעודה": referenceDocNo(record),
-  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
-  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
-  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
+  "תאריך": firstText(metricValue(record, ["תאריך בדיקה", "תאריך הבדיקה", "תאריך", "תאריך הפצה"]), dateText(record?.date), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור", "ספק / מפעל", "ספק", "מחצבה"]), record?.fromSection),
+  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום", "מקום הבדיקה", "מיקום הבדיקה"]), record?.location),
   "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
   "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
   "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
@@ -1228,9 +1228,9 @@ const matzeaAProcessRow = (record: any, index: number): Row => ({
   "צפיפות ממשית (ט/מ״ק)": metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית"]),
   "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
   "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
-  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
-  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
-  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
+  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "מיון AASHTO", "AASHTO"])),
+  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית", "100% מעבדתי", "צפיפות מקסימלית מחושבת", "100% מחושב"]),
+  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית", "רטיבות כוללת", "רטיבות מחושבת"]),
   "מספר תעודה": referenceDocNo(record),
   "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
   "הערות": firstText(record?.notes, record?.description),
@@ -1281,16 +1281,16 @@ const selectedMaterialColumns = matzeaAColumns;
 
 const isSelectedMaterialProcess = (record: any): boolean => {
   const text = recordText(record);
-  return includesAny(text, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4"]);
+  return includesAny(text, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-1-b", "A-2-4", "a-1-b", "a-2-4"]);
 };
 
 const selectedMaterialProcessRow = (record: any, index: number): Row => ({
   "מס׳ סדורי": index + 1,
   "ביצוע ע״י": firstText(metricValue(record, ["ביצוע עי", 'ביצוע ע"י']), "QC"),
   "מס׳ תעודה": referenceDocNo(record),
-  "תאריך": firstText(metricValue(record, ["תאריך"]), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
-  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור"]), record?.fromSection),
-  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"]), record?.location),
+  "תאריך": firstText(metricValue(record, ["תאריך בדיקה", "תאריך הבדיקה", "תאריך", "תאריך הפצה"]), dateText(record?.date), dateText(record?.savedAt ?? record?.updatedAt ?? record?.createdAt)),
+  "מקור החומר": firstText(metricValue(record, ["מקור החומר", "מקור", "ספק / מפעל", "ספק", "מחצבה"]), record?.fromSection),
+  "מקום נטילת מדגם לבדיקה": firstText(metricValue(record, ["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום", "מקום הבדיקה", "מיקום הבדיקה"]), record?.location),
   "מקום הפיזור / מבנה": firstText(metricValue(record, ["מבנה"]), metricValue(record, ["מקום הפיזור", "מיקום שימוש מיועד"]), record?.toSection),
   "חתך התחלה": firstText(metricValue(record, ["חתך התחלה", "מחתך"]), record?.fromSection),
   "חתך סוף": firstText(metricValue(record, ["חתך סוף", "עד חתך"]), record?.toSection),
@@ -1308,18 +1308,19 @@ const selectedMaterialProcessRow = (record: any, index: number): Row => ({
   "צפיפות ממשית (ט/מ״ק)": metricValue(record, ["צפיפות מכשירית", "צפיפות ממשית"]),
   "ספיגות (%)": metricValue(record, ["ספיגות", "ספיגות (G)"]),
   "לוס אנג׳לס (%)": metricValue(record, ["לוס אנגלס", "לוס אנג'לס", "לוס אנג׳לס"]),
-  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "AASHTO"])),
-  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית"]),
-  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית"]),
+  "מיון AASHTO": firstText(metricValue(record, ["דירוג AASHTO מיין", "מיין AASHTO", "מיון AASHTO", "AASHTO"])),
+  "צפיפות מעבדתית מקסימלית": metricValue(record, ["צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית", "100% מעבדתי", "צפיפות מקסימלית מחושבת", "100% מחושב"]),
+  "רטיבות אופטימלית": metricValue(record, ["רטיבות אופטימלית", "רטיבות כוללת", "רטיבות מחושבת"]),
   "מספר תעודה": referenceDocNo(record),
   "מעמד החומר": firstText(metricValue(record, ["מעמד החומר"]), record?.status, record?.approval?.status),
-  "הערות": firstText(metricValue(record, ["מיון אחיד"]), record?.notes, record?.description),
+  "הערות": firstText(metricValue(record, ["מיון אחיד"]), metricValue(record, ["תפיחה חופשית"]), record?.notes, record?.description),
 });
 
-const buildSelectedMaterialConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
-  const checklist = checklistRows(checklists, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-2-4", "a-2-4", "cbr", "גרדציה"], "אפיון נברר")
+const buildSelectedMaterialConcentrationRows = (checklists: any[], processes: any[], preliminary: any[] = []): Row[] => {
+  const checklist = checklistRows(checklists, ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-1-b", "A-2-4", "a-1-b", "a-2-4", "cbr", "גרדציה"], "אפיון נברר")
     .map((row, index) => matzeaAChecklistRow(row, index));
-  const process = processes
+  const sourceRecords = [...processes, ...preliminary];
+  const process = sourceRecords
     .filter(isSelectedMaterialProcess)
     .map((record, index) => selectedMaterialProcessRow(record, checklist.length + index));
   return [...checklist, ...process].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
@@ -2956,7 +2957,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "אפיון חומר נברר מתוך תעודות/רשימות תיוג רלוונטיות",
     sourceLabel: "רשימות תיוג / תעודות",
     columns: selectedMaterialColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses),
+    buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
   {
     id: "earthworks-material-results",

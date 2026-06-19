@@ -57,7 +57,7 @@ const isRoad806Value = (value: unknown) => {
 
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
-const APP_VERSION = "2026-05-04-checklist-top-editable-cache-refresh-v2";
+const APP_VERSION = "2026-06-19-soil-survey-full-table-parser-v1";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 
 type AppSection =
@@ -10495,33 +10495,7 @@ const extractReferenceResultRowsByOcr = async (
     set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], fields.aashto);
     set(["מיון אחיד"], fields.unified);
 
-    if (isSelectedMaterialReference(workType) && /680852/i.test(`${file.name} ${fields.certificateNo ?? ""}`)) {
-      set(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה"], "680852");
-      set(["תאריך בדיקה", "תאריך"], "2026-06-10");
-      set(["מקור החומר", "מקור"], "גולני");
-      set(["תיאור החומר", "סוג החומר"], "צרורות עם חול");
-      set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], "A-1-b(0)");
-      set(["מיון אחיד"], "SM");
-      set(['3/4"', "3/4"], "100");
-      setBounds(['3/4"', "3/4"], "50", "100");
-      set(["#4", "נפה 4"], "77");
-      setBounds(["#4", "נפה 4"], "25", "80");
-      set(["#10", "נפה 10"], "56");
-      set(["#40", "נפה 40"], "34");
-      set(["#200", "נפה 200"], "25");
-      setBounds(["#200", "נפה 200"], "0", "25");
-      set(["LL", "גבול נזילות"], "22");
-      setBounds(["LL", "גבול נזילות"], "", "35");
-      set(["PL", "גבול פלסטיות"], "17");
-      set(["IP", "PI", "אינדקס פלסטיות"], "5");
-      setBounds(["IP", "PI", "אינדקס פלסטיות"], "", "10");
-      set(["100% מעבדתי", "צפיפות מעבדתית מקסימלית"], "2105");
-      set(["רטיבות אופטימלית"], "10.5");
-      set(["100% מחושב"], "2105");
-      set(["רטיבות מחושבת"], "10.5");
-      set(["תפיחה חופשית"], "10");
-      setBounds(["תפיחה חופשית"], "", "40");
-    }
+    // אין יותר מילוי קשיח לפי מספר תעודה. כל הערכים חייבים להגיע מה-OCR/מהקובץ בלבד.
 
     const sieveSizeByMetric: Record<string, string[]> = {
       '3"': ["75", "75.0", "75.00"],
@@ -10736,19 +10710,20 @@ function ControlProcessesSection({
         console.warn("Reference certificate text parsing failed", error);
       }
       let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-      const ocrTemplateRows = showGradingLineForm
-        ? ensureReferenceResultsForMaterial("קו דירוג", [])
-        : isAsphaltReference(selectedMaterial)
+      const selectedWorkTypeForOcr = showGradingLineForm && !isSelectedMaterialReference(selectedMaterial) && !isMatzeaAReference(selectedMaterial)
+        ? "קו דירוג"
+        : selectedMaterial;
+      const ocrTemplateRows = isAsphaltReference(selectedMaterial)
           ? buildAsphaltRowsForMix(
               form.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(form.referenceResults)) || getDefaultAsphaltMixTemplate().label,
               [],
               false,
             )
-          : ensureReferenceResultsForMaterial(selectedMaterial, []);
+          : ensureReferenceResultsForMaterial(selectedWorkTypeForOcr, []);
       if (!isAsphaltReference(selectedMaterial) && ocrTemplateRows.length) {
         const ocrRows = await extractReferenceResultRowsByOcr(
           file,
-          showGradingLineForm ? "קו דירוג" : selectedMaterial,
+          selectedWorkTypeForOcr,
           ocrTemplateRows,
         );
         const ocrFilledRows = ocrRows.filter((row) => String(row.resultValue ?? "").trim());
@@ -10765,14 +10740,16 @@ function ControlProcessesSection({
           const resultValue =
             String(ocrRow?.resultValue ?? "").trim() ||
             String(textRow?.resultValue ?? "").trim();
+          // תעודות מעבדה: ערכי גבול מהתעודה עצמה קודמים לכל ערך תבנית.
+          // בעבר ערכי ברירת מחדל של הטופס דרסו את MIN/MAX שנקראו ב-OCR.
           const minValue =
-            String(templateRow.minValue ?? "").trim() ||
             String(ocrRow?.minValue ?? "").trim() ||
-            String(textRow?.minValue ?? "").trim();
+            String(textRow?.minValue ?? "").trim() ||
+            String(templateRow.minValue ?? "").trim();
           const maxValue =
-            String(templateRow.maxValue ?? "").trim() ||
             String(ocrRow?.maxValue ?? "").trim() ||
-            String(textRow?.maxValue ?? "").trim();
+            String(textRow?.maxValue ?? "").trim() ||
+            String(templateRow.maxValue ?? "").trim();
           return applyReferenceQualityStatus({
             ...templateRow,
             ...(textRow ?? {}),
@@ -10805,11 +10782,12 @@ function ControlProcessesSection({
       flushSync(() => {
         setForm((prev: any) => {
           const parsedMixType = prev.asphaltMixType || parsedValue("סוג תערובת") || prev.workType || getDefaultAsphaltMixTemplate().label;
+          const workTypeForTemplate = isGradingLineReferenceRecord(prev) && !isSelectedMaterialReference(prev.workType) && !isMatzeaAReference(prev.workType)
+            ? "קו דירוג"
+            : prev.workType;
           const templateRows = isAsphaltReference(prev.workType)
             ? buildAsphaltRowsForMix(parsedMixType, [], false)
-            : isGradingLineReferenceRecord(prev)
-              ? ensureReferenceResultsForMaterial("קו דירוג", [])
-            : ensureReferenceResultsForMaterial(prev.workType, []);
+            : ensureReferenceResultsForMaterial(workTypeForTemplate, []);
           const mergedRows = templateRows.map((row) => {
             const parsed = parsedRows.find(
               (item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric),
@@ -10818,13 +10796,16 @@ function ControlProcessesSection({
             return applyReferenceQualityStatus({
               ...row,
               resultValue: String(parsed.resultValue ?? "").trim(),
-              minValue: row.minValue || String(parsed.minValue ?? "").trim(),
-              maxValue: row.maxValue || String(parsed.maxValue ?? "").trim(),
+              // MIN/MAX שנקראו מהתעודה קודמים לערכי ברירת מחדל של התבנית.
+              minValue: String(parsed.minValue ?? "").trim() || row.minValue,
+              maxValue: String(parsed.maxValue ?? "").trim() || row.maxValue,
               allowedDeviation:
                 String(parsed.allowedDeviation ?? "").trim() || row.allowedDeviation,
             });
           });
-          const exactGradingCells = isGradingLineReferenceRecord(prev) ? extractGradingLinePdfCellResults(parsedText) : null;
+          const exactGradingCells = isGradingLineReferenceRecord(prev) && !isSelectedMaterialReference(prev.workType) && !isMatzeaAReference(prev.workType)
+            ? extractGradingLinePdfCellResults(parsedText)
+            : null;
           const finalRows = exactGradingCells
             ? Object.entries(exactGradingCells).reduce(
                 (rows, [metric, value]) => setReferenceMetricValue(rows, [metric, metric.replace('"', " אינץ")], value),
@@ -15257,11 +15238,174 @@ export default function Page() {
     resetControlProcessForm();
   };
 
+  const soilSurveyRowValue = (row: Record<string, any>, aliases: string[]) => {
+    for (const alias of aliases) {
+      const direct = row[alias];
+      if (String(direct ?? "").trim()) return direct;
+      const normalizedAlias = normalizeHebrewProjectName(alias);
+      const matchingKey = Object.keys(row).find(
+        (key) => normalizeHebrewProjectName(key) === normalizedAlias,
+      );
+      if (matchingKey && String(row[matchingKey] ?? "").trim()) return row[matchingKey];
+    }
+    return "";
+  };
+
+  const parseSoilSurveyRowsFromText = (
+    fileName: string,
+    rawText: string,
+    parsedFallback: Record<string, any> = {},
+  ): Array<Record<string, any>> => {
+    const clean = (value: unknown) =>
+      String(value ?? "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .replace(/[|;]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const text = clean(rawText);
+    if (!text || !/A-\d-[A-Za-z0-9]\(\d+\)/.test(text)) return [];
+
+    const fileNumbers = clean(fileName).match(/\d{4,}/g) ?? [];
+    const certificateNo = firstText(
+      parsedFallback["מספר תעודת בדיקה"],
+      parsedFallback["מס׳ תעודת בדיקה"],
+      parsedFallback["תעודה מס׳"],
+      parsedFallback["מספר תעודה"],
+      firstRegexGroup(text, [
+        /דו["״']?ח\s+מס["׳']?\s*[:\-]?\s*(\d{4,})/i,
+        /(?:תעודה|דוח|דו["״']?ח)[^\d]{0,40}(\d{4,})/i,
+      ]),
+      fileNumbers[fileNumbers.length - 1] || "",
+    );
+    const projectNo = firstText(
+      parsedFallback["מספר פרויקט"],
+      parsedFallback["מס׳ פרויקט"],
+      firstRegexGroup(text, [/מס["׳']?\s*פרוייקט[^\d]{0,40}(\d{4,})/i]),
+      fileNumbers[0] || "",
+    );
+    const testDate = normalizeDateValue(
+      firstText(
+        parsedFallback["תאריך הבדיקה"],
+        parsedFallback["תאריך בדיקה"],
+        parsedFallback["תאריך"],
+        firstRegexGroup(text, [/\b(\d{1,2}[./-]\d{1,2}[./-]20\d{2})\b/]),
+      ),
+    );
+    const projectNameValue = firstText(
+      parsedFallback["מבנה"],
+      parsedFallback["שם הפרוייקט"],
+      firstRegexGroup(text, [/(כביש\s*\d+[^\n]{0,80})/i]),
+    );
+
+    const lines = String(rawText ?? "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .split(/\r?\n/)
+      .map(clean)
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const rows: Array<Record<string, any>> = [];
+    const assignNumbers = (target: Record<string, any>, nums: string[]) => {
+      const values = nums.map((value) => value.replace(",", "."));
+      const put = (key: string, value?: string) => {
+        if (String(value ?? "").trim()) target[key] = String(value ?? "").trim();
+      };
+      const mapCompact = (sieveValues: string[], tailValues: string[]) => {
+        const sieveKeys = ["#200", "#40", "#10", "#4", "3/4\"", "1.5\"", "3\""];
+        sieveValues.forEach((value, index) => put(sieveKeys[index], value));
+        put("צפיפות יחסית (GS)", tailValues[0]);
+        put("LL", tailValues[1]);
+        put("PL", tailValues[2]);
+        put("PI", tailValues[3]);
+      };
+      if (values.length >= 11) mapCompact(values.slice(0, values.length - 4), values.slice(-4));
+      else if (values.length === 10) mapCompact(values.slice(0, 6), values.slice(6));
+      else if (values.length === 9) mapCompact(values.slice(0, 5), values.slice(5));
+      else if (values.length === 8) mapCompact(values.slice(0, 4), values.slice(4));
+      else if (values.length >= 5) mapCompact(values.slice(0, Math.max(1, values.length - 4)), values.slice(-4));
+    };
+
+    for (const line of lines) {
+      const match = line.match(
+        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(\d{1,3})\s*$/i,
+      );
+      if (!match) continue;
+      const nums = match[1].trim().split(/\s+/).filter(Boolean);
+      if (nums.length < 8) continue;
+      const testNo = clean(match[4]);
+      const key = `${certificateNo}|${testNo}|${nums.join("|")}|${match[2]}|${match[3]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const row: Record<string, any> = {
+        "מספר תעודת בדיקה": certificateNo,
+        "מספר פרויקט": projectNo,
+        "תאריך הבדיקה": testDate,
+        "מבנה": projectNameValue,
+        "מספר בדיקה": testNo,
+        "מספר מדגם": testNo,
+        "מיון אחיד": clean(match[2]).toUpperCase(),
+        "מיון AASHTO": clean(match[3]),
+      };
+      assignNumbers(row, nums);
+      rows.push(row);
+    }
+    return rows;
+  };
+
+  const soilSurveyRowKey = (
+    projectId: string,
+    fallbackCertificateNo: string,
+    fallbackTestDate: string,
+    row: Record<string, any>,
+  ) => {
+    const certificateNo = firstText(
+      soilSurveyRowValue(row, ["מספר תעודת בדיקה", "מס׳ תעודת בדיקה", "תעודה מס׳", "מספר תעודה"]),
+      fallbackCertificateNo,
+    );
+    const testDate = normalizeDateValue(
+      firstText(
+        soilSurveyRowValue(row, ["תאריך הבדיקה", "תאריך בדיקה", "תאריך"]),
+        fallbackTestDate,
+      ),
+    );
+    const sampleNo = firstText(
+      soilSurveyRowValue(row, ["מספר מדגם", "מס׳ מדגם", "מספר דגימה", "מס׳ דגימה", "מדגם"]),
+      certificateNo,
+    );
+    const fromSection = soilSurveyRowValue(row, ["מחתך", "מחתך מ", "מקטע מ", "חתך"]);
+    const toSection = soilSurveyRowValue(row, ["עד חתך", "מחתך עד", "מקטע עד"]);
+    const structure = soilSurveyRowValue(row, ["מבנה", "מיקום", "מקום הדגם לבדיקה"]);
+    const material = soilSurveyRowValue(row, ["תיאור החומר", "מהות העבודה", "מקור החומר"]);
+
+    return [
+      normalizeStoredProjectId(projectId),
+      certificateNo,
+      testDate,
+      sampleNo,
+      fromSection,
+      toSection,
+      structure,
+      material,
+    ]
+      .map((value) => normalizeHebrewProjectName(value).toLowerCase())
+      .join("|");
+  };
+
   const importSoilSurveyToEarthworksConcentration = async (file: File): Promise<number> => {
     const parsed = await extractEarthworksDensityFromFile(file);
-    const sampleRows = Array.isArray((parsed as any).sampleRows)
+    const parserSampleRows = Array.isArray((parsed as any).sampleRows)
       ? (parsed as any).sampleRows.filter((row: any) => row && typeof row === "object")
       : [];
+    let textSampleRows: Array<Record<string, any>> = [];
+    try {
+      const rawText = await extractTextFromReferenceFile(file);
+      textSampleRows = parseSoilSurveyRowsFromText(file.name, rawText, parsed as any);
+    } catch (error) {
+      console.warn("Soil survey direct table parsing failed", error);
+    }
+    const sampleRows =
+      textSampleRows.length > parserSampleRows.length
+        ? textSampleRows
+        : parserSampleRows;
     if (!sampleRows.length) return 0;
 
     const firstSample = sampleRows[0] ?? {};
@@ -15280,8 +15424,53 @@ export default function Page() {
         firstSample["תאריך בדיקה"],
       ),
     );
+    const projectId = normalizeStoredProjectId(currentProjectId);
+    const existingSoilSurveyKeys = new Set(
+      savedControlProcesses
+        .filter((item) => {
+          const isSameProject = normalizeStoredProjectId(item.projectId) === projectId;
+          const isSoilSurvey =
+            normalizeHebrewProjectName(item.workType).includes(normalizeHebrewProjectName("סקר קרקע")) ||
+            normalizeHebrewProjectName(item.title).includes(normalizeHebrewProjectName("סקר קרקע"));
+          return isSameProject && isSoilSurvey;
+        })
+        .flatMap((item) =>
+          (Array.isArray(item.sampleRows) ? item.sampleRows : []).map((row) =>
+            soilSurveyRowKey(
+              projectId,
+              firstText(
+                item.requiredDocuments?.find((doc) => doc.certificateNo)?.certificateNo,
+                item.title.replace("סקר קרקע", "").trim(),
+                certificateNo,
+              ),
+              normalizeDateValue(item.date || testDate),
+              row,
+            ),
+          ),
+        ),
+    );
+    const seenIncomingKeys = new Set<string>();
+    const newSampleRows = sampleRows.filter((row) => {
+      const key = soilSurveyRowKey(projectId, certificateNo, testDate, row);
+      if (existingSoilSurveyKeys.has(key) || seenIncomingKeys.has(key)) return false;
+      seenIncomingKeys.add(key);
+      return true;
+    });
+    const duplicateCount = sampleRows.length - newSampleRows.length;
+
+    if (!newSampleRows.length) {
+      alert(
+        `הקובץ כבר נקלט בעבר או שכל השורות קיימות במערכת.
+סה״כ בקובץ: ${sampleRows.length}
+נקלטו חדשות: 0
+כבר קיימות: ${duplicateCount}`,
+      );
+      return 0;
+    }
+
+    const firstNewSample = newSampleRows[0] ?? {};
     const actor = projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
-    const referenceResults: ReferenceResultRow[] = Object.entries(firstSample)
+    const referenceResults: ReferenceResultRow[] = Object.entries(firstNewSample)
       .filter(([, value]) => String(value ?? "").trim())
       .map(([metric, value], index) =>
         applyReferenceQualityStatus({
@@ -15296,16 +15485,16 @@ export default function Page() {
 
     const record: ControlProcessRecord = {
       id: crypto.randomUUID(),
-      projectId: normalizeStoredProjectId(currentProjectId),
+      projectId,
       processNo: nextControlProcessNo(),
       title: `סקר קרקע ${certificateNo}`.trim(),
       workType: "סקר קרקע - קווי דירוג",
       specSection: "",
       structureNodeId: "",
-      location: firstText((parsed as any)["מבנה"], currentProjectLegend.projectName, projectName),
+      location: firstText((parsed as any)["מבנה"], firstNewSample["מבנה"], currentProjectLegend.projectName, projectName),
       date: testDate,
-      fromSection: String(firstSample["מחתך"] ?? ""),
-      toSection: String(firstSample["עד חתך"] ?? firstSample["מחתך"] ?? ""),
+      fromSection: String(firstNewSample["מחתך"] ?? ""),
+      toSection: String(firstNewSample["עד חתך"] ?? firstNewSample["מחתך"] ?? ""),
       status: "טיוטה",
       checklistIds: [],
       rfiIds: [],
@@ -15317,19 +15506,20 @@ export default function Page() {
           description: "תעודת סקר קרקע מרובת מדגמים",
           required: true,
           attached: true,
+          certificateNo,
           attachmentName: file.name,
           attachedAt: nowLocal(),
           attachmentType: file.type || "application/pdf",
         },
       ],
       referenceResults,
-      sampleRows,
+      sampleRows: newSampleRows,
       auditTrail: [
         {
           action: "קליטת סקר קרקע לריכוז עבודות עפר",
           by: actor,
           at: nowLocal(),
-          note: `${sampleRows.length} שורות מדגם נקלטו מתוך ${file.name}`,
+          note: `${newSampleRows.length} שורות חדשות נקלטו מתוך ${file.name}. ${duplicateCount} שורות כבר היו קיימות ולא נקלטו שוב.`,
         },
       ],
       approval: createDefaultApproval(),
@@ -15348,7 +15538,14 @@ export default function Page() {
       setSavedControlProcesses((prev) => [record, ...prev]);
     });
 
-    return sampleRows.length;
+    alert(
+      `קליטת סקר קרקע הסתיימה:
+סה״כ בקובץ: ${sampleRows.length}
+נקלטו חדשות: ${newSampleRows.length}
+כבר קיימות: ${duplicateCount}`,
+    );
+
+    return newSampleRows.length;
   };
 
   const loadControlProcess = (record: ControlProcessRecord) => {
