@@ -106,7 +106,13 @@ export async function POST(request: NextRequest) {
       );
     }
     const senderEmail = String(body.senderEmail || body.replyTo || "").trim();
-    if (senderEmail && !validEmail(senderEmail)) {
+    if (!senderEmail) {
+      return NextResponse.json(
+        { success: false, error: "Missing quality controller sender email" },
+        { status: 400 },
+      );
+    }
+    if (!validEmail(senderEmail)) {
       return NextResponse.json(
         { success: false, error: "Invalid sender email", senderEmail },
         { status: 400 },
@@ -125,7 +131,10 @@ export async function POST(request: NextRequest) {
     const attachments = normalizeAttachments(body.attachments);
 
     const result = await transporter.sendMail({
-      from: formatMailbox(systemEmail, body.senderName),
+      from: formatMailbox(
+        systemEmail,
+        `${String(body.senderName || "").trim() || "Quality Controller"} | ${senderEmail}`,
+      ),
       sender: systemEmail,
       to: joinEmails(toItems),
       cc: ccItems.length ? joinEmails(ccItems) : undefined,

@@ -2643,6 +2643,23 @@ const responsibleRoleMatchesUser = (
   return userText.includes(responsibleText);
 };
 
+const isQualityControlProjectUser = (
+  user: Pick<ProjectEmailUser, "name" | "role" | "company" | "active">,
+) => {
+  if (user.active === false) return false;
+  const userText = normalizeAccessValue(
+    `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
+  );
+  return [
+    "\u05d1\u05e7\u05e8 \u05d0\u05d9\u05db\u05d5\u05ea",
+    "\u05d1\u05e7\u05e8\u05ea \u05d0\u05d9\u05db\u05d5\u05ea",
+    "\u05de\u05e0\u05d4\u05dc \u05d1\u05e7\u05e8\u05ea \u05d0\u05d9\u05db\u05d5\u05ea",
+    "quality control",
+    "quality controller",
+    "qc",
+  ].some((value) => userText.includes(normalizeAccessValue(value)));
+};
+
 const nowLocal = () => new Date().toLocaleString("he-IL");
 const nowIso = () => new Date().toISOString();
 
@@ -13527,11 +13544,8 @@ export default function Page() {
   const qualityControlApproverName = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
     const qualityUser =
-      activeUsers.find((user) =>
-        /qc|quality|בקר|איכות/i.test(
-          `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
-        ),
-      ) ?? activeUsers.find((user) => String(user.name ?? "").trim());
+      activeUsers.find(isQualityControlProjectUser) ??
+      activeUsers.find((user) => String(user.name ?? "").trim());
     return (
       String(qualityUser?.name ?? "").trim() ||
       String(qualityUser?.email ?? "").trim() ||
@@ -18017,37 +18031,37 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   );
   const currentEmailSender = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
-    const qualityUser =
-      activeUsers.find((user) =>
-        /qc|quality|׳‘׳§׳¨|׳׳™׳›׳•׳×/i.test(
-          `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
-        ),
-      ) ?? null;
+    const qualityUser = activeUsers.find(
+      (user) =>
+        isQualityControlProjectUser(user) &&
+        isValidEmailAddress(String(user.email || "").trim()),
+    );
     const qualityEmail = String(qualityUser?.email || "").trim();
-    const accessEmail = String(projectAccess?.email || "").trim();
-    const senderEmail = isValidEmailAddress(qualityEmail)
-      ? qualityEmail
-      : isValidEmailAddress(accessEmail)
-        ? accessEmail
-        : "";
+    const senderEmail = isValidEmailAddress(qualityEmail) ? qualityEmail : "";
     const senderName =
       String(qualityUser?.name || "").trim() ||
       String(qualityUser?.email || "").trim() ||
-      String(projectAccess?.displayName || projectAccess?.username || "").trim() ||
       currentProjectDefaults.qualityControl;
     return {
       senderEmail,
       senderName,
+      replyTo: senderEmail,
     };
   }, [
     currentProjectDefaults.qualityControl,
     currentProjectEmailUsers,
-    projectAccess?.displayName,
-    projectAccess?.email,
-    projectAccess?.username,
   ]);
 
+  const ensureQualityControllerEmailSender = () => {
+    if (currentEmailSender.senderEmail) return true;
+    alert(
+      "לא ניתן לשלוח מייל. יש להגדיר בפרויקט משתמש פעיל בתפקיד בקר איכות, עם כתובת מייל תקינה.",
+    );
+    return false;
+  };
+
   const sendEmailToRecipients = async (recipientEmails: string[]) => {
+    if (!ensureQualityControllerEmailSender()) return;
     try {
       const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
       const invalidRecipients = uniqueRecipients.filter((email) => !isValidEmailAddress(email));
@@ -18598,6 +18612,7 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
+    if (!ensureQualityControllerEmailSender()) return;
     const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const recipients = normalizeEmailList(recipientInput);
     if (!recipients.length) return;
@@ -18730,6 +18745,7 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendRfiEmail = async (record: RfiRecord) => {
+    if (!ensureQualityControllerEmailSender()) return;
     const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const recipients = normalizeEmailList(recipientInput);
     if (!recipients.length) return;
