@@ -258,6 +258,18 @@ const concreteStrengthEmptyData = {
   strength7Days: '',
   strength28Days: '',
   testDate: '',
+  castDate: '',
+  concreteSource: '',
+  quantity: '',
+  slumpRequirement: '',
+  slumpResult: '',
+  curingType: '',
+  structure: '',
+  element: '',
+  sampleLocation: '',
+  fromSection: '',
+  toSection: '',
+  side: '',
   confidence: 0,
   notes: '',
 };
@@ -271,6 +283,18 @@ const concreteStrengthJsonSchema = {
     strength7Days: { type: 'string' },
     strength28Days: { type: 'string' },
     testDate: { type: 'string' },
+    castDate: { type: 'string' },
+    concreteSource: { type: 'string' },
+    quantity: { type: 'string' },
+    slumpRequirement: { type: 'string' },
+    slumpResult: { type: 'string' },
+    curingType: { type: 'string' },
+    structure: { type: 'string' },
+    element: { type: 'string' },
+    sampleLocation: { type: 'string' },
+    fromSection: { type: 'string' },
+    toSection: { type: 'string' },
+    side: { type: 'string' },
     confidence: { type: 'number' },
     notes: { type: 'string' },
   },
@@ -876,11 +900,20 @@ export async function POST(req: NextRequest) {
 - strength7Days: תוצאת חוזק הלחיצה בגיל 7 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-7 ימים.
 - strength28Days: תוצאת חוזק הלחיצה בגיל 28 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-28 ימים.
 - testDate: תאריך הבדיקה בפורמט yyyy-mm-dd אם ניתן.
+- castDate: תאריך היציקה או תאריך נטילת הדגימה בפורמט yyyy-mm-dd.
+- concreteSource: שם מפעל הבטון / ספק הבטון.
+- quantity: כמות הבטון ביציקה במ"ק.
+- slumpRequirement: דרישת הסומך.
+- slumpResult: תוצאת בדיקת הסומך.
+- curingType: סוג האשפרה.
+- structure, element, sampleLocation, fromSection, toSection, side: פרטי המיקום אם הם מופיעים בתעודה.
 
 כללים:
 - אל תעתיק מספר מדגם, גיל בדיקה, משקל, מידות קובייה או עומס בתור חוזק.
 - אל תנחש ערך שאינו מופיע בבירור.
 - strength7Days ו-strength28Days הם ערכי חוזק בלבד, ללא יחידות.
+- חפש את עמודת "חוזק לחיצה", "ממוצע", "תוצאה" או MPa. אל תחזיר את גיל הבדיקה 7/28, מספר מדגם, משקל, שטח, עומס או מידות בתור תוצאת חוזק.
+- אם יש טבלה עם שורות של קוביות, קבץ לפי גיל הבדיקה. תוצאה מודפסת מסכמת או ממוצע גוברים על חישוב עצמאי.
 - אם גיל 28 ימים טרם הגיע או אין תוצאה, השאר strength28Days ריק.
 - confidence בין 0 ל-1.`;
       const content: any[] = [{ type: 'input_text', text: prompt }];
@@ -889,6 +922,7 @@ export async function POST(req: NextRequest) {
       } else {
         const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType, 4);
         if (renderedPages.length) {
+          content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
           renderedPages.forEach((imageDataUrl, index) => {
             content.push({ type: 'input_text', text: `עמוד ${index + 1}` });
             content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });

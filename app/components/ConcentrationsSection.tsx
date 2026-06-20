@@ -825,6 +825,142 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
 
 const commonChecklistColumns = ["מס׳", "מספר רשימה", "שם בדיקה/רשימה", "קטגוריה", "מיקום", "קבלן", "תאריך", "תיאור סעיף", "מבצע/אחראי", "בודק", "סטטוס", "מספר תעודה", "שם קובץ", "תוצאות/הערות"];
 
+const concreteOutputColumns = [
+  'ביצוע ע"י QC/QA',
+  "מס׳ סדורי",
+  "תאריך יציקה",
+  "מבנה",
+  "אלמנט",
+  "מקום נטילה",
+  "מחתך",
+  "עד חתך",
+  "צד",
+  "תעודה מס׳",
+  "מקור בטון",
+  "סוג בטון",
+  'כמות בטון ביציקה (מ"ק)',
+  "סומך - דרישה",
+  "סומך - תוצאה",
+  "סוג אשפרה",
+  "חוזק לחיצה - 7 ימים",
+  "חוזק לחיצה - 28 ימים",
+  "מעמד הבטון",
+  "גלילים - תאריך נטילה",
+  "גלילים - מס׳ תעודה",
+  "גלילים - חוזק הבטון",
+  "גלילים - מעמד הבטון",
+  "הערות",
+];
+
+const normalizeConcreteTypeForConcentration = (value: unknown) => {
+  const match = cleanText(value).match(/(?:ב\s*[-–]?\s*)?(30|40|50|60)/);
+  return match ? `ב-${match[1]}` : cleanText(value);
+};
+
+const concreteStrengthStatusForConcentration = (
+  concreteType: unknown,
+  strength28Days: unknown,
+) => {
+  const type = normalizeConcreteTypeForConcentration(concreteType);
+  const minByType: Record<string, number> = {
+    "ב-30": 33,
+    "ב-40": 43,
+    "ב-50": 53,
+    "ב-60": 63,
+  };
+  const value = Number(cleanText(strength28Days).replace(",", "."));
+  if (!minByType[type] || !Number.isFinite(value)) return "";
+  return value >= minByType[type] ? "תקין" : "לא תקין";
+};
+
+const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
+  const rows: Row[] = [];
+  savedChecklists.forEach((checklist) => {
+    const checklistText = recordText(checklist);
+    const isConcreteChecklist =
+      String(checklist?.templateKey ?? "") === "siteConcrete" ||
+      includesAny(checklistText, ["בטון יצוק", "יציקה", "חוזק בטון", "קוביות בטון"]);
+    if (!isConcreteChecklist) return;
+
+    const items = Array.isArray(checklist?.items) ? checklist.items : [];
+    items.forEach((item: any) => {
+      const attachments = (Array.isArray(item?.attachments) ? item.attachments : [])
+        .filter(isRealAttachment);
+      const concreteAttachments = attachments.filter(
+        (attachment: any) =>
+          attachment?.concreteResults ||
+          item?.concreteResults ||
+          includesAny(
+            `${attachmentName(attachment)} ${JSON.stringify(attachment?.labResults ?? {})}`,
+            ["בטון", "קוביות", "חוזק", "7 ימים", "28 ימים"],
+          ),
+      );
+      const sources = concreteAttachments.length
+        ? concreteAttachments
+        : item?.concreteResults
+          ? [null]
+          : [];
+
+      sources.forEach((attachment: any) => {
+        const result = {
+          ...(attachment?.concreteResults ?? {}),
+          ...(item?.concreteResults ?? {}),
+        };
+        const concreteType = normalizeConcreteTypeForConcentration(
+          result.concreteType,
+        );
+        const strength28 = firstText(result.strength28Days);
+        rows.push({
+          'ביצוע ע"י QC/QA': /QA|הבטחת איכות/i.test(firstText(item?.responsible))
+            ? "QA"
+            : "QC",
+          "מס׳ סדורי": rows.length + 1,
+          "תאריך יציקה": dateText(
+            result.castDate ??
+              item?.executionDate ??
+              checklist?.date ??
+              result.testDate ??
+              attachment?.uploadedAt,
+          ),
+          "מבנה": firstText(
+            result.structure,
+            checklist?.roadStructure,
+            checklist?.structure,
+            checklist?.location,
+          ),
+          "אלמנט": firstText(result.element, item?.description),
+          "מקום נטילה": firstText(result.sampleLocation, "אתר"),
+          "מחתך": firstText(result.fromSection, checklist?.stationSection, checklist?.fromSection),
+          "עד חתך": firstText(result.toSection, checklist?.toStationSection, checklist?.toSection),
+          "צד": firstText(result.side, checklist?.side, checklist?.offset),
+          "תעודה מס׳": firstText(
+            result.certificateNo,
+            attachmentCertificateNo(attachment, item?.certificateNo),
+          ),
+          "מקור בטון": firstText(result.concreteSource, checklist?.concreteSource),
+          "סוג בטון": concreteType,
+          'כמות בטון ביציקה (מ"ק)': firstText(result.quantity, checklist?.concreteQuantity),
+          "סומך - דרישה": firstText(result.slumpRequirement),
+          "סומך - תוצאה": firstText(result.slumpResult),
+          "סוג אשפרה": firstText(result.curingType),
+          "חוזק לחיצה - 7 ימים": firstText(result.strength7Days),
+          "חוזק לחיצה - 28 ימים": strength28,
+          "מעמד הבטון": concreteStrengthStatusForConcentration(
+            concreteType,
+            strength28,
+          ),
+          "גלילים - תאריך נטילה": firstText(result.cylinderSampleDate),
+          "גלילים - מס׳ תעודה": firstText(result.cylinderCertificateNo),
+          "גלילים - חוזק הבטון": firstText(result.cylinderStrength),
+          "גלילים - מעמד הבטון": firstText(result.cylinderStatus),
+          "הערות": firstText(item?.notes),
+        });
+      });
+    });
+  });
+  return rows;
+};
+
 const asphaltSieveColumns = ['1.5"', '1"', '3/4"', '14 mm', '1/2"', '3/8"', '8 mm', '4#', '10#', '20#', '40#', '80#', '200#'];
 const asphaltOutputColumns = [
   'ביצוע ע"י QC/QA',
@@ -2911,8 +3047,8 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז בטון.xlsx",
     description: "בדיקות בטון מתוך רשימות תיוג ותעודות מצורפות",
     sourceLabel: "רשימות תיוג",
-    columns: commonChecklistColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => combinedChecklistAndProcesses(savedChecklists, savedControlProcesses, ["בטון", "יציקה", "קוביות", "חוזק", "ב-30", "ב-40", "ב-50", "ב-60"], "בדיקות בטון"),
+    columns: concreteOutputColumns,
+    buildRows: ({ savedChecklists }) => buildConcreteConcentrationRows(savedChecklists),
   },
   {
     id: "supervision",
@@ -4015,6 +4151,198 @@ const buildEarthworksMaterialResultsWorksheetXml = (
 </worksheet>`;
 };
 
+const buildConcreteWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  let r = 1;
+  const sheetRows: string[] = [];
+  const widthCount = concreteOutputColumns.length;
+  const headerRows = [
+    [
+      'ביצוע ע"י QC/QA',
+      "מס׳ סדורי",
+      "תאריך יציקה",
+      "מבנה",
+      "אלמנט",
+      "מקום נטילה",
+      "מיקום",
+      "",
+      "",
+      "תעודה מס׳",
+      "מקור בטון",
+      "סוג בטון",
+      'כמות בטון ביציקה (מ"ק)',
+      "סומך",
+      "",
+      "סוג אשפרה",
+      "חוזק לחיצה",
+      "",
+      "",
+      "גלילים מבטון קשוי",
+      "",
+      "",
+      "",
+      "הערות",
+    ],
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "מחתך",
+      "עד חתך",
+      "צד",
+      "",
+      "",
+      "",
+      "",
+      "דרישה",
+      "תוצאה",
+      "",
+      "7 ימים",
+      "28 ימים",
+      "מעמד הבטון",
+      "תאריך נטילה",
+      "מס׳ תעודה",
+      "חוזק הבטון",
+      "מעמד הבטון",
+      "",
+    ],
+  ];
+
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      8,
+      ["ריכוז בטון", "", "", "", "", "", "", "", "", "", ""],
+      1,
+      24,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      10,
+      ["שם פרויקט:", "", meta.projectName, "", "", "", "", "", ""],
+      2,
+      20,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      10,
+      ["ניהול פרויקט", "", meta.projectManager || meta.projectManagement, "", "", "", "", "", ""],
+      2,
+      20,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      10,
+      ["שם הקבלן", "", meta.contractor, "", "", "", "", "", ""],
+      2,
+      20,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      10,
+      [
+        `בקרת איכות - ${meta.qualityControl || ""}`,
+        "",
+        "",
+        "",
+        `הבטחת איכות - ${meta.qualityAssurance || ""}`,
+        "",
+        "",
+        "",
+        "",
+      ],
+      2,
+      20,
+    ),
+  );
+  sheetRows.push(emptyRowXml(r++, 18));
+  sheetRows.push(emptyRowXml(r++, 18));
+  headerRows.forEach((values) => sheetRows.push(rowXml(r++, values, 3, 30)));
+  sheetRows.push(emptyRowXml(r++, 8));
+
+  if (rows.length) {
+    rows.forEach((item) =>
+      sheetRows.push(
+        rowXml(
+          r++,
+          concreteOutputColumns.map((column) => item[column] ?? ""),
+          6,
+          24,
+        ),
+      ),
+    );
+  } else {
+    sheetRows.push(
+      rowXml(
+        r++,
+        [
+          "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי",
+          ...Array.from({ length: widthCount - 1 }, () => ""),
+        ],
+        4,
+        24,
+      ),
+    );
+  }
+
+  const cols = Array.from(
+    { length: widthCount },
+    (_, index) =>
+      `<col min="${index + 1}" max="${index + 1}" width="${
+        index === 4 ? 28 : index === 23 ? 24 : index >= 6 && index <= 8 ? 12 : 16
+      }" customWidth="1"/>`,
+  ).join("");
+  const mergeRefs = [
+    "H1:R1",
+    "J2:K2",
+    "L2:R2",
+    "J3:K3",
+    "L3:R3",
+    "J4:K4",
+    "L4:R4",
+    "J5:M5",
+    "N5:R5",
+    "A8:A9",
+    "B8:B9",
+    "C8:C9",
+    "D8:D9",
+    "E8:E9",
+    "F8:F9",
+    "G8:I8",
+    "J8:J9",
+    "K8:K9",
+    "L8:L9",
+    "M8:M9",
+    "N8:O8",
+    "P8:P9",
+    "Q8:S8",
+    "T8:W8",
+    "X8:X9",
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"/></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -4027,6 +4355,7 @@ const buildWorksheetXml = (
   if (definition.id === "selected-material") return buildSelectedMaterialWorksheetXml(definition, rows, meta);
   if (definition.id === "earthworks-material-results") return buildEarthworksMaterialResultsWorksheetXml(definition, rows, meta);
   if (definition.id === "density") return buildSubbaseFieldWorksheetXml(definition, rows, meta);
+  if (definition.id === "concrete") return buildConcreteWorksheetXml(definition, rows, meta);
   if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
 };
