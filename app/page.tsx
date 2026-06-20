@@ -3134,6 +3134,40 @@ type ChecklistAttachment = StoredAttachment & {
   certificateNo?: string;
   densityExtractionSummary?: string;
   asphaltExtractionSummary?: string;
+  concreteResults?: ConcreteStrengthResults;
+};
+
+type ConcreteType = "ב-30" | "ב-40" | "ב-50" | "ב-60";
+
+type ConcreteStrengthResults = {
+  certificateNo?: string;
+  concreteType?: ConcreteType | "";
+  strength7Days?: string;
+  strength28Days?: string;
+  testDate?: string;
+  confidence?: number;
+};
+
+const CONCRETE_STRENGTH_LIMITS: Record<ConcreteType, { min: number; max: number }> = {
+  "ב-30": { min: 33, max: 100 },
+  "ב-40": { min: 43, max: 100 },
+  "ב-50": { min: 53, max: 100 },
+  "ב-60": { min: 63, max: 100 },
+};
+
+const normalizeConcreteType = (value: unknown): ConcreteType | "" => {
+  const match = String(value ?? "").match(/(?:ב\s*[-־]?\s*)?(30|40|50|60)/);
+  return match ? (`ב-${match[1]}` as ConcreteType) : "";
+};
+
+const concreteStrengthStatus = (
+  concreteType: ConcreteType | "",
+  strength28Days: unknown,
+) => {
+  const value = Number(String(strength28Days ?? "").replace(",", "."));
+  if (!concreteType || !Number.isFinite(value)) return "";
+  const limits = CONCRETE_STRENGTH_LIMITS[concreteType];
+  return value >= limits.min ? "מתאים" : "לא מתאים";
 };
 
 const normalizeChecklistAttachments = (
@@ -3169,6 +3203,10 @@ const normalizeChecklistAttachments = (
           certificateNo: String(item.certificateNo ?? item.documentNo ?? ""),
           densityExtractionSummary: String(item.densityExtractionSummary ?? ""),
           asphaltExtractionSummary: String(item.asphaltExtractionSummary ?? ""),
+          concreteResults:
+            item.concreteResults && typeof item.concreteResults === "object"
+              ? item.concreteResults
+              : undefined,
         }))
         .filter((item) => item.dataUrl)
     : [];
@@ -3363,6 +3401,10 @@ const normalizeChecklistItems = (
             results: item?.results ?? {},
             labResults: item?.labResults ?? item?.densityResults ?? {},
             densityResults: item?.densityResults ?? item?.labResults ?? {},
+            concreteResults:
+              item?.concreteResults && typeof item.concreteResults === "object"
+                ? item.concreteResults
+                : undefined,
             excludedFromPrint: Boolean(item?.excludedFromPrint),
             signature: item?.signature ? {
               role: String(item.signature?.role ?? item?.responsible ?? "גורם אחראי"),
@@ -4906,6 +4948,41 @@ function ChecklistsSection({
   })).filter((folder) => folder.templates.length);
   const [digitalSignatureItemId, setDigitalSignatureItemId] = useState<string | null>(null);
   const isRoad806Checklist = isRoad806Value(projectName) || isRoad806Value(checklistForm.projectNameDisplay) || isRoad806Value(checklistForm.projectName) || isRoad806Value(checklistForm.location);
+  const isConcreteChecklist =
+    String(checklistForm.templateKey) === "siteConcrete" ||
+    /בטון\s*יצוק|יציקות?\s*באתר/.test(
+      `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
+    );
+  const updateConcreteResults = (
+    itemId: string,
+    changes: Partial<ConcreteStrengthResults>,
+  ) => {
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      items: prev.items.map((item: any) =>
+        item.id === itemId
+          ? (() => {
+              const concreteResults = {
+                ...(item.concreteResults ?? {}),
+                ...changes,
+              };
+              const type = normalizeConcreteType(concreteResults.concreteType);
+              const status = concreteStrengthStatus(
+                type,
+                concreteResults.strength28Days,
+              );
+              return {
+                ...item,
+                concreteResults,
+                ...(status
+                  ? { status: status === "מתאים" ? "תקין" : "לא תקין" }
+                  : {}),
+              };
+            })()
+          : item,
+      ),
+    }));
+  };
   const updateItemSignature = (itemId: string, signature: ProcessSignature) => {
     setChecklistForm((prev: any) => ({
       ...prev,
@@ -5449,6 +5526,18 @@ function ChecklistsSection({
                     minHeight: 36,
                     boxSizing: "border-box",
                   };
+                  const concreteResults = (item as any)
+                    .concreteResults as ConcreteStrengthResults | undefined;
+                  const concreteType = normalizeConcreteType(
+                    concreteResults?.concreteType,
+                  );
+                  const concreteLimits = concreteType
+                    ? CONCRETE_STRENGTH_LIMITS[concreteType]
+                    : undefined;
+                  const concreteStatus = concreteStrengthStatus(
+                    concreteType,
+                    concreteResults?.strength28Days,
+                  );
                   return (
                     <tr key={item.id}>
                       <td style={cellStyle}>
@@ -5751,6 +5840,168 @@ function ChecklistsSection({
                                 טרם צורף מסמך
                               </span>
                             )}
+                          </div>
+                        ) : null}
+                        {isConcreteChecklist && concreteResults ? (
+                          <div
+                            style={{
+                              marginTop: 10,
+                              border: "1px solid #94a3b8",
+                              borderRadius: 8,
+                              overflow: "hidden",
+                              background: "#fff",
+                              minWidth: 430,
+                            }}
+                          >
+                            <div
+                              style={{
+                                padding: 8,
+                                background: "#e2e8f0",
+                                fontWeight: 950,
+                              }}
+                            >
+                              תוצאות חוזק בטון
+                            </div>
+                            <div style={{ padding: 8 }}>
+                              <label style={{ display: "grid", gap: 4 }}>
+                                <span style={{ fontWeight: 900 }}>סוג בטון</span>
+                                <select
+                                  value={concreteType}
+                                  onChange={(event) =>
+                                    updateConcreteResults(item.id, {
+                                      concreteType: event.target
+                                        .value as ConcreteType,
+                                    })
+                                  }
+                                  style={compactInputStyle}
+                                >
+                                  <option value="">בחר סוג בטון</option>
+                                  {Object.keys(CONCRETE_STRENGTH_LIMITS).map(
+                                    (type) => (
+                                      <option key={type} value={type}>
+                                        {type}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                              </label>
+                            </div>
+                            <table
+                              style={{
+                                width: "100%",
+                                borderCollapse: "collapse",
+                                fontSize: 12,
+                              }}
+                            >
+                              <thead>
+                                <tr style={{ background: "#f8fafc" }}>
+                                  {[
+                                    "מדד תוצאה",
+                                    "ערך תוצאה",
+                                    "סטטוס",
+                                    "ערך מינימלי",
+                                    "ערך מקסימלי",
+                                  ].map((label) => (
+                                    <th
+                                      key={label}
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 6,
+                                      }}
+                                    >
+                                      {label}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[
+                                  {
+                                    label: "חוזק לחיצה 7 ימים",
+                                    field: "strength7Days",
+                                    value: concreteResults.strength7Days ?? "",
+                                  },
+                                  {
+                                    label: "חוזק לחיצה 28 ימים",
+                                    field: "strength28Days",
+                                    value: concreteResults.strength28Days ?? "",
+                                  },
+                                ].map((row) => (
+                                  <tr key={row.field}>
+                                    <td
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 6,
+                                        fontWeight: 800,
+                                      }}
+                                    >
+                                      {row.label}
+                                    </td>
+                                    <td
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 4,
+                                      }}
+                                    >
+                                      <input
+                                        inputMode="decimal"
+                                        value={row.value}
+                                        onChange={(event) =>
+                                          updateConcreteResults(item.id, {
+                                            [row.field]: event.target.value,
+                                          })
+                                        }
+                                        style={{
+                                          ...compactInputStyle,
+                                          minHeight: 32,
+                                        }}
+                                      />
+                                    </td>
+                                    <td
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 6,
+                                        color:
+                                          row.field === "strength28Days" &&
+                                          concreteStatus === "לא מתאים"
+                                            ? "#b91c1c"
+                                            : "#166534",
+                                        fontWeight: 950,
+                                      }}
+                                    >
+                                      {row.field === "strength28Days"
+                                        ? concreteStatus ||
+                                          (row.value ? "ממתין לסיווג" : "")
+                                        : row.value
+                                          ? "מעקב"
+                                          : ""}
+                                    </td>
+                                    <td
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 6,
+                                        textAlign: "center",
+                                      }}
+                                    >
+                                      {row.field === "strength28Days"
+                                        ? concreteLimits?.min ?? ""
+                                        : ""}
+                                    </td>
+                                    <td
+                                      style={{
+                                        border: "1px solid #cbd5e1",
+                                        padding: 6,
+                                        textAlign: "center",
+                                      }}
+                                    >
+                                      {row.field === "strength28Days"
+                                        ? concreteLimits?.max ?? ""
+                                        : ""}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
                         ) : null}
                       </td>
@@ -10558,6 +10809,35 @@ const extractReferenceResultRowsByOcr = async (
   }
 };
 
+const extractConcreteStrengthByOcr = async (
+  file: File,
+): Promise<ConcreteStrengthResults> => {
+  const dataUrl = await readReferenceFileAsDataUrl(file);
+  const response = await fetch("/api/ocr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: file.name,
+      mimeType: file.type || "application/pdf",
+      dataUrl,
+      subtype: "concrete-strength",
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result?.error || "קליטת תוצאות חוזק הבטון נכשלה");
+  }
+  const data = result?.data ?? {};
+  return {
+    certificateNo: String(data.certificateNo ?? "").trim(),
+    concreteType: normalizeConcreteType(data.concreteType),
+    strength7Days: String(data.strength7Days ?? "").trim(),
+    strength28Days: String(data.strength28Days ?? "").trim(),
+    testDate: String(data.testDate ?? "").trim(),
+    confidence: Number(data.confidence ?? 0),
+  };
+};
+
 const extractAsphaltBatchesByOcr = async (
   file: File,
   workType: unknown,
@@ -14958,13 +15238,27 @@ export default function Page() {
         file.name,
       ].join(" ");
       const shouldExtractAsphalt = kind === "lab" && isAsphaltReference(attachmentContext);
+      const shouldExtractConcrete =
+        kind === "lab" &&
+        (String(checklistForm.templateKey) === "siteConcrete" ||
+          /בטון\s*יצוק|יציקות?\s*באתר|חוזק\s*בטון|קוביות?\s*בטון/.test(
+            attachmentContext,
+          ));
       let autoDensityResults: Record<string, any> = {};
       let autoAsphaltResults: Record<string, string> = {};
       let autoAsphaltRows: ReferenceResultRow[] = [];
       let autoAsphaltBatches: AsphaltBatchResult[] = [];
       let asphaltMixType = "";
       let asphaltSummary = "";
-      if (kind === "lab" && !shouldExtractAsphalt) {
+      let autoConcreteResults: ConcreteStrengthResults | undefined;
+      if (shouldExtractConcrete) {
+        try {
+          autoConcreteResults = await extractConcreteStrengthByOcr(file);
+        } catch (error) {
+          console.warn("Concrete strength certificate extraction failed", error);
+        }
+      }
+      if (kind === "lab" && !shouldExtractAsphalt && !shouldExtractConcrete) {
         try {
           autoDensityResults = await extractEarthworksDensityFromFile(file);
         } catch (error) {
@@ -15033,7 +15327,19 @@ export default function Page() {
         }
       }
 
-      const combinedLabResults = { ...autoDensityResults, ...autoAsphaltResults };
+      const concreteLabResults = autoConcreteResults
+        ? {
+            "מספר תעודה": autoConcreteResults.certificateNo || "",
+            "סוג בטון": autoConcreteResults.concreteType || "",
+            "חוזק לחיצה 7 ימים": autoConcreteResults.strength7Days || "",
+            "חוזק לחיצה 28 ימים": autoConcreteResults.strength28Days || "",
+          }
+        : {};
+      const combinedLabResults = {
+        ...autoDensityResults,
+        ...autoAsphaltResults,
+        ...concreteLabResults,
+      };
       const densitySummary = Object.keys(autoDensityResults).length
         ? [
             autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"] ? `מס׳ דוח: ${autoDensityResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"]}` : "",
@@ -15065,6 +15371,9 @@ export default function Page() {
               asphaltExtractionSummary: asphaltSummary,
             }
           : {}),
+        ...(autoConcreteResults
+          ? { concreteResults: autoConcreteResults }
+          : {}),
       } as ChecklistAttachment;
 
       setChecklistForm((prev) => ({
@@ -15091,6 +15400,32 @@ export default function Page() {
                             asphaltExtractionSummary: asphaltSummary || item.asphaltExtractionSummary,
                           }
                         : {}),
+                      ...(autoConcreteResults
+                        ? {
+                            concreteResults: {
+                              ...(item.concreteResults ?? {}),
+                              ...autoConcreteResults,
+                            },
+                            ...(concreteStrengthStatus(
+                              normalizeConcreteType(
+                                autoConcreteResults.concreteType,
+                              ),
+                              autoConcreteResults.strength28Days,
+                            )
+                              ? {
+                                  status:
+                                    concreteStrengthStatus(
+                                      normalizeConcreteType(
+                                        autoConcreteResults.concreteType,
+                                      ),
+                                      autoConcreteResults.strength28Days,
+                                    ) === "מתאים"
+                                      ? "תקין"
+                                      : "לא תקין",
+                                }
+                              : {}),
+                          }
+                        : {}),
                     }
                   : {}),
               }
@@ -15101,7 +15436,9 @@ export default function Page() {
       if (kind === "lab") {
         window.setTimeout(() => {
           alert(
-            Object.keys(autoDensityResults).length
+            autoConcreteResults
+              ? `נקלטו תוצאות חוזק בטון מהתעודה:\nסוג בטון: ${autoConcreteResults.concreteType || "לא זוהה"}\n7 ימים: ${autoConcreteResults.strength7Days || "טרם התקבלה תוצאה"}\n28 ימים: ${autoConcreteResults.strength28Days || "טרם התקבלה תוצאה"}\n\nיש ללחוץ שמירה כדי לשמור את הנתונים.`
+              : Object.keys(autoDensityResults).length
               ? `נקלטו תוצאות צפיפות מהתעודה:\n${densitySummary}\n\nיש ללחוץ שמירה כדי לשמור את הנתונים.`
               : "התעודה צורפה, אך לא נקלטו ממנה תוצאות צפיפות. יש לבדוק שהקובץ הוא PDF טקסטואלי של בדיקת צפיפות."
           );
@@ -16818,7 +17155,32 @@ export default function Page() {
   const checklistNotesOrAttachments = (item: unknown, height = 18) => {
     const attachments = checklistAttachmentSummary(item);
     const notes = String((item as any)?.notes ?? "").trim();
-    const combined = [attachments, notes].filter(Boolean).join(" | ");
+    const concrete = (item as any)?.concreteResults as
+      | ConcreteStrengthResults
+      | undefined;
+    const concreteType = normalizeConcreteType(concrete?.concreteType);
+    const concreteSummary = concrete
+      ? [
+          concreteType ? `סוג בטון: ${concreteType}` : "",
+          concrete.strength7Days
+            ? `חוזק 7 ימים: ${concrete.strength7Days}`
+            : "",
+          concrete.strength28Days
+            ? `חוזק 28 ימים: ${concrete.strength28Days}`
+            : "",
+          concreteStrengthStatus(concreteType, concrete.strength28Days)
+            ? `סטטוס: ${concreteStrengthStatus(
+                concreteType,
+                concrete.strength28Days,
+              )}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" | ")
+      : "";
+    const combined = [attachments, concreteSummary, notes]
+      .filter(Boolean)
+      .join(" | ");
     return valueOrBlank(combined, height);
   };
 

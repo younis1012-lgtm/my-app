@@ -9,7 +9,7 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength';
   workType?: string;
   expectedMetrics?: string[];
 };
@@ -250,6 +250,31 @@ const referenceResultsJsonSchema = {
     notes: { type: 'string' },
   },
   required: Object.keys(referenceResultsEmptyData),
+};
+
+const concreteStrengthEmptyData = {
+  certificateNo: '',
+  concreteType: '',
+  strength7Days: '',
+  strength28Days: '',
+  testDate: '',
+  confidence: 0,
+  notes: '',
+};
+
+const concreteStrengthJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    certificateNo: { type: 'string' },
+    concreteType: { type: 'string' },
+    strength7Days: { type: 'string' },
+    strength28Days: { type: 'string' },
+    testDate: { type: 'string' },
+    confidence: { type: 'number' },
+    notes: { type: 'string' },
+  },
+  required: Object.keys(concreteStrengthEmptyData),
 };
 
 function normalizeDataUrl(dataUrl: string, mimeType: string) {
@@ -839,6 +864,71 @@ export async function POST(req: NextRequest) {
     const subtype = body.subtype ?? 'suppliers';
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
+
+    if (subtype === 'concrete-strength') {
+      const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const prompt = `אתה מחלץ תוצאות חוזק לחיצה מתעודת מעבדת בטון עבור בקרת איכות.
+קרא את כל הקובץ חזותית, כולל PDF סרוק, והחזר JSON בלבד.
+
+חלץ:
+- certificateNo: מספר התעודה.
+- concreteType: סוג/דרגת הבטון. החזר רק אחד מהערכים ב-30, ב-40, ב-50, ב-60 כאשר הוא מופיע.
+- strength7Days: תוצאת חוזק הלחיצה בגיל 7 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-7 ימים.
+- strength28Days: תוצאת חוזק הלחיצה בגיל 28 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-28 ימים.
+- testDate: תאריך הבדיקה בפורמט yyyy-mm-dd אם ניתן.
+
+כללים:
+- אל תעתיק מספר מדגם, גיל בדיקה, משקל, מידות קובייה או עומס בתור חוזק.
+- אל תנחש ערך שאינו מופיע בבירור.
+- strength7Days ו-strength28Days הם ערכי חוזק בלבד, ללא יחידות.
+- אם גיל 28 ימים טרם הגיע או אין תוצאה, השאר strength28Days ריק.
+- confidence בין 0 ל-1.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (isImage(mimeType)) {
+        content.push({ type: 'input_image', image_url: normalizedFileData, detail: 'high' });
+      } else {
+        const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType, 4);
+        if (renderedPages.length) {
+          renderedPages.forEach((imageDataUrl, index) => {
+            content.push({ type: 'input_text', text: `עמוד ${index + 1}` });
+            content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
+          });
+        } else {
+          content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+        }
+      }
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'concrete_strength_extract',
+              schema: concreteStrengthJsonSchema,
+              strict: true,
+            },
+          },
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI concrete strength OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Concrete strength OCR failed' }, { status: 500 });
+      }
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      return NextResponse.json({
+        data: { ...concreteStrengthEmptyData, ...(safeJsonParse(outputText) ?? {}) },
+      });
+    }
 
     if (subtype === 'asphalt-jmf') {
       const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
