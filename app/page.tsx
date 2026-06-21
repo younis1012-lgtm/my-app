@@ -2690,6 +2690,285 @@ type PlanRecord = {
   savedAt: string;
 };
 
+type GeneratedProjectTreeDraft = {
+  key: string;
+  parentKey: string;
+  nodeType: ProjectStructureNodeType;
+  name: string;
+  code: string;
+  fromChainage: string;
+  toChainage: string;
+  side: string;
+  sortOrder: number;
+};
+
+type GeneratedProjectTreeProposal = {
+  nodes: GeneratedProjectTreeDraft[];
+  includedPlans: PlanRecord[];
+  excludedPlans: PlanRecord[];
+};
+
+const PROJECT_TREE_PLAN_EXCLUSION_PATTERN =
+  /פירוק|הריסה|מצב\s+קיים|עבוד(?:ה|ות)\s+זמני|זמני(?:ת|ות|ים)?|התארגנות|מעקף\s+זמני|שלבי(?:ות)?\s+ביצוע/i;
+
+const PROJECT_TREE_WORK_GROUPS: Array<{
+  name: string;
+  nodeType: ProjectStructureNodeType;
+  pattern: RegExp;
+  activities: Array<{ name: string; pattern: RegExp }>;
+}> = [
+  {
+    name: "עבודות בטון",
+    nodeType: "structure",
+    pattern: /בטון|קיר|קירות|מובל|מעביר\s*מים|גשר|כלונס|יסוד|יציק/i,
+    activities: [
+      { name: "חפירה לקירות ומבנים", pattern: /חפיר.*(?:קיר|מבנה|יסוד)/i },
+      { name: "החלפת קרקע", pattern: /החלפת\s+קרקע/i },
+      { name: "יציקת קירות", pattern: /קיר|קירות/i },
+      { name: "יציקת מובלים ומעבירי מים", pattern: /מובל|מעביר\s*מים/i },
+      { name: "יציקת יסודות", pattern: /יסוד|כלונס/i },
+      { name: "איטום", pattern: /איטום/i },
+      { name: "מילוי חוזר", pattern: /מילוי\s+חוזר/i },
+    ],
+  },
+  {
+    name: "תשתיות חשמל, תאורה ותקשורת",
+    nodeType: "element",
+    pattern: /חשמל|תאורה|תקשורת|עמוד.*תאורה|כבל|שרוול/i,
+    activities: [
+      { name: "צנרת ושרוולים", pattern: /צנרת|שרוול/i },
+      { name: "תאי בקרה", pattern: /תא(?:י)?\s+בקרה|שוח/i },
+      { name: "עמודי וגופי תאורה", pattern: /עמוד|גופי?\s+תאורה/i },
+      { name: "כבלים ומערכות חשמל", pattern: /כבל|חשמל/i },
+      { name: "מערכות תקשורת", pattern: /תקשורת/i },
+    ],
+  },
+  {
+    name: "עבודות גינון ופיתוח",
+    nodeType: "element",
+    pattern: /גינון|נטיעות|השקיה|פיתוח\s+נופי/i,
+    activities: [
+      { name: "מערכות השקיה", pattern: /השקיה/i },
+      { name: "נטיעות וגינון", pattern: /נטיע|גינון/i },
+    ],
+  },
+  {
+    name: "גדרות, מעקות ובטיחות",
+    nodeType: "element",
+    pattern: /גדר|מעקה|מעקות|בטיחות|מחסום/i,
+    activities: [
+      { name: "התקנת גדרות", pattern: /גדר/i },
+      { name: "התקנת מעקות", pattern: /מעקה|מעקות/i },
+      { name: "התקנת אמצעי בטיחות", pattern: /בטיחות|מחסום/i },
+    ],
+  },
+  {
+    name: "עבודות עפר וסלילה",
+    nodeType: "element",
+    pattern: /עפר|חפירה|מילוי|שתית|מצע|אספלט|סלילה|קרצוף|שברי\s+אבן|ריצוף|אבן\s+שפה/i,
+    activities: [
+      { name: "חפירה", pattern: /חפירה/i },
+      { name: "עיבוד שתית", pattern: /שתית/i },
+      { name: "ביצוע שברי אבן", pattern: /שברי\s+אבן/i },
+      { name: "עבודות מילוי", pattern: /מילוי/i },
+      { name: "עבודות מצע", pattern: /מצע/i },
+      { name: "עבודות אספלט וסלילה", pattern: /אספלט|סלילה|קרצוף/i },
+      { name: "ריצוף ואבני שפה", pattern: /ריצוף|אבן\s+שפה/i },
+    ],
+  },
+  {
+    name: "יריעות שריון וכוורות",
+    nodeType: "element",
+    pattern: /יריע|שריון|כוור/i,
+    activities: [
+      { name: "התקנת יריעות שריון", pattern: /יריע|שריון/i },
+      { name: "התקנת כוורות", pattern: /כוור/i },
+    ],
+  },
+  {
+    name: "תיעול וניקוז",
+    nodeType: "element",
+    pattern: /ניקוז|תיעול|קולטן|קולטנים|ריפ.?ראפ|תעל|צינור.*ניקוז/i,
+    activities: [
+      { name: "חפירת תעלות", pattern: /חפיר.*תעל|תעל/i },
+      { name: "התקנת צנרת ניקוז", pattern: /צנרת|צינור/i },
+      { name: "התקנת שוחות ניקוז", pattern: /שוח/i },
+      { name: "התקנת קולטנים", pattern: /קולטן|קולטנים/i },
+      { name: "ביצוע ריפ-ראפ", pattern: /ריפ.?ראפ/i },
+      { name: "מתקני כניסה ויציאה", pattern: /מתקן.*(?:כניסה|יציאה)|כניסה.*יציאה/i },
+    ],
+  },
+  {
+    name: "קווי מים",
+    nodeType: "element",
+    pattern: /קו(?:וי)?\s+מים|צנרת\s+מים|מערכת\s+מים/i,
+    activities: [
+      { name: "הנחת צנרת מים", pattern: /צנרת|צינור/i },
+      { name: "התקנת אביזרי מים", pattern: /אביזר/i },
+      { name: "התקנת שוחות מים", pattern: /שוח/i },
+    ],
+  },
+  {
+    name: "קווי ביוב",
+    nodeType: "element",
+    pattern: /ביוב/i,
+    activities: [
+      { name: "חפירת תעלות ביוב", pattern: /חפיר|תעל/i },
+      { name: "התקנת צנרת ביוב", pattern: /צנרת|צינור/i },
+      { name: "התקנת שוחות ביוב", pattern: /שוח/i },
+    ],
+  },
+  {
+    name: "עבודות גמר ותמרור",
+    nodeType: "element",
+    pattern: /גמר|תמרור|שילוט|צביעה|סימון\s+כביש/i,
+    activities: [
+      { name: "תמרור ושילוט", pattern: /תמרור|שילוט/i },
+      { name: "צביעה וסימוני דרך", pattern: /צביעה|סימון/i },
+      { name: "עבודות גמר", pattern: /גמר/i },
+    ],
+  },
+];
+
+const planTextForProjectTree = (plan: PlanRecord) =>
+  [plan.title, plan.discipline, plan.notes, plan.planNo]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+const cleanGeneratedActivityName = (plan: PlanRecord) =>
+  String(plan.title || plan.discipline || plan.planNo || "פעילות מתוכנית")
+    .replace(/\b(?:תכנית|תוכנית|תכניות|תוכניות)\b/gi, "")
+    .replace(/\b(?:לביצוע|ביצוע|מהדורה|גיליון)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[-–—\s]+|[-–—\s]+$/g, "")
+    .trim();
+
+const PROJECT_TREE_GENERIC_ACTIVITY: Record<string, string> = {
+  "עבודות בטון": "עבודות בטון ומבנים",
+  "תשתיות חשמל, תאורה ותקשורת": "ביצוע תשתיות חשמל, תאורה ותקשורת",
+  "עבודות גינון ופיתוח": "עבודות גינון ופיתוח",
+  "גדרות, מעקות ובטיחות": "התקנת גדרות, מעקות ואמצעי בטיחות",
+  "עבודות עפר וסלילה": "עבודות עפר, סלילה וכבישים",
+  "יריעות שריון וכוורות": "התקנת יריעות שריון וכוורות",
+  "תיעול וניקוז": "עבודות תיעול וניקוז",
+  "קווי מים": "ביצוע קווי מים",
+  "קווי ביוב": "ביצוע קווי ביוב",
+  "עבודות גמר ותמרור": "עבודות גמר, תמרור ושילוט",
+};
+
+const extractPlanChainage = (text: string) => {
+  const chainages = Array.from(
+    text.matchAll(/(?:קמ|ק"מ|חתך|מחתך)\s*[:\-]?\s*(\d{1,3}\+\d{2,3}|\d{2,5}(?:\.\d+)?)|(\d{1,3}\+\d{2,3})/g),
+  )
+    .map((match) => match[1] || match[2])
+    .filter(Boolean);
+  return {
+    fromChainage: chainages[0] ?? "",
+    toChainage: chainages[1] ?? "",
+  };
+};
+
+const extractPlanSide = (text: string) => {
+  if (/שמאל|צד\s*שמאל|\bL\b/i.test(text)) return "L";
+  if (/ימין|צד\s*ימין|\bR\b/i.test(text)) return "R";
+  if (/מרכז|ציר/i.test(text)) return "מרכז";
+  return "";
+};
+
+const buildProjectTreeProposalFromPlans = (
+  plans: PlanRecord[],
+): GeneratedProjectTreeProposal => {
+  const includedPlans: PlanRecord[] = [];
+  const excludedPlans: PlanRecord[] = [];
+  const nodes: GeneratedProjectTreeDraft[] = [];
+  const groupKeys = new Map<string, { key: string; order: number }>();
+  const activityKeys = new Set<string>();
+
+  plans.forEach((plan) => {
+    const text = planTextForProjectTree(plan);
+    if (!text || PROJECT_TREE_PLAN_EXCLUSION_PATTERN.test(text)) {
+      excludedPlans.push(plan);
+      return;
+    }
+    includedPlans.push(plan);
+    const groupPriority: Record<string, number> = {
+      "עבודות בטון": 110,
+      "תשתיות חשמל, תאורה ותקשורת": 100,
+      "תיעול וניקוז": 100,
+      "קווי מים": 100,
+      "קווי ביוב": 100,
+      "עבודות גינון ופיתוח": 90,
+      "גדרות, מעקות ובטיחות": 90,
+      "יריעות שריון וכוורות": 90,
+      "עבודות גמר ותמרור": 80,
+      "עבודות עפר וסלילה": 10,
+    };
+    const group =
+      PROJECT_TREE_WORK_GROUPS.filter((candidate) =>
+        candidate.pattern.test(text),
+      ).sort(
+        (left, right) =>
+          (groupPriority[right.name] ?? 0) - (groupPriority[left.name] ?? 0),
+      )[0] ??
+      ({
+        name: String(plan.discipline || "עבודות כלליות").trim() || "עבודות כלליות",
+        nodeType: "element" as ProjectStructureNodeType,
+        pattern: /.*/,
+        activities: [],
+      });
+    let groupInfo = groupKeys.get(group.name);
+    if (!groupInfo) {
+      groupInfo = { key: `group:${group.name}`, order: groupKeys.size + 1 };
+      groupKeys.set(group.name, groupInfo);
+      nodes.push({
+        key: groupInfo.key,
+        parentKey: "",
+        nodeType: group.nodeType,
+        name: group.name,
+        code: String(groupInfo.order),
+        fromChainage: "",
+        toChainage: "",
+        side: "",
+        sortOrder: groupInfo.order * 100,
+      });
+    }
+
+    const matchedActivities = group.activities.filter((activity) =>
+      activity.pattern.test(text),
+    );
+    const activityNames = matchedActivities.length
+      ? matchedActivities.map((activity) => activity.name)
+      : [
+          PROJECT_TREE_GENERIC_ACTIVITY[group.name] ||
+            cleanGeneratedActivityName(plan),
+        ];
+    const location = extractPlanChainage(text);
+    const side = extractPlanSide(text);
+
+    activityNames.filter(Boolean).forEach((activityName) => {
+      const identity = `${group.name}|${activityName}|${location.fromChainage}|${location.toChainage}|${side}`;
+      if (activityKeys.has(identity)) return;
+      activityKeys.add(identity);
+      const siblingIndex =
+        nodes.filter((node) => node.parentKey === groupInfo!.key).length + 1;
+      nodes.push({
+        key: `activity:${identity}`,
+        parentKey: groupInfo!.key,
+        nodeType: "activity",
+        name: activityName,
+        code: `${groupInfo!.order}.${siblingIndex}`,
+        fromChainage: location.fromChainage,
+        toChainage: location.toChainage,
+        side,
+        sortOrder: groupInfo!.order * 100 + siblingIndex,
+      });
+    });
+  });
+
+  return { nodes, includedPlans, excludedPlans };
+};
+
 const normalizeAttachments = (value: unknown): StoredAttachment[] =>
   Array.isArray(value)
     ? value
@@ -6514,6 +6793,7 @@ function ProjectStructureSelector({
 
 function ProjectStructureSection({
   nodes,
+  plans,
   form,
   editingId,
   canWrite,
@@ -6522,8 +6802,10 @@ function ProjectStructureSection({
   onEdit,
   onDelete,
   onReset,
+  onGenerateFromPlans,
 }: {
   nodes: ProjectStructureNode[];
+  plans: PlanRecord[];
   form: Omit<ProjectStructureNode, "id" | "projectId" | "createdAt" | "updatedAt">;
   editingId: string | null;
   canWrite: boolean;
@@ -6534,9 +6816,15 @@ function ProjectStructureSection({
   onEdit: (node: ProjectStructureNode) => void;
   onDelete: (id: string) => void;
   onReset: () => void;
+  onGenerateFromPlans: (proposal: GeneratedProjectTreeProposal) => void;
 }) {
   const ordered = sortProjectStructureNodes(nodes);
   const parentOptions = ordered.filter((node) => node.id !== editingId);
+  const [showPlanTreePreview, setShowPlanTreePreview] = useState(false);
+  const planTreeProposal = useMemo(
+    () => buildProjectTreeProposalFromPlans(plans),
+    [plans],
+  );
   const input: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -6561,6 +6849,99 @@ function ProjectStructureSection({
         <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
           היררכיה לפי דרישת נתיבי ישראל: פרויקט → כביש/אתר → מבנה → קטע/מקטע → אלמנט/פעילות.
         </div>
+      </div>
+
+      <div
+        style={{
+          ...styles.card,
+          marginBottom: 16,
+          background: "#f8fafc",
+          borderColor: "#cbd5e1",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 950 }}>
+              בניית עץ מתוכניות ביצוע
+            </div>
+            <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+              זוהו {planTreeProposal.includedPlans.length} תוכניות מתאימות;{" "}
+              {planTreeProposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות הוחרגו.
+            </div>
+          </div>
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            disabled={!plans.length}
+            onClick={() => setShowPlanTreePreview((value) => !value)}
+          >
+            {showPlanTreePreview ? "סגור תצוגה מקדימה" : "הצג עץ מוצע"}
+          </button>
+        </div>
+
+        {showPlanTreePreview ? (
+          <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+            {!planTreeProposal.nodes.length ? (
+              <div style={styles.emptyBox}>
+                לא נמצאו תוכניות ביצוע מתאימות לבניית העץ.
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    maxHeight: 420,
+                    overflowY: "auto",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    background: "#fff",
+                    padding: 12,
+                  }}
+                >
+                  {planTreeProposal.nodes.map((node) => (
+                    <div
+                      key={node.key}
+                      style={{
+                        padding: "7px 9px",
+                        paddingInlineStart: node.parentKey ? 34 : 9,
+                        borderBottom: "1px solid #f1f5f9",
+                        fontWeight: node.parentKey ? 750 : 950,
+                        color: node.parentKey ? "#334155" : "#0f172a",
+                      }}
+                    >
+                      {node.code ? `${node.code} · ` : ""}
+                      {node.name}
+                      {node.fromChainage || node.toChainage || node.side
+                        ? ` — ${[node.fromChainage, node.toChainage].filter(Boolean).join("-")} ${node.side}`.trim()
+                        : ""}
+                    </div>
+                  ))}
+                </div>
+                {planTreeProposal.excludedPlans.length ? (
+                  <details style={{ color: "#64748b", fontWeight: 700 }}>
+                    <summary style={{ cursor: "pointer" }}>
+                      תוכניות שהוחרגו ({planTreeProposal.excludedPlans.length})
+                    </summary>
+                    <ul>
+                      {planTreeProposal.excludedPlans.map((plan) => (
+                        <li key={plan.id}>
+                          {[plan.planNo, plan.title].filter(Boolean).join(" — ")}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+                <button
+                  type="button"
+                  style={styles.primaryBtn}
+                  disabled={!canWrite || !planTreeProposal.nodes.length}
+                  onClick={() => onGenerateFromPlans(planTreeProposal)}
+                >
+                  שמור את העץ המוצע בפרויקט
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ ...styles.card, marginBottom: 16 }}>
@@ -15273,6 +15654,83 @@ export default function Page() {
     resetProjectStructureForm();
   };
 
+  const generateProjectStructureFromPlans = async (
+    proposal: GeneratedProjectTreeProposal,
+  ) => {
+    if (!currentProjectId) return alert("יש לבחור פרויקט לפני בניית העץ.");
+    if (!proposal.nodes.length)
+      return alert("לא נמצאו תוכניות ביצוע מתאימות לבניית עץ.");
+    const confirmationText = currentProjectStructureNodes.length
+      ? `העץ המוצע ימוזג עם ${currentProjectStructureNodes.length} פריטים קיימים. פריטים בעלי אותו שם ואותו אב לא ייווצרו שוב. להמשיך?`
+      : `ליצור ${proposal.nodes.length} פריטים בעץ הפרויקט מתוך ${proposal.includedPlans.length} תוכניות ביצוע?`;
+    if (!window.confirm(confirmationText)) return;
+
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const now = nowIso();
+    const nextNodes = [...currentProjectStructureNodes];
+    const idByDraftKey = new Map<string, string>();
+    const recordsToPersist: ProjectStructureNode[] = [];
+
+    proposal.nodes.forEach((draft) => {
+      const parentId = draft.parentKey
+        ? idByDraftKey.get(draft.parentKey) ?? ""
+        : "";
+      const existing = nextNodes.find(
+        (node) =>
+          node.parentId === parentId &&
+          node.name.trim().toLocaleLowerCase("he") ===
+            draft.name.trim().toLocaleLowerCase("he"),
+      );
+      if (existing) {
+        idByDraftKey.set(draft.key, existing.id);
+        return;
+      }
+      const record: ProjectStructureNode = {
+        id: crypto.randomUUID(),
+        projectId: normalizedProjectId,
+        parentId,
+        nodeType: draft.nodeType,
+        name: draft.name,
+        code: draft.code,
+        fromChainage: draft.fromChainage,
+        toChainage: draft.toChainage,
+        side: draft.side,
+        sortOrder: draft.sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      };
+      idByDraftKey.set(draft.key, record.id);
+      nextNodes.push(record);
+      recordsToPersist.push(record);
+    });
+
+    if (!recordsToPersist.length) {
+      alert("כל פריטי העץ המוצע כבר קיימים בפרויקט.");
+      return;
+    }
+
+    await withSaving(async () => {
+      if (cloudEnabled && supabase) {
+        const result = await supabase
+          .from(PROJECT_STRUCTURE_TABLE)
+          .upsert(recordsToPersist.map(projectStructureNodeToRow), {
+            onConflict: "id",
+          });
+        if (result.error && !shouldIgnoreCloudError(result.error))
+          throw result.error;
+      }
+      setProjectStructureNodes((prev) => [
+        ...prev,
+        ...recordsToPersist.filter(
+          (record) => !prev.some((node) => node.id === record.id),
+        ),
+      ]);
+    });
+    alert(
+      `נוספו ${recordsToPersist.length} פריטים לעץ הפרויקט. ${proposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות לא נכללו.`,
+    );
+  };
+
   const editProjectStructureNode = (node: ProjectStructureNode) => {
     setEditingProjectStructureNodeId(node.id);
     setProjectStructureForm({
@@ -20116,6 +20574,7 @@ ${invalidRecipients.join("\n")}`);
           {section === "projectStructure" && (
             <ProjectStructureSection
               nodes={currentProjectStructureNodes}
+              plans={currentProjectPlans}
               form={projectStructureForm}
               editingId={editingProjectStructureNodeId}
               canWrite={canWriteAccess(projectAccess)}
@@ -20126,6 +20585,7 @@ ${invalidRecipients.join("\n")}`);
               onEdit={editProjectStructureNode}
               onDelete={deleteProjectStructureNode}
               onReset={resetProjectStructureForm}
+              onGenerateFromPlans={generateProjectStructureFromPlans}
             />
           )}
           {section === "projectDetails" && currentProject && (
