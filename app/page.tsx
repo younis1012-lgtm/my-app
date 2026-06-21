@@ -12571,17 +12571,33 @@ function ChecklistTrackingSection({
           element: raw.element || raw.workType || record.category || "",
           subElement: raw.subElement || raw.sub_element || raw.details?.subElement || "",
           side: raw.side || raw.offset || raw.details?.side || "",
-          layer: raw.layerNo || raw.layerNumber || raw.layer || raw.details?.layerNo || "",
+          layer:
+            raw.layerNo ||
+            raw.layerNumber ||
+            raw.layer ||
+            raw.details?.layerNo ||
+            raw.details?.layerNumber ||
+            raw.details?.layer ||
+            record.location ||
+            "",
           fromSection:
+            raw.stationSection ||
+            raw.station_section ||
             raw.fromSection ||
             raw.fromChainage ||
             raw.stationFrom ||
+            raw.details?.stationSection ||
+            raw.details?.station_section ||
             raw.details?.fromSection ||
             "",
           toSection:
+            raw.toStationSection ||
+            raw.to_station_section ||
             raw.toSection ||
             raw.toChainage ||
             raw.stationTo ||
+            raw.details?.toStationSection ||
+            raw.details?.to_station_section ||
             raw.details?.toSection ||
             "",
           location: getChecklistDisplayLocation(record),
