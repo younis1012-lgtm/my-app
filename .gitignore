@@ -43,3 +43,7 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+dev-server.log
+dev-server.err.log
+*.rar
+*.zip
