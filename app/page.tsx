@@ -57,7 +57,7 @@ const isRoad806Value = (value: unknown) => {
 
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
-const APP_VERSION = "2026-06-19-soil-survey-full-table-parser-v1";
+const APP_VERSION = "2026-06-21-checklist-tracking-v1";
 const APP_VERSION_STORAGE_KEY = `${STORAGE_KEY}-app-version`;
 const PUBLIC_APP_URL = "https://yi-quality.vercel.app";
 
@@ -71,7 +71,8 @@ type AppSection =
   | "plans"
   | "rfi"
   | "supervisionReports"
-  | "controlProcesses";
+  | "controlProcesses"
+  | "checklistTracking";
 
 
 type ProjectEmailUser = {
@@ -7142,6 +7143,12 @@ function normalizeDateValue(value: unknown) {
   return raw;
 }
 
+function formatTrackingDate(value: unknown) {
+  const normalized = normalizeDateValue(value);
+  const match = normalized.match(/^(20\d{2})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : normalized;
+}
+
 function collectCertificateRows(record: any): any[] {
   const nested = record?.supplier || record?.subcontractor || record?.material || {};
   const candidates = [
@@ -12521,6 +12528,287 @@ function MatzeaAConcentrationFromReferences({
   );
 }
 
+type ChecklistTrackingSortKey = "number" | "title" | "date" | "status";
+
+function ChecklistTrackingSection({
+  records,
+  onOpen,
+}: {
+  records: ChecklistRecord[];
+  onOpen: (record: ChecklistRecord) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("הכול");
+  const [sortKey, setSortKey] = useState<ChecklistTrackingSortKey>("number");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const trackingRows = useMemo(
+    () =>
+      records.map((record, index) => {
+        const itemDates = (record.items ?? [])
+          .map((item) => normalizeDateValue(item.executionDate))
+          .filter(Boolean)
+          .sort();
+        const date =
+          normalizeDateValue(record.date) ||
+          itemDates[itemDates.length - 1] ||
+          normalizeDateValue(record.savedAt);
+        const raw = record as any;
+        return {
+          record,
+          number: getChecklistDisplayNumber(record, index),
+          title: record.title || checklistTemplates[normalizeChecklistTemplateKey(record.templateKey)]?.title || "רשימת תיוג",
+          date,
+          status: getApprovalDisplayStatus(record),
+          structure:
+            raw.structure ||
+            raw.roadStructure ||
+            raw.building ||
+            raw.structureName ||
+            "",
+          element: raw.element || raw.workType || record.category || "",
+          subElement: raw.subElement || raw.sub_element || raw.details?.subElement || "",
+          side: raw.side || raw.offset || raw.details?.side || "",
+          layer: raw.layerNo || raw.layerNumber || raw.layer || raw.details?.layerNo || "",
+          fromSection:
+            raw.fromSection ||
+            raw.fromChainage ||
+            raw.stationFrom ||
+            raw.details?.fromSection ||
+            "",
+          toSection:
+            raw.toSection ||
+            raw.toChainage ||
+            raw.stationTo ||
+            raw.details?.toSection ||
+            "",
+          location: getChecklistDisplayLocation(record),
+        };
+      }),
+    [records],
+  );
+
+  const statuses = useMemo(
+    () => ["הכול", ...Array.from(new Set(trackingRows.map((row) => row.status)))],
+    [trackingRows],
+  );
+
+  const filteredRows = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase("he");
+    const rows = trackingRows.filter((row) => {
+      if (statusFilter !== "הכול" && row.status !== statusFilter) return false;
+      if (!term) return true;
+      return [
+        row.number,
+        row.title,
+        row.date,
+        row.status,
+        row.structure,
+        row.element,
+        row.subElement,
+        row.side,
+        row.layer,
+        row.fromSection,
+        row.toSection,
+        row.location,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("he")
+        .includes(term);
+    });
+    return [...rows].sort((a, b) => {
+      const left = String(a[sortKey] ?? "");
+      const right = String(b[sortKey] ?? "");
+      const comparison =
+        sortKey === "number"
+          ? Number(left || 0) - Number(right || 0)
+          : left.localeCompare(right, "he", { numeric: true });
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+  }, [search, sortDirection, sortKey, statusFilter, trackingRows]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const firstVisible = filteredRows.length ? (safePage - 1) * pageSize + 1 : 0;
+  const lastVisible = Math.min(safePage * pageSize, filteredRows.length);
+
+  useEffect(() => setPage(1), [search, statusFilter, pageSize]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const changeSort = (key: ChecklistTrackingSortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === "number" || key === "date" ? "desc" : "asc");
+  };
+
+  const sortMarker = (key: ChecklistTrackingSortKey) =>
+    sortKey === key ? (sortDirection === "asc" ? " ↑" : " ↓") : "";
+
+  const exportCsv = () => {
+    const headers = [
+      "מספר רשימת תיוג",
+      "שם רשימת תיוג",
+      "תאריך ביצוע",
+      "סטטוס",
+      "מבנה",
+      "אלמנט",
+      "תת אלמנט",
+      "צד",
+      "מספר שכבה",
+      "מחתך",
+      "עד חתך",
+      "מיקום",
+    ];
+    const csvRows = filteredRows.map((row) => [
+      row.number,
+      row.title,
+      formatTrackingDate(row.date),
+      row.status,
+      row.structure,
+      row.element,
+      row.subElement,
+      row.side,
+      row.layer,
+      row.fromSection,
+      row.toSection,
+      row.location,
+    ]);
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = "\uFEFF" + [headers, ...csvRows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `מעקב-רשימות-תיוג-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const headerStyle: CSSProperties = {
+    padding: "14px 12px",
+    borderBottom: "1px solid #e2e8f0",
+    borderLeft: "1px solid #eef2f7",
+    background: "#f8fafc",
+    color: "#1e293b",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+    textAlign: "right",
+  };
+  const cellStyle: CSSProperties = {
+    padding: "15px 12px",
+    borderBottom: "1px solid #eef2f7",
+    borderLeft: "1px solid #f1f5f9",
+    color: "#334155",
+    verticalAlign: "middle",
+    minWidth: 105,
+  };
+
+  return (
+    <section dir="rtl">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+        <div>
+          <h2 style={{ ...styles.sectionTitle, marginBottom: 5 }}>מעקב רשימות תיוג</h2>
+          <div style={{ color: "#64748b" }}>תמונת מצב מרוכזת של כל רשימות התיוג בפרויקט.</div>
+        </div>
+        <button type="button" style={styles.secondaryBtn} onClick={exportCsv} disabled={!filteredRows.length}>
+          ייצוא לאקסל (CSV)
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(170px, 240px)", gap: 12, marginBottom: 16 }}>
+        <input
+          style={styles.input}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="חיפוש לפי מספר, שם, מבנה, אלמנט או מיקום..."
+        />
+        <select style={styles.input} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          {statuses.map((status) => <option key={status} value={status}>{status === "הכול" ? "כל הסטטוסים" : status}</option>)}
+        </select>
+      </div>
+
+      <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
+        <table style={{ width: "100%", minWidth: 1420, borderCollapse: "collapse", background: "#fff" }}>
+          <thead>
+            <tr>
+              <th style={headerStyle}>פעולות</th>
+              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("number")}>מספר רשימת תיוג{sortMarker("number")}</th>
+              <th style={{ ...headerStyle, cursor: "pointer", minWidth: 220 }} onClick={() => changeSort("title")}>שם רשימת תיוג{sortMarker("title")}</th>
+              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("date")}>תאריך ביצוע{sortMarker("date")}</th>
+              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("status")}>סטטוס{sortMarker("status")}</th>
+              <th style={headerStyle}>מבנה</th>
+              <th style={headerStyle}>אלמנט</th>
+              <th style={headerStyle}>תת אלמנט</th>
+              <th style={headerStyle}>צד</th>
+              <th style={headerStyle}>מספר שכבה</th>
+              <th style={headerStyle}>מחתך</th>
+              <th style={headerStyle}>עד חתך</th>
+              <th style={headerStyle}>מיקום</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!visibleRows.length ? (
+              <tr><td colSpan={13} style={{ padding: 32, textAlign: "center", color: "#64748b" }}>לא נמצאו רשימות תיוג מתאימות.</td></tr>
+            ) : visibleRows.map((row) => (
+              <tr key={row.record.id}>
+                <td style={{ ...cellStyle, minWidth: 82 }}>
+                  <button
+                    type="button"
+                    title="פתיחת רשימת התיוג לעריכה"
+                    aria-label={`פתיחת ${row.title}`}
+                    onClick={() => onOpen(row.record)}
+                    style={{ border: "none", background: "#dcfce7", color: "#15803d", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontWeight: 900 }}
+                  >
+                    ✎
+                  </button>
+                </td>
+                <td style={cellStyle}>{row.number}</td>
+                <td style={{ ...cellStyle, minWidth: 220, fontWeight: 800 }}>{row.title}</td>
+                <td style={cellStyle}>{formatTrackingDate(row.date) || "—"}</td>
+                <td style={cellStyle}>
+                  <span style={{ display: "inline-block", borderRadius: 999, padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap", color: row.status === "מאושר" ? "#15803d" : "#92400e", background: row.status === "מאושר" ? "#dcfce7" : "#fef3c7" }}>
+                    {row.status}
+                  </span>
+                </td>
+                <td style={cellStyle}>{row.structure || "—"}</td>
+                <td style={cellStyle}>{row.element || "—"}</td>
+                <td style={cellStyle}>{row.subElement || "—"}</td>
+                <td style={cellStyle}>{row.side || "—"}</td>
+                <td style={cellStyle}>{row.layer || "—"}</td>
+                <td style={cellStyle}>{row.fromSection || "—"}</td>
+                <td style={cellStyle}>{row.toSection || "—"}</td>
+                <td style={cellStyle}>{row.location || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 15 }}>
+        <div style={{ color: "#64748b", fontWeight: 800 }}>{firstVisible}-{lastVisible} מתוך {filteredRows.length}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, color: "#475569", fontWeight: 800 }}>
+            שורות בעמוד
+            <select style={{ ...styles.input, width: 78, padding: 8 }} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+              {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <button type="button" style={styles.secondaryBtn} disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>הקודם</button>
+          <span style={{ minWidth: 76, textAlign: "center", fontWeight: 900 }}>{safePage} / {totalPages}</span>
+          <button type="button" style={styles.secondaryBtn} disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>הבא</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Page() {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -17155,6 +17443,13 @@ export default function Page() {
       count: projectChecklists.length,
     },
     {
+      key: "checklistTracking",
+      title: "מעקב רשימות תיוג",
+      icon: "📑",
+      description: "טבלת מעקב, סינון וייצוא של כל הרשימות",
+      count: projectChecklists.length,
+    },
+    {
       key: "nonconformances",
       title: "אי תאמות",
       icon: "⚠️",
@@ -19278,6 +19573,7 @@ ${invalidRecipients.join("\n")}`);
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
+        ["checklistTracking", "מעקב רשימות תיוג"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
@@ -19293,6 +19589,7 @@ ${invalidRecipients.join("\n")}`);
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
+        ["checklistTracking", "מעקב רשימות תיוג"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
@@ -19909,6 +20206,12 @@ ${invalidRecipients.join("\n")}`);
               onUpdateUser={updateProjectEmailUser}
               onDeleteUser={deleteProjectEmailUser}
               onSaveUsers={saveCurrentProjectEmailUsers}
+            />
+          )}
+          {section === "checklistTracking" && (
+            <ChecklistTrackingSection
+              records={projectChecklists}
+              onOpen={(record) => loadChecklist(record)}
             />
           )}
           {section === "checklists" && (
