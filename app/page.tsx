@@ -17760,34 +17760,37 @@ export default function Page() {
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${signatureCell(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join("")}</tbody></table>`;
   };
 
-  const checklistExportHtml = (forcedChecklistNo?: number) => {
-    const rawItems = normalizeChecklistItems(checklistForm.items) as Array<ChecklistItem & { attachments?: ChecklistAttachment[]; signature?: ProcessSignature; excludedFromPrint?: boolean }>;
-    const templateKey = normalizeChecklistTemplateKey(checklistForm.templateKey);
+  const checklistExportHtml = (
+    forcedChecklistNo?: number,
+    sourceRecord: any = checklistForm,
+  ) => {
+    const rawItems = normalizeChecklistItems(sourceRecord.items) as Array<ChecklistItem & { attachments?: ChecklistAttachment[]; signature?: ProcessSignature; excludedFromPrint?: boolean }>;
+    const templateKey = normalizeChecklistTemplateKey(sourceRecord.templateKey);
     const template = checklistTemplates[templateKey] as any;
-    const title = checklistForm.title || template.title || "רשימת תיוג";
+    const title = sourceRecord.title || template.title || "רשימת תיוג";
     const procedureNo = template.procedureNo || "";
-    const edition = (checklistForm as any).revision || template.edition || CHECKLIST_DEFAULT_REVISION;
-    const procedureDate = (checklistForm as any).revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
+    const edition = sourceRecord.revision || template.edition || CHECKLIST_DEFAULT_REVISION;
+    const procedureDate = sourceRecord.revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     const currentChecklistNo =
       forcedChecklistNo ??
-      getExistingEditingChecklistNo() ??
-      (checklistForm as any).checklistNo ??
+      sourceRecord.checklistNo ??
+      (sourceRecord === checklistForm ? getExistingEditingChecklistNo() : undefined) ??
       "";
 
     // הייצוא מבוסס על מה שהמשתמש מילא בפועל במערכת, ולא על תבנית קשיחה מוכנה מראש.
     const exportProjectName =
-      (checklistForm as any).projectNameDisplay || profile?.projectName || projectName || "";
-    const exportContractor = checklistForm.contractor || profile?.contractor || "";
-    const layerNo = checklistForm.location || "";
-    const executionPlanNo = (checklistForm as any).executionPlanNo || "";
-    const executionPlanName = (checklistForm as any).executionPlanName || "";
-    const executionPlanRevision = (checklistForm as any).executionPlanRevision || "";
-    const roadStructure = (checklistForm as any).roadStructure || "";
-    const stationSection = (checklistForm as any).stationSection || "";
-    const toStationSection = (checklistForm as any).toStationSection || "";
-    const offset = (checklistForm as any).offset || "";
-    const notes = checklistForm.notes || "";
+      sourceRecord.projectNameDisplay || profile?.projectName || projectName || "";
+    const exportContractor = sourceRecord.contractor || profile?.contractor || "";
+    const layerNo = sourceRecord.location || sourceRecord.layerNo || "";
+    const executionPlanNo = sourceRecord.executionPlanNo || "";
+    const executionPlanName = sourceRecord.executionPlanName || "";
+    const executionPlanRevision = sourceRecord.executionPlanRevision || "";
+    const roadStructure = sourceRecord.roadStructure || "";
+    const stationSection = sourceRecord.stationSection || sourceRecord.fromSection || "";
+    const toStationSection = sourceRecord.toStationSection || sourceRecord.toSection || "";
+    const offset = sourceRecord.offset || sourceRecord.side || "";
+    const notes = sourceRecord.notes || "";
 
     const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
 
@@ -18070,6 +18073,151 @@ export default function Page() {
     );
   };
 
+  const planRecordArchiveBody = (record: any) =>
+    `${baseRows([
+      ["מספר תוכנית", record.planNo],
+      ["מהדורה", record.revision],
+      ["שם / תיאור", record.title],
+      ["תחום", record.discipline],
+      ["תאריך", record.date],
+      ["סטטוס", record.status],
+      ["הערות", record.notes, 80],
+    ])}${attachmentsList(record.attachments)}${signaturesTable(record.approval)}`;
+
+  const preliminaryRecordArchiveBody = (record: any) => {
+    const subtype = record.subtype as PreliminaryTab;
+    if (subtype === "suppliers") {
+      const supplier = record.supplier ?? {};
+      return `${baseRows([
+        ["סוג בקרה", "ספקים"],
+        ["כותרת", record.title],
+        ["תאריך", record.date],
+        ["סטטוס", record.status],
+        ["שם ספק", supplier.supplierName],
+        ["חומר מסופק", supplier.suppliedMaterial],
+        ["טלפון", supplier.contactPhone],
+        ["מספר אישור", supplier.approvalNo],
+        ["הערות", supplier.notes || record.notes, 90],
+      ])}${preliminaryCertificateExportTable(record)}${signaturesTable(record.approval)}`;
+    }
+    if (subtype === "subcontractors") {
+      const subcontractor = record.subcontractor ?? {};
+      return `${baseRows([
+        ["סוג בקרה", "קבלנים"],
+        ["כותרת", record.title],
+        ["תאריך", record.date],
+        ["סטטוס", record.status],
+        ["שם קבלן משנה", subcontractor.subcontractorName],
+        ["תחום / סוג עבודה", subcontractor.field || subcontractor.workType],
+        ["טלפון", subcontractor.contactPhone],
+        ["מספר אישור", subcontractor.approvalNo],
+        ["הערות", subcontractor.notes || record.notes, 90],
+      ])}${preliminaryCertificateExportTable(record)}${signaturesTable(record.approval)}`;
+    }
+    const material = record.material ?? {};
+    return `${baseRows([
+      ["סוג בקרה", "חומרים"],
+      ["כותרת", record.title],
+      ["תאריך", record.date],
+      ["סטטוס", record.status],
+      ["שם חומר", material.materialName],
+      ["מקור / ספק", material.source],
+      ["שימוש מיועד", material.usage],
+      ["מספר תעודה", material.certificateNo],
+      ["הערות", material.notes || record.notes, 90],
+    ])}${preliminaryCertificateExportTable(record)}${signaturesTable(record.approval)}`;
+  };
+
+  const nonconformanceRecordArchiveBody = (record: any) => {
+    const f = enrichNonconformanceRecordWithProjectDetails(record);
+    return `${baseRows([
+      ...nonconformanceProjectDetailRows(f),
+      ["אי התאמה מס׳", f.title],
+      ["נפתח QA / QC", f.openedBy],
+      ["תפקיד", f.openedRole],
+      ["שם פותח", f.raisedBy],
+      ["תאריך פתיחה", f.date],
+      ["קטע", f.location],
+      ["מבנה", f.building],
+      ["אלמנט", f.element],
+      ["תת אלמנט", f.subElement],
+      ["מחתך", f.fromSection],
+      ["עד חתך", f.toSection],
+      ["הסט", f.offset],
+      ["דרגה", f.grade],
+      ["חומרה", f.severity],
+      ["סטטוס", f.status],
+      ["תיאור אי ההתאמה", f.description, 110],
+      ["גורם אחראי", f.responsibleParty, 70],
+      ["טיפול נדרש", f.actionRequired, 100],
+      ["גורם מטפל", f.handler],
+      ["פירוט פעולה מתקנת", f.correctiveActionDetails, 110],
+      ["הערות", f.notes, 80],
+      ["נסגרה ע״י", f.closedBy],
+      ["תאריך סגירה", f.closingDate],
+    ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
+  };
+
+  const rfiRecordArchiveBody = (record: any) =>
+    `${baseRows(rfiExportRows(record))}${attachmentsList(record.documents)}${signaturesTable(record.approval)}`;
+
+  const trialSectionRecordArchiveBody = (record: any) => {
+    const details = record.details ?? {};
+    const get = (...keys: string[]) =>
+      keys.map((key) => record[key] ?? details[key]).find((value) => String(value ?? "").trim()) ?? "";
+    const range = combineSectionRange(
+      get("fromSection", "fromChainage", "fromStation"),
+      get("toSection", "toChainage", "toStation"),
+      get("side", "roadSide"),
+    );
+    return `${baseRows([
+      ["קטע ניסוי", get("sectionNo", "sectionNumber", "trialSectionNo", "title")],
+      ["שם הפרויקט", get("projectName", "projectNameDisplay") || projectName],
+      ["חברת ניהול", get("projectManagement", "managementCompany")],
+      ["קבלן ראשי", get("mainContractor", "contractor")],
+      ["חומרים לשימוש", get("materials", "materialsForUse")],
+      ["שם האלמנט", get("elementName", "element")],
+      ["תת אלמנט", get("subElement")],
+      ["מחתך / עד חתך / צד", get("fromTo", "sectionRange") || range],
+      ["משתתפים", get("participants"), 70],
+      ["כלים בהם משתמשים", get("tools", "equipment"), 55],
+      ["תאריך ביצוע", get("executionDate", "date")],
+      ["תיאור ושלבי ביצוע", get("executionDescription", "workStages", "description", "spec"), 100],
+      ["תוצאה / מסקנות", get("result", "conclusions"), 70],
+      ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
+      ["אושר על ידי", get("approvedBy")],
+      ["סטטוס", get("status")],
+      ["הערות", get("notes"), 45],
+    ])}${attachmentsList(record.images)}${signaturesTable(record.approval)}`;
+  };
+
+  const controlProcessRecordArchiveBody = (record: any) =>
+    `${baseRows([
+      ["מס׳ תעודה / ר״ת", record.processNo],
+      ["שם התעודה", record.title],
+      ["תחום / סוג עבודה", record.workType],
+      ["סעיף מפרט / תקן", record.specSection],
+      ["מיקום / שימוש מיועד", record.location],
+      ["מחתך", record.fromSection || record.fromChainage],
+      ["עד חתך", record.toSection || record.toChainage],
+      ["סטטוס", record.status],
+      ["ספק / מפעל", record.supplier],
+      ["מס׳ תעודת מעבדה", record.labCertificateNo],
+    ])}${referenceResultsExportTable(record.workType, record.referenceResults)}${requiredDocumentsExportTable(record.requiredDocuments)}${signaturesTable(record.approval)}`;
+
+  const supervisionReportRecordArchiveBody = (record: any) =>
+    `${baseRows([
+      ["נושא הדוח", record.title],
+      ["מספר דוח", record.reportNo],
+      ["תאריך", record.date],
+      ["תאריך טיפול", record.treatmentDate],
+      ["מיקום", record.location],
+      ["מבצע / עורך", record.author],
+      ["סטטוס", record.status],
+      ["טיפול", record.treatment, 100],
+      ["הערות", record.notes, 80],
+    ])}${attachmentsList(record.attachments ?? (record.attachment ? [record.attachment] : []))}${signaturesTable(record.approval)}`;
+
   const exportHtml = (forcedChecklistNo?: number) => {
     const title = recordTitleForExport();
     const body =
@@ -18141,6 +18289,7 @@ export default function Page() {
         records: any[],
         headers: Array<[string, (record: any, index: number) => unknown]>,
         recordTitle: (record: any, index: number) => string,
+        formBody?: (record: any, index: number) => string,
       ) => {
         addCsv(`${folderPath}/סיכום.csv`, records, headers);
         addJson(`${folderPath}/נתונים.json`, records);
@@ -18155,6 +18304,7 @@ export default function Page() {
             recordTitleText || `רשומה ${index + 1}`,
             record,
             headers.map(([label, getter]) => [label, getter(record, index)]),
+            formBody ? archivePrintableHtml(recordTitleText, formBody(record, index)) : undefined,
           );
           await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
         }
@@ -18224,6 +18374,10 @@ export default function Page() {
             ["תאריך", getRecordDate(record)],
             ["סטטוס", getApprovalDisplayStatus(record)],
           ],
+          archivePrintableHtml(
+            getRecordTitle(record) || `רשימת תיוג ${index + 1}`,
+            checklistExportHtml(getChecklistDisplayNumber(record, index), record),
+          ),
         );
         await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
       }
@@ -18240,6 +18394,7 @@ export default function Page() {
           ["סטטוס", (record) => record.status],
         ],
         (record) => record.planNo || record.title || "תוכנית",
+        (record) => planRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/בקרה מקדימה`,
@@ -18251,6 +18406,7 @@ export default function Page() {
           ["סטטוס", (record) => record.status],
         ],
         (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
+        (record) => preliminaryRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/אי התאמות`,
@@ -18263,6 +18419,7 @@ export default function Page() {
           ["תאריך", (record) => record.date],
         ],
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "אי התאמה"}`,
+        (record) => nonconformanceRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/RFI`,
@@ -18275,6 +18432,7 @@ export default function Page() {
           ["מיקום", (record) => record.location],
         ],
         (record, index) => `${record.rfiNumber || index + 1} - ${record.title || "RFI"}`,
+        (record) => rfiRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/קטעי ניסוי`,
@@ -18287,6 +18445,7 @@ export default function Page() {
           ["תוצאה", (record) => record.result],
         ],
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "קטע ניסוי"}`,
+        (record) => trialSectionRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/תעודות יחס וריכוזים`,
@@ -18299,6 +18458,7 @@ export default function Page() {
           ["מיקום", (record) => record.location],
         ],
         (record) => `${record.processNo || ""} ${record.title || "תהליך בקרה"}`,
+        (record) => controlProcessRecordArchiveBody(record),
       );
       await addCollection(
         `${projectRoot}/דוחות פיקוח עליון`,
@@ -18311,6 +18471,7 @@ export default function Page() {
           ["סטטוס", (record) => record.status],
         ],
         (record) => `${record.reportNo || ""} ${record.title || "דוח פיקוח עליון"}`,
+        (record) => supervisionReportRecordArchiveBody(record),
       );
 
       const blob = await zip.generateAsync({ type: "blob" });
@@ -18616,7 +18777,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const margin = 6;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      if (section !== "checklists") {
+      const documentNeedsPagination =
+        section === "checklists" ||
+        Boolean(host.querySelector(".check-table")) ||
+        canvas.height / canvas.width > (usableHeight / usableWidth) * 1.15;
+      if (!documentNeedsPagination) {
         // כל טופס רגיל נפרס לעמוד PDF אחד. נספחים/תמונות מצורפים בנפרד בהמשך.
         const imgData = canvas.toDataURL("image/jpeg", 0.95);
         const imgWidthMm = usableWidth;
@@ -18774,6 +18939,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${exportCompanyFooter()}</div></body></html>`;
   };
 
+  const archivePrintableHtml = (title: string, body: string) =>
+    `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${exportCompanyFooter()}</div></body></html>`;
+
   const addRecordPdfToZip = async (
     zip: any,
     usedPaths: Set<string>,
@@ -18781,14 +18949,21 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     title: string,
     record: any,
     rows: Array<[string, unknown, number?]>,
+    htmlOverride?: string,
   ) => {
     try {
       const pdfBlob = await buildMergedPdfBlob(
         title,
-        archiveRecordHtml(title, record, rows),
+        htmlOverride || archiveRecordHtml(title, record, rows),
         archiveRecordPdfAppendices(record),
       );
-      zip.file(uniqueZipPath(usedPaths, `${folderPath}/${sanitizeZipSegment(`${title || "טופס"}.pdf`)}`), pdfBlob);
+      zip.file(
+        uniqueZipPath(
+          usedPaths,
+          `${folderPath}/${sanitizeZipSegment(`${title || "טופס"} - כולל נספחים.pdf`)}`,
+        ),
+        pdfBlob,
+      );
     } catch (error) {
       console.warn("Failed to add record PDF to project archive", title, error);
     }
