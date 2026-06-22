@@ -4801,6 +4801,8 @@ const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14
 export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
   const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
   const soilSurveyInputRef = useRef<HTMLInputElement | null>(null);
@@ -4825,6 +4827,22 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     const q = normalize(search);
     return definitions.filter((definition) => !q || normalize(`${definition.title} ${definition.description}`).includes(q));
   }, [search]);
+  const visibleIds = visibleDefinitions.map((definition) => definition.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 &&
+    visibleIds.every((id) => selectedIds.includes(id));
+  const toggleSelected = (id: ConcentrationId) =>
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((selectedId) => selectedId !== id)
+        : [...current, id],
+    );
+  const toggleAllVisible = () =>
+    setSelectedIds((current) =>
+      allVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds])),
+    );
 
   const exportOne = async (definition: ConcentrationDefinition) => {
     setBusyId(definition.id);
@@ -4849,6 +4867,69 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
       alert(error instanceof Error ? error.message : "אירעה שגיאה ביצוא הריכוז");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const exportSelected = async () => {
+    const selectedDefinitions = definitions.filter((definition) =>
+      selectedIds.includes(definition.id),
+    );
+    if (!selectedDefinitions.length) {
+      alert("יש לבחור לפחות ריכוז אחד להורדה");
+      return;
+    }
+    setBulkDownloading(true);
+    try {
+      let asphaltMix = "";
+      if (selectedDefinitions.some((definition) => definition.id === "asphalt")) {
+        asphaltMix = firstText(
+          window.prompt(
+            'ריכוז האספלט שנבחר: איזה סוג תערובת לכלול?\nאפשרויות: תא״צ 19, תא״צ 25, תא״צ 12.5, תא״צ 9.5, SMA',
+            "תא״צ 19",
+          ),
+          "",
+        );
+        if (!asphaltMix) return;
+        asphaltMix = normalizeAsphaltMix(asphaltMix) || asphaltMix;
+      }
+
+      const zip = new JSZip();
+      for (const definition of selectedDefinitions) {
+        const selectedMix = definition.id === "asphalt" ? asphaltMix : "";
+        const rows =
+          definition.id === "asphalt"
+            ? buildAsphaltConcentrationRows(ctx, selectedMix)
+            : rowsById[definition.id] ?? [];
+        const fileName =
+          definition.id === "asphalt"
+            ? `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`
+            : definition.fileName;
+        const blob = await buildWorkbookBlob(
+          definition,
+          rows,
+          meta,
+          selectedMix,
+        );
+        zip.file(fileName, blob);
+      }
+
+      const archive = await zip.generateAsync({
+        type: "blob",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+      const projectSegment =
+        cleanText(meta.projectName).replace(/[\\/:*?"<>|]/g, "-") || "פרויקט";
+      downloadBlob(archive, `ריכוזים - ${projectSegment}.zip`);
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "אירעה שגיאה בהורדת הריכוזים שנבחרו",
+      );
+    } finally {
+      setBulkDownloading(false);
     }
   };
 
@@ -4880,15 +4961,79 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="חיפוש ריכוז..." style={{ width: 260, border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 700 }} />
       </div>
 
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          padding: 12,
+          border: "1px solid #cbd5e1",
+          borderRadius: 14,
+          background: "#f8fafc",
+        }}
+      >
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleAllVisible}
+            style={{ width: 19, height: 19, accentColor: "#0f172a" }}
+          />
+          בחר את כל הריכוזים המוצגים
+        </label>
+        <button
+          type="button"
+          disabled={!selectedIds.length || bulkDownloading}
+          onClick={exportSelected}
+          style={{
+            ...btnStyle,
+            opacity: !selectedIds.length || bulkDownloading ? 0.55 : 1,
+            cursor: !selectedIds.length || bulkDownloading ? "not-allowed" : "pointer",
+          }}
+        >
+          {bulkDownloading
+            ? "מכין חבילת ZIP..."
+            : `הורד ריכוזים שנבחרו (${selectedIds.length})`}
+        </button>
+        {selectedIds.length ? (
+          <button
+            type="button"
+            onClick={() => setSelectedIds([])}
+            style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "11px 14px", fontWeight: 900, background: "#fff", cursor: "pointer" }}
+          >
+            נקה בחירה
+          </button>
+        ) : null}
+        <span style={{ color: "#64748b", fontWeight: 750 }}>
+          הקבצים שנבחרו יורדו יחד בקובץ ZIP אחד.
+        </span>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
         {visibleDefinitions.map((definition) => {
           const rows = rowsById[definition.id] ?? [];
           const isOpen = openId === definition.id;
           const isTemplateConcentration = definition.id === "earthworks-material-results";
+          const isSelected = selectedIds.includes(definition.id);
           return (
-            <div key={definition.id} style={cardStyle}>
+            <div
+              key={definition.id}
+              style={{
+                ...cardStyle,
+                border: isSelected ? "2px solid #2563eb" : cardStyle.border,
+                background: isSelected ? "#eff6ff" : "#fff",
+              }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                <div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelected(definition.id)}
+                    aria-label={`בחר ${definition.title} להורדה`}
+                    style={{ width: 20, height: 20, marginTop: 2, accentColor: "#2563eb", cursor: "pointer" }}
+                  />
                   <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
                 </div>
                 <span style={{ borderRadius: 999, background: rows.length || isTemplateConcentration ? "#dcfce7" : "#f1f5f9", color: rows.length || isTemplateConcentration ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
