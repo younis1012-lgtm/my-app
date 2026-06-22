@@ -4346,11 +4346,15 @@ const isStorageBucketMissingError = (error: unknown) => {
 };
 const shouldIgnoreCloudError = (error: unknown) =>
   /relation .* does not exist/i.test(errorText(error)) ||
+  /could not find the table/i.test(errorText(error)) ||
   errorText(error).includes("57014") ||
   errorText(error).toLowerCase().includes("statement timeout") ||
   errorText(error).toLowerCase().includes("canceling statement due to statement timeout");
 const isMissingRelationError = (error: unknown) =>
   /relation .* does not exist|could not find the table/i.test(errorText(error));
+const isProjectStructureTableMissingError = (error: unknown) =>
+  isMissingRelationError(error) &&
+  errorText(error).toLowerCase().includes(PROJECT_STRUCTURE_TABLE.toLowerCase());
 const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE ||
   table === SUPERVISION_REPORTS_TABLE ||
@@ -15729,13 +15733,17 @@ export default function Page() {
       updatedAt: now,
     };
 
+    let savedLocallyOnly = false;
     await withSaving(async () => {
       if (cloudEnabled) {
         const result = await supabase!
           .from(PROJECT_STRUCTURE_TABLE)
           .upsert(projectStructureNodeToRow(record), { onConflict: "id" });
-        if (result.error && !shouldIgnoreCloudError(result.error))
-          throw result.error;
+        if (result.error) {
+          if (isProjectStructureTableMissingError(result.error))
+            savedLocallyOnly = true;
+          else if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        }
       }
       setProjectStructureNodes((prev) => {
         const exists = prev.some((node) => node.id === id);
@@ -15745,6 +15753,8 @@ export default function Page() {
       });
     });
     resetProjectStructureForm();
+    if (savedLocallyOnly)
+      alert("הפריט נשמר בדפדפן זה. טבלת עץ הפרויקט בענן טרם הותקנה.");
   };
 
   const generateProjectStructureFromPlans = async (
@@ -15802,6 +15812,7 @@ export default function Page() {
       return;
     }
 
+    let savedLocallyOnly = false;
     await withSaving(async () => {
       if (cloudEnabled && supabase) {
         const result = await supabase
@@ -15809,8 +15820,11 @@ export default function Page() {
           .upsert(recordsToPersist.map(projectStructureNodeToRow), {
             onConflict: "id",
           });
-        if (result.error && !shouldIgnoreCloudError(result.error))
-          throw result.error;
+        if (result.error) {
+          if (isProjectStructureTableMissingError(result.error))
+            savedLocallyOnly = true;
+          else if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        }
       }
       setProjectStructureNodes((prev) => [
         ...prev,
@@ -15820,7 +15834,7 @@ export default function Page() {
       ]);
     });
     alert(
-      `נוספו ${recordsToPersist.length} פריטים לעץ הפרויקט. ${proposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות לא נכללו.`,
+      `נוספו ${recordsToPersist.length} פריטים לעץ הפרויקט. ${proposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות לא נכללו.${savedLocallyOnly ? " העץ נשמר כרגע בדפדפן זה בלבד, עד להתקנת טבלת עץ הפרויקט בענן." : ""}`,
     );
   };
 
@@ -15843,18 +15857,24 @@ export default function Page() {
     if (hasChildren)
       return alert("לא ניתן למחוק פריט שיש לו פריטי משנה. מחק קודם את הילדים.");
     if (!window.confirm("למחוק את הפריט מעץ הפרויקט?")) return;
+    let deletedLocallyOnly = false;
     await withSaving(async () => {
       if (cloudEnabled) {
         const result = await supabase!
           .from(PROJECT_STRUCTURE_TABLE)
           .delete()
           .eq("id", id);
-        if (result.error && !shouldIgnoreCloudError(result.error))
-          throw result.error;
+        if (result.error) {
+          if (isProjectStructureTableMissingError(result.error))
+            deletedLocallyOnly = true;
+          else if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        }
       }
       setProjectStructureNodes((prev) => prev.filter((node) => node.id !== id));
       if (editingProjectStructureNodeId === id) resetProjectStructureForm();
     });
+    if (deletedLocallyOnly)
+      alert("הפריט נמחק מהעץ השמור בדפדפן זה.");
   };
 
   const addProject = async () => {
