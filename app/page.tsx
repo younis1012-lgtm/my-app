@@ -6821,10 +6821,52 @@ function ProjectStructureSection({
   const ordered = sortProjectStructureNodes(nodes);
   const parentOptions = ordered.filter((node) => node.id !== editingId);
   const [showPlanTreePreview, setShowPlanTreePreview] = useState(false);
+  const [draftPlanTreeNodes, setDraftPlanTreeNodes] = useState<
+    GeneratedProjectTreeDraft[] | null
+  >(null);
   const planTreeProposal = useMemo(
     () => buildProjectTreeProposalFromPlans(plans),
     [plans],
   );
+  const visiblePlanTreeNodes = draftPlanTreeNodes ?? planTreeProposal.nodes;
+
+  useEffect(() => {
+    setDraftPlanTreeNodes(null);
+  }, [plans]);
+
+  const editProposedTreeNode = (node: GeneratedProjectTreeDraft) => {
+    const nextName = window.prompt("שם הפריט בעץ המוצע:", node.name);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    if (!trimmed) return alert("שם הפריט אינו יכול להיות ריק.");
+    setDraftPlanTreeNodes(
+      visiblePlanTreeNodes.map((item) =>
+        item.key === node.key ? { ...item, name: trimmed } : item,
+      ),
+    );
+  };
+
+  const removeProposedTreeNode = (node: GeneratedProjectTreeDraft) => {
+    const keysToRemove = new Set([node.key]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      visiblePlanTreeNodes.forEach((item) => {
+        if (item.parentKey && keysToRemove.has(item.parentKey) && !keysToRemove.has(item.key)) {
+          keysToRemove.add(item.key);
+          changed = true;
+        }
+      });
+    }
+    const descendants = keysToRemove.size - 1;
+    const message = descendants
+      ? `להסיר את "${node.name}" וגם ${descendants} פריטי משנה מהעץ המוצע?`
+      : `להסיר את "${node.name}" מהעץ המוצע?`;
+    if (!window.confirm(message)) return;
+    setDraftPlanTreeNodes(
+      visiblePlanTreeNodes.filter((item) => !keysToRemove.has(item.key)),
+    );
+  };
   const input: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -6873,7 +6915,14 @@ function ProjectStructureSection({
             type="button"
             style={styles.secondaryBtn}
             disabled={!plans.length}
-            onClick={() => setShowPlanTreePreview((value) => !value)}
+            onClick={() => {
+              setShowPlanTreePreview((value) => {
+                const next = !value;
+                if (next && draftPlanTreeNodes === null)
+                  setDraftPlanTreeNodes(planTreeProposal.nodes);
+                return next;
+              });
+            }}
           >
             {showPlanTreePreview ? "סגור תצוגה מקדימה" : "הצג עץ מוצע"}
           </button>
@@ -6881,12 +6930,24 @@ function ProjectStructureSection({
 
         {showPlanTreePreview ? (
           <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-            {!planTreeProposal.nodes.length ? (
+            {!visiblePlanTreeNodes.length ? (
               <div style={styles.emptyBox}>
                 לא נמצאו תוכניות ביצוע מתאימות לבניית העץ.
               </div>
             ) : (
               <>
+                <div
+                  style={{
+                    border: "1px solid #f59e0b",
+                    background: "#fffbeb",
+                    color: "#92400e",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontWeight: 850,
+                  }}
+                >
+                  זוהי טיוטה שעדיין לא נשמרה. ניתן לערוך או להסיר פריטים לפני השמירה.
+                </div>
                 <div
                   style={{
                     maxHeight: 420,
@@ -6897,22 +6958,49 @@ function ProjectStructureSection({
                     padding: 12,
                   }}
                 >
-                  {planTreeProposal.nodes.map((node) => (
+                  {visiblePlanTreeNodes.map((node) => (
                     <div
                       key={node.key}
                       style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: 10,
+                        alignItems: "center",
                         padding: "7px 9px",
-                        paddingInlineStart: node.parentKey ? 34 : 9,
                         borderBottom: "1px solid #f1f5f9",
-                        fontWeight: node.parentKey ? 750 : 950,
-                        color: node.parentKey ? "#334155" : "#0f172a",
                       }}
                     >
-                      {node.code ? `${node.code} · ` : ""}
-                      {node.name}
-                      {node.fromChainage || node.toChainage || node.side
-                        ? ` — ${[node.fromChainage, node.toChainage].filter(Boolean).join("-")} ${node.side}`.trim()
-                        : ""}
+                      <div
+                        style={{
+                          paddingInlineStart: node.parentKey ? 25 : 0,
+                          fontWeight: node.parentKey ? 750 : 950,
+                          color: node.parentKey ? "#334155" : "#0f172a",
+                        }}
+                      >
+                        {node.code ? `${node.code} · ` : ""}
+                        {node.name}
+                        {node.fromChainage || node.toChainage || node.side
+                          ? ` — ${[node.fromChainage, node.toChainage].filter(Boolean).join("-")} ${node.side}`.trim()
+                          : ""}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          style={{ ...styles.secondaryBtn, padding: "7px 10px" }}
+                          disabled={!canWrite}
+                          onClick={() => editProposedTreeNode(node)}
+                        >
+                          עריכה
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...styles.dangerBtn, padding: "7px 10px" }}
+                          disabled={!canWrite}
+                          onClick={() => removeProposedTreeNode(node)}
+                        >
+                          הסרה
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -6933,8 +7021,13 @@ function ProjectStructureSection({
                 <button
                   type="button"
                   style={styles.primaryBtn}
-                  disabled={!canWrite || !planTreeProposal.nodes.length}
-                  onClick={() => onGenerateFromPlans(planTreeProposal)}
+                  disabled={!canWrite || !visiblePlanTreeNodes.length}
+                  onClick={() =>
+                    onGenerateFromPlans({
+                      ...planTreeProposal,
+                      nodes: visiblePlanTreeNodes,
+                    })
+                  }
                 >
                   שמור את העץ המוצע בפרויקט
                 </button>
