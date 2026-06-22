@@ -69,46 +69,18 @@ drop policy if exists project_structure_nodes_read
   on public.project_structure_nodes;
 drop policy if exists project_structure_nodes_write
   on public.project_structure_nodes;
+drop policy if exists project_structure_nodes_app_access
+  on public.project_structure_nodes;
 
--- Prefer the application's project-access functions when installed.
--- Otherwise permit authenticated users; this keeps the migration usable in
--- older Supabase installations that do not yet contain those helper functions.
-do $$
-begin
-  if to_regprocedure('public.current_user_can_read(text)') is not null
-     and to_regprocedure('public.current_user_can_write(text)') is not null then
-    execute $policy$
-      create policy project_structure_nodes_read
-        on public.project_structure_nodes
-        for select
-        using (public.current_user_can_read(project_id))
-    $policy$;
-    execute $policy$
-      create policy project_structure_nodes_write
-        on public.project_structure_nodes
-        for all
-        using (public.current_user_can_write(project_id))
-        with check (public.current_user_can_write(project_id))
-    $policy$;
-  else
-    execute $policy$
-      create policy project_structure_nodes_read
-        on public.project_structure_nodes
-        for select
-        to authenticated
-        using (true)
-    $policy$;
-    execute $policy$
-      create policy project_structure_nodes_write
-        on public.project_structure_nodes
-        for all
-        to authenticated
-        using (true)
-        with check (true)
-    $policy$;
-  end if;
-end
-$$;
+-- This application currently uses its own project login and accesses Supabase
+-- with the public anon key. Application-level permissions decide who may edit.
+-- Match the policies used by the other production tables.
+create policy project_structure_nodes_app_access
+  on public.project_structure_nodes
+  for all
+  to anon, authenticated
+  using (true)
+  with check (true);
 
 -- Ask PostgREST to refresh its schema cache immediately.
 notify pgrst, 'reload schema';

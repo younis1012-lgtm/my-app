@@ -4355,6 +4355,15 @@ const isMissingRelationError = (error: unknown) =>
 const isProjectStructureTableMissingError = (error: unknown) =>
   isMissingRelationError(error) &&
   errorText(error).toLowerCase().includes(PROJECT_STRUCTURE_TABLE.toLowerCase());
+const isProjectStructureAccessError = (error: unknown) => {
+  const text = errorText(error).toLowerCase();
+  return (
+    text.includes(PROJECT_STRUCTURE_TABLE.toLowerCase()) &&
+    (text.includes("row-level security") ||
+      text.includes("violates row-level security") ||
+      text.includes("permission denied"))
+  );
+};
 const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE ||
   table === SUPERVISION_REPORTS_TABLE ||
@@ -16092,7 +16101,10 @@ export default function Page() {
           .from(PROJECT_STRUCTURE_TABLE)
           .upsert(projectStructureNodeToRow(record), { onConflict: "id" });
         if (result.error) {
-          if (isProjectStructureTableMissingError(result.error))
+          if (
+            isProjectStructureTableMissingError(result.error) ||
+            isProjectStructureAccessError(result.error)
+          )
             savedLocallyOnly = true;
           else if (!shouldIgnoreCloudError(result.error)) throw result.error;
         }
@@ -16106,7 +16118,9 @@ export default function Page() {
     });
     resetProjectStructureForm();
     if (savedLocallyOnly)
-      alert("הפריט נשמר בדפדפן זה. טבלת עץ הפרויקט בענן טרם הותקנה.");
+      alert(
+        "הפריט נשמר בדפדפן זה. יש לעדכן את מדיניות טבלת עץ הפרויקט ב-Supabase כדי לשמור אותו בענן.",
+      );
   };
 
   const generateProjectStructureFromPlans = async (
@@ -16173,7 +16187,10 @@ export default function Page() {
             onConflict: "id",
           });
         if (result.error) {
-          if (isProjectStructureTableMissingError(result.error))
+          if (
+            isProjectStructureTableMissingError(result.error) ||
+            isProjectStructureAccessError(result.error)
+          )
             savedLocallyOnly = true;
           else if (!shouldIgnoreCloudError(result.error)) throw result.error;
         }
@@ -16217,7 +16234,10 @@ export default function Page() {
           .delete()
           .eq("id", id);
         if (result.error) {
-          if (isProjectStructureTableMissingError(result.error))
+          if (
+            isProjectStructureTableMissingError(result.error) ||
+            isProjectStructureAccessError(result.error)
+          )
             deletedLocallyOnly = true;
           else if (!shouldIgnoreCloudError(result.error)) throw result.error;
         }
