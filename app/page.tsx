@@ -13007,6 +13007,35 @@ function MatzeaAConcentrationFromReferences({
 }
 
 type ChecklistTrackingSortKey = "number" | "title" | "date" | "status";
+type ChecklistTrackingFilterKey =
+  | "title"
+  | "date"
+  | "status"
+  | "structure"
+  | "element"
+  | "subElement"
+  | "side"
+  | "layer"
+  | "fromSection"
+  | "toSection"
+  | "location";
+
+const EMPTY_CHECKLIST_TRACKING_FILTERS: Record<
+  ChecklistTrackingFilterKey,
+  string
+> = {
+  title: "",
+  date: "",
+  status: "",
+  structure: "",
+  element: "",
+  subElement: "",
+  side: "",
+  layer: "",
+  fromSection: "",
+  toSection: "",
+  location: "",
+};
 
 function ChecklistTrackingSection({
   records,
@@ -13021,6 +13050,9 @@ function ChecklistTrackingSection({
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [columnFilters, setColumnFilters] = useState<
+    Record<ChecklistTrackingFilterKey, string>
+  >({ ...EMPTY_CHECKLIST_TRACKING_FILTERS });
 
   const trackingRows = useMemo(
     () =>
@@ -13089,10 +13121,38 @@ function ChecklistTrackingSection({
     [trackingRows],
   );
 
+  const columnFilterOptions = useMemo(() => {
+    const keys = Object.keys(
+      EMPTY_CHECKLIST_TRACKING_FILTERS,
+    ) as ChecklistTrackingFilterKey[];
+    return Object.fromEntries(
+      keys.map((key) => [
+        key,
+        Array.from(
+          new Set(
+            trackingRows
+              .map((row) => String(row[key] ?? "").trim())
+              .filter(Boolean),
+          ),
+        ).sort((left, right) =>
+          left.localeCompare(right, "he", { numeric: true }),
+        ),
+      ]),
+    ) as Record<ChecklistTrackingFilterKey, string[]>;
+  }, [trackingRows]);
+
   const filteredRows = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("he");
     const rows = trackingRows.filter((row) => {
       if (statusFilter !== "הכול" && row.status !== statusFilter) return false;
+      const doesNotMatchColumn = (
+        Object.keys(columnFilters) as ChecklistTrackingFilterKey[]
+      ).some(
+        (key) =>
+          columnFilters[key] &&
+          String(row[key] ?? "") !== columnFilters[key],
+      );
+      if (doesNotMatchColumn) return false;
       if (!term) return true;
       return [
         row.number,
@@ -13121,7 +13181,14 @@ function ChecklistTrackingSection({
           : left.localeCompare(right, "he", { numeric: true });
       return sortDirection === "asc" ? comparison : -comparison;
     });
-  }, [search, sortDirection, sortKey, statusFilter, trackingRows]);
+  }, [
+    columnFilters,
+    search,
+    sortDirection,
+    sortKey,
+    statusFilter,
+    trackingRows,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -13129,7 +13196,10 @@ function ChecklistTrackingSection({
   const firstVisible = filteredRows.length ? (safePage - 1) * pageSize + 1 : 0;
   const lastVisible = Math.min(safePage * pageSize, filteredRows.length);
 
-  useEffect(() => setPage(1), [search, statusFilter, pageSize]);
+  useEffect(
+    () => setPage(1),
+    [columnFilters, search, statusFilter, pageSize],
+  );
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -13145,6 +13215,45 @@ function ChecklistTrackingSection({
 
   const sortMarker = (key: ChecklistTrackingSortKey) =>
     sortKey === key ? (sortDirection === "asc" ? " ↑" : " ↓") : "";
+
+  const updateColumnFilter = (
+    key: ChecklistTrackingFilterKey,
+    value: string,
+  ) => setColumnFilters((current) => ({ ...current, [key]: value }));
+
+  const activeColumnFilterCount = Object.values(columnFilters).filter(
+    Boolean,
+  ).length;
+
+  const filterSelect = (
+    key: ChecklistTrackingFilterKey,
+    placeholder: string,
+  ) => (
+    <select
+      aria-label={`סינון ${placeholder}`}
+      value={columnFilters[key]}
+      onChange={(event) => updateColumnFilter(key, event.target.value)}
+      style={{
+        width: "100%",
+        minWidth: key === "title" ? 190 : 92,
+        border: columnFilters[key]
+          ? "2px solid #2563eb"
+          : "1px solid #cbd5e1",
+        borderRadius: 8,
+        padding: "7px 8px",
+        background: columnFilters[key] ? "#eff6ff" : "#fff",
+        color: "#334155",
+        fontWeight: 750,
+      }}
+    >
+      <option value="">הכול</option>
+      {columnFilterOptions[key].map((value) => (
+        <option key={value} value={value}>
+          {key === "date" ? formatTrackingDate(value) : value}
+        </option>
+      ))}
+    </select>
+  );
 
   const exportCsv = () => {
     const headers = [
@@ -13228,6 +13337,36 @@ function ChecklistTrackingSection({
         </select>
       </div>
 
+      {activeColumnFilterCount ? (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            marginBottom: 12,
+            border: "1px solid #bfdbfe",
+            borderRadius: 12,
+            padding: "9px 12px",
+            background: "#eff6ff",
+            color: "#1e40af",
+            fontWeight: 850,
+          }}
+        >
+          <span>{activeColumnFilterCount} מסנני עמודות פעילים</span>
+          <button
+            type="button"
+            style={{ ...styles.secondaryBtn, padding: "7px 11px" }}
+            onClick={() =>
+              setColumnFilters({ ...EMPTY_CHECKLIST_TRACKING_FILTERS })
+            }
+          >
+            נקה מסנני עמודות
+          </button>
+        </div>
+      ) : null}
+
       <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
         <table style={{ width: "100%", minWidth: 1420, borderCollapse: "collapse", background: "#fff" }}>
           <thead>
@@ -13245,6 +13384,43 @@ function ChecklistTrackingSection({
               <th style={headerStyle}>מחתך</th>
               <th style={headerStyle}>עד חתך</th>
               <th style={headerStyle}>מיקום</th>
+            </tr>
+            <tr style={{ background: "#f8fafc" }}>
+              <th style={{ ...headerStyle, padding: 7 }} />
+              <th style={{ ...headerStyle, padding: 7 }} />
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("title", "שם רשימת תיוג")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("date", "תאריך ביצוע")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("status", "סטטוס")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("structure", "מבנה")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("element", "אלמנט")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("subElement", "תת אלמנט")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("side", "צד")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("layer", "מספר שכבה")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("fromSection", "מחתך")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("toSection", "עד חתך")}
+              </th>
+              <th style={{ ...headerStyle, padding: 7 }}>
+                {filterSelect("location", "מיקום")}
+              </th>
             </tr>
           </thead>
           <tbody>
