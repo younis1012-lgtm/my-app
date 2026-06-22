@@ -3737,6 +3737,7 @@ const createDefaultChecklist = (
   executionPlanRevision: "",
   revision: CHECKLIST_DEFAULT_REVISION,
   revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
+  pileDetails: {},
   items: buildChecklistItemsFromTemplate(templateKey),
   approval: createDefaultApproval(),
 } as any);
@@ -5267,6 +5268,18 @@ function ChecklistsSection({
     /בטון\s*יצוק|יציקות?\s*באתר/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
+  const isPileChecklist =
+    String(checklistForm.templateKey) === "dryMethodPiles" ||
+    /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
+  const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, string>;
+  const setPileDetail = (field: string, value: string) =>
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      pileDetails: {
+        ...(prev.pileDetails ?? {}),
+        [field]: value,
+      },
+    }));
   const updateConcreteResults = (
     itemId: string,
     changes: Partial<ConcreteStrengthResults>,
@@ -5729,6 +5742,95 @@ function ChecklistsSection({
           </label>
         </div>
       </div>
+      {isPileChecklist ? (
+        <div style={{ ...cardStyle, background: "#fff" }}>
+          <div style={{ fontWeight: 950, fontSize: 20 }}>פרטי כלונס לריכוז האוטומטי</div>
+          <div style={{ color: "#64748b", marginTop: 5, marginBottom: 14 }}>
+            הנתונים נשמרים עם רשימת התיוג ומועברים אוטומטית אל „ריכוז כלונסאות”.
+            שדות שאינם רלוונטיים לשיטה היבשה יכולים להישאר ריקים.
+          </div>
+          {[
+            {
+              title: "פרטי ביצוע",
+              fields: [
+                ["pileNumber", "מס׳ כלונס / תת־אלמנט"],
+                ["drillingDate", "תאריך קדיחה", "date"],
+                ["diameterCm", "קוטר כלונס (ס״מ)"],
+                ["plannedDepth", "עומק מתוכנן (מ׳)"],
+                ["actualDepth", "עומק בפועל (מ׳)"],
+                ["plannedVolume", "נפח יציקה מתוכנן (מ״ק)"],
+                ["actualVolume", "נפח יציקה בפועל (מ״ק)"],
+                ["pileLogNo", "מספר יומן כלונסאות"],
+              ],
+            },
+            {
+              title: "בטון ובדיקות חוזק",
+              fields: [
+                ["castDate", "תאריך יציקה", "date"],
+                ["concreteSource", "מקור בטון"],
+                ["concreteType", "סוג בטון"],
+                ["slumpRequirement", "סומך – דרישה"],
+                ["slumpResult", "סומך – תוצאה"],
+                ["slumpCertificateNo", "מס׳ תעודת סומך"],
+                ["strengthCertificateNo", "מס׳ תעודת חוזק לחיצה"],
+                ["strength7Days", "חוזק 7 ימים"],
+                ["strength28Days", "חוזק 28 ימים"],
+                ["concreteStatus", "מעמד הבטון"],
+              ],
+            },
+            {
+              title: "בדיקות בנטוניט",
+              fields: [
+                ["bentoniteBatchNo", "מספר מנה בבדיקה"],
+                ["tankDensity", "צפיפות במיכל"],
+                ["waterSeparation", "הפרשת מים"],
+                ["ph", "PH"],
+                ["viscosity", "צמיגות (שניות)"],
+                ["bottomDensity", "צפיפות בתחתית הבור"],
+                ["tankSandPercent", "אחוז חול במיכל"],
+                ["bottomSandPercent", "אחוז חול בתחתית הבור"],
+                ["bentoniteCertificateNo", "מס׳ תעודת בנטוניט"],
+              ],
+            },
+            {
+              title: "בדיקות אל־הרס ו־As-Made",
+              fields: [
+                ["sonicDate", "תאריך בדיקה סונית", "date"],
+                ["sonicCertificateNo", "מס׳ תעודה סונית"],
+                ["sonicStatus", "מעמד בדיקה סונית"],
+                ["ultrasonicDate", "תאריך בדיקה אולטרה־סונית", "date"],
+                ["ultrasonicCertificateNo", "מס׳ תעודה אולטרה־סונית"],
+                ["ultrasonicStatus", "מעמד בדיקה אולטרה־סונית"],
+                ["asMadeDate", "תאריך As‑Made", "date"],
+                ["pileStatus", "סטטוס כלונס"],
+              ],
+            },
+          ].map((section) => (
+            <div key={section.title} style={{ marginTop: 16 }}>
+              <div style={{ fontWeight: 900, marginBottom: 9 }}>{section.title}</div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                {section.fields.map(([field, label, type]) => (
+                  <label key={field}>
+                    <span style={labelStyle}>{label}</span>
+                    <input
+                      type={type || "text"}
+                      value={pileDetails[field] ?? ""}
+                      onChange={(event) => setPileDetail(field, event.target.value)}
+                      style={inputStyle}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div style={{ ...cardStyle, background: "#fff" }}>
         <div
           style={{
@@ -14499,6 +14601,12 @@ export default function Page() {
           executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
           revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
           revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
+          pileDetails:
+            details.pileDetails && typeof details.pileDetails === "object"
+              ? details.pileDetails
+              : details.pile_details && typeof details.pile_details === "object"
+                ? details.pile_details
+                : {},
           items: normalizeChecklistItems(row.items),
           approval: normalizeApproval(row.approval),
           savedAt: row.saved_at
@@ -17357,6 +17465,11 @@ export default function Page() {
       revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
       structureNodeId: String((checklistForm as any).structureNodeId ?? ""),
+      pileDetails:
+        (checklistForm as any).pileDetails &&
+        typeof (checklistForm as any).pileDetails === "object"
+          ? { ...(checklistForm as any).pileDetails }
+          : {},
     };
     const items = normalizeChecklistItems(checklistForm.items);
     const normalizedApproval = normalizeApproval(checklistForm.approval);

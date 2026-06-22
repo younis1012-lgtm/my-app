@@ -36,6 +36,7 @@ type ConcentrationId =
   | "asphalt"
   | "density"
   | "concrete"
+  | "piles"
   | "supervision"
   | "materials"
   | "trial-sections"
@@ -851,6 +852,133 @@ const concreteOutputColumns = [
   "גלילים - מעמד הבטון",
   "הערות",
 ];
+
+const pileOutputColumns = [
+  'ביצוע בדיקות ע"י QC/QA',
+  "מס׳ סדורי",
+  "מס׳ רשימת תיוג",
+  "מבנה",
+  "תת אלמנט / מס׳ כלונס",
+  "תאריך קדיחה",
+  "קוטר כלונס ס״מ",
+  "עומק הכלונס המתוכנן",
+  "עומק הכלונס בפועל",
+  "נפח יציקה מתוכנן",
+  "נפח יציקה בפועל",
+  "מספר מנה בבדיקת בנטוניט",
+  "צפיפות במיכל",
+  "הפרשת מים",
+  "PH",
+  "צמיגות",
+  "צפיפות בתחתית הבור",
+  "אחוז חול במיכל",
+  "אחוז חול בתחתית הבור",
+  "מס׳ תעודת בדיקת בנטוניט",
+  "תאריך יציקה",
+  "מקור בטון",
+  "סוג בטון",
+  "סומך - דרישה",
+  "סומך - תוצאה",
+  "מס׳ תעודת בדיקת סומך",
+  "מס׳ תעודת בדיקת חוזק לחיצה",
+  "חוזק 7 ימים",
+  "חוזק 28 ימים",
+  "מעמד הבטון",
+  "בדיקה סונית - תאריך",
+  "בדיקה סונית - מס׳ תעודה",
+  "בדיקה סונית - מעמד",
+  "בדיקה אולטרה־סונית - תאריך",
+  "בדיקה אולטרה־סונית - מס׳ תעודה",
+  "בדיקה אולטרה־סונית - מעמד",
+  "תאריך As-Made",
+  "הערות",
+  "סטטוס",
+  "מספר יומן כלונסאות",
+];
+
+const buildPileConcentrationRows = (savedChecklists: any[]): Row[] =>
+  savedChecklists
+    .filter(
+      (checklist) =>
+        String(checklist?.templateKey ?? "") === "dryMethodPiles" ||
+        /כלונס/.test(
+          `${cleanText(checklist?.title)} ${cleanText(checklist?.category)}`,
+        ),
+    )
+    .map((checklist, index) => {
+      const details =
+        checklist?.pileDetails && typeof checklist.pileDetails === "object"
+          ? checklist.pileDetails
+          : {};
+      const approvalStatus = normalize(checklist?.approval?.status);
+      const status = firstText(
+        details.pileStatus,
+        checklist?.status,
+        approvalStatus === "approved"
+          ? "מאושר"
+          : approvalStatus === "rejected"
+            ? "לא מאושר"
+            : "בתהליך",
+      );
+      return {
+        'ביצוע בדיקות ע"י QC/QA': /QA|הבטחת איכות/i.test(
+          firstText(checklist?.qualityRole, checklist?.approval?.approvedBy),
+        )
+          ? "QA"
+          : "QC",
+        "מס׳ סדורי": index + 1,
+        "מס׳ רשימת תיוג": firstText(checklist?.checklistNo, checklist?.id),
+        "מבנה": firstText(checklist?.roadStructure, checklist?.structure),
+        "תת אלמנט / מס׳ כלונס": firstText(
+          details.pileNumber,
+          checklist?.element,
+          checklist?.location,
+        ),
+        "תאריך קדיחה": dateText(details.drillingDate ?? checklist?.date),
+        "קוטר כלונס ס״מ": firstText(details.diameterCm),
+        "עומק הכלונס המתוכנן": firstText(details.plannedDepth),
+        "עומק הכלונס בפועל": firstText(details.actualDepth),
+        "נפח יציקה מתוכנן": firstText(details.plannedVolume),
+        "נפח יציקה בפועל": firstText(details.actualVolume),
+        "מספר מנה בבדיקת בנטוניט": firstText(details.bentoniteBatchNo),
+        "צפיפות במיכל": firstText(details.tankDensity),
+        "הפרשת מים": firstText(details.waterSeparation),
+        PH: firstText(details.ph),
+        "צמיגות": firstText(details.viscosity),
+        "צפיפות בתחתית הבור": firstText(details.bottomDensity),
+        "אחוז חול במיכל": firstText(details.tankSandPercent),
+        "אחוז חול בתחתית הבור": firstText(details.bottomSandPercent),
+        "מס׳ תעודת בדיקת בנטוניט": firstText(details.bentoniteCertificateNo),
+        "תאריך יציקה": dateText(details.castDate),
+        "מקור בטון": firstText(details.concreteSource),
+        "סוג בטון": firstText(details.concreteType),
+        "סומך - דרישה": firstText(details.slumpRequirement),
+        "סומך - תוצאה": firstText(details.slumpResult),
+        "מס׳ תעודת בדיקת סומך": firstText(details.slumpCertificateNo),
+        "מס׳ תעודת בדיקת חוזק לחיצה": firstText(details.strengthCertificateNo),
+        "חוזק 7 ימים": firstText(details.strength7Days),
+        "חוזק 28 ימים": firstText(details.strength28Days),
+        "מעמד הבטון": firstText(
+          details.concreteStatus,
+          concreteStrengthStatusForConcentration(
+            details.concreteType,
+            details.strength28Days,
+          ),
+        ),
+        "בדיקה סונית - תאריך": dateText(details.sonicDate),
+        "בדיקה סונית - מס׳ תעודה": firstText(details.sonicCertificateNo),
+        "בדיקה סונית - מעמד": firstText(details.sonicStatus),
+        "בדיקה אולטרה־סונית - תאריך": dateText(details.ultrasonicDate),
+        "בדיקה אולטרה־סונית - מס׳ תעודה": firstText(
+          details.ultrasonicCertificateNo,
+        ),
+        "בדיקה אולטרה־סונית - מעמד": firstText(details.ultrasonicStatus),
+        "תאריך As-Made": dateText(details.asMadeDate),
+        "הערות": firstText(checklist?.notes),
+        "סטטוס": status,
+        "מספר יומן כלונסאות": firstText(details.pileLogNo),
+      };
+    });
 
 const normalizeConcreteTypeForConcentration = (value: unknown) => {
   const match = cleanText(value).match(/(?:ב\s*[-–]?\s*)?(30|40|50|60)/);
@@ -3051,6 +3179,16 @@ const definitions: ConcentrationDefinition[] = [
     buildRows: ({ savedChecklists }) => buildConcreteConcentrationRows(savedChecklists),
   },
   {
+    id: "piles",
+    title: "ריכוז כלונסאות",
+    fileName: "ריכוז כלונסאות.xlsx",
+    description:
+      "ריכוז אוטומטי בפורמט נתיבי ישראל מתוך רשימות תיוג כלונסאות שנשמרו במערכת",
+    sourceLabel: "רשימות תיוג / כלונסאות",
+    columns: pileOutputColumns,
+    buildRows: ({ savedChecklists }) => buildPileConcentrationRows(savedChecklists),
+  },
+  {
     id: "supervision",
     title: "ריכוז דוחות פיקוח עליון",
     fileName: "ריכוז דוחות פיקוח עליון.xlsx",
@@ -4343,6 +4481,242 @@ const buildConcreteWorksheetXml = (
 </worksheet>`;
 };
 
+const buildPileWorksheetXml = (
+  definition: ConcentrationDefinition,
+  rows: Row[],
+  meta: Required<ProjectConcentrationMeta>,
+) => {
+  let r = 1;
+  const sheetRows: string[] = [];
+  const widthCount = pileOutputColumns.length;
+  const headerRows = [
+    [
+      'ביצוע בדיקות ע"י QC/QA',
+      "מס׳ סדורי",
+      "מס׳ רשימת תיוג",
+      "מבנה",
+      "תת אלמנט / מס׳ כלונס",
+      "תאריך קדיחה",
+      "קוטר כלונס ס״מ",
+      "עומק הכלונס המתוכנן",
+      "עומק הכלונס בפועל",
+      "נפח יציקה מתוכנן",
+      "נפח יציקה בפועל",
+      "בדיקת בנטוניט",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "תאריך יציקה",
+      "מקור בטון",
+      "סוג בטון",
+      "בדיקת סומך",
+      "",
+      "",
+      "בדיקת חוזק לחיצה",
+      "",
+      "",
+      "",
+      "בדיקות אל־הרס – סוניות",
+      "",
+      "",
+      "בדיקות אל־הרס – אולטרה־סוניות",
+      "",
+      "",
+      "תאריך As-Made",
+      "הערות",
+      "סטטוס",
+      "מספר יומן כלונסאות",
+    ],
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "מספר מנה בבדיקה",
+      "צפיפות במיכל",
+      "הפרשת מים",
+      "PH",
+      "צמיגות",
+      "צפיפות בתחתית הבור",
+      "אחוז חול במיכל",
+      "אחוז חול בתחתית הבור",
+      "מס׳ תעודת בדיקת בנטוניט",
+      "",
+      "",
+      "",
+      "דרישה",
+      "תוצאה",
+      "מס׳ תעודת בדיקת סומך",
+      "מס׳ תעודת בדיקת חוזק לחיצה",
+      "7 ימים",
+      "28 ימים",
+      "מעמד הבטון",
+      "תאריך בדיקה",
+      "מס׳ תעודה",
+      "מעמד",
+      "תאריך בדיקה",
+      "מס׳ תעודה",
+      "מעמד",
+      "",
+      "",
+      "",
+      "",
+    ],
+  ];
+
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      16,
+      ["ריכוז כלונסאות", "", "", "", "", "", "", "", ""],
+      1,
+      24,
+    ),
+  );
+  sheetRows.push(emptyRowXml(r++, 10));
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      16,
+      ["שם הקבלן", "", meta.contractor, "", "שם פרויקט", "", meta.projectName],
+      2,
+      22,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      16,
+      [
+        "חברת ניהול",
+        "",
+        meta.projectManager || meta.projectManagement,
+        "",
+        "חוזה מס׳",
+        "",
+        "",
+      ],
+      2,
+      22,
+    ),
+  );
+  sheetRows.push(
+    rowXmlFromColumn(
+      r++,
+      16,
+      [
+        "חברת בקרת איכות",
+        "",
+        meta.qualityControl,
+        "",
+        "חברת הבטחת איכות",
+        "",
+        meta.qualityAssurance,
+      ],
+      2,
+      22,
+    ),
+  );
+  sheetRows.push(emptyRowXml(r++, 10));
+  headerRows.forEach((values) => sheetRows.push(rowXml(r++, values, 3, 34)));
+
+  if (rows.length) {
+    rows.forEach((item) =>
+      sheetRows.push(
+        rowXml(
+          r++,
+          pileOutputColumns.map((column) => item[column] ?? ""),
+          6,
+          28,
+        ),
+      ),
+    );
+  } else {
+    sheetRows.push(
+      rowXml(
+        r++,
+        [
+          "אין עדיין רשימות תיוג כלונסאות שמורות בפרויקט הנוכחי",
+          ...Array.from({ length: widthCount - 1 }, () => ""),
+        ],
+        4,
+        28,
+      ),
+    );
+  }
+
+  const cols = Array.from(
+    { length: widthCount },
+    (_, index) =>
+      `<col min="${index + 1}" max="${index + 1}" width="${
+        [3, 4, 21, 22, 37].includes(index)
+          ? 24
+          : index === 38
+            ? 16
+            : 13
+      }" customWidth="1"/>`,
+  ).join("");
+  const mergeRefs = [
+    "P1:X1",
+    "P3:Q3",
+    "R3:S3",
+    "T3:U3",
+    "V3:W3",
+    "P4:Q4",
+    "R4:S4",
+    "T4:U4",
+    "V4:W4",
+    "P5:Q5",
+    "R5:S5",
+    "T5:U5",
+    "V5:W5",
+    "A7:A8",
+    "B7:B8",
+    "C7:C8",
+    "D7:D8",
+    "E7:E8",
+    "F7:F8",
+    "G7:G8",
+    "H7:H8",
+    "I7:I8",
+    "J7:J8",
+    "K7:K8",
+    "L7:T7",
+    "U7:U8",
+    "V7:V8",
+    "W7:W8",
+    "X7:Z7",
+    "AA7:AD7",
+    "AE7:AG7",
+    "AH7:AJ7",
+    "AK7:AK8",
+    "AL7:AL8",
+    "AM7:AM8",
+    "AN7:AN8",
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"><pane ySplit="8" topLeftCell="A9" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows.join("")}</sheetData>
+  <autoFilter ref="A7:AN${Math.max(8, r - 1)}"/>
+  <mergeCells count="${mergeRefs.length}">${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -4356,6 +4730,7 @@ const buildWorksheetXml = (
   if (definition.id === "earthworks-material-results") return buildEarthworksMaterialResultsWorksheetXml(definition, rows, meta);
   if (definition.id === "density") return buildSubbaseFieldWorksheetXml(definition, rows, meta);
   if (definition.id === "concrete") return buildConcreteWorksheetXml(definition, rows, meta);
+  if (definition.id === "piles") return buildPileWorksheetXml(definition, rows, meta);
   if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
 };
