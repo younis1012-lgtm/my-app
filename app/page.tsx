@@ -6873,6 +6873,9 @@ function ProjectStructureSection({
   const [draftPlanTreeNodes, setDraftPlanTreeNodes] = useState<
     GeneratedProjectTreeDraft[] | null
   >(null);
+  const [selectedProposedTreeKeys, setSelectedProposedTreeKeys] = useState<
+    Set<string>
+  >(new Set());
   const planTreeProposal = useMemo(
     () => buildProjectTreeProposalFromPlans(plans),
     [plans],
@@ -6881,7 +6884,75 @@ function ProjectStructureSection({
 
   useEffect(() => {
     setDraftPlanTreeNodes(null);
+    setSelectedProposedTreeKeys(new Set());
   }, [plans]);
+
+  useEffect(() => {
+    const availableKeys = new Set(visiblePlanTreeNodes.map((node) => node.key));
+    setSelectedProposedTreeKeys(
+      (current) =>
+        new Set([...current].filter((key) => availableKeys.has(key))),
+    );
+  }, [visiblePlanTreeNodes]);
+
+  const toggleProposedTreeNodeSelection = (key: string) => {
+    setSelectedProposedTreeKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const allProposedTreeNodesSelected =
+    visiblePlanTreeNodes.length > 0 &&
+    visiblePlanTreeNodes.every((node) =>
+      selectedProposedTreeKeys.has(node.key),
+    );
+
+  const toggleAllProposedTreeNodes = () => {
+    setSelectedProposedTreeKeys(
+      allProposedTreeNodesSelected
+        ? new Set()
+        : new Set(visiblePlanTreeNodes.map((node) => node.key)),
+    );
+  };
+
+  const expandProposedTreeKeysWithDescendants = (initialKeys: Set<string>) => {
+    const keysToRemove = new Set(initialKeys);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      visiblePlanTreeNodes.forEach((item) => {
+        if (
+          item.parentKey &&
+          keysToRemove.has(item.parentKey) &&
+          !keysToRemove.has(item.key)
+        ) {
+          keysToRemove.add(item.key);
+          changed = true;
+        }
+      });
+    }
+    return keysToRemove;
+  };
+
+  const removeSelectedProposedTreeNodes = () => {
+    if (!selectedProposedTreeKeys.size) return;
+    const keysToRemove = expandProposedTreeKeysWithDescendants(
+      selectedProposedTreeKeys,
+    );
+    const addedDescendants =
+      keysToRemove.size - selectedProposedTreeKeys.size;
+    const message = addedDescendants
+      ? `להסיר ${selectedProposedTreeKeys.size} פריטים שסומנו וגם ${addedDescendants} פריטי משנה?`
+      : `להסיר ${keysToRemove.size} פריטים שסומנו מהעץ המוצע?`;
+    if (!window.confirm(message)) return;
+    setDraftPlanTreeNodes(
+      visiblePlanTreeNodes.filter((item) => !keysToRemove.has(item.key)),
+    );
+    setSelectedProposedTreeKeys(new Set());
+  };
 
   const editProposedTreeNode = (node: GeneratedProjectTreeDraft) => {
     const nextName = window.prompt("שם הפריט בעץ המוצע:", node.name);
@@ -6896,17 +6967,9 @@ function ProjectStructureSection({
   };
 
   const removeProposedTreeNode = (node: GeneratedProjectTreeDraft) => {
-    const keysToRemove = new Set([node.key]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      visiblePlanTreeNodes.forEach((item) => {
-        if (item.parentKey && keysToRemove.has(item.parentKey) && !keysToRemove.has(item.key)) {
-          keysToRemove.add(item.key);
-          changed = true;
-        }
-      });
-    }
+    const keysToRemove = expandProposedTreeKeysWithDescendants(
+      new Set([node.key]),
+    );
     const descendants = keysToRemove.size - 1;
     const message = descendants
       ? `להסיר את "${node.name}" וגם ${descendants} פריטי משנה מהעץ המוצע?`
@@ -6915,6 +6978,11 @@ function ProjectStructureSection({
     setDraftPlanTreeNodes(
       visiblePlanTreeNodes.filter((item) => !keysToRemove.has(item.key)),
     );
+    setSelectedProposedTreeKeys((current) => {
+      const next = new Set(current);
+      keysToRemove.forEach((key) => next.delete(key));
+      return next;
+    });
   };
   const input: CSSProperties = {
     width: "100%",
@@ -6999,6 +7067,56 @@ function ProjectStructureSection({
                 </div>
                 <div
                   style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    border: "1px solid #dbe3ef",
+                    borderRadius: 12,
+                    background: "#fff",
+                    padding: "9px 12px",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontWeight: 850,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allProposedTreeNodesSelected}
+                      onChange={toggleAllProposedTreeNodes}
+                      style={{ width: 18, height: 18, cursor: "pointer" }}
+                    />
+                    סמן את כל השורות
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ color: "#64748b", fontWeight: 800 }}>
+                      סומנו {selectedProposedTreeKeys.size}
+                    </span>
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.dangerBtn,
+                        padding: "8px 12px",
+                        opacity: selectedProposedTreeKeys.size ? 1 : 0.55,
+                      }}
+                      disabled={
+                        !canWrite || selectedProposedTreeKeys.size === 0
+                      }
+                      onClick={removeSelectedProposedTreeNodes}
+                    >
+                      הסר מסומנים
+                    </button>
+                  </div>
+                </div>
+                <div
+                  style={{
                     maxHeight: 420,
                     overflowY: "auto",
                     border: "1px solid #e2e8f0",
@@ -7012,13 +7130,26 @@ function ProjectStructureSection({
                       key={node.key}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gridTemplateColumns: "auto minmax(0, 1fr) auto",
                         gap: 10,
                         alignItems: "center",
                         padding: "7px 9px",
                         borderBottom: "1px solid #f1f5f9",
+                        background: selectedProposedTreeKeys.has(node.key)
+                          ? "#eff6ff"
+                          : "#fff",
                       }}
                     >
+                      <input
+                        type="checkbox"
+                        aria-label={`סימון ${node.name}`}
+                        checked={selectedProposedTreeKeys.has(node.key)}
+                        disabled={!canWrite}
+                        onChange={() =>
+                          toggleProposedTreeNodeSelection(node.key)
+                        }
+                        style={{ width: 18, height: 18, cursor: "pointer" }}
+                      />
                       <div
                         style={{
                           paddingInlineStart: node.parentKey ? 25 : 0,
