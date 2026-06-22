@@ -4819,6 +4819,7 @@ type InlineChecklistSectionProps = {
   resetChecklistForm: (templateKey?: ChecklistTemplateKey) => void;
   projectName: string;
   projectPlans: PlanRecord[];
+  projectStructureNodes: ProjectStructureNode[];
   resolveResponsibleNameForProject: (responsible: unknown) => string;
   onUploadAttachment: (
     itemId: string,
@@ -5133,6 +5134,7 @@ function ChecklistsSection({
   resetChecklistForm,
   projectName,
   projectPlans,
+  projectStructureNodes,
   resolveResponsibleNameForProject,
   onUploadAttachment,
   onRemoveAttachment,
@@ -5164,6 +5166,9 @@ function ChecklistsSection({
   const setField = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({ ...prev, [field]: value }));
   const availableProjectPlans = projectPlans;
+  const availableStructureNodes = sortProjectStructureNodes(
+    projectStructureNodes,
+  );
   const selectExecutionPlan = (planId: string) => {
     const plan = availableProjectPlans.find((item) => item.id === planId);
     setChecklistForm((prev: any) => ({
@@ -5471,6 +5476,46 @@ function ChecklistsSection({
                 </optgroup>
               ))}
             </select>
+          </label>
+          <label>
+            <span style={labelStyle}>שיוך לעץ הפרויקט</span>
+            <select
+              value={(checklistForm as any).structureNodeId ?? ""}
+              onChange={(event) =>
+                setField("structureNodeId", event.target.value)
+              }
+              style={{
+                ...inputStyle,
+                borderColor: (checklistForm as any).structureNodeId
+                  ? "#2563eb"
+                  : "#cbd5e1",
+                background: (checklistForm as any).structureNodeId
+                  ? "#eff6ff"
+                  : "#fff",
+              }}
+            >
+              <option value="">ללא שיוך לעץ הפרויקט</option>
+              {availableStructureNodes.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {buildProjectStructurePath(projectStructureNodes, node.id) ||
+                    `${projectStructureTypeLabel(node.nodeType)} - ${node.name}`}
+                </option>
+              ))}
+            </select>
+            {!availableStructureNodes.length ? (
+              <span
+                style={{
+                  color: "#b45309",
+                  fontSize: 12,
+                  fontWeight: 750,
+                  marginTop: 5,
+                  display: "block",
+                }}
+              >
+                עדיין לא נשמר עץ פרויקט. יש ליצור ולשמור אותו בלשונית „עץ
+                פרויקט”.
+              </span>
+            ) : null}
           </label>
           <label>
             <span style={labelStyle}>שם רשימת תיוג</span>
@@ -19850,7 +19895,6 @@ ${invalidRecipients.join("\n")}`);
     "controlProcesses",
     "rfi",
     "supervisionReports",
-    "checklists",
     "nonconformances",
     "trialSections",
     "preliminary",
@@ -21280,6 +21324,7 @@ ${invalidRecipients.join("\n")}`);
                 resetChecklistForm={resetChecklistForm}
                 projectName={projectName}
                 projectPlans={currentProjectPlans}
+                projectStructureNodes={currentProjectStructureNodes}
                 resolveResponsibleNameForProject={resolveResponsibleNameForCurrentProject}
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
