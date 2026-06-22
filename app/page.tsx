@@ -3781,9 +3781,10 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
   {
     id: "concrete-structures",
     title: "רשימות תיוג בטון ומבנים",
-    description: "יציקות, אבני שפה, מסלעות ועבודות JK",
+    description: "יציקות, כלונסאות, אבני שפה, מסלעות ועבודות JK",
     templateKeys: [
       "siteConcrete",
+      "dryMethodPiles",
       "castCurbstone",
       "curbstones",
       "rockWall",
