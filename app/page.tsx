@@ -15732,6 +15732,37 @@ export default function Page() {
   const selectedChecklistFolder =
     getChecklistTemplateFolder(normalizeChecklistTemplateKey(selectedChecklistTemplateKey));
 
+  const extractNonconformanceOrderNo = (record: any) => {
+    const extractNumber = (value: unknown) => {
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+      const text = String(value ?? "");
+      const match =
+        text.match(/No[.\s:-]*(\d+)/i) ??
+        text.match(/#\s*(\d+)/) ??
+        text.match(/(?:^|\s)(\d+)(?:\s|$)/);
+      return match ? Number(match[1]) || 0 : 0;
+    };
+    const candidates = [
+      record?.serialNumber,
+      record?.number,
+      record?.ncrNumber,
+      record?.nonconformanceNumber,
+      record?.title,
+    ];
+    for (const value of candidates) {
+      const extracted = extractNumber(value);
+      if (extracted > 0) return extracted;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+
+  const nonconformanceOrderDate = (record: any) => {
+    const timestamp = Date.parse(
+      String(record?.date || record?.savedAt || record?.createdAt || record?.updatedAt || ""),
+    );
+    return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+  };
+
   const projectNonconformances = useMemo(
     () =>
       savedNonconformances
@@ -15743,7 +15774,14 @@ export default function Page() {
               .join(" ")
               .toLowerCase()
               .includes(normalizedSearchTerm),
-        ),
+        )
+        .sort((a, b) => {
+          const byNumber = extractNonconformanceOrderNo(a) - extractNonconformanceOrderNo(b);
+          if (byNumber) return byNumber;
+          const byDate = nonconformanceOrderDate(a) - nonconformanceOrderDate(b);
+          if (byDate) return byDate;
+          return String(a?.title ?? "").localeCompare(String(b?.title ?? ""), "he");
+        }),
     [
       savedNonconformances,
       currentProjectIdNormalized,
