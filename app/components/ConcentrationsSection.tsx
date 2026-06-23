@@ -3015,6 +3015,9 @@ const earthworksMaterialResultsColumns = [
   "הערות",
 ];
 
+const earthworksMaterialResultsSerialColumn = earthworksMaterialResultsColumns[1];
+const earthworksMaterialResultsDateColumn = earthworksMaterialResultsColumns[4];
+
 const earthworksMaterialResultRow = (process: any, serial: number): Row => {
   const certificateNo = firstText(
     gradingLineResultValue(process, ["תעודה מס׳", "תעודה מס'", "מספר תעודה", "מספר תעודת בדיקה"]),
@@ -3094,7 +3097,17 @@ const buildEarthworksMaterialResultsRows = (processes: any[] = []): Row[] =>
         date: firstText(sampleRow["תאריך הבדיקה"], process?.date),
       }));
     })
-    .map((process: any, index: number) => earthworksMaterialResultRow(process, index + 1));
+    .map((process: any, index: number) => ({ row: earthworksMaterialResultRow(process, 0), index }))
+    .sort((a, b) => {
+      const byDate =
+        (parseDateOrderTime(a.row[earthworksMaterialResultsDateColumn]) ?? Number.POSITIVE_INFINITY) -
+        (parseDateOrderTime(b.row[earthworksMaterialResultsDateColumn]) ?? Number.POSITIVE_INFINITY);
+      return byDate || a.index - b.index;
+    })
+    .map(({ row }, index) => ({
+      ...row,
+      [earthworksMaterialResultsSerialColumn]: index + 1,
+    }));
 
 const definitions: ConcentrationDefinition[] = [
   {
