@@ -13334,8 +13334,8 @@ function ChecklistTrackingSection({
 }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("הכול");
-  const [sortKey, setSortKey] = useState<ChecklistTrackingSortKey>("number");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [sortKey, setSortKey] = useState<ChecklistTrackingSortKey>("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [columnFilters, setColumnFilters] = useState<
@@ -13351,7 +13351,7 @@ function ChecklistTrackingSection({
           .sort();
         const date =
           normalizeDateValue(record.date) ||
-          itemDates[itemDates.length - 1] ||
+          itemDates[0] ||
           normalizeDateValue(record.savedAt);
         const raw = record as any;
         return {
@@ -13498,7 +13498,7 @@ function ChecklistTrackingSection({
       return;
     }
     setSortKey(key);
-    setSortDirection(key === "number" || key === "date" ? "desc" : "asc");
+    setSortDirection("asc");
   };
 
   const sortMarker = (key: ChecklistTrackingSortKey) =>
@@ -15699,6 +15699,22 @@ export default function Page() {
     ],
   );
 
+  const checklistOrderTime = (record: any, fallbackIndex: number) => {
+    const itemDates = (Array.isArray(record?.items) ? record.items : [])
+      .map((item: any) => normalizeDateValue(item?.executionDate || item?.date || item?.signedAt))
+      .filter(Boolean)
+      .sort();
+    const raw = String(
+      normalizeDateValue(record?.executionDate || record?.date) ||
+        itemDates[0] ||
+        normalizeDateValue(record?.savedAt || record?.createdAt) ||
+        "",
+    ).trim();
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+    return fallbackIndex;
+  };
+
   const projectChecklists = useMemo(
     () =>
       savedChecklists
@@ -15710,7 +15726,10 @@ export default function Page() {
               .join(" ")
               .toLowerCase()
               .includes(normalizedSearchTerm),
-        ),
+        )
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) => checklistOrderTime(a.item, a.index) - checklistOrderTime(b.item, b.index) || a.index - b.index)
+        .map(({ item }) => item),
     [
       savedChecklists,
       currentProjectIdNormalized,

@@ -257,6 +257,64 @@ const preliminaryOrderTime = (record: any, fallbackIndex: number) => {
   return parseDateOrderTime(raw) ?? recordOrderTime(record, fallbackIndex);
 };
 
+const concentrationDateColumnPriority = [
+  "תאריך ביצוע",
+  "תאריך הבדיקה",
+  "תאריך בדיקה",
+  "תאריך אישור",
+  "תאריך פתיחה",
+  "תאריך פתיחת",
+  "תאריך קדיחה",
+  "תאריך יציקה",
+  "תאריך",
+];
+
+const isConcentrationSerialColumn = (column: string, index: number) => {
+  const normalized = normalize(column);
+  if (normalized.includes("סידורי")) return true;
+  if (index === 0 && /^(מס|מספר)$/.test(normalized)) return true;
+  return false;
+};
+
+const normalizeConcentrationRows = (
+  definition: { columns: string[]; id?: string },
+  rows: Row[],
+): Row[] => {
+  if (!rows.length) return rows;
+  const serialColumn = definition.columns.find(isConcentrationSerialColumn);
+  const dateColumns = concentrationDateColumnPriority
+    .map((label) =>
+      definition.columns.find((column) => {
+        const normalizedColumn = normalize(column);
+        const normalizedLabel = normalize(label);
+        return normalizedColumn === normalizedLabel || normalizedColumn.includes(normalizedLabel);
+      }),
+    )
+    .filter(Boolean) as string[];
+
+  if (!dateColumns.length && !serialColumn) return rows;
+
+  const sorted = rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const aTime =
+        dateColumns
+          .map((column) => parseDateOrderTime(a.row[column]))
+          .find((value): value is number => typeof value === "number") ??
+        Number.POSITIVE_INFINITY;
+      const bTime =
+        dateColumns
+          .map((column) => parseDateOrderTime(b.row[column]))
+          .find((value): value is number => typeof value === "number") ??
+        Number.POSITIVE_INFINITY;
+      return aTime - bTime || a.index - b.index;
+    });
+
+  return sorted.map(({ row }, index) =>
+    serialColumn ? { ...row, [serialColumn]: index + 1 } : row,
+  );
+};
+
 const attachmentName = (attachment: any) => firstText(attachment?.name, attachment?.fileName, attachment?.attachmentName);
 
 const certificateNumberFromAttachment = (attachment: any): string => {
@@ -4827,7 +4885,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     const result: Record<string, Row[]> = {};
     definitions.forEach((definition) => {
       try {
-        result[definition.id] = definition.buildRows(ctx);
+        result[definition.id] = normalizeConcentrationRows(definition, definition.buildRows(ctx));
       } catch (error) {
         console.error(`Failed building concentration ${definition.id}`, error);
         result[definition.id] = [];
