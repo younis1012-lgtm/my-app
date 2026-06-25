@@ -2236,6 +2236,43 @@ const earthworksChecklistSortValue = (value: unknown, fallback: number): number 
   return match ? Number(match[0]) : fallback;
 };
 
+const earthworksRowDateSortValue = (row: Row, fallback: number): number =>
+  parseDateOrderTime(
+    firstText(
+      row["תאריך הבדיקה"],
+      row["תאריך ביצוע"],
+      row["תאריך אישור"],
+      row["תאריך"],
+      row["מתאריך"],
+    ),
+  ) ?? fallback;
+
+const earthworksRowLayerSortValue = (row: Row, fallback: number): number =>
+  earthworksChecklistSortValue(
+    firstText(
+      row["שכבה מס'"],
+      row["מס' שכבה"],
+      row["מס׳ שכבה"],
+      row["מספר שכבה"],
+      row["שכבה"],
+    ),
+    fallback,
+  );
+
+const compareEarthworksRowsByDateLayer = (a: Row, b: Row): number =>
+  earthworksRowDateSortValue(a, Number.POSITIVE_INFINITY) -
+    earthworksRowDateSortValue(b, Number.POSITIVE_INFINITY) ||
+  earthworksRowLayerSortValue(a, Number.POSITIVE_INFINITY) -
+    earthworksRowLayerSortValue(b, Number.POSITIVE_INFINITY) ||
+  earthworksChecklistSortValue(a["מחתך"], Number.POSITIVE_INFINITY) -
+    earthworksChecklistSortValue(b["מחתך"], Number.POSITIVE_INFINITY) ||
+  earthworksChecklistSortValue(a["עד חתך"], Number.POSITIVE_INFINITY) -
+    earthworksChecklistSortValue(b["עד חתך"], Number.POSITIVE_INFINITY) ||
+  earthworksChecklistSortValue(a["רשימת תיוג"], Number.POSITIVE_INFINITY) -
+    earthworksChecklistSortValue(b["רשימת תיוג"], Number.POSITIVE_INFINITY) ||
+  earthworksChecklistSortValue(a["מס' סדורי"], Number.POSITIVE_INFINITY) -
+    earthworksChecklistSortValue(b["מס' סדורי"], Number.POSITIVE_INFINITY);
+
 
 const exactResultValue = (source: any, aliases: string[]): string => {
   if (!source || typeof source !== "object") return "";
@@ -2798,17 +2835,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
   });
 
   return rows
-    .sort((a, b) => {
-      const checklistDiff =
-        earthworksChecklistSortValue(a["רשימת תיוג"], 0) -
-        earthworksChecklistSortValue(b["רשימת תיוג"], 0);
-      if (checklistDiff !== 0) return checklistDiff;
-
-      const fromDiff =
-        earthworksChecklistSortValue(a["מחתך"], 0) -
-        earthworksChecklistSortValue(b["מחתך"], 0);
-      return fromDiff;
-    })
+    .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
 };
 
@@ -3023,13 +3050,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
   });
 
   return rows
-    .sort((a, b) => {
-      const checklistDiff =
-        earthworksChecklistSortValue(a["רשימת תיוג"], 0) -
-        earthworksChecklistSortValue(b["רשימת תיוג"], 0);
-      if (checklistDiff !== 0) return checklistDiff;
-      return earthworksChecklistSortValue(a["מחתך"], 0) - earthworksChecklistSortValue(b["מחתך"], 0);
-    })
+    .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
 };
 
@@ -3191,7 +3212,12 @@ const buildEarthworksMaterialResultsRows = (processes: any[] = []): Row[] =>
       const byDate =
         (parseDateOrderTime(a.row[earthworksMaterialResultsDateColumn]) ?? Number.POSITIVE_INFINITY) -
         (parseDateOrderTime(b.row[earthworksMaterialResultsDateColumn]) ?? Number.POSITIVE_INFINITY);
-      return byDate || a.index - b.index;
+      return (
+        byDate ||
+        earthworksRowLayerSortValue(a.row, Number.POSITIVE_INFINITY) -
+          earthworksRowLayerSortValue(b.row, Number.POSITIVE_INFINITY) ||
+        a.index - b.index
+      );
     })
     .map(({ row }, index) => ({
       ...row,

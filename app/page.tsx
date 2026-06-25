@@ -13436,6 +13436,33 @@ function ChecklistTrackingSection({
     [trackingRows],
   );
 
+  const trackingDateOrderValue = (value: unknown, fallbackIndex: number) => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return fallbackIndex;
+
+    const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) {
+      const time = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
+      return Number.isFinite(time) ? time : fallbackIndex;
+    }
+
+    const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+    if (local) {
+      const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
+      const time = new Date(year, Number(local[2]) - 1, Number(local[1])).getTime();
+      return Number.isFinite(time) ? time : fallbackIndex;
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : fallbackIndex;
+  };
+
+  const trackingNumericOrderValue = (value: unknown, fallbackIndex: number) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const match = String(value ?? "").match(/\d+(?:[.,]\d+)?/);
+    return match ? Number(match[0].replace(",", ".")) : fallbackIndex;
+  };
+
   const columnFilterOptions = useMemo(() => {
     const keys = Object.keys(
       EMPTY_CHECKLIST_TRACKING_FILTERS,
@@ -13493,7 +13520,11 @@ function ChecklistTrackingSection({
       const comparison =
         sortKey === "number"
           ? Number(left || 0) - Number(right || 0)
-          : left.localeCompare(right, "he", { numeric: true });
+          : sortKey === "date"
+            ? trackingDateOrderValue(a.date, 0) - trackingDateOrderValue(b.date, 0) ||
+              trackingNumericOrderValue(a.layer, 0) - trackingNumericOrderValue(b.layer, 0) ||
+              trackingNumericOrderValue(a.number, 0) - trackingNumericOrderValue(b.number, 0)
+            : left.localeCompare(right, "he", { numeric: true });
       return sortDirection === "asc" ? comparison : -comparison;
     });
   }, [
@@ -15743,6 +15774,47 @@ export default function Page() {
     return fallbackIndex;
   };
 
+  const checklistNumericOrderValue = (value: unknown, fallbackIndex: number) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const match = String(value ?? "").match(/\d+(?:[.,]\d+)?/);
+    return match ? Number(match[0].replace(",", ".")) : fallbackIndex;
+  };
+
+  const checklistLayerOrderValue = (record: any, fallbackIndex: number) => {
+    const directLayer = checklistNumericOrderValue(
+      record?.layerNo ??
+        record?.layerNumber ??
+        record?.layer ??
+        record?.location ??
+        record?.details?.layerNo ??
+        record?.details?.layerNumber ??
+        record?.details?.layer,
+      Number.NaN,
+    );
+    if (Number.isFinite(directLayer)) return directLayer;
+
+    const itemLayers = (Array.isArray(record?.items) ? record.items : [])
+      .map((item: any) =>
+        checklistNumericOrderValue(
+          item?.layerNo ??
+            item?.layerNumber ??
+            item?.layer ??
+            item?.location ??
+            item?.results?.layerNo ??
+            item?.results?.layerNumber ??
+            item?.results?.layer,
+          Number.NaN,
+        ),
+      )
+      .filter((value: number) => Number.isFinite(value))
+      .sort((a: number, b: number) => a - b);
+
+    return itemLayers[0] ?? fallbackIndex;
+  };
+
+  const checklistSerialOrderValue = (record: any, fallbackIndex: number) =>
+    checklistNumericOrderValue(record?.checklistNo ?? record?.checklistNumber ?? record?.number, fallbackIndex);
+
   const projectChecklists = useMemo(
     () =>
       savedChecklists
@@ -15756,7 +15828,13 @@ export default function Page() {
               .includes(normalizedSearchTerm),
         )
         .map((item, index) => ({ item, index }))
-        .sort((a, b) => checklistOrderTime(a.item, a.index) - checklistOrderTime(b.item, b.index) || a.index - b.index)
+        .sort(
+          (a, b) =>
+            checklistOrderTime(a.item, a.index) - checklistOrderTime(b.item, b.index) ||
+            checklistLayerOrderValue(a.item, a.index) - checklistLayerOrderValue(b.item, b.index) ||
+            checklistSerialOrderValue(a.item, a.index) - checklistSerialOrderValue(b.item, b.index) ||
+            a.index - b.index,
+        )
         .map(({ item }) => item),
     [
       savedChecklists,
