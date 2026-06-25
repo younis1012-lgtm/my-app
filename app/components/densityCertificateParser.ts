@@ -296,6 +296,140 @@ const soilSurveyCertificateNumber = (fileName: string, text: string) => {
 const firstDateInText = (text: string) =>
   clean(text.match(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/)?.[0] ?? "");
 
+const extractControlledDensityRows = (
+  text: string,
+  defaults: {
+    certificateNo?: string;
+    testDate?: string;
+    layer?: string;
+    location?: string;
+    lowerLimit?: string;
+    upperLimit?: string;
+    material?: string;
+    aashto?: string;
+  } = {}
+) => {
+  const rows: Array<Record<string, string>> = [];
+  const seen = new Set<string>();
+
+  text
+    .split("\n")
+    .map(clean)
+    .filter(Boolean)
+    .forEach((line) => {
+      const values = Array.from(line.matchAll(/-?\d+(?:[.,]\d+)?/g)).map((match) =>
+        match[0].replace(",", ".")
+      );
+      if (values.length < 6) return;
+
+      const pushRow = (
+        sampleNo: number,
+        layer: number,
+        wetDensity: number,
+        maxDensity: number,
+        oversize: number,
+        moisture: number,
+        compaction: number
+      ) => {
+        const location =
+          line.match(/(?:מתחת|ממחת)\s+ליסוד/)?.[0] ||
+          line.match(/קיר(?:\s+\S+)?/)?.[0] ||
+          defaults.location ||
+          "";
+        const key = `${sampleNo}|${wetDensity}|${maxDensity}|${moisture}|${compaction}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const status =
+          defaults.lowerLimit && Number.isFinite(Number(defaults.lowerLimit))
+            ? compaction >= Number(defaults.lowerLimit)
+              ? "OK"
+              : "לא תקין"
+            : "OK";
+
+        rows.push({
+          "מספר בדיקה": String(sampleNo),
+          "מספר תעודת בדיקה": defaults.certificateNo ?? "",
+          "מס' תעודת בדיקה צפיפות/ רטיבות שדה": defaults.certificateNo ?? "",
+          "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": defaults.certificateNo ?? "",
+          "תאריך הבדיקה": defaults.testDate ?? "",
+          "מקום נטילה": location,
+          "מקום הבדיקה": location,
+          "שכבה מס'": String(layer),
+          "שכבה מס׳": String(layer),
+          "צפיפות רטובה": String(wetDensity),
+          "צפיפות רטובה מבוקרת": String(wetDensity),
+          "צפיפות מקס מעבדתית": String(maxDensity),
+          "צפיפות מעבדתית מקסימלית": String(maxDensity),
+          "+3/4": String(oversize),
+          "רטיבות": String(moisture),
+          "רטיבות ממוצעת": String(moisture),
+          "דרגת הידוק": String(compaction),
+          "צפיפות מחושבת": String(compaction),
+          "תוצאות בדיקה": String(compaction),
+          "ממוצע": String(compaction),
+          "גבול תחתון": defaults.lowerLimit ?? "",
+          "גבול עליון": defaults.upperLimit ?? "",
+          "הידוק מבוקר (צפיפות מד גרעיני)": "1",
+          "מעמד צפיפות/רטיבות": status,
+          "מעמד תוצאות": status,
+          "תאור החומר": defaults.material ?? "",
+          "תיאור החומר": defaults.material ?? "",
+          "מיון החומר": defaults.aashto ?? "",
+          "מיון AASHTO": defaults.aashto ?? "",
+        });
+      };
+
+      for (let i = 0; i <= values.length - 6; i += 1) {
+        const compaction = Number(values[i]);
+        const moisture = Number(values[i + 1]);
+        const oversize = Number(values[i + 2]);
+        const maxDensity = Number(values[i + 3]);
+        const wetDensity = Number(values[i + 4]);
+        const layer = Number(values[i + 5]);
+
+        if (!(compaction >= 80 && compaction <= 120)) continue;
+        if (!(moisture >= 0 && moisture <= 60)) continue;
+        if (!(oversize >= 0 && oversize <= 100)) continue;
+        if (!(maxDensity >= 1000 && maxDensity <= 3000)) continue;
+        if (!(wetDensity >= 1000 && wetDensity <= 3000)) continue;
+        if (!(layer >= 0 && layer <= 100)) continue;
+
+        const sampleNo =
+          values
+            .slice(i + 6)
+            .map((value) => Number(value))
+            .find((value) => value >= 1 && value <= 999) ??
+          rows.length + 1;
+        pushRow(sampleNo, layer, wetDensity, maxDensity, oversize, moisture, compaction);
+        return;
+      }
+
+      for (let i = 0; i <= values.length - 8; i += 1) {
+        const sampleNo = Number(values[i]);
+        const layer = Number(values[i + 2]);
+        const wetDensity = Number(values[i + 3]);
+        const maxDensity = Number(values[i + 4]);
+        const oversize = Number(values[i + 5]);
+        const moisture = Number(values[i + 6]);
+        const compaction = Number(values[i + 7]);
+
+        if (!(sampleNo >= 1 && sampleNo <= 999)) continue;
+        if (!(layer >= 0 && layer <= 100)) continue;
+        if (!(wetDensity >= 1000 && wetDensity <= 3000)) continue;
+        if (!(maxDensity >= 1000 && maxDensity <= 3000)) continue;
+        if (!(oversize >= 0 && oversize <= 100)) continue;
+        if (!(moisture >= 0 && moisture <= 60)) continue;
+        if (!(compaction >= 80 && compaction <= 120)) continue;
+
+        pushRow(sampleNo, layer, wetDensity, maxDensity, oversize, moisture, compaction);
+        return;
+      }
+    });
+
+  return rows;
+};
+
 const soilSurveyTestDate = (text: string) => {
   const dates = Array.from(text.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g))
     .map((match) => clean(match[0]))
@@ -507,6 +641,52 @@ export const parseEarthworksDensityText = (
 
   if (aashto) {
     results["מיון החומר"] = aashto;
+  }
+
+  const upperLimit = pickValueNearLabel(text, [
+    "La' =",
+    "ערך עליון",
+    "גבול עליון",
+  ]);
+  if (upperLimit) results["גבול עליון"] = upperLimit;
+
+  const sampleRows = extractControlledDensityRows(text, {
+    certificateNo,
+    testDate: results["תאריך הבדיקה"],
+    layer: results["שכבה מס'"],
+    location: results["מקום נטילה"],
+    lowerLimit: results["גבול תחתון"],
+    upperLimit: results["גבול עליון"],
+    material: results["תאור החומר"],
+    aashto: results["מיון החומר"],
+  });
+
+  if (sampleRows.length) {
+    const compactionValues = sampleRows
+      .map((row) => Number(row["דרגת הידוק"]))
+      .filter((value) => Number.isFinite(value));
+    const moistureValues = sampleRows
+      .map((row) => Number(row["רטיבות"]))
+      .filter((value) => Number.isFinite(value));
+    const average = (values: number[]) =>
+      values.length
+        ? (values.reduce((sum, value) => sum + value, 0) / values.length)
+            .toFixed(1)
+            .replace(/\.0$/, "")
+        : "";
+
+    results["sampleRows"] = sampleRows;
+    results["rows"] = sampleRows;
+    results["כמות נקודות בדיקה"] = String(sampleRows.length);
+    results["הידוק מבוקר (צפיפות מד גרעיני)"] = String(sampleRows.length);
+    results["צפיפות מחושבת"] = average(compactionValues);
+    results["ממוצע"] = results["צפיפות מחושבת"];
+    results["רטיבות ממוצעת"] = average(moistureValues);
+    results["מעמד צפיפות/רטיבות"] =
+      results["גבול תחתון"] && Number(results["צפיפות מחושבת"]) < Number(results["גבול תחתון"])
+        ? "לא תקין"
+        : "OK";
+    results["מעמד תוצאות"] = results["מעמד צפיפות/רטיבות"];
   }
 
   if (

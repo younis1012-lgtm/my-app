@@ -4093,21 +4093,10 @@ const buildEarthworksWorksheetXml = (
 ) => {
   const sheetRows: string[] = [
     emptyRowXml(1, 14),
-    sparseRowXml(2, [
-      ...rangeCells(3, ['שם פרויקט:', '', meta.projectName, '', '', ''], 2),
-      ...rangeCells(13, ['בדיקות  שדה - עבודות עפר', '', ''], 1),
-    ], 20),
-    sparseRowXml(3, [
-      ...rangeCells(3, ['ניהול פרויקט', '', meta.projectManager || meta.projectManagement, '', '', ''], 2),
-      ...rangeCells(13, ['בדיקות  שדה - עבודות עפר', '', '', '', '', '', '', '', '', '', '', '', '', '', ''], 1),
-    ], 22),
-    sparseRowXml(4, [
-      ...rangeCells(3, ['שם הקבלן', '', meta.contractor, '', '', ''], 2),
-    ], 20),
-    sparseRowXml(5, [
-      ...rangeCells(3, [`בקרת איכות- ${meta.qualityControl || ''}`, '', '', ''], 2),
-      ...rangeCells(7, [`הבטחת איכות -${meta.qualityAssurance || ''}`, '', '', ''], 2),
-    ], 20),
+    rowXmlFromColumn(2, 8, ['בדיקות  שדה - עבודות עפר', '', '', '', '', '', '', '', '', '', '', ''], 1, 22),
+    rowXmlFromColumn(3, 8, ['שם פרויקט:', '', meta.projectName, '', '', '', 'שם הקבלן', '', meta.contractor, '', '', ''], 2, 20),
+    rowXmlFromColumn(4, 8, ['ניהול פרויקט', '', meta.projectManager || meta.projectManagement, '', '', '', 'בקרת איכות', '', meta.qualityControl, '', '', ''], 2, 20),
+    rowXmlFromColumn(5, 8, ['הבטחת איכות', '', meta.qualityAssurance, '', '', '', '', '', '', '', '', ''], 2, 20),
     rowXml(6, earthworksNetiveiTopHeader, 3, 42),
     rowXml(7, earthworksNetiveiSecondHeader, 4, 24),
     rowXml(8, earthworksNetiveiThirdHeader, 4, 24),
@@ -4126,10 +4115,10 @@ const buildEarthworksWorksheetXml = (
   const widths = [12, 10, 12, 14, 16, 10, 10, 9, 18, 10, 11, 12, 18, 18, 16, 16, 20, 13, 11, 22, 18, 11, 20, 11, 13, 11, 24, 12, 11, 16, 14, 14, 14, 11, 20, 14, 16, 30];
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('');
   const merges = [
-    'C2:D2', 'E2:J2', 'M2:O2',
-    'C3:D3', 'E3:J3', 'M3:AA4',
-    'C4:D4', 'E4:J4',
-    'C5:F5', 'G5:J5', 'M5:O5',
+    'H2:S2',
+    'H3:I3', 'J3:M3', 'N3:O3', 'P3:S3',
+    'H4:I4', 'J4:M4', 'N4:O4', 'P4:S4',
+    'H5:I5', 'J5:M5',
     'A6:A8', 'B6:B8', 'C6:C8', 'D6:D8', 'E6:E8', 'F6:F8', 'G6:G8', 'H6:H8', 'I6:I8', 'J6:J8', 'K6:K8', 'L6:L8', 'M6:M8', 'N6:N8', 'O6:O8', 'P6:P8',
     'Q6:Q8', 'R6:R8', 'S6:S8', 'T6:T8', 'U6:U8', 'V6:V8', 'W6:W8', 'X6:X8', 'Y6:Y8', 'Z6:Z8', 'AA6:AA8', 'AB6:AB8', 'AC6:AC8',
     'AD6:AH6', 'AD7:AD8', 'AE7:AG7', 'AH7:AH8',
