@@ -150,8 +150,12 @@ const firstText = (...values: unknown[]) =>
   values.map(clean).find(Boolean) ?? "";
 
 const mapEarthworksDensityOcrData = (data: any): DensityCertificateResults => {
-  const fields = data?.fields ?? {};
-  const sampleRows = Array.isArray(data?.sampleRows) ? data.sampleRows : [];
+  const fields = data?.fields ?? data ?? {};
+  const sampleRows = Array.isArray(data?.sampleRows)
+    ? data.sampleRows
+    : Array.isArray(data?.rows)
+      ? data.rows
+      : [];
   const certificateNo = firstText(fields.densityCertificateNo, fields.certificateNo);
   const testDate = firstText(fields.testDate);
   const layer = firstText(fields.layerNo, fields.layerCode);
@@ -897,8 +901,7 @@ export const extractEarthworksDensityFromFile = async (
     );
 
     const parsedRows = Array.isArray(parsed.sampleRows) ? parsed.sampleRows : [];
-    const parsedFieldCount = Object.keys(parsed).filter((key) => key !== "הערות").length;
-    if (parsedRows.length || parsedFieldCount >= 5) return parsed;
+    if (parsedRows.length) return parsed;
 
     const ocrParsed = await extractEarthworksDensityByOcr(file);
     return Object.keys(ocrParsed).length ? { ...parsed, ...ocrParsed } : parsed;
