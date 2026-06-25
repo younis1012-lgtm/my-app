@@ -1112,7 +1112,8 @@ For dates, return yyyy-mm-dd when possible. Do not invent values.`;
       const prompt = `You are extracting an Israeli QA/QC earthworks field density certificate.
 Return JSON only using the supplied schema. Read the attached PDF/image visually, including scanned pages.
 
-Document type: בדיקת צפיפות שדה / צפיפות באמצעות מכשיר גרעיני / הידוק מבוקר.
+Document type: בדיקת צפיפות שדה / צפיפות באמצעות מכשיר גרעיני / הידוק מבוקר / בדיקת שדה למצעים / מצע א׳.
+This also covers scanned certificates from Israeli laboratories such as קבוצת הנדסה / ברוק / MBD where the PDF may be image-only.
 
 Extract fields exactly as printed:
 - densityCertificateNo: the certificate/report number near "תעודה מס׳" or "דו״ח בדיקה מספר". Preserve slash, e.g. 682440/0. Do not use project number.
@@ -1122,13 +1123,13 @@ Extract fields exactly as printed:
 - contractor: שם המזמין/קבלן.
 - siteName: שם האתר.
 - layerNo/layerCode: קוד השכבה or שכבה מספר.
-- structureLayer: שכבת המבנה.
+- structureLayer: שכבת המבנה, e.g. מילוי נברר, קרקע יסוד, שתית, מצע א׳, מצעים.
 - materialDescription: תאור מדגם / תיאור החומר.
 - materialSource: מקור החומר.
 - sampleLocation: מיקום הבדיקה exactly enough to identify the tested location.
 - fromSection/toSection: if location contains "מחתך 126-131", return fromSection=126 and toSection=131.
 - side: R/L/R+L/ימין/שמאל only if printed.
-- referenceCertificateNo: the 100% / proctor / אפיון certificate number, usually near "הנתונים מתוך תעודה מס׳".
+- referenceCertificateNo: the 100% / proctor / אפיון certificate number, usually near "הנתונים מתוך תעודה מס׳"; for מצע certificates this may be the אפיון מצע / תעודת ייחוס.
 - referenceDate: date of that reference/proctor certificate.
 - aashto: מיון החומר, e.g. A-1-b(0).
 - unified: מיון אחיד, e.g. SM.
@@ -1145,6 +1146,7 @@ Extract fields exactly as printed:
 
 Extract every result row in sampleRows[] from the field density table:
 sampleNo, testNo, layerNo, wetDensity, maxLabDensity, oversizePercent, moisture, compaction, location.
+For מצע/מצעים certificates, still extract the density/moisture/compaction rows exactly the same way and keep materialDescription/structureLayer as מצע/מצע א׳ when printed.
 Do not confuse dates, project numbers, or certificate numbers with table values.
 If a value is not clearly visible, return an empty string. Do not invent values.`;
       const content: any[] = [{ type: 'input_text', text: prompt }];

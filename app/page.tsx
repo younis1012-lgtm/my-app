@@ -5272,8 +5272,8 @@ function ChecklistsSection({
     String(checklistForm.templateKey) === "dryMethodPiles" ||
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
   const isEarthworksChecklistForm =
-    ["controlledCompaction", "standardCompaction"].includes(String(checklistForm.templateKey)) ||
-    /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד/.test(
+    ["baseCourseSpreading", "controlledCompaction", "standardCompaction"].includes(String(checklistForm.templateKey)) ||
+    /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
   const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, string>;

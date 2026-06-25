@@ -458,6 +458,8 @@ const certificateNumberFromFileName = (fileName: string) => {
     const suffix = normalized.match(/[_-](\d+)\.[^.]+$/)?.[1];
     return suffix ? `${numbers[1]}/${suffix}` : numbers[1];
   }
+  const genericLabMatch = normalized.match(/(?:^|[_-])\d{3,}[_-](\d{4,})[_-](\d{1,3})(?:\.[^.]+)?$/);
+  if (genericLabMatch?.[1] && genericLabMatch?.[2]) return `${genericLabMatch[1]}/${genericLabMatch[2]}`;
   const match = normalized.match(/(?:^|[^0-9])([0-9]{4,})(?:[^0-9]|$)/);
   return match?.[1] ?? "";
 };
