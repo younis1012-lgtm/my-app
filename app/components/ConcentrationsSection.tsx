@@ -2094,9 +2094,27 @@ const earthworksAttachmentSampleRows = (attachment: any): any[] => {
   return rows.filter((row) => row && typeof row === "object");
 };
 
+const isControlledDensitySampleRows = (attachment: any, rows: any[]): boolean => {
+  const text = [
+    earthworksAttachmentOnlyText(attachment),
+    safeStringify(rows.slice(0, 3)),
+  ].join(" ");
+  return includesAny(text, [
+    "הידוק מבוקר",
+    "מד גרעיני",
+    "צפיפות רטובה",
+    "דרגת הידוק",
+    "רטיבות",
+    "wetDensity",
+    "compaction",
+    "densityCertificateNo",
+  ]);
+};
+
 const expandEarthworksAttachmentRows = (attachment: any): any[] => {
   const rows = earthworksAttachmentSampleRows(attachment);
   if (!rows.length) return [attachment];
+  if (isControlledDensitySampleRows(attachment, rows)) return [attachment];
   return rows.map((row, index) => ({
     ...attachment,
     id: `${attachment?.id ?? attachmentName(attachment) ?? "attachment"}-sample-${index + 1}`,
@@ -2453,7 +2471,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'מקום נטילה': exactLocation,
     'שטח ': firstText(earthworksDirectValue(fieldSources, ["שטח", "area", "מ\"ר", "מטר מרובע"])),
     "שכבה מס'": exactLayer,
-    'עובי השכבה': firstText(earthworksDirectValue(fieldSources, ["עובי", "עובי שכבה", "thickness", "cm"])),
+    'עובי השכבה': firstText(earthworksDirectValue(fieldSources, ["עובי", "עובי שכבה", "עובי השכבה", "layerThickness", "thickness", "cm"])),
     'סוג העבודה ': workType,
     'תאור החומר ': exactMaterial,
     'מיון החומר ': exactAashto,

@@ -5271,6 +5271,11 @@ function ChecklistsSection({
   const isPileChecklist =
     String(checklistForm.templateKey) === "dryMethodPiles" ||
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
+  const isEarthworksChecklistForm =
+    ["controlledCompaction", "standardCompaction"].includes(String(checklistForm.templateKey)) ||
+    /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד/.test(
+      `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
+    );
   const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, string>;
   const setPileDetail = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({
@@ -5573,6 +5578,17 @@ function ChecklistsSection({
               style={inputStyle}
             />
           </label>
+          {isEarthworksChecklistForm ? (
+            <label>
+              <span style={labelStyle}>עובי שכבה</span>
+              <input
+                value={(checklistForm as any).layerThickness ?? ""}
+                onChange={(event) => setField("layerThickness", event.target.value)}
+                style={inputStyle}
+                placeholder="לדוגמה: 20 ס״מ"
+              />
+            </label>
+          ) : null}
           <label>
             <span style={labelStyle}>קבלן</span>
             <input
@@ -5626,6 +5642,17 @@ function ChecklistsSection({
                 style={inputStyle}
               />
             </label>
+            {isEarthworksChecklistForm ? (
+              <label>
+                <span style={labelStyle}>עובי שכבה</span>
+                <input
+                  value={(checklistForm as any).layerThickness ?? ""}
+                  onChange={(event) => setField("layerThickness", event.target.value)}
+                  style={inputStyle}
+                  placeholder="לדוגמה: 20 ס״מ"
+                />
+              </label>
+            ) : null}
             <label>
               <span style={labelStyle}>כביש / מבנה</span>
               <input
@@ -14592,6 +14619,7 @@ export default function Page() {
           notes: row.notes ?? "",
           projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
           roadStructure: details.roadStructure ?? details.road_structure ?? "",
+          layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
           stationSection: details.stationSection ?? details.station_section ?? "",
           toStationSection: details.toStationSection ?? details.to_station_section ?? "",
           offset: details.offset ?? "",
@@ -17512,6 +17540,7 @@ export default function Page() {
     const checklistDetails = {
       projectNameDisplay: String((checklistForm as any).projectNameDisplay || currentProjectDefaults.projectName || ""),
       roadStructure: String((checklistForm as any).roadStructure ?? ""),
+      layerThickness: String((checklistForm as any).layerThickness ?? ""),
       stationSection: String((checklistForm as any).stationSection ?? ""),
       toStationSection: String((checklistForm as any).toStationSection ?? ""),
       offset: String((checklistForm as any).offset ?? ""),

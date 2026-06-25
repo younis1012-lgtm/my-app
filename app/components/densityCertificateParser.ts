@@ -450,7 +450,15 @@ const extractAashto = (text: string) => {
 };
 
 const certificateNumberFromFileName = (fileName: string) => {
-  const match = clean(fileName).match(/(?:^|[^0-9])([0-9]{4,})(?:[^0-9]|$)/);
+  const normalized = clean(fileName);
+  const krkMatch = normalized.match(/(?:^|[^0-9])KRK[_-]\d{3,}[_-](\d{4,})[_-](\d+)(?:[^0-9]|$)/i);
+  if (krkMatch?.[1] && krkMatch?.[2]) return `${krkMatch[1]}/${krkMatch[2]}`;
+  const numbers = Array.from(normalized.matchAll(/\d{4,}/g)).map((match) => match[0]);
+  if (/^KRK[_-]/i.test(normalized) && numbers.length >= 2) {
+    const suffix = normalized.match(/[_-](\d+)\.[^.]+$/)?.[1];
+    return suffix ? `${numbers[1]}/${suffix}` : numbers[1];
+  }
+  const match = normalized.match(/(?:^|[^0-9])([0-9]{4,})(?:[^0-9]|$)/);
   return match?.[1] ?? "";
 };
 
