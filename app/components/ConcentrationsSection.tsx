@@ -2439,9 +2439,22 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
   const densityCertificate = isDensityMoisture ? firstText(exactDensityCert, certificate) : "";
   const regularCertificate = isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd ? firstText(exactRegularCert, certificate) : "";
+  const densitySampleCount = firstText(
+    ...[
+      resultsSource?.sampleRows,
+      resultsSource?.rows,
+      attachment?.labResults?.sampleRows,
+      attachment?.labResults?.rows,
+      attachment?.densityResults?.sampleRows,
+      attachment?.densityResults?.rows,
+      attachment?.results?.sampleRows,
+      attachment?.results?.rows,
+    ].map((value) => (Array.isArray(value) && value.length ? String(value.length) : "")),
+  );
 
   const densityPoints = firstText(
     earthworksDirectValue(fieldSources, ["כמות נקודות בדיקה", "מספר נקודות בדיקה", "נקודות בדיקה", "מספר בדיקות באתר", "testPoints", "testPointCount", "points"]),
+    densitySampleCount,
     numericLike(earthworksDirectValue(fieldSources, ["נקודות", "quantity"])),
     parsedLocation.points,
   );
@@ -2480,7 +2493,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'מעברי מכבש': regularCertificate ? normalizeRollerPasses(rollerPasses) : "",
     'מעמד הידוק רגיל': regularCertificate ? firstText(status, "OK") : "",
     "מס' תעודת בדיקה צפיפות/ רטיבות שדה": densityCertificate,
-    'הידוק מבוקר (צפיפות מד גרעיני)': densityCertificate ? firstText(densityPoints, exactFirstFromSources(fieldSources, ["הידוק מבוקר (צפיפות מד גרעיני)", "כמות נקודות בדיקה", "נקודות בדיקה"]), "1") : "",
+    'הידוק מבוקר (צפיפות מד גרעיני)': densityCertificate ? firstText(densityPoints, exactFirstFromSources(fieldSources, ["הידוק מבוקר (צפיפות מד גרעיני)", "כמות נקודות בדיקה", "נקודות בדיקה"]), densitySampleCount, "1") : "",
     'מעמד צפיפות/רטיבות': densityCertificate ? firstText(status, "OK") : "",
     ' מנת בדיקה (חרוט חול / שלבי)': kind === "sand" ? firstText(densityPoints, certificate) : "",
     'מעמד מנת בדיקה': kind === "sand" ? status : "",
