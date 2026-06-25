@@ -2406,24 +2406,24 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(fieldSources, ["תאריך הבדיקה", "תאריך בדיקה", "testDate"]),
     parsedDensity.testDate,
   );
-  const exactFrom = firstText(exactFirstFromSources(fieldSources, ["מחתך", "חתך התחלה", "fromSection", "stationFrom", "chainageFrom"]), parsedLocation.from);
-  const exactTo = firstText(exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo"]), parsedLocation.to);
+  const exactFrom = firstText(exactFirstFromSources(fieldSources, ["מחתך", "חתך התחלה", "fromSection", "stationFrom", "chainageFrom", "fromChainage"]), parsedLocation.from);
+  const exactTo = firstText(exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo", "toChainage"]), parsedLocation.to);
   const exactSide = firstText(exactFirstFromSources(fieldSources, ["צד", "side", "roadSide", "lane"]), parsedLocation.side);
   const exactLocation = firstText(
     parsedLocation.location,
     exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
   );
-  const exactLayer = firstText(exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "שכבה", "layer", "layerNo", "layerNumber"]), parsedLocation.layer);
-  const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "חומר", "materialDescription", "material"]);
+  const exactLayer = firstText(exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]), parsedLocation.layer);
+  const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"]);
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
-  const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה"]);
+  const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "densityCertificateNo"]);
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
-  const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "proctorCertificate"]);
+  const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
   const densityCertificate = isDensityMoisture ? firstText(exactDensityCert, certificate) : "";
   const regularCertificate = isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd ? firstText(exactRegularCert, certificate) : "";
 
   const densityPoints = firstText(
-    earthworksDirectValue(fieldSources, ["כמות נקודות בדיקה", "מספר נקודות בדיקה", "נקודות בדיקה", "testPoints", "points"]),
+    earthworksDirectValue(fieldSources, ["כמות נקודות בדיקה", "מספר נקודות בדיקה", "נקודות בדיקה", "מספר בדיקות באתר", "testPoints", "testPointCount", "points"]),
     numericLike(earthworksDirectValue(fieldSources, ["נקודות", "quantity"])),
     parsedLocation.points,
   );
@@ -2432,10 +2432,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     numericLike(earthworksDirectValue(fieldSources, ["מעברים"])),
   );
   const surveyQuantity = firstText(earthworksDirectValue(fieldSources, ["כמות", "מדידה", "quantity", "surveyQuantity"]));
-  const densityResultValue = firstText(parsedDensity.density, exactFirstFromSources(fieldSources, ["צפיפות מחושבת", "תוצאה", "result", "resultValue", "density"]));
-  const densityLowerLimit = firstText(exactFirstFromSources(fieldSources, ["גבול תחתון", "lowerLimit", "lowerDensity", "צפיפות גבול תחתון"]));
-  const densityAverage = firstText(exactFirstFromSources(fieldSources, ["ממוצע", "average", "avg", "צפיפות ממוצע"]));
-  const densityUpperLimit = firstText(exactFirstFromSources(fieldSources, ["גבול עליון", "upperLimit", "upperDensity", "צפיפות גבול עליון"]));
+  const densityResultValue = firstText(parsedDensity.density, exactFirstFromSources(fieldSources, ["צפיפות מחושבת", "תוצאות בדיקה", "תוצאה", "דרגת הידוק", "result", "resultValue", "density", "compaction", "compactionAverage"]));
+  const densityLowerLimit = firstText(exactFirstFromSources(fieldSources, ["צפיפות סטטיסטיקה גבול תחתון", "גבול תחתון", "La", "la", "statisticalLower", "lowerLimit", "lowerDensity", "צפיפות גבול תחתון"]));
+  const densityAverage = firstText(exactFirstFromSources(fieldSources, ["צפיפות סטטיסטיקה ממוצע", "ממוצע", "Xn", "xn", "statisticalAverage", "average", "avg", "צפיפות ממוצע"]));
+  const densityUpperLimit = firstText(exactFirstFromSources(fieldSources, ["צפיפות סטטיסטיקה גבול עליון", "גבול עליון", "La'", "laPrime", "statisticalUpper", "upperLimit", "upperDensity", "צפיפות גבול עליון"]));
   const hasDensityStatistics = Boolean(densityLowerLimit || densityAverage || densityResultValue);
 
   const row: Row = {
@@ -2457,7 +2457,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'סוג העבודה ': workType,
     'תאור החומר ': exactMaterial,
     'מיון החומר ': exactAashto,
-    'מקור החומר': firstText(earthworksDirectValue(fieldSources, ["מקור החומר", "מקור", "source"])),
+    'מקור החומר': firstText(earthworksDirectValue(fieldSources, ["מקור החומר", "מקור", "source", "materialSource"])),
     "מס' תעודת בדיקההידוק רגיל": regularCertificate,
     'מעברי מכבש': regularCertificate ? normalizeRollerPasses(rollerPasses) : "",
     'מעמד הידוק רגיל': regularCertificate ? firstText(status, "OK") : "",

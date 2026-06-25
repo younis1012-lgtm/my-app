@@ -9,7 +9,7 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density';
   workType?: string;
   expectedMetrics?: string[];
 };
@@ -250,6 +250,95 @@ const referenceResultsJsonSchema = {
     notes: { type: 'string' },
   },
   required: Object.keys(referenceResultsEmptyData),
+};
+
+const earthworksDensityEmptyData = {
+  fields: {
+    densityCertificateNo: '',
+    projectNo: '',
+    issueDate: '',
+    testDate: '',
+    siteName: '',
+    contractor: '',
+    layerNo: '',
+    layerCode: '',
+    structureLayer: '',
+    sampleLocation: '',
+    fromSection: '',
+    toSection: '',
+    side: '',
+    materialSource: '',
+    materialDescription: '',
+    aashto: '',
+    unified: '',
+    referenceCertificateNo: '',
+    referenceDate: '',
+    maxLabDensity: '',
+    optimumMoisture: '',
+    oversizePercent: '',
+    averageMoisture: '',
+    compactionAverage: '',
+    lowerLimit: '',
+    upperLimit: '',
+    statisticalLower: '',
+    statisticalUpper: '',
+    statisticalAverage: '',
+    la: '',
+    laPrime: '',
+    xn: '',
+    status: '',
+    testPointCount: '',
+  },
+  sampleRows: [] as Array<{
+    sampleNo: string;
+    testNo: string;
+    layerNo: string;
+    wetDensity: string;
+    maxLabDensity: string;
+    oversizePercent: string;
+    moisture: string;
+    compaction: string;
+    location: string;
+  }>,
+  confidence: 0,
+  notes: '',
+};
+
+const earthworksDensityJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    fields: {
+      type: 'object',
+      additionalProperties: false,
+      properties: Object.fromEntries(
+        Object.keys(earthworksDensityEmptyData.fields).map((key) => [key, { type: 'string' }]),
+      ),
+      required: Object.keys(earthworksDensityEmptyData.fields),
+    },
+    sampleRows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sampleNo: { type: 'string' },
+          testNo: { type: 'string' },
+          layerNo: { type: 'string' },
+          wetDensity: { type: 'string' },
+          maxLabDensity: { type: 'string' },
+          oversizePercent: { type: 'string' },
+          moisture: { type: 'string' },
+          compaction: { type: 'string' },
+          location: { type: 'string' },
+        },
+        required: ['sampleNo', 'testNo', 'layerNo', 'wetDensity', 'maxLabDensity', 'oversizePercent', 'moisture', 'compaction', 'location'],
+      },
+    },
+    confidence: { type: 'number' },
+    notes: { type: 'string' },
+  },
+  required: Object.keys(earthworksDensityEmptyData),
 };
 
 const concreteStrengthEmptyData = {
@@ -1015,6 +1104,92 @@ For dates, return yyyy-mm-dd when possible. Do not invent values.`;
 
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       const parsed = { ...asphaltJmfEmptyData, ...(safeJsonParse(outputText) ?? {}) };
+      return NextResponse.json({ data: parsed });
+    }
+
+    if (subtype === 'earthworks-density') {
+      const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const prompt = `You are extracting an Israeli QA/QC earthworks field density certificate.
+Return JSON only using the supplied schema. Read the attached PDF/image visually, including scanned pages.
+
+Document type: בדיקת צפיפות שדה / צפיפות באמצעות מכשיר גרעיני / הידוק מבוקר.
+
+Extract fields exactly as printed:
+- densityCertificateNo: the certificate/report number near "תעודה מס׳" or "דו״ח בדיקה מספר". Preserve slash, e.g. 682440/0. Do not use project number.
+- projectNo: project/order number if printed separately.
+- issueDate: תאריך הוצאה.
+- testDate: תאריך הבדיקה.
+- contractor: שם המזמין/קבלן.
+- siteName: שם האתר.
+- layerNo/layerCode: קוד השכבה or שכבה מספר.
+- structureLayer: שכבת המבנה.
+- materialDescription: תאור מדגם / תיאור החומר.
+- materialSource: מקור החומר.
+- sampleLocation: מיקום הבדיקה exactly enough to identify the tested location.
+- fromSection/toSection: if location contains "מחתך 126-131", return fromSection=126 and toSection=131.
+- side: R/L/R+L/ימין/שמאל only if printed.
+- referenceCertificateNo: the 100% / proctor / אפיון certificate number, usually near "הנתונים מתוך תעודה מס׳".
+- referenceDate: date of that reference/proctor certificate.
+- aashto: מיון החומר, e.g. A-1-b(0).
+- unified: מיון אחיד, e.g. SM.
+- maxLabDensity: צפיפות מעבדתית מקסימלית.
+- optimumMoisture: רטיבות אופטימלית.
+- oversizePercent: משקל יחסי צרורות +3/4 or similar.
+- averageMoisture: רטיבות ממוצעת.
+- compactionAverage/statisticalAverage/xn: Xn or average compaction if printed.
+- lowerLimit/upperLimit: required/spec lower/upper compaction values if printed.
+- statisticalLower/la: La if printed.
+- statisticalUpper/laPrime: La' if printed.
+- status: passed/failed conclusion, preferably OK or NC.
+- testPointCount: number of visible sample/test rows in the results table.
+
+Extract every result row in sampleRows[] from the field density table:
+sampleNo, testNo, layerNo, wetDensity, maxLabDensity, oversizePercent, moisture, compaction, location.
+Do not confuse dates, project numbers, or certificate numbers with table values.
+If a value is not clearly visible, return an empty string. Do not invent values.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (isImage(mimeType)) {
+        content.push({ type: 'input_image', image_url: normalizedFileData, detail: 'high' });
+      } else {
+        content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+        const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType, 3);
+        renderedPages.forEach((imageDataUrl, index) => {
+          content.push({ type: 'input_text', text: `Visual rendering page ${index + 1}. Use this image for scanned tables and Hebrew labels.` });
+          content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
+        });
+      }
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'earthworks_density_extract',
+              schema: earthworksDensityJsonSchema,
+              strict: true,
+            },
+          },
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI earthworks density OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Earthworks density OCR failed' }, { status: 500 });
+      }
+
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      const parsed = { ...earthworksDensityEmptyData, ...(safeJsonParse(outputText) ?? {}) };
+      parsed.fields = { ...earthworksDensityEmptyData.fields, ...(parsed.fields ?? {}) };
+      parsed.sampleRows = Array.isArray(parsed.sampleRows) ? parsed.sampleRows : [];
       return NextResponse.json({ data: parsed });
     }
 

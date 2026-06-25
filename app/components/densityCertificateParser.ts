@@ -138,6 +138,178 @@ const extractTextFromFile = async (file: File) => {
   }
 };
 
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Failed reading file"));
+    reader.readAsDataURL(file);
+  });
+
+const firstText = (...values: unknown[]) =>
+  values.map(clean).find(Boolean) ?? "";
+
+const mapEarthworksDensityOcrData = (data: any): DensityCertificateResults => {
+  const fields = data?.fields ?? {};
+  const sampleRows = Array.isArray(data?.sampleRows) ? data.sampleRows : [];
+  const certificateNo = firstText(fields.densityCertificateNo, fields.certificateNo);
+  const testDate = firstText(fields.testDate);
+  const layer = firstText(fields.layerNo, fields.layerCode);
+  const fromSection = firstText(fields.fromSection);
+  const toSection = firstText(fields.toSection);
+  const side = firstText(fields.side);
+  const location = firstText(fields.sampleLocation);
+  const material = firstText(fields.materialDescription, fields.structureLayer);
+  const materialSource = firstText(fields.materialSource);
+  const aashto = firstText(fields.aashto);
+  const unified = firstText(fields.unified);
+  const referenceCertificateNo = firstText(fields.referenceCertificateNo);
+  const referenceDate = firstText(fields.referenceDate);
+  const lowerLimit = firstText(fields.statisticalLower, fields.la, fields.lowerLimit);
+  const upperLimit = firstText(fields.statisticalUpper, fields.laPrime, fields.upperLimit);
+  const average = firstText(fields.statisticalAverage, fields.xn, fields.compactionAverage);
+  const moistureAverage = firstText(fields.averageMoisture);
+  const status = firstText(fields.status).toUpperCase().includes("NC") ? "לא תקין" : firstText(fields.status, "OK");
+
+  const rows = sampleRows
+    .map((row: any, index: number) => {
+      const rowLayer = firstText(row?.layerNo, layer);
+      const rowLocation = firstText(row?.location, location);
+      const compaction = firstText(row?.compaction);
+      const moisture = firstText(row?.moisture);
+      const wetDensity = firstText(row?.wetDensity);
+      const maxLabDensity = firstText(row?.maxLabDensity, fields.maxLabDensity);
+      const oversize = firstText(row?.oversizePercent, fields.oversizePercent);
+      return {
+        "מספר בדיקה": firstText(row?.sampleNo, row?.testNo, String(index + 1)),
+        "מספר תעודת בדיקה": certificateNo,
+        "מס' תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo,
+        "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo,
+        "תאריך הבדיקה": testDate,
+        "מחתך": fromSection,
+        "עד חתך": toSection,
+        "צד": side,
+        "מקום נטילה": rowLocation,
+        "מקום הבדיקה": rowLocation,
+        "שכבה מס'": rowLayer,
+        "שכבה מס׳": rowLayer,
+        "קוד השכבה": rowLayer,
+        "צפיפות רטובה": wetDensity,
+        "צפיפות רטובה מבוקרת": wetDensity,
+        "צפיפות מקס מעבדתית": maxLabDensity,
+        "צפיפות מעבדתית מקסימלית": maxLabDensity,
+        "+3/4": oversize,
+        "רטיבות": moisture,
+        "רטיבות ממוצעת": firstText(moistureAverage, moisture),
+        "דרגת הידוק": compaction,
+        "צפיפות מחושבת": firstText(average, compaction),
+        "תוצאות בדיקה": firstText(average, compaction),
+        "ממוצע": firstText(average, compaction),
+        "גבול תחתון": lowerLimit,
+        "גבול עליון": upperLimit,
+        "צפיפות סטטיסטיקה גבול תחתון": lowerLimit,
+        "צפיפות סטטיסטיקה גבול עליון": upperLimit,
+        "צפיפות סטטיסטיקה ממוצע": average,
+        "La": firstText(fields.la, lowerLimit),
+        "La'": firstText(fields.laPrime, upperLimit),
+        "Xn": firstText(fields.xn, average),
+        "הידוק מבוקר (צפיפות מד גרעיני)": "1",
+        "מעמד צפיפות/רטיבות": status,
+        "מעמד תוצאות": status,
+        "תאור החומר": material,
+        "תיאור החומר": material,
+        "מיון החומר": aashto,
+        "מיון AASHTO": aashto,
+        "AASHTO": aashto,
+        "מיון אחיד": unified,
+        "מקור החומר": materialSource,
+        "מספר תעודת בדיקה אפיון - 100%": referenceCertificateNo,
+        "מספר תעודת ייחוס": referenceCertificateNo,
+        "מספר תעודת ייחוס-100%": referenceCertificateNo,
+        "תאריך תעודת ייחוס": referenceDate,
+      };
+    })
+    .filter((row: Record<string, string>) => firstText(row["דרגת הידוק"], row["צפיפות רטובה"], row["מספר בדיקה"]));
+
+  const results: DensityCertificateResults = {
+    "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo,
+    "מס' תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo,
+    "מספר תעודת בדיקה": certificateNo,
+    "תאריך הבדיקה": testDate,
+    "תאריך הוצאה": firstText(fields.issueDate),
+    "מחתך": fromSection,
+    "עד חתך": toSection,
+    "צד": side,
+    "מקום נטילה": location,
+    "מקום הבדיקה": location,
+    "שכבה מס'": layer,
+    "שכבה מס׳": layer,
+    "קוד השכבה": layer,
+    "שכבת המבנה": firstText(fields.structureLayer),
+    "תאור החומר": material,
+    "תיאור החומר": material,
+    "מיון החומר": aashto,
+    "מיון AASHTO": aashto,
+    "AASHTO": aashto,
+    "מיון אחיד": unified,
+    "מקור החומר": materialSource,
+    "מספר תעודת בדיקה אפיון - 100%": referenceCertificateNo,
+    "מספר תעודת ייחוס": referenceCertificateNo,
+    "מספר תעודת ייחוס-100%": referenceCertificateNo,
+    "תאריך תעודת ייחוס": referenceDate,
+    "צפיפות מקס מעבדתית": firstText(fields.maxLabDensity),
+    "צפיפות מעבדתית מקסימלית": firstText(fields.maxLabDensity),
+    "רטיבות אופטימלית": firstText(fields.optimumMoisture),
+    "+3/4": firstText(fields.oversizePercent),
+    "כמות נקודות בדיקה": firstText(fields.testPointCount, rows.length ? String(rows.length) : ""),
+    "הידוק מבוקר (צפיפות מד גרעיני)": firstText(fields.testPointCount, rows.length ? String(rows.length) : ""),
+    "רטיבות ממוצעת": moistureAverage,
+    "צפיפות מחושבת": average,
+    "תוצאות בדיקה": average,
+    "ממוצע": average,
+    "גבול תחתון": lowerLimit,
+    "גבול עליון": upperLimit,
+    "צפיפות סטטיסטיקה גבול תחתון": lowerLimit,
+    "צפיפות סטטיסטיקה גבול עליון": upperLimit,
+    "צפיפות סטטיסטיקה ממוצע": average,
+    "La": firstText(fields.la, lowerLimit),
+    "La'": firstText(fields.laPrime, upperLimit),
+    "Xn": firstText(fields.xn, average),
+    "מעמד צפיפות/רטיבות": status,
+    "מעמד תוצאות": status,
+    "sampleRows": rows,
+    "rows": rows,
+    "הערות": "נקלט אוטומטית מתעודת צפיפות שדה סרוקה באמצעות OCR",
+  };
+
+  return Object.fromEntries(
+    Object.entries(results).filter(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      return firstText(value);
+    })
+  );
+};
+
+const extractEarthworksDensityByOcr = async (file: File): Promise<DensityCertificateResults> => {
+  const dataUrl = await readFileAsDataUrl(file);
+  const response = await fetch("/api/ocr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      subtype: "earthworks-density",
+      fileName: file.name,
+      mimeType: file.type || "application/pdf",
+      dataUrl,
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    console.warn("Earthworks density OCR failed", payload);
+    return {};
+  }
+  return mapEarthworksDensityOcrData(payload?.data ?? {});
+};
+
 const pickValueNearLabel = (
   text: string,
   labels: string[],
@@ -719,11 +891,17 @@ export const extractEarthworksDensityFromFile = async (
 ): Promise<DensityCertificateResults> => {
   try {
     const text = await extractTextFromFile(file);
-
-    return parseEarthworksDensityText(
+    const parsed = parseEarthworksDensityText(
       file.name,
       text
     );
+
+    const parsedRows = Array.isArray(parsed.sampleRows) ? parsed.sampleRows : [];
+    const parsedFieldCount = Object.keys(parsed).filter((key) => key !== "הערות").length;
+    if (parsedRows.length || parsedFieldCount >= 5) return parsed;
+
+    const ocrParsed = await extractEarthworksDensityByOcr(file);
+    return Object.keys(ocrParsed).length ? { ...parsed, ...ocrParsed } : parsed;
   } catch (error) {
     console.warn(
       "Earthworks density extraction failed",
