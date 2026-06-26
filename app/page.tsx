@@ -5276,7 +5276,41 @@ function ChecklistsSection({
     /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
-  const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, string>;
+  const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, any>;
+  const [pileJournalOpen, setPileJournalOpen] = useState(false);
+  const pileJournal =
+    pileDetails.pileJournal && typeof pileDetails.pileJournal === "object"
+      ? pileDetails.pileJournal
+      : {};
+  const pileJournalDetailFields: Record<string, string> = {
+    pileNumber: "pileNumber",
+    drillingDate: "drillingDate",
+    diameterCm: "diameterCm",
+    plannedDepth: "plannedDepth",
+    actualDepth: "actualDepth",
+    plannedVolume: "plannedVolume",
+    actualVolume: "actualVolume",
+    pileLogNo: "pileLogNo",
+    castDate: "castDate",
+    concreteSource: "concreteSource",
+    concreteType: "concreteType",
+    slumpRequirement: "slumpRequirement",
+    slumpResult: "slumpResult",
+    slumpCertificateNo: "slumpCertificateNo",
+    strengthCertificateNo: "strengthCertificateNo",
+    strength7Days: "strength7Days",
+    strength28Days: "strength28Days",
+    concreteStatus: "concreteStatus",
+    bentoniteBatchNo: "bentoniteBatchNo",
+    tankDensity: "tankDensity",
+    waterSeparation: "waterSeparation",
+    ph: "ph",
+    viscosity: "viscosity",
+    bottomDensity: "bottomDensity",
+    tankSandPercent: "tankSandPercent",
+    bottomSandPercent: "bottomSandPercent",
+    bentoniteCertificateNo: "bentoniteCertificateNo",
+  };
   const setPileDetail = (field: string, value: string) =>
     setChecklistForm((prev: any) => ({
       ...prev,
@@ -5285,6 +5319,22 @@ function ChecklistsSection({
         [field]: value,
       },
     }));
+  const setPileJournalValue = (field: string, value: string) =>
+    setChecklistForm((prev: any) => {
+      const previousDetails = prev.pileDetails ?? {};
+      const detailField = pileJournalDetailFields[field];
+      return {
+        ...prev,
+        pileDetails: {
+          ...previousDetails,
+          ...(detailField ? { [detailField]: value } : {}),
+          pileJournal: {
+            ...(previousDetails.pileJournal ?? {}),
+            [field]: value,
+          },
+        },
+      };
+    });
   const updateConcreteResults = (
     itemId: string,
     changes: Partial<ConcreteStrengthResults>,
@@ -5771,7 +5821,16 @@ function ChecklistsSection({
       </div>
       {isPileChecklist ? (
         <div style={{ ...cardStyle, background: "#fff" }}>
-          <div style={{ fontWeight: 950, fontSize: 20 }}>פרטי כלונס לריכוז האוטומטי</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 950, fontSize: 20 }}>פרטי כלונס לריכוז האוטומטי</div>
+            <button
+              type="button"
+              style={pileJournalOpen ? styles.secondaryBtn : styles.primaryBtn}
+              onClick={() => setPileJournalOpen((current) => !current)}
+            >
+              {pileJournalOpen ? "סגור יומן כלונסאות" : "פתח יומן כלונסאות"}
+            </button>
+          </div>
           <div style={{ color: "#64748b", marginTop: 5, marginBottom: 14 }}>
             הנתונים נשמרים עם רשימת התיוג ומועברים אוטומטית אל „ריכוז כלונסאות”.
             שדות שאינם רלוונטיים לשיטה היבשה יכולים להישאר ריקים.
@@ -5856,6 +5915,115 @@ function ChecklistsSection({
               </div>
             </div>
           ))}
+        </div>
+      ) : null}
+      {isPileChecklist && pileJournalOpen ? (
+        <div style={{ ...cardStyle, background: "#f8fafc", borderColor: "#93c5fd" }}>
+          <div style={{ fontWeight: 950, fontSize: 21 }}>יומן ביצוע כלונסאות — שיטה יבשה</div>
+          <div style={{ color: "#475569", marginTop: 5, marginBottom: 16, fontWeight: 700 }}>
+            היומן מקושר לרשימת תיוג זו ונשמר יחד איתה. שדות שעות אינם כלולים ביומן.
+          </div>
+          {[
+            {
+              title: "פרטי יומן וכלונס",
+              fields: [
+                ["pileLogNo", "מספר יומן כלונסאות"],
+                ["pileNumber", "מספר כלונס"],
+                ["structure", "מבנה / קיר"],
+                ["element", "אלמנט"],
+                ["drillingMethod", "שיטת קידוח"],
+                ["drillingDate", "תאריך קידוח", "date"],
+                ["concretePlant", "מפעל בטון"],
+                ["concreteSupplier", "ספק בטון"],
+              ],
+            },
+            {
+              title: "נתוני תכנון וקידוח",
+              fields: [
+                ["diameterCm", "קוטר כלונס (ס״מ)"],
+                ["plannedDepth", "עומק כלונס מתוכנן (מ׳)"],
+                ["plannedTopLevel", "מפלס עליון מתוכנן"],
+                ["theoreticalBottomLevel", "מפלס תחתית תאורטי"],
+                ["casingHeight", "גובה קייסינג (מ׳)"],
+                ["theoreticalDepth", "עומק קידוח תאורטי (מ׳)"],
+                ["actualDepth", "עומק קידוח בפועל (מ׳)"],
+                ["groundwaterDepth", "עומק מי תהום (מ׳)"],
+                ["drillBitDiameter", "קוטר מקדח (ס״מ)"],
+                ["testTubeCount", "מספר צינורות בדיקה"],
+                ["spacerType", "סוג שומרי מרחק"],
+                ["cageDescription", "פרטי כלוב זיון"],
+              ],
+            },
+            {
+              title: "יציקה ובטון",
+              fields: [
+                ["castDate", "תאריך יציקה", "date"],
+                ["concreteSource", "מקור בטון"],
+                ["concreteType", "סוג בטון"],
+                ["slumpRequirement", "סומך נדרש"],
+                ["slumpResult", "סומך בפועל"],
+                ["mixerSerialNo", "מספר סידורי מיקסר"],
+                ["deliveryNoteNo", "מספר תעודת משלוח"],
+                ["plannedVolume", "נפח יציקה מתוכנן (מ״ק)"],
+                ["actualVolume", "נפח יציקה בפועל (מ״ק)"],
+                ["slumpCertificateNo", "מספר תעודת סומך"],
+                ["strengthCertificateNo", "מספר תעודת חוזק"],
+                ["strength7Days", "חוזק 7 ימים"],
+                ["strength28Days", "חוזק 28 ימים"],
+                ["concreteStatus", "סטטוס בטון"],
+              ],
+            },
+            {
+              title: "בדיקות בנטונייט — לפי צורך",
+              fields: [
+                ["bentoniteBatchNo", "מספר מנה בבדיקה"],
+                ["tankDensity", "צפיפות במיכל"],
+                ["waterSeparation", "הפרשת מים"],
+                ["ph", "PH"],
+                ["viscosity", "צמיגות (שניות)"],
+                ["bottomDensity", "צפיפות בתחתית הבור"],
+                ["tankSandPercent", "אחוז חול במיכל"],
+                ["bottomSandPercent", "אחוז חול בתחתית הבור"],
+                ["bentoniteCertificateNo", "מספר תעודת בנטונייט"],
+              ],
+            },
+          ].map((journalSection) => (
+            <div key={journalSection.title} style={{ marginTop: 18 }}>
+              <div style={{ fontWeight: 900, marginBottom: 9 }}>{journalSection.title}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>
+                {journalSection.fields.map(([field, label, type]) => (
+                  <label key={field}>
+                    <span style={labelStyle}>{label}</span>
+                    <input
+                      type={type || "text"}
+                      value={pileJournal[field] ?? pileDetails[pileJournalDetailFields[field] ?? ""] ?? (field === "drillingMethod" ? "יבשה" : "")}
+                      onChange={(event) => setPileJournalValue(field, event.target.value)}
+                      style={inputStyle}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ marginTop: 18 }}>
+            <label style={{ display: "block" }}>
+              <span style={labelStyle}>חתך קרקע / תיאור קרקע</span>
+              <textarea
+                value={pileJournal.groundDescription ?? ""}
+                onChange={(event) => setPileJournalValue("groundDescription", event.target.value)}
+                style={{ ...inputStyle, minHeight: 76, resize: "vertical" }}
+                placeholder="לדוגמה: מעומק 0.00 מ׳ עד 10.00 מ׳ — סלע / קרקע"
+              />
+            </label>
+            <label style={{ display: "block", marginTop: 12 }}>
+              <span style={labelStyle}>הערות יומן</span>
+              <textarea
+                value={pileJournal.notes ?? ""}
+                onChange={(event) => setPileJournalValue("notes", event.target.value)}
+                style={{ ...inputStyle, minHeight: 76, resize: "vertical" }}
+              />
+            </label>
+          </div>
         </div>
       ) : null}
       <div style={{ ...cardStyle, background: "#fff" }}>
