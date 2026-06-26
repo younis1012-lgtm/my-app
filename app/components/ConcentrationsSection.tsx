@@ -58,6 +58,8 @@ type ConcentrationDefinition = {
 
 type Row = Record<string, string | number | boolean | null | undefined>;
 
+const ASPHALT_MIX_OPTIONS = ["תא״צ 19", "תא״צ 25", "תא״צ 12.5", "תא״צ 9.5", "SMA"] as const;
+
 type BuildContext = {
   savedChecklists: any[];
   savedNonconformances: any[];
@@ -4922,6 +4924,10 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
   const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
+  const [asphaltMixPicker, setAsphaltMixPicker] = useState<{
+    selectedMix: string;
+    onSelect: (mix: string) => void;
+  } | null>(null);
   const soilSurveyInputRef = useRef<HTMLInputElement | null>(null);
 
   const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
@@ -4961,6 +4967,11 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
         : Array.from(new Set([...current, ...visibleIds])),
     );
 
+  const pickAsphaltMix = () =>
+    new Promise<string>((resolve) => {
+      setAsphaltMixPicker({ selectedMix: "תא״צ 19", onSelect: resolve });
+    });
+
   const exportOne = async (definition: ConcentrationDefinition) => {
     setBusyId(definition.id);
     try {
@@ -4968,10 +4979,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
       let rows = rowsById[definition.id] ?? [];
       let fileName = definition.fileName;
       if (definition.id === "asphalt") {
-        selectedMix = firstText(
-          window.prompt('ריכוז של איזה סוג תערובת?\nאפשרויות: תא״צ 19, תא״צ 25, תא״צ 12.5, תא״צ 9.5, SMA', "תא״צ 19"),
-          "",
-        );
+        selectedMix = await pickAsphaltMix();
         if (!selectedMix) return;
         selectedMix = normalizeAsphaltMix(selectedMix) || selectedMix;
         rows = buildAsphaltConcentrationRows(ctx, selectedMix);
@@ -4999,13 +5007,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     try {
       let asphaltMix = "";
       if (selectedDefinitions.some((definition) => definition.id === "asphalt")) {
-        asphaltMix = firstText(
-          window.prompt(
-            'ריכוז האספלט שנבחר: איזה סוג תערובת לכלול?\nאפשרויות: תא״צ 19, תא״צ 25, תא״צ 12.5, תא״צ 9.5, SMA',
-            "תא״צ 19",
-          ),
-          "",
-        );
+        asphaltMix = await pickAsphaltMix();
         if (!asphaltMix) return;
         asphaltMix = normalizeAsphaltMix(asphaltMix) || asphaltMix;
       }
@@ -5216,6 +5218,80 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
           );
         })}
       </div>
+      {asphaltMixPicker ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="asphalt-mix-picker-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+            background: "rgba(15, 23, 42, 0.55)",
+          }}
+        >
+          <div style={{ width: "min(620px, 100%)", borderRadius: 18, padding: 22, background: "#fff", boxShadow: "0 25px 60px rgba(15, 23, 42, 0.25)" }}>
+            <h3 id="asphalt-mix-picker-title" style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>
+              בחירת סוג תערובת אספלט
+            </h3>
+            <p style={{ margin: "8px 0 16px", color: "#475569", fontWeight: 700 }}>
+              בחר את סוג התערובת להפקת הריכוז.
+            </p>
+            <div style={{ overflow: "hidden", border: "1px solid #cbd5e1", borderRadius: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#f1f5f9" }}>
+                    <th style={{ padding: 11, textAlign: "right" }}>סוג תערובת</th>
+                    <th style={{ padding: 11, textAlign: "center", width: 100 }}>בחירה</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ASPHALT_MIX_OPTIONS.map((mix) => (
+                    <tr key={mix} style={{ borderTop: "1px solid #e2e8f0", background: asphaltMixPicker.selectedMix === mix ? "#eff6ff" : "#fff" }}>
+                      <td style={{ padding: 11, fontWeight: 800 }}>{mix}</td>
+                      <td style={{ padding: 11, textAlign: "center" }}>
+                        <input
+                          type="radio"
+                          name="asphalt-mix"
+                          checked={asphaltMixPicker.selectedMix === mix}
+                          onChange={() => setAsphaltMixPicker((current) => current ? { ...current, selectedMix: mix } : current)}
+                          aria-label={`בחר ${mix}`}
+                          style={{ width: 18, height: 18, accentColor: "#0f172a", cursor: "pointer" }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-start", gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  asphaltMixPicker.onSelect(asphaltMixPicker.selectedMix);
+                  setAsphaltMixPicker(null);
+                }}
+                style={btnStyle}
+              >
+                אישור
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  asphaltMixPicker.onSelect("");
+                  setAsphaltMixPicker(null);
+                }}
+                style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
