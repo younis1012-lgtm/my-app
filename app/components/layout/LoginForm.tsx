@@ -99,6 +99,7 @@ export function ProjectLoginScreen({
         }
 
         .yk-login-exact-field {
+          display: block;
           position: relative;
           width: 100%;
           height: clamp(48px, 5.9vh, 58px);
