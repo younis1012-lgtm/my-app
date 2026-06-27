@@ -21,6 +21,8 @@ const trustItems = [
   { icon: "⌂", title: "שותפים", text: "להצלחה" },
 ];
 
+const backgroundScenes = ["גשר", "מנהרה", "מחלף", "קיר תומך", "כביש"];
+
 const InlineCode = ({ children }: { children: string }) => (
   <b dir="ltr" style={{ unicodeBidi: "isolate" }}>
     {children}
@@ -121,8 +123,44 @@ export function ProjectLoginScreen({
           position: relative;
           min-height: 100vh;
           overflow: hidden;
+          background: #07152d;
+        }
+
+        .yk-login-visual::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: 1;
           background:
-            linear-gradient(90deg, rgba(3, 10, 25, 0.98) 0%, rgba(7, 21, 45, 0.90) 38%, rgba(15, 35, 66, 0.54) 100%),
+            linear-gradient(90deg, rgba(3, 10, 25, 0.98) 0%, rgba(7, 21, 45, 0.88) 44%, rgba(15, 35, 66, 0.46) 100%),
+            radial-gradient(circle at 18% 18%, rgba(214, 162, 58, 0.12), transparent 22%);
+          pointer-events: none;
+        }
+
+        .yk-login-visual::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          background:
+            linear-gradient(120deg, transparent 0 34%, rgba(255,255,255,0.10) 34.2% 34.5%, transparent 34.8%),
+            repeating-linear-gradient(90deg, transparent 0 74px, rgba(255,255,255,0.04) 75px 76px);
+          pointer-events: none;
+        }
+
+        .yk-scene {
+          position: absolute;
+          inset: 0;
+          opacity: 0;
+          transform: scale(1.02);
+          animation: ykSceneFade 300s infinite;
+          filter: grayscale(1);
+        }
+
+        .yk-scene-bridge {
+          opacity: 1;
+          animation-delay: 0s;
+          background:
             radial-gradient(circle at 48% 47%, rgba(255, 255, 255, 0.24), transparent 20%),
             linear-gradient(155deg, transparent 0 34%, rgba(255,255,255,0.70) 34.2% 35.2%, transparent 35.4%),
             linear-gradient(145deg, transparent 0 45%, rgba(255,255,255,0.50) 45.2% 46.1%, transparent 46.4%),
@@ -130,34 +168,54 @@ export function ProjectLoginScreen({
             linear-gradient(165deg, #0b1424 0%, #111827 44%, #d8dde5 45%, #f8fafc 100%);
         }
 
-        .yk-login-visual::before {
-          content: "";
-          position: absolute;
-          inset: -16% -18% auto auto;
-          width: 82%;
-          height: 76%;
-          transform: rotate(-16deg);
-          border-radius: 999px;
+        .yk-scene-tunnel {
+          animation-delay: 60s;
           background:
-            repeating-linear-gradient(90deg, rgba(255,255,255,0.62) 0 5px, transparent 5px 38px),
-            linear-gradient(180deg, rgba(255,255,255,0.36), rgba(255,255,255,0.04));
-          opacity: 0.55;
-          filter: grayscale(1);
+            radial-gradient(ellipse at 62% 52%, transparent 0 18%, rgba(255,255,255,0.55) 18.5% 20%, transparent 20.5% 24%, rgba(255,255,255,0.35) 24.5% 26%, transparent 27%),
+            repeating-radial-gradient(ellipse at 62% 52%, transparent 0 26px, rgba(255,255,255,0.15) 27px 30px),
+            linear-gradient(120deg, #050b18, #172338 52%, #c6ccd4 100%);
         }
 
-        .yk-login-visual::after {
-          content: "";
-          position: absolute;
-          inset: auto -10% 10% auto;
-          width: 82%;
-          height: 34%;
-          transform: perspective(820px) rotateX(48deg) rotateZ(-10deg);
-          transform-origin: bottom right;
+        .yk-scene-interchange {
+          animation-delay: 120s;
           background:
-            repeating-linear-gradient(90deg, rgba(255,255,255,0.42) 0 2px, transparent 2px 72px),
-            linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.02));
-          clip-path: polygon(0 18%, 100% 0, 100% 100%, 0 74%);
-          opacity: 0.58;
+            radial-gradient(ellipse at 70% 42%, transparent 0 28%, rgba(255,255,255,0.62) 28.3% 29.6%, transparent 30%),
+            radial-gradient(ellipse at 42% 70%, transparent 0 34%, rgba(255,255,255,0.45) 34.3% 35.8%, transparent 36.2%),
+            linear-gradient(28deg, transparent 0 43%, rgba(255,255,255,0.56) 43.4% 45%, transparent 45.4%),
+            linear-gradient(155deg, #071020 0%, #1a2638 50%, #d7dbe1 100%);
+        }
+
+        .yk-scene-retaining {
+          animation-delay: 180s;
+          background:
+            linear-gradient(112deg, transparent 0 34%, rgba(255,255,255,0.50) 34.3% 35.3%, transparent 35.7%),
+            repeating-linear-gradient(0deg, rgba(255,255,255,0.14) 0 2px, transparent 2px 64px),
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.12) 0 2px, transparent 2px 92px),
+            linear-gradient(145deg, #081326 0%, #253248 56%, #d0d4db 100%);
+        }
+
+        .yk-scene-road {
+          animation-delay: 240s;
+          background:
+            linear-gradient(103deg, transparent 0 47%, rgba(255,255,255,0.72) 47.3% 47.9%, transparent 48.2%),
+            linear-gradient(78deg, transparent 0 52%, rgba(255,255,255,0.45) 52.3% 53.6%, transparent 54%),
+            repeating-linear-gradient(104deg, transparent 0 70px, rgba(255,255,255,0.22) 71px 76px),
+            linear-gradient(170deg, #050c19 0%, #1d293b 48%, #e2e5ea 100%);
+        }
+
+        @keyframes ykSceneFade {
+          0%, 17% {
+            opacity: 1;
+            transform: scale(1.02);
+          }
+          20%, 97% {
+            opacity: 0;
+            transform: scale(1.07);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1.02);
+          }
         }
 
         .yk-visual-content {
@@ -170,6 +228,27 @@ export function ProjectLoginScreen({
           justify-content: space-between;
           padding: clamp(34px, 5vw, 76px);
           color: #fff;
+        }
+
+        .yk-scene-chip {
+          position: absolute;
+          left: clamp(24px, 4vw, 58px);
+          bottom: clamp(24px, 4vw, 58px);
+          z-index: 3;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .yk-scene-chip span {
+          border: 1px solid rgba(255,255,255,0.18);
+          border-radius: 999px;
+          padding: 7px 11px;
+          color: rgba(255,255,255,0.78);
+          background: rgba(7, 21, 45, 0.42);
+          backdrop-filter: blur(8px);
+          font-size: 12px;
+          font-weight: 850;
         }
 
         .yk-login-panel {
@@ -235,6 +314,16 @@ export function ProjectLoginScreen({
       `}</style>
 
       <aside className="yk-login-visual" aria-hidden="true">
+        <div className="yk-scene yk-scene-bridge" />
+        <div className="yk-scene yk-scene-tunnel" />
+        <div className="yk-scene yk-scene-interchange" />
+        <div className="yk-scene yk-scene-retaining" />
+        <div className="yk-scene yk-scene-road" />
+        <div className="yk-scene-chip">
+          {backgroundScenes.map((scene) => (
+            <span key={scene}>{scene}</span>
+          ))}
+        </div>
         <div className="yk-visual-content">
           <div>
             <div
@@ -269,6 +358,20 @@ export function ProjectLoginScreen({
               <span>ניהול איכות.</span>
               <span>בקרה מדויקת.</span>
               <span>תשתיות שמחזיקות.</span>
+            </div>
+            <div
+              style={{
+                marginTop: 32,
+                maxWidth: 520,
+                color: "rgba(255,255,255,0.88)",
+                fontSize: "clamp(18px, 2vw, 24px)",
+                fontWeight: 950,
+                lineHeight: 1.55,
+                borderInlineStart: `4px solid ${BRAND_GOLD}`,
+                paddingInlineStart: 18,
+              }}
+            >
+              איכות אינה נבדקת בסוף – היא נבנית לאורך כל הפרויקט
             </div>
           </div>
 
@@ -305,6 +408,23 @@ export function ProjectLoginScreen({
       <main className="yk-login-panel">
         <form onSubmit={onSubmit} className="yk-login-card">
           <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                color: BRAND_NAVY,
+                background: "rgba(214, 162, 58, 0.13)",
+                border: "1px solid rgba(214, 162, 58, 0.28)",
+                borderRadius: 999,
+                padding: "8px 14px",
+                fontWeight: 950,
+                marginBottom: 18,
+              }}
+            >
+              <span aria-hidden="true">👋</span>
+              <span>ברוכים הבאים ל־Y.K QUALITY</span>
+            </div>
             <div
               style={{
                 fontSize: "clamp(34px, 4vw, 56px)",

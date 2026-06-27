@@ -21294,6 +21294,22 @@ ${invalidRecipients.join("\n")}`);
           <div style={{ color: "#475569", marginTop: 6 }}>
             QA/QC · Multi-file refactor · workflow with signatures
           </div>
+          <div
+            style={{
+              marginTop: 12,
+              padding: "10px 12px",
+              borderRadius: 14,
+              background: "linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%)",
+              border: "1px solid #e2e8f0",
+              color: "#0f172a",
+              fontWeight: 850,
+              lineHeight: 1.6,
+            }}
+          >
+            שלום {projectAccess.displayName || projectAccess.username || "משתמש מערכת"},
+            <br />
+            שיהיה יום עבודה מוצלח.
+          </div>
         </div>
         <div style={styles.headerCard}>
           <div
