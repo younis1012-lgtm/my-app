@@ -134,7 +134,7 @@ export function ProjectLoginScreen({
           inset: 0;
           overflow: hidden;
           background:
-            linear-gradient(90deg, rgba(2, 8, 20, 0.96) 0%, rgba(4, 12, 29, 0.76) 42%, rgba(4, 12, 29, 0.68) 100%),
+            linear-gradient(90deg, rgba(2, 8, 20, 0.26) 0%, rgba(4, 12, 29, 0.10) 44%, rgba(4, 12, 29, 0.22) 100%),
             url('/yk-login-bridge-bg.png') center / cover no-repeat,
             #07152d;
         }
@@ -145,9 +145,8 @@ export function ProjectLoginScreen({
           inset: 0;
           z-index: 1;
           background:
-            linear-gradient(90deg, rgba(2, 8, 20, 0.96) 0%, rgba(4, 12, 29, 0.78) 42%, rgba(4, 12, 29, 0.72) 100%),
-            radial-gradient(circle at 34% 55%, rgba(214, 162, 58, 0.22), transparent 24%),
-            radial-gradient(circle at 72% 22%, rgba(255,255,255,0.12), transparent 22%);
+            linear-gradient(90deg, rgba(2, 8, 20, 0.62) 0%, rgba(4, 12, 29, 0.22) 45%, rgba(4, 12, 29, 0.38) 100%),
+            radial-gradient(circle at 34% 55%, rgba(214, 162, 58, 0.10), transparent 24%);
           pointer-events: none;
         }
 
@@ -157,8 +156,8 @@ export function ProjectLoginScreen({
           inset: 0;
           z-index: 2;
           background:
-            linear-gradient(120deg, transparent 0 34%, rgba(255,255,255,0.10) 34.2% 34.5%, transparent 34.8%),
-            repeating-linear-gradient(90deg, transparent 0 74px, rgba(255,255,255,0.04) 75px 76px);
+            linear-gradient(120deg, transparent 0 34%, rgba(255,255,255,0.05) 34.2% 34.5%, transparent 34.8%),
+            repeating-linear-gradient(90deg, transparent 0 74px, rgba(255,255,255,0.018) 75px 76px);
           pointer-events: none;
         }
 
@@ -173,13 +172,8 @@ export function ProjectLoginScreen({
         .yk-scene-bridge {
           opacity: 1;
           background:
-            linear-gradient(90deg, rgba(2, 8, 20, 0.88) 0%, rgba(4, 12, 29, 0.50) 44%, rgba(4, 12, 29, 0.36) 100%),
-            url('/yk-login-bridge-bg.png') center / cover no-repeat,
-            radial-gradient(circle at 38% 56%, rgba(214, 162, 58, 0.32), transparent 20%),
-            linear-gradient(150deg, transparent 0 40%, rgba(255,255,255,0.62) 40.2% 41.4%, transparent 41.7%),
-            linear-gradient(144deg, transparent 0 53%, rgba(255,255,255,0.36) 53.2% 54.1%, transparent 54.5%),
-            repeating-linear-gradient(112deg, transparent 0 54px, rgba(255,255,255,0.14) 55px 57px),
-            linear-gradient(165deg, #071020 0%, #172033 42%, #c8cdd5 48%, #263449 100%);
+            linear-gradient(90deg, rgba(2, 8, 20, 0.34) 0%, rgba(4, 12, 29, 0.06) 44%, rgba(4, 12, 29, 0.18) 100%),
+            url('/yk-login-bridge-bg.png') center / cover no-repeat;
         }
 
         .yk-visual-content {
