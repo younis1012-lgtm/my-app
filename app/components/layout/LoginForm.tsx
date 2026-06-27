@@ -240,6 +240,8 @@ export function ProjectLoginScreen({
           flex-direction: column;
           justify-content: space-between;
           width: min(46vw, 760px);
+          margin-left: 0;
+          margin-right: auto;
           padding: clamp(42px, 5vw, 86px) clamp(34px, 4vw, 70px);
           color: #fff;
         }
@@ -267,7 +269,7 @@ export function ProjectLoginScreen({
 
         .yk-login-panel {
           position: absolute;
-          inset: 0 46vw 0 0;
+          inset: 0 0 0 46vw;
           min-height: 100vh;
           display: grid;
           place-items: center;
