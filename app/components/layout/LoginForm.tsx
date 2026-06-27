@@ -8,17 +8,16 @@ const BRAND_GOLD = "#d6a23a";
 const STEEL_TEXT = "#64748b";
 
 const featureItems = [
-  { icon: "◈", label: "QA/QC" },
-  { icon: "☷", label: "רשימות תיוג" },
-  { icon: "◷", label: "ריכוזים" },
   { icon: "▤", label: "דוחות" },
+  { icon: "◷", label: "ריכוזים" },
+  { icon: "☷", label: "רשימות תיוג" },
+  { icon: "◇", label: "QA/QC" },
 ];
 
 const trustItems = [
-  { icon: "◇", title: "איכות", text: "ללא פשרות" },
-  { icon: "◎", title: "בקרה", text: "מדויקת" },
-  { icon: "▥", title: "תשתיות", text: "לעתיד" },
-  { icon: "⌂", title: "שותפים", text: "להצלחה" },
+  { icon: "◇", title: "ניהול איכות", text: "" },
+  { icon: "◎", title: "בקרה מדויקת", text: "" },
+  { icon: "▥", title: "תשתיות שמחזיקות", text: "" },
 ];
 
 const backgroundScenes = ["גשר", "מנהרה", "מחלף", "קיר תומך", "כביש"];
@@ -43,6 +42,21 @@ export function PasswordField({
   const [visible, setVisible] = useState(false);
   return (
     <div style={{ position: "relative" }}>
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: 16,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: "rgba(255,255,255,0.82)",
+          fontSize: 18,
+          fontWeight: 950,
+          zIndex: 1,
+        }}
+      >
+        ▢
+      </span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -51,15 +65,16 @@ export function PasswordField({
         autoComplete={autoComplete}
         style={{
           width: "100%",
-          border: "1px solid #d8dee8",
-          borderRadius: 14,
-          padding: "13px 48px 13px 14px",
+          border: "1px solid rgba(255,255,255,0.62)",
+          borderRadius: 12,
+          padding: "14px 50px 14px 52px",
           fontWeight: 800,
           fontSize: 16,
-          color: BRAND_NAVY,
-          background: "rgba(255, 255, 255, 0.92)",
+          color: "#ffffff",
+          background: "rgba(255, 255, 255, 0.10)",
           outline: "none",
-          boxShadow: "inset 0 1px 0 rgba(15, 23, 42, 0.03)",
+          boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.12)",
+          textAlign: "right",
         }}
       />
       <button
@@ -69,19 +84,19 @@ export function PasswordField({
         title={visible ? "הסתר סיסמה" : "הצג סיסמה"}
         style={{
           position: "absolute",
-          right: 10,
+          left: 14,
           top: "50%",
           transform: "translateY(-50%)",
           border: 0,
           background: "transparent",
-          color: "#7b8798",
+          color: "rgba(255,255,255,0.82)",
           cursor: "pointer",
-          fontSize: 13,
+          fontSize: 18,
           fontWeight: 900,
           padding: 4,
         }}
       >
-        {visible ? "הסתר" : "הצג"}
+        {visible ? "◉" : "◌"}
       </button>
     </div>
   );
@@ -110,18 +125,15 @@ export function ProjectLoginScreen({
       <style>{`
         .yk-login-shell {
           min-height: 100vh;
-          display: grid;
-          grid-template-columns: minmax(420px, 1.05fr) minmax(420px, 0.95fr);
-          background:
-            radial-gradient(circle at 86% 12%, rgba(214, 162, 58, 0.10), transparent 26%),
-            linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
-          color: ${BRAND_NAVY};
+          position: relative;
+          background: #030b18;
+          color: #fff;
           overflow: hidden;
         }
 
         .yk-login-visual {
-          position: relative;
-          min-height: 100vh;
+          position: absolute;
+          inset: 0;
           overflow: hidden;
           background: #07152d;
         }
@@ -132,8 +144,9 @@ export function ProjectLoginScreen({
           inset: 0;
           z-index: 1;
           background:
-            linear-gradient(90deg, rgba(3, 10, 25, 0.98) 0%, rgba(7, 21, 45, 0.88) 44%, rgba(15, 35, 66, 0.46) 100%),
-            radial-gradient(circle at 18% 18%, rgba(214, 162, 58, 0.12), transparent 22%);
+            linear-gradient(90deg, rgba(2, 8, 20, 0.96) 0%, rgba(4, 12, 29, 0.78) 42%, rgba(4, 12, 29, 0.72) 100%),
+            radial-gradient(circle at 34% 55%, rgba(214, 162, 58, 0.22), transparent 24%),
+            radial-gradient(circle at 72% 22%, rgba(255,255,255,0.12), transparent 22%);
           pointer-events: none;
         }
 
@@ -161,11 +174,11 @@ export function ProjectLoginScreen({
           opacity: 1;
           animation-delay: 0s;
           background:
-            radial-gradient(circle at 48% 47%, rgba(255, 255, 255, 0.24), transparent 20%),
-            linear-gradient(155deg, transparent 0 34%, rgba(255,255,255,0.70) 34.2% 35.2%, transparent 35.4%),
-            linear-gradient(145deg, transparent 0 45%, rgba(255,255,255,0.50) 45.2% 46.1%, transparent 46.4%),
-            repeating-linear-gradient(112deg, transparent 0 54px, rgba(255,255,255,0.16) 55px 57px),
-            linear-gradient(165deg, #0b1424 0%, #111827 44%, #d8dde5 45%, #f8fafc 100%);
+            radial-gradient(circle at 38% 56%, rgba(214, 162, 58, 0.32), transparent 20%),
+            linear-gradient(150deg, transparent 0 40%, rgba(255,255,255,0.62) 40.2% 41.4%, transparent 41.7%),
+            linear-gradient(144deg, transparent 0 53%, rgba(255,255,255,0.36) 53.2% 54.1%, transparent 54.5%),
+            repeating-linear-gradient(112deg, transparent 0 54px, rgba(255,255,255,0.14) 55px 57px),
+            linear-gradient(165deg, #071020 0%, #172033 42%, #c8cdd5 48%, #263449 100%);
         }
 
         .yk-scene-tunnel {
@@ -220,20 +233,21 @@ export function ProjectLoginScreen({
 
         .yk-visual-content {
           position: relative;
-          z-index: 1;
+          z-index: 4;
           height: 100%;
           min-height: 100vh;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          padding: clamp(34px, 5vw, 76px);
+          width: min(46vw, 760px);
+          padding: clamp(42px, 5vw, 86px) clamp(34px, 4vw, 70px);
           color: #fff;
         }
 
         .yk-scene-chip {
           position: absolute;
-          left: clamp(24px, 4vw, 58px);
-          bottom: clamp(24px, 4vw, 58px);
+          left: clamp(20px, 3vw, 42px);
+          bottom: clamp(16px, 2vw, 32px);
           z-index: 3;
           display: flex;
           gap: 8px;
@@ -252,59 +266,61 @@ export function ProjectLoginScreen({
         }
 
         .yk-login-panel {
-          position: relative;
+          position: absolute;
+          inset: 0 46vw 0 0;
           min-height: 100vh;
           display: grid;
           place-items: center;
-          padding: clamp(22px, 4vw, 64px);
+          padding: clamp(26px, 5vw, 76px);
         }
 
         .yk-login-panel::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background:
-            linear-gradient(115deg, transparent 0 64%, rgba(15, 23, 42, 0.05) 64.2% 65.3%, transparent 65.5%),
-            repeating-linear-gradient(90deg, transparent 0 54px, rgba(15, 23, 42, 0.035) 55px 56px);
-          mask-image: linear-gradient(90deg, transparent, #000 42%, #000);
-          pointer-events: none;
+          display: none;
         }
 
         .yk-login-card {
           position: relative;
           z-index: 1;
-          width: min(560px, 94vw);
-          background: rgba(255, 255, 255, 0.92);
-          border: 1px solid rgba(226, 232, 240, 0.95);
-          border-radius: 28px;
-          padding: clamp(26px, 4vw, 42px);
-          box-shadow: 0 28px 90px rgba(15, 23, 42, 0.18);
-          backdrop-filter: blur(14px);
+          width: min(660px, 94vw);
+          background:
+            linear-gradient(135deg, rgba(255,255,255,0.52) 0%, rgba(255,255,255,0.18) 42%, rgba(7,21,45,0.58) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.62);
+          border-radius: 32px;
+          padding: clamp(34px, 4.5vw, 58px);
+          box-shadow:
+            0 34px 100px rgba(0, 0, 0, 0.46),
+            inset 0 1px 0 rgba(255,255,255,0.46);
+          backdrop-filter: blur(18px) saturate(125%);
+          color: #fff;
         }
 
         @media (max-width: 980px) {
           .yk-login-shell {
-            grid-template-columns: 1fr;
+            min-height: 100vh;
           }
 
           .yk-login-visual {
-            min-height: 300px;
+            position: absolute;
+            min-height: 100vh;
           }
 
           .yk-visual-content {
-            min-height: 300px;
+            width: 100%;
             padding: 30px;
+            opacity: 0.88;
           }
 
           .yk-login-panel {
-            min-height: auto;
+            position: relative;
+            inset: auto;
+            min-height: 100vh;
             padding: 28px 18px 42px;
           }
         }
 
         @media (max-width: 620px) {
           .yk-login-visual {
-            display: none;
+            display: block;
           }
 
           .yk-login-shell {
@@ -326,78 +342,101 @@ export function ProjectLoginScreen({
         </div>
         <div className="yk-visual-content">
           <div>
-            <div
-              style={{
-                fontSize: "clamp(30px, 4.4vw, 52px)",
-                fontWeight: 950,
-                letterSpacing: "0.04em",
-                lineHeight: 1,
-              }}
-            >
-              Y.K QUALITY
+            <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+              <div
+                style={{
+                  width: 74,
+                  height: 74,
+                  border: `3px solid ${BRAND_GOLD}`,
+                  borderRadius: 18,
+                  display: "grid",
+                  placeItems: "center",
+                  color: BRAND_GOLD,
+                  fontWeight: 950,
+                  fontSize: 30,
+                  letterSpacing: "-0.08em",
+                  transform: "rotate(45deg)",
+                }}
+              >
+                <span style={{ transform: "rotate(-45deg)" }}>YK</span>
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: "clamp(34px, 4.8vw, 62px)",
+                    fontWeight: 950,
+                    letterSpacing: "0.03em",
+                    lineHeight: 1,
+                  }}
+                >
+                  Y.K QUALITY
+                </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    color: "rgba(255,255,255,0.90)",
+                    fontSize: "clamp(16px, 1.5vw, 22px)",
+                    fontWeight: 850,
+                  }}
+                >
+                  מערכת ניהול ובקרת איכות לפרויקטי תשתיות
+                </div>
+              </div>
             </div>
             <div
               style={{
                 width: 56,
                 height: 3,
                 background: BRAND_GOLD,
-                margin: "24px 0 28px auto",
+                margin: "34px 0 46px auto",
                 borderRadius: 999,
               }}
             />
             <div
               style={{
-                display: "grid",
-                gap: 8,
-                color: "rgba(255,255,255,0.88)",
-                fontSize: "clamp(18px, 2vw, 25px)",
-                fontWeight: 800,
-                lineHeight: 1.45,
-              }}
-            >
-              <span>ניהול איכות.</span>
-              <span>בקרה מדויקת.</span>
-              <span>תשתיות שמחזיקות.</span>
-            </div>
-            <div
-              style={{
-                marginTop: 32,
-                maxWidth: 520,
-                color: "rgba(255,255,255,0.88)",
-                fontSize: "clamp(18px, 2vw, 24px)",
+                maxWidth: 600,
+                color: "rgba(255,255,255,0.94)",
+                fontSize: "clamp(24px, 3vw, 42px)",
                 fontWeight: 950,
-                lineHeight: 1.55,
+                lineHeight: 1.38,
                 borderInlineStart: `4px solid ${BRAND_GOLD}`,
-                paddingInlineStart: 18,
+                paddingInlineStart: 24,
               }}
             >
-              איכות אינה נבדקת בסוף – היא נבנית לאורך כל הפרויקט
+              <span>איכות אינה נבדקת בסוף –</span>
+              <br />
+              <span style={{ color: BRAND_GOLD }}>היא נבנית לאורך כל הפרויקט</span>
             </div>
           </div>
 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(72px, 1fr))",
-              gap: 14,
-              maxWidth: 560,
+              gridTemplateColumns: "1fr",
+              gap: 24,
+              maxWidth: 340,
             }}
           >
             {trustItems.map((item) => (
               <div
                 key={item.title}
                 style={{
-                  borderInlineStart: "1px solid rgba(255,255,255,0.20)",
-                  paddingInlineStart: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 18,
                   color: "rgba(255,255,255,0.84)",
                 }}
               >
-                <div style={{ color: BRAND_GOLD, fontSize: 28, lineHeight: 1 }}>
+                <div style={{ color: BRAND_GOLD, fontSize: 34, lineHeight: 1 }}>
                   {item.icon}
                 </div>
-                <div style={{ fontWeight: 950, marginTop: 8 }}>{item.title}</div>
-                <div style={{ fontWeight: 700, fontSize: 13, marginTop: 3 }}>
-                  {item.text}
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 22 }}>{item.title}</div>
+                  {item.text ? (
+                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 3 }}>
+                      {item.text}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -410,26 +449,9 @@ export function ProjectLoginScreen({
           <div style={{ textAlign: "center", marginBottom: 28 }}>
             <div
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                color: BRAND_NAVY,
-                background: "rgba(214, 162, 58, 0.13)",
-                border: "1px solid rgba(214, 162, 58, 0.28)",
-                borderRadius: 999,
-                padding: "8px 14px",
+                fontSize: "clamp(42px, 4.3vw, 68px)",
                 fontWeight: 950,
-                marginBottom: 18,
-              }}
-            >
-              <span aria-hidden="true">👋</span>
-              <span>ברוכים הבאים ל־Y.K QUALITY</span>
-            </div>
-            <div
-              style={{
-                fontSize: "clamp(34px, 4vw, 56px)",
-                fontWeight: 950,
-                color: BRAND_NAVY,
+                color: "#061328",
                 letterSpacing: "0.04em",
                 lineHeight: 1,
               }}
@@ -445,12 +467,12 @@ export function ProjectLoginScreen({
                 margin: "18px auto 18px",
               }}
             />
-            <div style={{ fontSize: 26, fontWeight: 950, color: BRAND_NAVY }}>
+            <div style={{ fontSize: 30, fontWeight: 950, color: "#061328" }}>
               כניסה למערכת
             </div>
             <div
               style={{
-                color: STEEL_TEXT,
+                color: "rgba(6,19,40,0.82)",
                 marginTop: 8,
                 fontWeight: 800,
                 lineHeight: 1.5,
@@ -460,7 +482,7 @@ export function ProjectLoginScreen({
             </div>
           </div>
 
-          <div style={{ height: 1, background: "#e6ebf2", marginBottom: 26 }} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.36)", marginBottom: 26 }} />
 
           <label
             style={{
@@ -468,7 +490,8 @@ export function ProjectLoginScreen({
               gap: 9,
               marginBottom: 17,
               fontWeight: 950,
-              color: BRAND_NAVY,
+              color: "#061328",
+              textAlign: "right",
             }}
           >
             שם משתמש / אימייל / קוד פרויקט
@@ -481,14 +504,15 @@ export function ProjectLoginScreen({
                 autoComplete="username"
                 style={{
                   width: "100%",
-                  border: "1px solid #d8dee8",
-                  borderRadius: 14,
-                  padding: "13px 48px 13px 14px",
+                  border: "1px solid rgba(255,255,255,0.62)",
+                  borderRadius: 12,
+                  padding: "14px 50px 14px 14px",
                   fontWeight: 800,
                   fontSize: 16,
-                  color: BRAND_NAVY,
-                  background: "rgba(255, 255, 255, 0.92)",
+                  color: "#ffffff",
+                  background: "rgba(255, 255, 255, 0.10)",
                   outline: "none",
+                  textAlign: "right",
                 }}
               />
               <span
@@ -498,12 +522,12 @@ export function ProjectLoginScreen({
                   right: 15,
                   top: "50%",
                   transform: "translateY(-50%)",
-                  color: "#8a94a6",
-                  fontSize: 20,
+                  color: "rgba(255,255,255,0.82)",
+                  fontSize: 22,
                   fontWeight: 950,
                 }}
               >
-                ◌
+                ♙
               </span>
             </div>
           </label>
@@ -514,7 +538,8 @@ export function ProjectLoginScreen({
               gap: 9,
               marginBottom: 18,
               fontWeight: 950,
-              color: BRAND_NAVY,
+              color: "#061328",
+              textAlign: "right",
             }}
           >
             סיסמה
@@ -546,14 +571,14 @@ export function ProjectLoginScreen({
             style={{
               width: "100%",
               border: 0,
-              borderRadius: 15,
-              padding: "15px 16px",
+              borderRadius: 12,
+              padding: "17px 16px",
               background: `linear-gradient(135deg, ${BRAND_NAVY} 0%, ${BRAND_NAVY_SOFT} 100%)`,
               color: "#fff",
               fontWeight: 950,
               fontSize: 17,
               cursor: "pointer",
-              boxShadow: "0 14px 26px rgba(7, 21, 45, 0.25)",
+              boxShadow: "0 14px 26px rgba(0, 0, 0, 0.34)",
             }}
           >
             כניסה למערכת ←
@@ -566,11 +591,11 @@ export function ProjectLoginScreen({
               display: "block",
               border: 0,
               background: "transparent",
-              color: "#2f5f9d",
+              color: "#ffffff",
               fontWeight: 900,
               cursor: "pointer",
               padding: 0,
-              margin: "18px auto 22px",
+              margin: "20px auto 24px",
               textDecoration: "none",
             }}
           >
@@ -613,7 +638,7 @@ export function ProjectLoginScreen({
             </div>
           ) : null}
 
-          <div style={{ height: 1, background: "#e6ebf2", marginBottom: 20 }} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.30)", marginBottom: 22 }} />
 
           <div
             style={{
