@@ -92,10 +92,10 @@ export function ProjectLoginScreen({
 
         .yk-login-exact-form {
           position: absolute;
-          z-index: 3;
-          width: min(31.2vw, 500px);
-          right: 11.7vw;
-          top: 41.2vh;
+          z-index: 20;
+          width: min(31.4vw, 640px);
+          right: 8.7vw;
+          top: 41.5vh;
         }
 
         .yk-login-exact-field {
@@ -103,6 +103,10 @@ export function ProjectLoginScreen({
           width: 100%;
           height: clamp(44px, 5.7vh, 54px);
           margin-bottom: clamp(38px, 5.8vh, 58px);
+          border: 1px solid rgba(255,255,255,0.72);
+          border-radius: 12px;
+          background: rgba(255,255,255,0.10);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.20);
         }
 
         .yk-login-exact-field input {
@@ -119,6 +123,13 @@ export function ProjectLoginScreen({
           text-align: right;
           padding: 0 52px 0 54px;
           direction: rtl;
+        }
+
+        .yk-login-exact-field:focus-within {
+          border-color: rgba(255,255,255,0.94);
+          box-shadow:
+            0 0 0 3px rgba(255,255,255,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.20);
         }
 
         .yk-login-exact-field input::placeholder {
@@ -146,7 +157,7 @@ export function ProjectLoginScreen({
           margin-top: clamp(10px, 1.4vh, 18px);
           border: 0;
           border-radius: 12px;
-          background: transparent;
+          background: rgba(7, 21, 45, 0.08);
           color: transparent;
           cursor: pointer;
         }
@@ -173,17 +184,18 @@ export function ProjectLoginScreen({
           font-weight: 900;
           line-height: 1.6;
           box-shadow: 0 14px 34px rgba(0,0,0,0.24);
+          pointer-events: none;
         }
 
         .yk-login-error {
-          top: calc(41.2vh + 178px);
+          top: calc(41.5vh + 250px);
           background: rgba(254, 226, 226, 0.94);
           color: #991b1b;
           border: 1px solid rgba(254, 202, 202, 0.9);
         }
 
         .yk-login-help {
-          top: calc(41.2vh + 238px);
+          top: calc(41.5vh + 312px);
           background: rgba(248, 250, 252, 0.96);
           color: #07152d;
           border: 1px solid rgba(226, 232, 240, 0.96);
