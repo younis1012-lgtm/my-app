@@ -93,16 +93,16 @@ export function ProjectLoginScreen({
         .yk-login-exact-form {
           position: absolute;
           z-index: 20;
-          width: min(31.4vw, 640px);
-          right: 8.7vw;
-          top: 41.5vh;
+          width: min(31.1vw, 640px);
+          right: 8.85vw;
+          top: 39.7vh;
         }
 
         .yk-login-exact-field {
           position: relative;
           width: 100%;
-          height: clamp(44px, 5.7vh, 54px);
-          margin-bottom: clamp(38px, 5.8vh, 58px);
+          height: clamp(48px, 5.9vh, 58px);
+          margin-bottom: clamp(27px, 4.1vh, 42px);
           border: 1px solid rgba(255,255,255,0.72);
           border-radius: 12px;
           background: rgba(255,255,255,0.10);
@@ -123,6 +123,7 @@ export function ProjectLoginScreen({
           text-align: right;
           padding: 0 52px 0 54px;
           direction: rtl;
+          caret-color: #ffffff;
         }
 
         .yk-login-exact-field:focus-within {
@@ -153,11 +154,11 @@ export function ProjectLoginScreen({
         .yk-login-submit {
           display: block;
           width: 100%;
-          height: clamp(50px, 6vh, 60px);
-          margin-top: clamp(10px, 1.4vh, 18px);
+          height: clamp(52px, 6.1vh, 62px);
+          margin-top: clamp(0px, 0.6vh, 8px);
           border: 0;
           border-radius: 12px;
-          background: rgba(7, 21, 45, 0.08);
+          background: rgba(7, 21, 45, 0.01);
           color: transparent;
           cursor: pointer;
         }
@@ -166,7 +167,7 @@ export function ProjectLoginScreen({
           display: block;
           width: 170px;
           height: 34px;
-          margin: clamp(12px, 2vh, 20px) auto 0;
+          margin: clamp(10px, 1.7vh, 18px) auto 0;
           border: 0;
           background: transparent;
           color: transparent;
@@ -188,14 +189,14 @@ export function ProjectLoginScreen({
         }
 
         .yk-login-error {
-          top: calc(41.5vh + 250px);
+          top: calc(39.7vh + 246px);
           background: rgba(254, 226, 226, 0.94);
           color: #991b1b;
           border: 1px solid rgba(254, 202, 202, 0.9);
         }
 
         .yk-login-help {
-          top: calc(41.5vh + 312px);
+          top: calc(39.7vh + 306px);
           background: rgba(248, 250, 252, 0.96);
           color: #07152d;
           border: 1px solid rgba(226, 232, 240, 0.96);
