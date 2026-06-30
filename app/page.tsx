@@ -14138,6 +14138,7 @@ export default function Page() {
   const [editingProjectLegend, setEditingProjectLegend] = useState(false);
   const [projectLegendDirty, setProjectLegendDirty] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [accountForm, setAccountForm] = useState({
     username: "",
     currentPassword: "",
@@ -14308,6 +14309,10 @@ export default function Page() {
       if (cancelled) return;
       if (supabaseAuthUser) {
         setProjectAccess(supabaseAuthUser);
+        setShowProjectPicker(
+          (supabaseAuthUser.projectIds?.length ?? 0) > 1 &&
+            !normalizeStoredProjectId(readLocalCurrentProjectId()),
+        );
         refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
@@ -14324,6 +14329,10 @@ export default function Page() {
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
         setProjectAccess(storedUser);
+        setShowProjectPicker(
+          (storedUser.projectIds?.length ?? 0) > 1 &&
+            !normalizeStoredProjectId(readLocalCurrentProjectId()),
+        );
         refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
@@ -14442,6 +14451,7 @@ export default function Page() {
         if (authAccess) {
           setLoginError("");
           setProjectAccess(authAccess);
+          setShowProjectPicker((authAccess.projectIds?.length ?? 0) > 1);
           writeAuthSession(authAccess);
           setSection("home");
           return;
@@ -14465,6 +14475,7 @@ export default function Page() {
     }
     setLoginError("");
     setProjectAccess(access);
+    setShowProjectPicker((access.projectIds?.length ?? 0) > 1);
     writeAuthSession(access);
     setSection("home");
   };
@@ -14476,6 +14487,7 @@ export default function Page() {
     if (typeof window !== "undefined")
       window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setProjectAccess(null);
+    setShowProjectPicker(false);
     setLoginPassword("");
     setLoginError("");
     setSection("home");
@@ -15300,7 +15312,11 @@ export default function Page() {
             activeProject?.id ??
             sourceProjects[0]?.id ??
             ""
-        : allowedProject?.id ?? sourceProjects[0]?.id ?? "",
+        : selectedProject?.id ??
+            savedProject?.id ??
+            allowedProject?.id ??
+            sourceProjects[0]?.id ??
+            "",
     );
 
     if (!nextProjectId) return;
@@ -16958,8 +16974,10 @@ export default function Page() {
           ),
     );
   };
-  const setActiveProject = async (projectId: string) =>
-    await withSaving(async () => {
+  const setActiveProject = async (
+    projectId: string,
+    options: { persistGlobalActive?: boolean } = {},
+  ) => {
       projectId = normalizeStoredProjectId(projectId);
       const allProjects = effectiveProjects.length
         ? effectiveProjects
@@ -16980,7 +16998,9 @@ export default function Page() {
         }));
       });
 
-      if (cloudEnabled && supabase) {
+      const persistGlobalActive =
+        options.persistGlobalActive ?? isAdminAccess(projectAccess);
+      if (persistGlobalActive && cloudEnabled && supabase) {
         try {
           await supabase
             .from("projects")
@@ -17001,7 +17021,7 @@ export default function Page() {
       }
 
       setSection("home");
-    });
+  };
   const deleteProject = async (projectId: string) => {
     const project = effectiveProjects.find((p) => p.id === projectId);
     if (!project || !window.confirm(`למחוק את הפרויקט "${project.name}"?`))
@@ -21345,6 +21365,144 @@ ${invalidRecipients.join("\n")}`);
     );
   }
 
+  if (showProjectPicker && accessibleProjects.length > 1) {
+    return (
+      <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
+        <div
+          style={{
+            maxWidth: 1180,
+            margin: "0 auto",
+            display: "grid",
+            gap: 18,
+          }}
+        >
+          <section
+            style={{
+              background: "#0f172a",
+              color: "#fff",
+              borderRadius: 18,
+              padding: "26px 28px",
+              boxShadow: "0 18px 55px rgba(15, 23, 42, 0.22)",
+            }}
+          >
+            <div style={{ fontSize: 28, fontWeight: 950 }}>בחירת פרויקט לעבודה</div>
+            <div style={{ marginTop: 8, color: "#cbd5e1", fontWeight: 800 }}>
+              שלום {projectAccess.displayName || projectAccess.username}, בחר את הפרויקט שברצונך לפתוח.
+            </div>
+          </section>
+
+          <section
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 18,
+              overflow: "hidden",
+              boxShadow: "0 12px 35px rgba(15, 23, 42, 0.08)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 160px",
+                gap: 12,
+                padding: "14px 18px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "#f1f5f9",
+                color: "#334155",
+                fontWeight: 950,
+              }}
+            >
+              <div>שם הפרויקט</div>
+              <div style={{ textAlign: "center" }}>פעולה</div>
+            </div>
+            {accessibleProjects.map((project) => {
+              const isSelected =
+                normalizeStoredProjectId(project.id) ===
+                normalizeStoredProjectId(currentProjectId);
+              return (
+                <div
+                  key={project.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 160px",
+                    gap: 12,
+                    alignItems: "center",
+                    padding: "18px",
+                    borderBottom: "1px solid #e2e8f0",
+                    background: isSelected ? "#f0fdf4" : "#fff",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 950, color: "#0f172a" }}>
+                      {project.name}
+                    </div>
+                    {project.description || project.manager ? (
+                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 750 }}>
+                        {[project.description, project.manager].filter(Boolean).join(" · ")}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void setActiveProject(project.id, {
+                        persistGlobalActive: isAdminAccess(projectAccess),
+                      }).then(() => setShowProjectPicker(false));
+                    }}
+                    style={{
+                      border: 0,
+                      borderRadius: 10,
+                      background: "#16a34a",
+                      color: "#fff",
+                      padding: "11px 12px",
+                      fontWeight: 950,
+                      cursor: "pointer",
+                    }}
+                  >
+                    כניסה לפרויקט
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={logoutProject}
+              style={{
+                border: "1px solid #cbd5e1",
+                background: "#fff",
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              יציאה
+            </button>
+            {currentProjectId ? (
+              <button
+                type="button"
+                onClick={() => setShowProjectPicker(false)}
+                style={{
+                  border: "1px solid #cbd5e1",
+                  background: "#fff",
+                  borderRadius: 10,
+                  padding: "10px 14px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                המשך בפרויקט הנוכחי
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page} dir="rtl">
       {emailRecipientDialogOpen && (
@@ -21538,6 +21696,23 @@ ${invalidRecipients.join("\n")}`);
                   }}
                 >
                   ניהול משתמשים
+                </button>
+              ) : null}
+              {!isAdminAccess(projectAccess) && accessibleProjects.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowProjectPicker(true)}
+                  style={{
+                    border: "1px solid #cbd5e1",
+                    background: "#0f172a",
+                    color: "#fff",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  החלף פרויקט
                 </button>
               ) : null}
               <button
