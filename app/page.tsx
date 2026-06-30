@@ -14842,10 +14842,17 @@ export default function Page() {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
     const storedProjectId = readLocalCurrentProjectId();
+    const latestChecklistProjectId = normalizeStoredProjectId(
+      (checklistRows ?? []).find((row) => normalizeStoredProjectId(row?.project_id))?.project_id,
+    );
+    const latestChecklistProject = latestChecklistProjectId
+      ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === latestChecklistProjectId)
+      : undefined;
     const active =
       (storedProjectId
         ? availableProjects.find((p) => p.id === storedProjectId)
         : undefined) ??
+      latestChecklistProject ??
       availableProjects.find((p) => p.isActive) ??
       availableProjects[0] ??
       getDefaultProjectList()[0];
@@ -15267,6 +15274,7 @@ export default function Page() {
       isAdminAccess(projectAccess)
         ? selectedProject?.id ??
             savedProject?.id ??
+            currentProjectIdNormalized ??
             activeProject?.id ??
             sourceProjects[0]?.id ??
             ""
