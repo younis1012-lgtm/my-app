@@ -14827,6 +14827,47 @@ export default function Page() {
     }
   };
 
+  const checklistRowToRecord = (row: any): ChecklistRecord => {
+    const details = row?.details && typeof row.details === "object" ? row.details : {};
+    return {
+      id: row.id,
+      projectId: normalizeStoredProjectId(row.project_id),
+      checklistNo: row.checklist_no ?? undefined,
+      templateKey: normalizeChecklistTemplateKey(row.template_key),
+      title: row.title ?? "",
+      category: row.category ?? "",
+      structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
+      location: row.location ?? "",
+      date: row.date ?? "",
+      contractor: row.contractor ?? details.contractor ?? "",
+      notes: row.notes ?? "",
+      projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
+      roadStructure: details.roadStructure ?? details.road_structure ?? "",
+      layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
+      stationSection: details.stationSection ?? details.station_section ?? "",
+      toStationSection: details.toStationSection ?? details.to_station_section ?? "",
+      offset: details.offset ?? "",
+      selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
+      executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
+      executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
+      executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
+      revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
+      revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
+      pileDetails:
+        details.pileDetails && typeof details.pileDetails === "object"
+          ? details.pileDetails
+          : details.pile_details && typeof details.pile_details === "object"
+            ? details.pile_details
+            : {},
+      items: normalizeChecklistItems(row.items),
+      approval: normalizeApproval(row.approval),
+      status: row.status ?? details.status ?? "",
+      savedAt: row.saved_at
+        ? new Date(row.saved_at).toLocaleString("he-IL")
+        : "",
+    } as ChecklistRecord;
+  };
+
   const loadFromCloudResults = (
     projectsRows: any[] | null,
     checklistRows: any[] | null,
@@ -14842,64 +14883,17 @@ export default function Page() {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
     const storedProjectId = readLocalCurrentProjectId();
-    const latestChecklistProjectId = normalizeStoredProjectId(
-      (checklistRows ?? []).find((row) => normalizeStoredProjectId(row?.project_id))?.project_id,
-    );
-    const latestChecklistProject = latestChecklistProjectId
-      ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === latestChecklistProjectId)
-      : undefined;
     const active =
       (storedProjectId
         ? availableProjects.find((p) => p.id === storedProjectId)
         : undefined) ??
-      latestChecklistProject ??
       availableProjects.find((p) => p.isActive) ??
       availableProjects[0] ??
       getDefaultProjectList()[0];
     setCurrentProjectId(
       active?.id ? normalizeStoredProjectId(active.id) : null,
     );
-    setSavedChecklists(
-      (checklistRows ?? []).map((row) => {
-        const details = row?.details && typeof row.details === "object" ? row.details : {};
-        return {
-          id: row.id,
-          projectId: normalizeStoredProjectId(row.project_id),
-          checklistNo: row.checklist_no ?? undefined,
-          templateKey: normalizeChecklistTemplateKey(row.template_key),
-          title: row.title ?? "",
-          category: row.category ?? "",
-          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-          location: row.location ?? "",
-          date: row.date ?? "",
-          contractor: row.contractor ?? details.contractor ?? "",
-          notes: row.notes ?? "",
-          projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
-          roadStructure: details.roadStructure ?? details.road_structure ?? "",
-          layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
-          stationSection: details.stationSection ?? details.station_section ?? "",
-          toStationSection: details.toStationSection ?? details.to_station_section ?? "",
-          offset: details.offset ?? "",
-          selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
-          executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
-          executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
-          executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
-          revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
-          revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
-          pileDetails:
-            details.pileDetails && typeof details.pileDetails === "object"
-              ? details.pileDetails
-              : details.pile_details && typeof details.pile_details === "object"
-                ? details.pile_details
-                : {},
-          items: normalizeChecklistItems(row.items),
-          approval: normalizeApproval(row.approval),
-          savedAt: row.saved_at
-            ? new Date(row.saved_at).toLocaleString("he-IL")
-            : "",
-        } as ChecklistRecord;
-      }),
-    );
+    setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
     setSavedNonconformances(
       (nonconRows ?? []).map((row) => {
         const details = (row.details ?? {}) as Record<string, any>;
@@ -15130,6 +15124,35 @@ export default function Page() {
     if (loaded) writeLocalCurrentProjectId(currentProjectId);
   }, [currentProjectId, loaded]);
 
+  useEffect(() => {
+    if (!loaded || !cloudEnabled || !supabase || !currentProjectId) return;
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    if (!normalizedProjectId) return;
+    const hasProjectChecklists = savedChecklists.some(
+      (item) => normalizeStoredProjectId(item.projectId) === normalizedProjectId,
+    );
+    if (hasProjectChecklists) return;
+
+    let cancelled = false;
+    supabase
+      .from("checklists")
+      .select("*")
+      .eq("project_id", normalizedProjectId)
+      .order("saved_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled || error || !data?.length) return;
+        const restored = data.map(checklistRowToRecord);
+        setSavedChecklists((prev) => {
+          const existingIds = new Set(prev.map((item) => item.id));
+          const missing = restored.filter((item) => !existingIds.has(item.id));
+          return missing.length ? [...missing, ...prev] : prev;
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, cloudEnabled, currentProjectId, savedChecklists.length]);
+
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
@@ -15274,7 +15297,6 @@ export default function Page() {
       isAdminAccess(projectAccess)
         ? selectedProject?.id ??
             savedProject?.id ??
-            currentProjectIdNormalized ??
             activeProject?.id ??
             sourceProjects[0]?.id ??
             ""
