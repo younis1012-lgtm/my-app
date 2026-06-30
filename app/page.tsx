@@ -14882,10 +14882,10 @@ export default function Page() {
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
-    const storedProjectId = readLocalCurrentProjectId();
+    const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId());
     const active =
       (storedProjectId
-        ? availableProjects.find((p) => p.id === storedProjectId)
+        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
         : undefined) ??
       availableProjects.find((p) => p.isActive) ??
       availableProjects[0] ??
@@ -15314,10 +15314,16 @@ export default function Page() {
   }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId]);
 
   const currentProject = useMemo(
-    () =>
-      accessibleProjects.find((p) => p.id === currentProjectId) ??
-      accessibleProjects[0] ??
-      null,
+    () => {
+      const selectedProjectId = normalizeStoredProjectId(currentProjectId);
+      return (
+        accessibleProjects.find(
+          (p) => normalizeStoredProjectId(p.id) === selectedProjectId,
+        ) ??
+        accessibleProjects[0] ??
+        null
+      );
+    },
     [accessibleProjects, currentProjectId],
   );
 
@@ -16042,6 +16048,12 @@ export default function Page() {
     }
     return false;
   };
+  const checklistMatchesCurrentProject = (projectId: unknown) => {
+    const recordProjectId = normalizeStoredProjectId(projectId);
+    if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
+    if (!currentProjectIdNormalized) return true;
+    return recordProjectId === currentProjectIdNormalized;
+  };
   const currentProjectStructureNodes = useMemo(
     () =>
       sortProjectStructureNodes(
@@ -16117,7 +16129,7 @@ export default function Page() {
   const projectChecklists = useMemo(
     () =>
       savedChecklists
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
+        .filter((item) => checklistMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
             !normalizedSearchTerm ||
@@ -16139,7 +16151,6 @@ export default function Page() {
       savedChecklists,
       currentProjectIdNormalized,
       activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
       normalizedSearchTerm,
     ],
   );
@@ -19787,7 +19798,7 @@ export default function Page() {
       const usedPaths = new Set<string>();
       const projectRoot = sanitizeZipSegment(`חומר פרויקט - ${projectName || currentProject.name}`);
       const now = nowLocal();
-      const allProjectChecklists = savedChecklists.filter((item) => recordMatchesCurrentProject(item.projectId));
+      const allProjectChecklists = savedChecklists.filter((item) => checklistMatchesCurrentProject(item.projectId));
       const allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectTrialSections = savedTrialSections.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectPreliminary = savedPreliminary.filter((item) => recordMatchesCurrentProject(item.projectId));
