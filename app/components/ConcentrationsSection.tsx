@@ -2299,6 +2299,50 @@ const compareEarthworksRowsByDateLayer = (a: Row, b: Row): number =>
     earthworksChecklistSortValue(b["מס' סדורי"], Number.POSITIVE_INFINITY);
 
 
+const earthworksDuplicateRowKey = (row: Row): string => {
+  const checklistNo = cleanText(row[earthworksFieldColumns[2]]);
+  const date = cleanText(row[earthworksFieldColumns[3]]);
+  const layer = cleanText(row[earthworksFieldColumns[10]]);
+  if (!checklistNo || !date || !layer) return "";
+  return [checklistNo, date, layer]
+    .map((value) => value.replace(/\s+/g, " ").trim().toLowerCase())
+    .join("|");
+};
+
+const dedupeEarthworksRows = (rows: Row[]): Row[] => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = earthworksDuplicateRowKey(row);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
+  const checklistColumn = earthworksFieldColumns[2];
+  const used = new Set<number>();
+  const maxExisting = rows.reduce((max, row) => {
+    const value = earthworksChecklistSortValue(row[checklistColumn], Number.NaN);
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+  let next = maxExisting + 1;
+
+  return rows.map((row) => {
+    const raw = earthworksChecklistSortValue(row[checklistColumn], Number.NaN);
+    if (Number.isFinite(raw) && raw > 0 && !used.has(raw)) {
+      used.add(raw);
+      return row;
+    }
+    while (used.has(next)) next += 1;
+    used.add(next);
+    const updated = { ...row, [checklistColumn]: next };
+    next += 1;
+    return updated;
+  });
+};
+
 const exactResultValue = (source: any, aliases: string[]): string => {
   if (!source || typeof source !== "object") return "";
   for (const alias of aliases) {
@@ -2866,7 +2910,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     }
   });
 
-  return rows
+  return ensureUniqueEarthworksChecklistNumbers(dedupeEarthworksRows(rows))
     .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
 };

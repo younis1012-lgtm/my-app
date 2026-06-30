@@ -5797,9 +5797,10 @@ function ChecklistsSection({
             <label>
               <span style={labelStyle}>מספר רשימת תיוג</span>
               <input
-                value={checklistForm.checklistNo ?? ""}
-                onChange={(event) => setField("checklistNo", event.target.value)}
-                style={inputStyle}
+                value={checklistForm.checklistNo ?? "יוקצה אוטומטית בשמירה"}
+                readOnly
+                title="המערכת מקצה מספר רשימת תיוג אוטומטית לפי הפרויקט"
+                style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }}
               />
             </label>
             <label>
@@ -15875,7 +15876,7 @@ export default function Page() {
   };
   const getMaxSavedChecklistNo = (projectId: string) =>
     savedChecklists
-      .filter((item) => item.projectId === projectId)
+      .filter((item) => normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(projectId))
       .reduce(
         (max, item) =>
           Math.max(max, Number((item as any).checklistNo ?? 0) || 0),
@@ -15890,7 +15891,7 @@ export default function Page() {
     if (!Number.isFinite(number) || number <= 0) return false;
     return savedChecklists.some(
       (item) =>
-        item.projectId === projectId &&
+        normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(projectId) &&
         item.id !== exceptId &&
         Number((item as any).checklistNo ?? 0) === number,
     );
@@ -15920,7 +15921,11 @@ export default function Page() {
     ) {
       return current;
     }
-    if (existing) return existing;
+    if (
+      existing &&
+      !isChecklistNoAlreadySaved(currentProjectId, existing, editingChecklistId)
+    )
+      return existing;
     const next = allocateNextChecklistNo(currentProjectId);
     setChecklistForm((prev) => ({ ...(prev as any), checklistNo: next }));
     return next;
@@ -17940,8 +17945,15 @@ export default function Page() {
       !isChecklistNoAlreadySaved(currentProjectId, currentChecklistNo, id)
         ? currentChecklistNo
         : undefined;
+    const reusableExistingChecklistNo =
+      existingChecklistNo &&
+      !isChecklistNoAlreadySaved(currentProjectId, existingChecklistNo, id)
+        ? existingChecklistNo
+        : undefined;
     const checklistNo =
-      requestedChecklistNo ?? existingChecklistNo ?? allocateNextChecklistNo(currentProjectId);
+      requestedChecklistNo ??
+      reusableExistingChecklistNo ??
+      allocateNextChecklistNo(currentProjectId);
     setStoredChecklistSequence(
       currentProjectId,
       Math.max(
