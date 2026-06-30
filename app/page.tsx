@@ -55,6 +55,15 @@ const isRoad806Value = (value: unknown) => {
   return text.includes("806") || text.includes("צלמון");
 };
 
+const ROAD_65_PROJECT_ID = "06500000-0000-0000-0000-000000000000";
+
+const isRoad65Value = (value: unknown) => {
+  const text = String(value ?? "");
+  const normalized = normalizeStoredProjectId(text);
+  if (normalized === ROAD_65_PROJECT_ID) return true;
+  return /\b0?65\b/.test(text) || text.includes("כביש 65") || text.includes("דברת");
+};
+
 const isSurveyorRole = (value: unknown) => String(value ?? "").includes("מודד");
 
 const APP_VERSION = "2026-06-21-checklist-tracking-v1";
@@ -2592,7 +2601,7 @@ const projectMatchesAccess = (
   if (allowedName && projectName === allowedName) return true;
   if (allowedName && projectName.includes(allowedName)) return true;
   const projectCodes = new Set(
-    extractProjectCodeCandidates(project.id, project.name),
+    extractProjectCodeCandidates(project.id, project.name, project.description),
   );
   const accessCodes = extractProjectCodeCandidates(
     access.code,
@@ -2601,6 +2610,11 @@ const projectMatchesAccess = (
     ...(access.projectIds ?? []),
   );
   if (accessCodes.some((projectCode) => projectCodes.has(projectCode)))
+    return true;
+  if (
+    accessCodes.some((projectCode) => projectCode === "65") &&
+    [project.id, project.name, project.description].some(isRoad65Value)
+  )
     return true;
   if (code && searchable.includes(code)) return true;
 
@@ -15976,6 +15990,21 @@ export default function Page() {
     if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
     if (!currentProjectIdNormalized) return true;
     if (recordProjectId === currentProjectIdNormalized) return true;
+    if (
+      recordProjectId === ROAD_65_PROJECT_ID &&
+      [
+        currentProjectIdNormalized,
+        currentProject?.id,
+        currentProject?.name,
+        currentProject?.description,
+        currentProjectLegend.projectName,
+        projectAccess?.code,
+        projectAccess?.username,
+        projectAccess?.projectName,
+        ...(projectAccess?.projectIds ?? []),
+      ].some(isRoad65Value)
+    )
+      return true;
 
     const recordKeys = projectIdentityKeysFromValues(projectId, recordProjectId);
     for (const key of recordKeys) {
