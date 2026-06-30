@@ -92,6 +92,31 @@ const firstText = (...values: unknown[]): string => {
   return "";
 };
 
+const checklistApprovalDisplayStatus = (checklist: any): string => {
+  const status = normalize(checklist?.approval?.status);
+  if (
+    [
+      "approved",
+      "approve",
+      "completed",
+      "complete",
+      "done",
+      "closed",
+      "signed",
+      "מאושר",
+      "מאושרת",
+      "אושר",
+      "אושרה",
+      "חתום",
+      "נחתם",
+      "סגור",
+      "הושלם",
+    ].includes(status)
+  ) return "מאושר";
+  if (["rejected", "reject", "declined", "נדחה", "נדחתה", "לא מאושר"].includes(status)) return "לא מאושר";
+  return "";
+};
+
 
 
 const compactValue = (value: unknown): string => {
@@ -850,6 +875,7 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
   records.forEach((checklist) => {
     const checklistMatches = includesAny(recordText(checklist), keywords);
     const items = Array.isArray(checklist?.items) ? checklist.items : [];
+    const checklistApprovalStatus = checklistApprovalDisplayStatus(checklist);
 
     // ריכוזים המבוססים על רשימות תיוג יכללו רק סעיפים שאליהם צורף קובץ בפועל.
     // לא נכניס סעיפים ריקים רק בגלל שהכותרת או התיאור שלהם מתאימים למילות החיפוש.
@@ -873,7 +899,7 @@ const checklistRows = (records: any[], keywords: string[], label: string): Row[]
           "תיאור סעיף": firstText(item?.description),
           "מבצע/אחראי": firstText(item?.responsible),
           "בודק": firstText(item?.inspector),
-          "סטטוס": firstText(item?.status),
+          "סטטוס": firstText(checklistApprovalStatus, item?.status, checklist?.status),
           "מספר תעודה": attachmentCertificateNo(attachment, firstText(item?.certificateNo)),
           "שם קובץ": attachmentName(attachment),
           "תוצאות/הערות": firstText(item?.notes, JSON.stringify(attachment?.results ?? attachment?.labResults ?? item?.results ?? item?.labResults ?? {})),
@@ -970,15 +996,12 @@ const buildPileConcentrationRows = (savedChecklists: any[]): Row[] =>
         checklist?.pileDetails && typeof checklist.pileDetails === "object"
           ? checklist.pileDetails
           : {};
-      const approvalStatus = normalize(checklist?.approval?.status);
+      const approvalStatus = checklistApprovalDisplayStatus(checklist);
       const status = firstText(
+        approvalStatus,
         details.pileStatus,
         checklist?.status,
-        approvalStatus === "approved"
-          ? "מאושר"
-          : approvalStatus === "rejected"
-            ? "לא מאושר"
-            : "בתהליך",
+        "בתהליך",
       );
       return {
         'ביצוע בדיקות ע"י QC/QA': /QA|הבטחת איכות/i.test(
@@ -1306,7 +1329,7 @@ const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
               category: checklist?.category,
               location: firstText(item?.location, checklist?.location),
               contractor: firstText(item?.contractor, checklist?.contractor),
-              status: firstText(item?.status, checklist?.status, "מאושר"),
+              status: firstText(checklistApprovalDisplayStatus(checklist), item?.status, checklist?.status, "מאושר"),
               checklistNo: firstText(checklist?.checklistNo, checklist?.checklistNumber, checklist?.number, checklist?.id),
               date: firstDateText(batch?.testDate, item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
               batchNo: firstText(batch?.batchNo, batch?.batchNumber, batchIndex + 1),
@@ -1349,7 +1372,7 @@ const asphaltChecklistAttachmentRecords = (checklists: any[] = []): any[] => {
           category: checklist?.category,
           location: firstText(item?.location, checklist?.location),
           contractor: firstText(item?.contractor, checklist?.contractor),
-          status: firstText(item?.status, checklist?.status, "מאושר"),
+          status: firstText(checklistApprovalDisplayStatus(checklist), item?.status, checklist?.status, "מאושר"),
           checklistNo: firstText(checklist?.checklistNo, checklist?.checklistNumber, checklist?.number, checklist?.id),
           date: firstDateText(item?.executionDate, checklist?.date, attachment?.uploadedAt, checklist?.savedAt),
           asphaltMixType: firstText(
@@ -2470,7 +2493,14 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     parsedLocation.location,
     exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
   );
-  const exactLayer = firstText(exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]), parsedLocation.layer);
+  const exactLayer = firstText(
+    checklist?.location,
+    checklist?.layerNo,
+    checklist?.layerNumber,
+    checklist?.layer,
+    exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
+    parsedLocation.layer,
+  );
   const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"]);
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
   const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "densityCertificateNo"]);

@@ -10,6 +10,7 @@ export type SendEmailPayload = {
   bcc?: string | string[];
   replyTo?: string;
   senderEmail?: string;
+  senderAppPassword?: string;
   senderName?: string;
   subject: string;
   text?: string;

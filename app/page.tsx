@@ -83,6 +83,7 @@ type ProjectEmailUser = {
   company: string;
   email: string;
   phone?: string;
+  smtpAppPassword?: string;
   active: boolean;
   createdAt: string;
 };
@@ -117,6 +118,25 @@ const dedupeProjectEmailUsers = (users: ProjectEmailUser[]) =>
       .values(),
   );
 
+const uuidFromProjectEmailUser = (user: ProjectEmailUser) => {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(user.id)) {
+    return user.id;
+  }
+  const source = `${normalizeStoredProjectId(user.projectId)}|${normalizeAccessValue(user.email) || normalizeAccessValue(projectUserParticipantLabel(user))}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const hex = (hash >>> 0).toString(16).padStart(8, "0");
+  return `${hex}-${hex.slice(0, 4)}-4${hex.slice(1, 4)}-a${hex.slice(2, 5)}-${hex}${hex.slice(0, 4)}`;
+};
+
+const toSupabaseTimestamp = (value: unknown) => {
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+};
+
 const readProjectEmailUsers = (): ProjectEmailUser[] => {
   if (typeof window === "undefined") return [];
   try {
@@ -131,6 +151,7 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
         company: String(item?.company || ""),
         email: String(item?.email || "").trim(),
         phone: String(item?.phone || ""),
+        smtpAppPassword: String(item?.smtpAppPassword || item?.smtp_app_password || ""),
         active: item?.active !== false,
         createdAt: String(item?.createdAt || new Date().toISOString()),
       }))
@@ -149,15 +170,16 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
 const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
   if (!isSupabaseConfigured || !supabase) return;
   const normalized = dedupeProjectEmailUsers(users).map((user) => ({
-    id: user.id,
+    id: uuidFromProjectEmailUser(user),
     project_id: normalizeStoredProjectId(user.projectId),
     name: user.name,
     role: user.role,
     company: user.company,
     email: user.email,
     phone: user.phone || "",
+    smtp_app_password: user.smtpAppPassword || "",
     active: user.active !== false,
-    created_at: user.createdAt || new Date().toISOString(),
+    created_at: toSupabaseTimestamp(user.createdAt),
   }));
   const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
   if (error) throw error;
@@ -175,6 +197,7 @@ const loadProjectEmailUsersFromCloud = async () => {
     company: String(item?.company || ""),
     email: String(item?.email || "").trim(),
     phone: String(item?.phone || ""),
+    smtpAppPassword: String(item?.smtp_app_password || item?.smtpAppPassword || ""),
     active: item?.active !== false,
     createdAt: String(item?.created_at || item?.createdAt || new Date().toISOString()),
   })).filter((item: ProjectEmailUser) => item.projectId && item.email);
@@ -2306,13 +2329,14 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
         }
         map.set(key, {
           ...existing,
+          ...item,
           aliases: Array.from(
             new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
           ),
           signatureDataUrl:
-            existing.signatureDataUrl || item.signatureDataUrl || "",
+            item.signatureDataUrl || existing.signatureDataUrl || "",
           signatureFileName:
-            existing.signatureFileName || item.signatureFileName || "",
+            item.signatureFileName || existing.signatureFileName || "",
         });
         return map;
       }, new Map<string, ProjectAccess>())
@@ -3250,7 +3274,6 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
 
   const scale = getPlanImportValue(row, PLAN_IMPORT_ALIASES.scale);
   const notes = getPlanImportValue(row, PLAN_IMPORT_ALIASES.notes);
-  const noteParts = [notes, scale ? `׳§׳ "׳: ${scale}` : ""].filter(Boolean);
   const revision = getPlanImportValue(row, PLAN_IMPORT_ALIASES.revision) || inferPlanRevisionFromPlanNo(planNo);
 
   return {
@@ -3259,8 +3282,6 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
     title,
     discipline: getPlanImportValue(row, PLAN_IMPORT_ALIASES.discipline) || inferPlanDisciplineFromText(`${planNo} ${title}`),
     date: normalizePlanImportDate(getPlanImportValue(row, PLAN_IMPORT_ALIASES.date)),
-    status: getPlanImportValue(row, PLAN_IMPORT_ALIASES.status) || "׳׳‘׳™׳¦׳•׳¢",
-    notes: noteParts.join(" | "),
     status: getPlanImportValue(row, PLAN_IMPORT_ALIASES.status) || "לביצוע",
     notes: [notes, scale ? `קנ"מ: ${scale}` : ""].filter(Boolean).join(" | "),
     attachments: [],
@@ -13189,7 +13210,7 @@ type ProjectUsersSectionProps = {
 };
 
 function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
-  const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", active: true });
+  const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
   const inputStyle: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -13205,7 +13226,21 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
     if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
     if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
     onAddUser({ ...draft, email, active: true });
-    setDraft({ name: "", role: "", company: "", email: "", phone: "", active: true });
+    setDraft({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
+  };
+
+  const save = () => {
+    const hasDraft = Object.values(draft).some((value) => typeof value === "string" && value.trim());
+    if (!hasDraft) {
+      onSaveUsers();
+      return;
+    }
+    const email = draft.email.trim();
+    if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
+    if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
+    onAddUser({ ...draft, email, active: true });
+    setDraft({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
+    setTimeout(onSaveUsers, 0);
   };
 
   return (
@@ -13219,7 +13254,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                 רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
               </p>
             </div>
-            <button type="button" onClick={onSaveUsers} style={styles.primaryBtn}>
+            <button type="button" onClick={save} style={styles.primaryBtn}>
               שמור משתמשים
             </button>
           </div>
@@ -13229,13 +13264,14 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
             <input placeholder="חברה" value={draft.company} onChange={(e) => setDraft((p) => ({ ...p, company: e.target.value }))} style={inputStyle} />
             <input placeholder="מייל" value={draft.email} onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))} style={inputStyle} />
             <input placeholder="טלפון" value={draft.phone} onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))} style={inputStyle} />
+            <input type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
             <button type="button" onClick={add} style={styles.primaryBtn}>הוסף משתמש</button>
           </div>
           <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 850 }}>
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
-                  {["פעיל", "שם", "תפקיד", "חברה", "מייל", "טלפון", "פעולות"].map((label) => (
+                  {["פעיל", "שם", "תפקיד", "חברה", "מייל", "טלפון", "סיסמת Gmail", "פעולות"].map((label) => (
                     <th key={label} style={{ borderBottom: "1px solid #e2e8f0", padding: 10, textAlign: "right" }}>{label}</th>
                   ))}
                 </tr>
@@ -13249,10 +13285,11 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.company} onChange={(e) => onUpdateUser(user.id, { company: e.target.value })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.email} onChange={(e) => onUpdateUser(user.id, { email: e.target.value.trim() })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.phone || ""} onChange={(e) => onUpdateUser(user.id, { phone: e.target.value })} style={inputStyle} /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><button type="button" style={styles.dangerBtn} onClick={() => onDeleteUser(user.id)}>מחק</button></td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={7} style={{ padding: 18, textAlign: "center", color: "#64748b" }}>טרם הוגדרו משתמשים לפרויקט זה.</td></tr>
+                  <tr><td colSpan={8} style={{ padding: 18, textAlign: "center", color: "#64748b" }}>טרם הוגדרו משתמשים לפרויקט זה.</td></tr>
                 )}
               </tbody>
             </table>
@@ -15319,7 +15356,22 @@ export default function Page() {
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
-      alert("המשתמשים נשמרו בדפדפן, אך שמירה בענן נכשלה. ודא שהרצת את project_email_users.sql ב-Supabase.");
+      const details =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message?: unknown }).message || "")
+          : String(error || "");
+      alert(
+        [
+          "המשתמשים נשמרו בדפדפן הנוכחי, אך לא נשמרו בענן.",
+          "",
+          "כדי לשמור משתמשי פרויקט וסיסמת Gmail לכל פרויקט, יש להריץ פעם אחת ב-Supabase SQL Editor את הקובץ:",
+          "app/supabase/09_project_email_users.sql",
+          "",
+          details ? `Supabase error: ${details}` : "Supabase error: no details returned",
+          "",
+          "לאחר הרצת ה-SQL לחץ שוב על שמור משתמשים.",
+        ].join("\n"),
+      );
     }
   };
 
@@ -15763,6 +15815,20 @@ export default function Page() {
           Math.max(max, Number((item as any).checklistNo ?? 0) || 0),
         0,
       );
+  const isChecklistNoAlreadySaved = (
+    projectId: string,
+    value: unknown,
+    exceptId?: string | null,
+  ) => {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return false;
+    return savedChecklists.some(
+      (item) =>
+        item.projectId === projectId &&
+        item.id !== exceptId &&
+        Number((item as any).checklistNo ?? 0) === number,
+    );
+  };
   const allocateNextChecklistNo = (projectId: string) => {
     const next =
       Math.max(
@@ -15780,9 +15846,15 @@ export default function Page() {
   const ensureChecklistNo = () => {
     if (!currentProjectId) return undefined;
     const existing = getExistingEditingChecklistNo();
+    const current = Number((checklistForm as any).checklistNo);
+    if (
+      Number.isFinite(current) &&
+      current > 0 &&
+      !isChecklistNoAlreadySaved(currentProjectId, current, editingChecklistId)
+    ) {
+      return current;
+    }
     if (existing) return existing;
-    if ((checklistForm as any).checklistNo)
-      return Number((checklistForm as any).checklistNo);
     const next = allocateNextChecklistNo(currentProjectId);
     setChecklistForm((prev) => ({ ...(prev as any), checklistNo: next }));
     return next;
@@ -17771,10 +17843,15 @@ export default function Page() {
     if (validation) return alert(validation);
     const id = editingChecklistId ?? crypto.randomUUID();
     const existingChecklistNo = getExistingEditingChecklistNo();
+    const currentChecklistNo = Number((checklistForm as any).checklistNo);
+    const requestedChecklistNo =
+      Number.isFinite(currentChecklistNo) &&
+      currentChecklistNo > 0 &&
+      !isChecklistNoAlreadySaved(currentProjectId, currentChecklistNo, id)
+        ? currentChecklistNo
+        : undefined;
     const checklistNo =
-      existingChecklistNo ??
-      (checklistForm as any).checklistNo ??
-      allocateNextChecklistNo(currentProjectId);
+      requestedChecklistNo ?? existingChecklistNo ?? allocateNextChecklistNo(currentProjectId);
     setStoredChecklistSequence(
       currentProjectId,
       Math.max(
@@ -20388,6 +20465,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       currentProjectDefaults.qualityControl;
     return {
       senderEmail,
+      senderAppPassword: String(qualityUser?.smtpAppPassword || "").trim(),
       senderName,
       replyTo: senderEmail,
     };
@@ -20397,9 +20475,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   ]);
 
   const ensureQualityControllerEmailSender = () => {
-    if (currentEmailSender.senderEmail) return true;
+    if (currentEmailSender.senderEmail && currentEmailSender.senderAppPassword) return true;
     alert(
-      "לא ניתן לשלוח מייל. יש להגדיר בפרויקט משתמש פעיל בתפקיד בקר איכות, עם כתובת מייל תקינה.",
+      "לא ניתן לשלוח מייל מהפרויקט. יש להגדיר בפרויקט משתמש פעיל בתפקיד בקר איכות, עם כתובת Gmail תקינה ועם סיסמת אפליקציה Gmail.",
     );
     return false;
   };

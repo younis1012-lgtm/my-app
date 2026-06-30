@@ -20,6 +20,7 @@ type EmailPayload = {
   bcc?: string | string[];
   replyTo?: string;
   senderEmail?: string;
+  senderAppPassword?: string;
   senderName?: string;
   subject?: string;
   text?: string;
@@ -118,24 +119,31 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const systemEmail = requireEnv("EMAIL_USER");
+    const senderAppPassword = String(body.senderAppPassword || "").trim();
+    if (!senderAppPassword) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Missing Gmail app password for the project quality controller. Configure it under project users.",
+        },
+        { status: 400 },
+      );
+    }
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: systemEmail,
-        pass: requireEnv("EMAIL_APP_PASSWORD"),
+        user: senderEmail,
+        pass: senderAppPassword,
       },
     });
 
     const attachments = normalizeAttachments(body.attachments);
 
     const result = await transporter.sendMail({
-      from: formatMailbox(
-        systemEmail,
-        `${String(body.senderName || "").trim() || "Quality Controller"} | ${senderEmail}`,
-      ),
-      sender: systemEmail,
+      from: formatMailbox(senderEmail, String(body.senderName || "").trim() || "Quality Controller"),
+      sender: senderEmail,
       to: joinEmails(toItems),
       cc: ccItems.length ? joinEmails(ccItems) : undefined,
       bcc: bccItems.length ? joinEmails(bccItems) : undefined,
