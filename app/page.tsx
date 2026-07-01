@@ -8101,7 +8101,7 @@ function getApprovalDisplayStatus(record: any) {
 }
 
 function getChecklistDisplayNumber(record: any, index: number) {
-  return record?.checklistNo ?? record?.serialNumber ?? record?.number ?? (index + 1);
+  return record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? (index + 1);
 }
 
 function getChecklistDisplayLocation(record: any) {
@@ -13603,7 +13603,7 @@ function ChecklistTrackingSection({
         const raw = record as any;
         return {
           record,
-          number: index + 1,
+          number: getChecklistDisplayNumber(record, index),
           title: record.title || checklistTemplates[normalizeChecklistTemplateKey(record.templateKey)]?.title || "רשימת תיוג",
           date,
           status: getApprovalDisplayStatus(record),
@@ -15960,6 +15960,15 @@ export default function Page() {
       !isChecklistNoAlreadySaved(currentProjectId, existing, editingChecklistId)
     )
       return existing;
+    const displayNumber = Number((checklistForm as any).displayNumber);
+    if (
+      Number.isFinite(displayNumber) &&
+      displayNumber > 0 &&
+      !isChecklistNoAlreadySaved(currentProjectId, displayNumber, editingChecklistId)
+    ) {
+      setChecklistForm((prev) => ({ ...(prev as any), checklistNo: displayNumber }));
+      return displayNumber;
+    }
     const next = allocateNextChecklistNo(currentProjectId);
     setChecklistForm((prev) => ({ ...(prev as any), checklistNo: next }));
     return next;
@@ -16185,14 +16194,6 @@ export default function Page() {
     () =>
       savedChecklists
         .filter((item) => checklistMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.category, item.location, item.contractor]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        )
         .map((item, index) => ({ item, index }))
         .sort(
           (a, b) =>
@@ -16201,7 +16202,15 @@ export default function Page() {
             checklistSerialOrderValue(a.item, a.index) - checklistSerialOrderValue(b.item, b.index) ||
             a.index - b.index,
         )
-        .map(({ item }) => item),
+        .map(({ item }, index) => ({ ...item, displayNumber: index + 1 }))
+        .filter(
+          (item) =>
+            !normalizedSearchTerm ||
+            [item.title, item.category, item.location, item.contractor]
+              .join(" ")
+              .toLowerCase()
+              .includes(normalizedSearchTerm),
+        ),
     [
       savedChecklists,
       currentProjectIdNormalized,
@@ -16215,7 +16224,7 @@ export default function Page() {
         (record) =>
           normalizeChecklistTemplateKey(record.templateKey) ===
           normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
-      ).map((record, index) => ({ ...record, displayNumber: index + 1 })),
+      ),
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
@@ -22276,7 +22285,7 @@ ${invalidRecipients.join("\n")}`);
                 description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
                 records={selectedChecklistRecords as any[]}
                 columns={[
-                  { label: "מספר", value: (_record, index) => index + 1 },
+                  { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
                   { label: "מס׳ שכבה", value: (record) => getChecklistDisplayLayer(record) },
