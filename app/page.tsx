@@ -15147,24 +15147,58 @@ export default function Page() {
     if (hasProjectChecklists) return;
 
     let cancelled = false;
-    supabase
-      .from("checklists")
-      .select("*")
-      .eq("project_id", normalizedProjectId)
-      .order("saved_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled || error || !data?.length) return;
+    const candidateProjectIds = Array.from(
+      new Set(
+        [
+          normalizedProjectId,
+          ...(projectAccess?.projectIds ?? []),
+          projectAccess?.code ? `project-${projectAccess.code}` : "",
+          projectAccess?.code,
+        ]
+          .map(normalizeStoredProjectId)
+          .filter(Boolean),
+      ),
+    );
+
+    (async () => {
+      for (const candidateProjectId of candidateProjectIds) {
+        const { data, error } = await supabase
+          .from("checklists")
+          .select("*")
+          .eq("project_id", candidateProjectId)
+          .order("saved_at", { ascending: false });
+        if (cancelled) return;
+        if (error || !data?.length) continue;
+
         const restored = data.map(checklistRowToRecord);
         setSavedChecklists((prev) => {
           const existingIds = new Set(prev.map((item) => item.id));
           const missing = restored.filter((item) => !existingIds.has(item.id));
           return missing.length ? [...missing, ...prev] : prev;
         });
-      });
+
+        if (
+          candidateProjectId !== normalizedProjectId &&
+          !isAdminAccess(projectAccess)
+        ) {
+          setCurrentProjectId(candidateProjectId);
+          writeLocalCurrentProjectId(candidateProjectId);
+        }
+        return;
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [loaded, cloudEnabled, currentProjectId, savedChecklists.length]);
+  }, [
+    loaded,
+    cloudEnabled,
+    currentProjectId,
+    savedChecklists.length,
+    projectAccess?.code,
+    projectAccess?.projectIds,
+    projectAccess?.role,
+  ]);
 
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
