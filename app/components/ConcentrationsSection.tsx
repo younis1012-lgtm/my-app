@@ -2367,6 +2367,38 @@ const earthworksRowHasCertificateEvidence = (row: Row): boolean =>
     earthworksFieldColumns[27],
   ].some((column) => cleanText(row[column]));
 
+const enrichEarthworksRowsByReferenceCertificate = (rows: Row[]): Row[] => {
+  const referenceColumn = earthworksFieldColumns[26];
+  const reusableColumns = [
+    earthworksFieldColumns[13],
+    earthworksFieldColumns[14],
+    earthworksFieldColumns[15],
+  ];
+  const byReference = new Map<string, Row>();
+
+  rows.forEach((row) => {
+    const reference = cleanText(row[referenceColumn]);
+    if (!reference) return;
+    const existing = byReference.get(reference) ?? {};
+    const updated = { ...existing };
+    reusableColumns.forEach((column) => {
+      if (!cleanText(updated[column]) && cleanText(row[column])) updated[column] = row[column];
+    });
+    byReference.set(reference, updated);
+  });
+
+  return rows.map((row) => {
+    const reference = cleanText(row[referenceColumn]);
+    const reusable = reference ? byReference.get(reference) : null;
+    if (!reusable) return row;
+    const updated = { ...row };
+    reusableColumns.forEach((column) => {
+      if (!cleanText(updated[column]) && cleanText(reusable[column])) updated[column] = reusable[column];
+    });
+    return updated;
+  });
+};
+
 const exactResultValue = (source: any, aliases: string[]): string => {
   if (!source || typeof source !== "object") return "";
   for (const alias of aliases) {
@@ -2576,7 +2608,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     cleanEarthworksMaterial(exactFirstFromSources([item, checklist], ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
   );
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
-  const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "densityCertificateNo"]);
+  const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "מספר תעודת בדיקה", "תעודת בדיקה", "certificateNo", "certificateNumber", "densityCertificateNo"]);
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
   const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
   const densityCertificate = isDensityMoisture ? firstText(exactDensityCert, certificate) : "";
@@ -2939,8 +2971,10 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     }
   });
 
+  const completeRows = enrichEarthworksRowsByReferenceCertificate(rows);
+
   return ensureUniqueEarthworksChecklistNumbers(
-    dedupeEarthworksRows(rows.filter(earthworksRowHasCertificateEvidence)),
+    dedupeEarthworksRows(completeRows.filter(earthworksRowHasCertificateEvidence)),
   )
     .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
