@@ -8531,7 +8531,7 @@ function FolderRecordsTable({
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
   const serialFor = (record: any, index: number) =>
-    record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
+    record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
 
   return (
     <section
@@ -13603,7 +13603,7 @@ function ChecklistTrackingSection({
         const raw = record as any;
         return {
           record,
-          number: getChecklistDisplayNumber(record, index),
+          number: index + 1,
           title: record.title || checklistTemplates[normalizeChecklistTemplateKey(record.templateKey)]?.title || "רשימת תיוג",
           date,
           status: getApprovalDisplayStatus(record),
@@ -16215,7 +16215,7 @@ export default function Page() {
         (record) =>
           normalizeChecklistTemplateKey(record.templateKey) ===
           normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
-      ),
+      ).map((record, index) => ({ ...record, displayNumber: index + 1 })),
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
@@ -22276,7 +22276,7 @@ ${invalidRecipients.join("\n")}`);
                 description="מוצגות רק הרשומות של סוג רשימת התיוג שנבחר. בחירה בסוג אחר פותחת תיקייה ייעודית לאותו סוג בלבד."
                 records={selectedChecklistRecords as any[]}
                 columns={[
-                  { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
+                  { label: "מספר", value: (_record, index) => index + 1 },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
                   { label: "מס׳ שכבה", value: (record) => getChecklistDisplayLayer(record) },
