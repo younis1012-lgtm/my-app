@@ -2495,6 +2495,11 @@ const normalizeEarthworksDocKind = (sources: any[]): EarthworksTestKind => {
     "ממוצע",
     "גבול תחתון",
     "גבול עליון",
+    "מספר תעודת בדיקה",
+    "כמות נקודות בדיקה",
+    "צפיפות סטטיסטיקה ממוצע",
+    "צפיפות סטטיסטיקה גבול תחתון",
+    "צפיפות סטטיסטיקה גבול עליון",
   ]));
   const hasMeasurement = includesAny(text, ["רשימת מדידה", "מדידה", "measurement", "survey"]);
   const hasHwd = includesAny(text, ["HWD", "FWD", "hwd", "fwd"]);
@@ -2608,10 +2613,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     cleanEarthworksMaterial(exactFirstFromSources([item, checklist], ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
   );
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
+  const hasDensityPayload = Boolean(exactFirstFromSources(certificateSources, ["צפיפות מחושבת", "תוצאות בדיקה", "דרגת הידוק", "רטיבות ממוצעת", "צפיפות מקס מעבדתית", "צפיפות מעבדתית מקסימלית", "כמות נקודות בדיקה", "ממוצע", "גבול תחתון", "גבול עליון", "צפיפות סטטיסטיקה ממוצע", "צפיפות סטטיסטיקה גבול תחתון", "צפיפות סטטיסטיקה גבול עליון"]));
   const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "מספר תעודת בדיקה", "תעודת בדיקה", "certificateNo", "certificateNumber", "densityCertificateNo"]);
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
   const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
-  const densityCertificate = isDensityMoisture ? firstText(exactDensityCert, certificate) : "";
+  const densityCertificate = (isDensityMoisture || hasDensityPayload) && kind !== "characterization" ? firstText(exactDensityCert, certificate) : "";
   const regularCertificate = isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd ? firstText(exactRegularCert, certificate) : "";
   const densitySampleCount = firstText(
     ...[
