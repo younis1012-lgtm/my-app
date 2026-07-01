@@ -15,6 +15,18 @@ type Props = {
   projectNonconformances?: any[];
 };
 
+const normalizeProjectId = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const cleaned = raw.replace(/[\u2010-\u2015]/g, "-").trim().toLowerCase();
+  const codeMatch = cleaned.match(/^project[-_\s]*(\d+)$/);
+  if (codeMatch?.[1]) {
+    const digits = codeMatch[1].padStart(3, "0").padEnd(8, "0");
+    return `${digits}-0000-0000-0000-000000000000`;
+  }
+  return cleaned;
+};
+
 const defaultRequiredDocuments = [
   { type: "תעודת מעבדה", required: true },
   { type: "רשימת מדידה", required: false },
@@ -150,10 +162,11 @@ const densityHintStyle: React.CSSProperties = { ...densityCellStyle, background:
 export function ControlProcessesSection({ guardedBody, currentProjectId, processes, setProcesses, projectChecklists = [], projectRFIs = [], projectNonconformances = [] }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>({ processNo: "", workType: "", specSection: "", location: "", fromChainage: "", toChainage: "", status: "טיוטה" });
+  const normalizedCurrentProjectId = normalizeProjectId(currentProjectId);
 
-  const projectProcesses = useMemo(() => processes.filter((p) => !currentProjectId || p.projectId === currentProjectId), [processes, currentProjectId]);
+  const projectProcesses = useMemo(() => processes.filter((p) => normalizeProjectId(p.projectId) === normalizedCurrentProjectId), [processes, normalizedCurrentProjectId]);
   const densityReportRows = useMemo(() => {
-    const projectChecklistRows = projectChecklists.filter((checklist: any) => !currentProjectId || checklist.projectId === currentProjectId || checklist.project_id === currentProjectId);
+    const projectChecklistRows = projectChecklists.filter((checklist: any) => normalizeProjectId(checklist.projectId ?? checklist.project_id) === normalizedCurrentProjectId);
     const densityChecklists = projectChecklistRows.filter(isDensityChecklist);
     const sourceRows = densityChecklists.length ? densityChecklists : projectChecklistRows;
     return sourceRows.map((checklist: any, index: number) => {
@@ -164,7 +177,7 @@ export function ControlProcessesSection({ guardedBody, currentProjectId, process
       );
       return buildDensityReportRow(checklist, index, relatedProcess);
     });
-  }, [projectChecklists, currentProjectId, projectProcesses]);
+  }, [projectChecklists, normalizedCurrentProjectId, projectProcesses]);
   const setField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }));
 
   const reset = () => { setEditingId(null); setForm({ processNo: "", workType: "", specSection: "", location: "", fromChainage: "", toChainage: "", status: "טיוטה" }); };

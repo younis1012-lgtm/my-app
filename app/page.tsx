@@ -15987,11 +15987,7 @@ export default function Page() {
     "רשימת תיוג";
   const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
   const currentProjectIdNormalized = normalizeStoredProjectId(currentProjectId);
-  const activeProjectAcceptsLegacyRecords =
-    !currentProjectIdNormalized ||
-    isRoad806Value(currentProjectIdNormalized) ||
-    isRoad806Value(currentProject?.name) ||
-    isRoad806Value(currentProjectLegend.projectName);
+  const activeProjectAcceptsLegacyRecords = false;
   const currentProjectStrictAliasValues = useMemo(() => {
     const currentNames = [
       currentProject?.name,
@@ -16087,35 +16083,12 @@ export default function Page() {
   );
   const recordMatchesCurrentProject = (projectId: unknown) => {
     const recordProjectId = normalizeStoredProjectId(projectId);
-    if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
-    if (!currentProjectIdNormalized) return true;
-    if (recordProjectId === currentProjectIdNormalized) return true;
-    if (
-      recordProjectId === ROAD_65_PROJECT_ID &&
-      [
-        currentProjectIdNormalized,
-        currentProject?.id,
-        currentProject?.name,
-        currentProject?.description,
-        currentProjectLegend.projectName,
-        projectAccess?.code,
-        projectAccess?.username,
-        projectAccess?.projectName,
-        ...(projectAccess?.projectIds ?? []),
-      ].some(isRoad65Value)
-    )
-      return true;
-
-    const recordKeys = projectIdentityKeysFromValues(projectId, recordProjectId);
-    for (const key of recordKeys) {
-      if (currentProjectIdentityKeys.has(key)) return true;
-    }
-    return false;
+    if (!recordProjectId || !currentProjectIdNormalized) return false;
+    return recordProjectId === currentProjectIdNormalized;
   };
   const checklistMatchesCurrentProject = (projectId: unknown) => {
     const recordProjectId = normalizeStoredProjectId(projectId);
-    if (!recordProjectId) return activeProjectAcceptsLegacyRecords;
-    if (!currentProjectIdNormalized) return true;
+    if (!recordProjectId || !currentProjectIdNormalized) return false;
     return recordProjectId === currentProjectIdNormalized;
   };
   const currentProjectStructureNodes = useMemo(
@@ -16384,11 +16357,9 @@ export default function Page() {
   );
   const currentProjectPlans = useMemo(() => {
     const savedWithoutForeignSeedPlans = savedProjectPlans.filter(
-      (plan) => !isRoad806SeedPlan(plan),
+      (plan) => !isRoad806SeedPlan(plan) && recordMatchesCurrentProject(plan.projectId),
     );
     const shouldIncludeRoad806Plans =
-      activeProjectAcceptsLegacyRecords ||
-      isRoad806Value(projectName) ||
       isRoad806Value(currentProjectIdNormalized);
 
     if (!shouldIncludeRoad806Plans) return savedWithoutForeignSeedPlans;
@@ -16407,9 +16378,7 @@ export default function Page() {
   }, [
     savedProjectPlans,
     currentProjectIdNormalized,
-    activeProjectAcceptsLegacyRecords,
     currentProjectIdentitySignature,
-    projectName,
   ]);
   const projectPlans = useMemo(
     () =>
@@ -16534,7 +16503,7 @@ export default function Page() {
     subtype?: PreliminaryTab,
   ) =>
     records
-      .filter((item) => item.projectId === currentProjectId)
+      .filter((item) => normalizeStoredProjectId(item.projectId) === currentProjectIdNormalized)
       .filter((item) => !subtype || item.subtype === subtype)
       .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
 
@@ -16667,7 +16636,7 @@ export default function Page() {
     setChecklistForm(applyProjectDefaultsToChecklist(next));
   };
   const nextControlProcessNo = () =>
-    `REF-${Math.max(0, ...savedControlProcesses.filter((item) => item.projectId === currentProjectId).map((item) => Number(String(item.processNo).replace(/\D/g, "")) || 0)) + 1}`;
+    `REF-${Math.max(0, ...savedControlProcesses.filter((item) => normalizeStoredProjectId(item.projectId) === currentProjectIdNormalized).map((item) => Number(String(item.processNo).replace(/\D/g, "")) || 0)) + 1}`;
   const resetControlProcessForm = () => {
     setEditingControlProcessId(null);
     setControlProcessForm(createDefaultControlProcess(nextControlProcessNo()));
