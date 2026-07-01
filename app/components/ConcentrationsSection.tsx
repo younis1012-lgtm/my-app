@@ -2343,6 +2343,30 @@ const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
   });
 };
 
+const cleanEarthworksMaterial = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (
+    includesAny(text, [
+      "בדיקת",
+      "רשימת תיוג",
+      "עבודות הידוק",
+      "גובה שכבה",
+      "עומק ומפלסי",
+    ])
+  )
+    return "";
+  return text;
+};
+
+const earthworksRowHasCertificateEvidence = (row: Row): boolean =>
+  [
+    earthworksFieldColumns[16],
+    earthworksFieldColumns[19],
+    earthworksFieldColumns[26],
+    earthworksFieldColumns[27],
+  ].some((column) => cleanText(row[column]));
+
 const exactResultValue = (source: any, aliases: string[]): string => {
   if (!source || typeof source !== "object") return "";
   for (const alias of aliases) {
@@ -2493,6 +2517,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
 
   // סדר עדיפות: נתוני תוצאה/מעבדה -> שורת רשימת התיוג -> כותרת הרשימה.
   // לא מושכים נתונים מהערות כלליות או משם קובץ, כדי למנוע ערבוב שדות בריכוז נת״י.
+  const certificateFieldSources = [resultsSource, attachment].filter(Boolean);
   const fieldSources = [resultsSource, item, checklist].filter(Boolean);
   const certificateSources = [resultsSource, attachment, item, checklist].filter(Boolean);
   const parsedDensity = parsedDensityFromSources([resultsSource, attachment]);
@@ -2534,8 +2559,9 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const exactTo = firstText(exactFirstFromSources(fieldSources, ["עד חתך", "לחתך", "חתך סוף", "toSection", "stationTo", "chainageTo", "toChainage"]), parsedLocation.to);
   const exactSide = firstText(exactFirstFromSources(fieldSources, ["צד", "side", "roadSide", "lane"]), parsedLocation.side);
   const exactLocation = firstText(
+    exactFirstFromSources(certificateFieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
     parsedLocation.location,
-    exactFirstFromSources(fieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
+    exactFirstFromSources([item, checklist], ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
   );
   const exactLayer = firstText(
     checklist?.location,
@@ -2545,7 +2571,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(fieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
     parsedLocation.layer,
   );
-  const exactMaterial = exactFirstFromSources(fieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"]);
+  const exactMaterial = firstText(
+    cleanEarthworksMaterial(exactFirstFromSources(certificateFieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
+    cleanEarthworksMaterial(exactFirstFromSources([item, checklist], ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
+  );
   const exactAashto = firstText(exactFirstFromSources(fieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]), parsedLocation.aashto);
   const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "densityCertificateNo"]);
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
@@ -2910,7 +2939,9 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     }
   });
 
-  return ensureUniqueEarthworksChecklistNumbers(dedupeEarthworksRows(rows))
+  return ensureUniqueEarthworksChecklistNumbers(
+    dedupeEarthworksRows(rows.filter(earthworksRowHasCertificateEvidence)),
+  )
     .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
 };
