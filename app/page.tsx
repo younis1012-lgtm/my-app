@@ -20649,7 +20649,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
-  const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת Y.K QUALITY.");
+  const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת RND QUALITY.");
   const [selectedChecklistEmailIds, setSelectedChecklistEmailIds] = useState<string[]>([]);
   const [pendingChecklistEmailIds, setPendingChecklistEmailIds] = useState<string[]>([]);
 

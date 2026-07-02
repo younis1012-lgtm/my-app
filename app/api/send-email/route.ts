@@ -29,11 +29,11 @@ type EmailPayload = {
 };
 
 const SYSTEM_SIGNATURE_TEXT =
-  "\n\n--\nנשלח באמצעות מערכת Y.K QUALITY\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.";
+  "\n\n--\nנשלח באמצעות מערכת RND QUALITY\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.";
 
 const SYSTEM_SIGNATURE_HTML = `
 <div dir="rtl" style="margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;color:#64748b;font-family:Arial,sans-serif;font-size:13px;line-height:1.6">
-  <strong style="color:#0f172a">נשלח באמצעות מערכת Y.K QUALITY</strong><br />
+  <strong style="color:#0f172a">נשלח באמצעות מערכת RND QUALITY</strong><br />
   הודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.
 </div>`;
 
@@ -96,15 +96,15 @@ function formatMailbox(email: string, name?: string) {
 }
 
 function withSystemSignatureText(value?: string) {
-  const content = value?.trim() || "Attached PDF document from Y.K QUALITY.";
-  return content.includes("נשלח באמצעות מערכת Y.K QUALITY")
+  const content = value?.trim() || "Attached PDF document from RND QUALITY.";
+  return content.includes("נשלח באמצעות מערכת RND QUALITY")
     ? content
     : `${content}${SYSTEM_SIGNATURE_TEXT}`;
 }
 
 function withSystemSignatureHtml(value?: string) {
-  const content = value?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>';
-  return content.includes("נשלח באמצעות מערכת Y.K QUALITY")
+  const content = value?.trim() || '<div dir="rtl">Attached PDF document from RND QUALITY.</div>';
+  return content.includes("נשלח באמצעות מערכת RND QUALITY")
     ? content
     : `${content}${SYSTEM_SIGNATURE_HTML}`;
 }
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
       cc: ccItems.length ? joinEmails(ccItems) : undefined,
       bcc: bccItems.length ? joinEmails(bccItems) : undefined,
       replyTo: senderEmail || undefined,
-      subject: body.subject?.trim() || "Y.K QUALITY document",
+      subject: body.subject?.trim() || "RND QUALITY document",
       text: withSystemSignatureText(body.text),
       html: withSystemSignatureHtml(body.html),
       attachments,
