@@ -15174,18 +15174,7 @@ export default function Page() {
     if (hasProjectChecklists) return;
 
     let cancelled = false;
-    const candidateProjectIds = Array.from(
-      new Set(
-        [
-          normalizedProjectId,
-          ...(projectAccess?.projectIds ?? []),
-          projectAccess?.code ? `project-${projectAccess.code}` : "",
-          projectAccess?.code,
-        ]
-          .map(normalizeStoredProjectId)
-          .filter(Boolean),
-      ),
-    );
+    const candidateProjectIds = [normalizedProjectId];
 
     (async () => {
       for (const candidateProjectId of candidateProjectIds) {
@@ -15204,13 +15193,6 @@ export default function Page() {
           return missing.length ? [...missing, ...prev] : prev;
         });
 
-        if (
-          candidateProjectId !== normalizedProjectId &&
-          !isAdminAccess(projectAccess)
-        ) {
-          setCurrentProjectId(candidateProjectId);
-          writeLocalCurrentProjectId(candidateProjectId);
-        }
         return;
       }
     })();
