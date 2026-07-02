@@ -20568,6 +20568,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
+  const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת Y.K QUALITY.");
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20624,6 +20625,12 @@ ${invalidRecipients.join("\n")}`);
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
+      const cleanEmailMessage =
+        emailMessage.trim() || `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`;
+      const emailMessageHtml = cleanEmailMessage
+        .split(/\r?\n/)
+        .map((line) => `<p style="margin:0 0 10px">${safeText(line) || "&nbsp;"}</p>`)
+        .join("");
 
       const mergedPdfBlob = await buildMergedPdfBlob(title, html);
       const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
@@ -20641,8 +20648,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl">מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div>`,
-          text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}</p></div>`,
+          text: `${cleanEmailMessage}\n\nמצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -21569,6 +21576,27 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ color: "#64748b", marginBottom: 14 }}>
               סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
             </div>
+            <label style={{ display: "grid", gap: 6, marginBottom: 14, fontWeight: 800 }}>
+              מה לשלוח / הערות למייל
+              <textarea
+                value={emailMessage}
+                onChange={(event) => setEmailMessage(event.target.value)}
+                rows={4}
+                placeholder="לדוגמה: מצורפת רשימת תיוג חתומה לעיונכם ולאישורכם."
+                style={{
+                  width: "100%",
+                  minHeight: 96,
+                  resize: "vertical",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                  font: "inherit",
+                  lineHeight: 1.6,
+                  color: "#0f172a",
+                  background: "#fff",
+                }}
+              />
+            </label>
             <div style={{ display: "grid", gap: 8 }}>
               {emailRecipientOptions.map((user) => {
                 const checked = selectedEmailRecipientIds.includes(user.id);

@@ -28,6 +28,15 @@ type EmailPayload = {
   attachments?: EmailAttachment[];
 };
 
+const SYSTEM_SIGNATURE_TEXT =
+  "\n\n--\nנשלח באמצעות מערכת Y.K QUALITY\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.";
+
+const SYSTEM_SIGNATURE_HTML = `
+<div dir="rtl" style="margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;color:#64748b;font-family:Arial,sans-serif;font-size:13px;line-height:1.6">
+  <strong style="color:#0f172a">נשלח באמצעות מערכת Y.K QUALITY</strong><br />
+  הודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.
+</div>`;
+
 function toList(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap((item) => toList(item));
   if (typeof value !== "string") return [];
@@ -84,6 +93,20 @@ function formatMailbox(email: string, name?: string) {
   const cleanEmail = email.trim();
   const cleanName = String(name || "").replace(/["<>]/g, "").trim();
   return cleanName ? `"${cleanName}" <${cleanEmail}>` : cleanEmail;
+}
+
+function withSystemSignatureText(value?: string) {
+  const content = value?.trim() || "Attached PDF document from Y.K QUALITY.";
+  return content.includes("נשלח באמצעות מערכת Y.K QUALITY")
+    ? content
+    : `${content}${SYSTEM_SIGNATURE_TEXT}`;
+}
+
+function withSystemSignatureHtml(value?: string) {
+  const content = value?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>';
+  return content.includes("נשלח באמצעות מערכת Y.K QUALITY")
+    ? content
+    : `${content}${SYSTEM_SIGNATURE_HTML}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -149,8 +172,8 @@ export async function POST(request: NextRequest) {
       bcc: bccItems.length ? joinEmails(bccItems) : undefined,
       replyTo: senderEmail || undefined,
       subject: body.subject?.trim() || "Y.K QUALITY document",
-      text: body.text?.trim() || "Attached PDF document from Y.K QUALITY.",
-      html: body.html?.trim() || '<div dir="rtl">Attached PDF document from Y.K QUALITY.</div>',
+      text: withSystemSignatureText(body.text),
+      html: withSystemSignatureHtml(body.html),
       attachments,
     });
 
