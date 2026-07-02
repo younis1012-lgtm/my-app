@@ -20652,6 +20652,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת RND QUALITY.");
   const [selectedChecklistEmailIds, setSelectedChecklistEmailIds] = useState<string[]>([]);
   const [pendingChecklistEmailIds, setPendingChecklistEmailIds] = useState<string[]>([]);
+  const [selectedPreliminaryEmailIds, setSelectedPreliminaryEmailIds] = useState<string[]>([]);
+  const [pendingPreliminaryEmailIds, setPendingPreliminaryEmailIds] = useState<string[]>([]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20692,6 +20694,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const sendEmailToRecipients = async (
     recipientEmails: string[],
     checklistRecordIds = pendingChecklistEmailIds,
+    preliminaryRecordIds = pendingPreliminaryEmailIds,
   ) => {
     if (!ensureQualityControllerEmailSender()) return;
     try {
@@ -20711,12 +20714,18 @@ ${invalidRecipients.join("\n")}`);
       const selectedChecklistRecords = checklistRecordIds
         .map((id) => projectChecklists.find((item) => item.id === id))
         .filter((item): item is ChecklistRecord => Boolean(item));
+      const selectedPreliminaryRecords = preliminaryRecordIds
+        .map((id) => projectPreliminary.find((item) => item.id === id))
+        .filter(Boolean);
       const isMultiChecklistEmail = selectedChecklistRecords.length > 0;
+      const isMultiPreliminaryEmail = !isMultiChecklistEmail && selectedPreliminaryRecords.length > 0;
       const exportChecklistNo = isMultiChecklistEmail ? undefined : getExportChecklistNo();
       const title = isMultiChecklistEmail
         ? `רשימות תיוג (${selectedChecklistRecords.length})`
+        : isMultiPreliminaryEmail
+          ? `${labelForPreliminary(preliminaryTab)} (${selectedPreliminaryRecords.length})`
         : recordTitleForExport();
-      const html = isMultiChecklistEmail ? "" : exportHtml(exportChecklistNo);
+      const html = isMultiChecklistEmail || isMultiPreliminaryEmail ? "" : exportHtml(exportChecklistNo);
       const cleanEmailMessage =
         emailMessage.trim() || `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`;
       const emailMessageHtml = cleanEmailMessage
@@ -20746,6 +20755,27 @@ ${invalidRecipients.join("\n")}`);
               }),
             ),
           )
+        : isMultiPreliminaryEmail
+          ? uniqueEmailAttachments(
+              await Promise.all(
+                selectedPreliminaryRecords.map(async (record: any, index) => {
+                  const recordTitle =
+                    `${labelForPreliminary(record.subtype)} - ${record.title || getSupplierName(record) || getContractorName(record) || getMaterialSupplierName(record) || index + 1}`;
+                  const recordHtml = archivePrintableHtml(recordTitle, preliminaryRecordArchiveBody(record));
+                  const mergedPdfBlob = await buildMergedPdfBlob(
+                    recordTitle,
+                    recordHtml,
+                    archiveRecordPdfAppendices(record),
+                  );
+                  const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
+                  return dataUrlToEmailAttachment(
+                    `${sanitizeZipSegment(recordTitle, `בקרה מקדימה ${index + 1}`)} - כולל נספחים.pdf`,
+                    pdfDataUrl,
+                    "application/pdf",
+                  );
+                }),
+              ),
+            )
         : uniqueEmailAttachments([
             dataUrlToEmailAttachment(
               `${title} - כולל נספחים.pdf`,
@@ -20760,8 +20790,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${safeText(projectName)}` : `מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}`}</p></div>`,
-          text: `${cleanEmailMessage}\n\n${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${projectName}` : `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`}`,
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${safeText(projectName)}` : isMultiPreliminaryEmail ? `מצורפים ${attachments.length} קבצי PDF עבור ${safeText(labelForPreliminary(preliminaryTab))} מפרויקט ${safeText(projectName)}` : `מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}`}</p></div>`,
+          text: `${cleanEmailMessage}\n\n${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${projectName}` : isMultiPreliminaryEmail ? `מצורפים ${attachments.length} קבצי PDF עבור ${labelForPreliminary(preliminaryTab)} מפרויקט ${projectName}` : `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -20782,6 +20812,10 @@ ${invalidRecipients.join("\n")}`);
         setPendingChecklistEmailIds([]);
         setSelectedChecklistEmailIds((prev) => prev.filter((id) => !checklistRecordIds.includes(id)));
       }
+      if (isMultiPreliminaryEmail) {
+        setPendingPreliminaryEmailIds([]);
+        setSelectedPreliminaryEmailIds((prev) => prev.filter((id) => !preliminaryRecordIds.includes(id)));
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
@@ -20789,6 +20823,7 @@ ${invalidRecipients.join("\n")}`);
 
   const sendCurrentFormEmail = async () => {
     setPendingChecklistEmailIds([]);
+    setPendingPreliminaryEmailIds([]);
     if (emailRecipientOptions.length) {
       setSelectedEmailRecipientIds([]);
       setEmailRecipientDialogOpen(true);
@@ -20798,7 +20833,7 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients, []);
+    await sendEmailToRecipients(rawRecipients, [], []);
   };
 
   const sendSelectedChecklistsEmail = async (ids: string[]) => {
@@ -20816,7 +20851,27 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients, validIds);
+    await sendEmailToRecipients(rawRecipients, validIds, []);
+  };
+
+  const sendSelectedPreliminaryEmail = async (ids: string[]) => {
+    const currentTabRecords = projectPreliminary.filter((record) => record.subtype === preliminaryTab);
+    const validIds = ids.filter((id) => currentTabRecords.some((item) => item.id === id));
+    if (!validIds.length) {
+      alert("יש לסמן לפחות רשומה אחת לשליחה");
+      return;
+    }
+    setPendingChecklistEmailIds([]);
+    setPendingPreliminaryEmailIds(validIds);
+    if (emailRecipientOptions.length) {
+      setSelectedEmailRecipientIds([]);
+      setEmailRecipientDialogOpen(true);
+      return;
+    }
+    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const rawRecipients = normalizeEmailList(recipientInput);
+    if (!rawRecipients.length) return;
+    await sendEmailToRecipients(rawRecipients, [], validIds);
   };
 
   const confirmSelectedEmailRecipients = async () => {
@@ -20828,7 +20883,7 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     setEmailRecipientDialogOpen(false);
-    await sendEmailToRecipients(recipientEmails, pendingChecklistEmailIds);
+    await sendEmailToRecipients(recipientEmails, pendingChecklistEmailIds, pendingPreliminaryEmailIds);
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -21711,6 +21766,8 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ color: "#64748b", marginBottom: 14 }}>
               {pendingChecklistEmailIds.length
                 ? `סמן נמענים לשליחת ${pendingChecklistEmailIds.length} רשימות תיוג כקבצי PDF נפרדים.`
+                : pendingPreliminaryEmailIds.length
+                  ? `סמן נמענים לשליחת ${pendingPreliminaryEmailIds.length} רשומות ${labelForPreliminary(preliminaryTab)} כקבצי PDF נפרדים.`
                 : "סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים."}
             </div>
             <label style={{ display: "grid", gap: 6, marginBottom: 14, fontWeight: 800 }}>
@@ -22024,7 +22081,11 @@ ${invalidRecipients.join("\n")}`);
                     background: preliminaryTab === tab ? "#0f172a" : "#fff",
                     color: preliminaryTab === tab ? "#fff" : "#0f172a",
                   }}
-                  onClick={() => setPreliminaryTab(tab)}
+                  onClick={() => {
+                    setPreliminaryTab(tab);
+                    setSelectedPreliminaryEmailIds([]);
+                    setPendingPreliminaryEmailIds([]);
+                  }}
                 >
                   {labelForPreliminary(tab)}
                 </button>
@@ -22566,6 +22627,9 @@ ${invalidRecipients.join("\n")}`);
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
+                selectedIds={selectedPreliminaryEmailIds}
+                onSelectedIdsChange={setSelectedPreliminaryEmailIds}
+                onEmailSelected={sendSelectedPreliminaryEmail}
               />
             <PreliminarySection
               guardedBody={guardedBody}
