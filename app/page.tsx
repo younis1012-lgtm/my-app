@@ -7953,7 +7953,7 @@ function getRecordTitle(record: any) {
 }
 
 function getRecordDate(record: any) {
-  return record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "";
+  return normalizeDateValue(record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "");
 }
 
 function getRecordStatus(record: any) {
@@ -8005,6 +8005,33 @@ function hasApprovalSignatureEvidence(value: unknown) {
     signature.approverName,
     signature.approvalDate,
   ].some(hasApprovalText);
+}
+
+function hasChecklistItemApprovalEvidence(record: any) {
+  const items = normalizeChecklistItems(record?.items);
+  if (!items.length) return false;
+  return items.some((item: any) =>
+    [
+      item?.signature,
+      item?.signatures,
+      item?.approval,
+      item?.approval?.signature,
+      item?.approval?.signatures,
+      item?.approvedBy,
+      item?.approvedAt,
+      item?.signedAt,
+      item?.signerName,
+      item?.approverName,
+      item?.qualityControlSignature,
+      item?.qualityManagerSignature,
+      item?.contractorSignature,
+      item?.managerSignature,
+    ].some((value) =>
+      Array.isArray(value)
+        ? value.some(hasApprovalSignatureEvidence)
+        : hasApprovalSignatureEvidence(value),
+    ),
+  );
 }
 
 function hasCompletedApprovalSignatures(record: any) {
@@ -8063,7 +8090,7 @@ function hasChecklistApprovalEvidence(record: any) {
     record?.data?.approval?.signatures,
   ];
   const signatures = signatureSources.find(Array.isArray) ?? [];
-  return signatures.some(hasApprovalSignatureEvidence);
+  return signatures.some(hasApprovalSignatureEvidence) || hasChecklistItemApprovalEvidence(record);
 }
 
 function normalizeApprovalDisplayStatus(status?: unknown) {
