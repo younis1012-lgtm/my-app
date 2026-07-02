@@ -8546,6 +8546,9 @@ function FolderRecordsTable({
   onOpen,
   onDelete,
   onNew,
+  selectedIds,
+  onSelectedIdsChange,
+  onEmailSelected,
 }: {
   title: string;
   description?: string;
@@ -8554,9 +8557,32 @@ function FolderRecordsTable({
   onOpen?: (id: string) => void;
   onDelete?: (id: string) => void;
   onNew?: () => void;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+  onEmailSelected?: (ids: string[]) => void | Promise<void>;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
+  const selectable = Boolean(onSelectedIdsChange);
+  const selectedSet = new Set(selectedIds ?? []);
+  const visibleIds = safeRecords.map((record, index) => String(record?.id ?? index));
+  const selectedVisibleIds = visibleIds.filter((id) => selectedSet.has(id));
+  const setRecordChecked = (id: string, checked: boolean) => {
+    if (!onSelectedIdsChange) return;
+    onSelectedIdsChange(
+      checked
+        ? Array.from(new Set([...(selectedIds ?? []), id]))
+        : (selectedIds ?? []).filter((item) => item !== id),
+    );
+  };
+  const toggleAllVisible = (checked: boolean) => {
+    if (!onSelectedIdsChange) return;
+    if (!checked) {
+      onSelectedIdsChange((selectedIds ?? []).filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    onSelectedIdsChange(Array.from(new Set([...(selectedIds ?? []), ...visibleIds])));
+  };
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
 
@@ -8589,11 +8615,23 @@ function FolderRecordsTable({
             <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>{description}</div>
           ) : null}
         </div>
-        {onNew ? (
-          <button type="button" style={styles.primaryBtn} onClick={onNew}>
-            חדש
-          </button>
-        ) : null}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-start" }}>
+          {onEmailSelected ? (
+            <button
+              type="button"
+              style={styles.secondaryBtn}
+              onClick={() => onEmailSelected(selectedVisibleIds)}
+              disabled={!selectedVisibleIds.length}
+            >
+              שלח מסומנים במייל ({selectedVisibleIds.length})
+            </button>
+          ) : null}
+          {onNew ? (
+            <button type="button" style={styles.primaryBtn} onClick={onNew}>
+              חדש
+            </button>
+          ) : null}
+        </div>
       </div>
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
@@ -8612,7 +8650,17 @@ function FolderRecordsTable({
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ fontWeight: 950, color: "#0f172a" }}>#{serialFor(record, index)}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 950, color: "#0f172a" }}>
+                      {selectable ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(id)}
+                          onChange={(event) => setRecordChecked(id, event.currentTarget.checked)}
+                          style={{ width: 18, height: 18 }}
+                        />
+                      ) : null}
+                      #{serialFor(record, index)}
+                    </span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
                         <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
@@ -8665,6 +8713,17 @@ function FolderRecordsTable({
         >
           <thead>
             <tr style={{ background: "#eef2f7" }}>
+              {selectable ? (
+                <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center", width: 54 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(visibleIds.length) && selectedVisibleIds.length === visibleIds.length}
+                    onChange={(event) => toggleAllVisible(event.currentTarget.checked)}
+                    style={{ width: 18, height: 18 }}
+                    aria-label="בחר הכל"
+                  />
+                </th>
+              ) : null}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
               {columns.map((column) => (
                 <th
@@ -8683,6 +8742,17 @@ function FolderRecordsTable({
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
+                    {selectable ? (
+                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(id)}
+                          onChange={(event) => setRecordChecked(id, event.currentTarget.checked)}
+                          style={{ width: 18, height: 18 }}
+                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
+                        />
+                      </td>
+                    ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
                       {serialFor(record, index)}
                     </td>
@@ -8710,7 +8780,7 @@ function FolderRecordsTable({
               })
             ) : (
               <tr>
-                <td colSpan={columns.length + 2} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={columns.length + 2 + (selectable ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
@@ -19826,6 +19896,17 @@ export default function Page() {
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${footer}</div></body></html>`;
   };
 
+  const checklistRecordExportHtml = (
+    record: ChecklistRecord,
+    forcedChecklistNo?: number,
+    titleOverride?: string,
+  ) => {
+    const title = titleOverride || getRecordTitle(record) || "רשימת תיוג";
+    const header = exportCompanyHeader();
+    const footer = exportCompanyFooter();
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${checklistExportHtml(forcedChecklistNo, record)}${footer}</div></body></html>`;
+  };
+
   const downloadTextFile = (
     filename: string,
     mimeType: string,
@@ -20569,6 +20650,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
   const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת Y.K QUALITY.");
+  const [selectedChecklistEmailIds, setSelectedChecklistEmailIds] = useState<string[]>([]);
+  const [pendingChecklistEmailIds, setPendingChecklistEmailIds] = useState<string[]>([]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20606,7 +20689,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return false;
   };
 
-  const sendEmailToRecipients = async (recipientEmails: string[]) => {
+  const sendEmailToRecipients = async (
+    recipientEmails: string[],
+    checklistRecordIds = pendingChecklistEmailIds,
+  ) => {
     if (!ensureQualityControllerEmailSender()) return;
     try {
       const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
@@ -20622,9 +20708,15 @@ ${invalidRecipients.join("\n")}`);
       }
       const normalizedRecipient = uniqueRecipients.join(", ");
 
-      const exportChecklistNo = getExportChecklistNo();
-      const title = recordTitleForExport();
-      const html = exportHtml(exportChecklistNo);
+      const selectedChecklistRecords = checklistRecordIds
+        .map((id) => projectChecklists.find((item) => item.id === id))
+        .filter((item): item is ChecklistRecord => Boolean(item));
+      const isMultiChecklistEmail = selectedChecklistRecords.length > 0;
+      const exportChecklistNo = isMultiChecklistEmail ? undefined : getExportChecklistNo();
+      const title = isMultiChecklistEmail
+        ? `רשימות תיוג (${selectedChecklistRecords.length})`
+        : recordTitleForExport();
+      const html = isMultiChecklistEmail ? "" : exportHtml(exportChecklistNo);
       const cleanEmailMessage =
         emailMessage.trim() || `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`;
       const emailMessageHtml = cleanEmailMessage
@@ -20632,15 +20724,35 @@ ${invalidRecipients.join("\n")}`);
         .map((line) => `<p style="margin:0 0 10px">${safeText(line) || "&nbsp;"}</p>`)
         .join("");
 
-      const mergedPdfBlob = await buildMergedPdfBlob(title, html);
-      const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
-      const formPdfAttachment = dataUrlToEmailAttachment(
-        `${title} - כולל נספחים.pdf`,
-        pdfDataUrl,
-        "application/pdf",
-      );
-
-      const attachments = uniqueEmailAttachments([formPdfAttachment]);
+      const attachments = isMultiChecklistEmail
+        ? uniqueEmailAttachments(
+            await Promise.all(
+              selectedChecklistRecords.map(async (record) => {
+                const recordIndex = projectChecklists.findIndex((item) => item.id === record.id);
+                const displayNo = getChecklistDisplayNumber(record, recordIndex >= 0 ? recordIndex : 0);
+                const recordTitle = getRecordTitle(record) || `רשימת תיוג ${displayNo}`;
+                const recordHtml = checklistRecordExportHtml(record, displayNo, recordTitle);
+                const mergedPdfBlob = await buildMergedPdfBlob(
+                  recordTitle,
+                  recordHtml,
+                  archiveRecordPdfAppendices(record),
+                );
+                const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
+                return dataUrlToEmailAttachment(
+                  `${sanitizeZipSegment(`${displayNo} - ${recordTitle}`, `רשימת תיוג ${displayNo}`)} - כולל נספחים.pdf`,
+                  pdfDataUrl,
+                  "application/pdf",
+                );
+              }),
+            ),
+          )
+        : uniqueEmailAttachments([
+            dataUrlToEmailAttachment(
+              `${title} - כולל נספחים.pdf`,
+              await blobToDataUrl(await buildMergedPdfBlob(title, html)),
+              "application/pdf",
+            ),
+          ]);
 
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
@@ -20648,8 +20760,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}</p></div>`,
-          text: `${cleanEmailMessage}\n\nמצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${safeText(projectName)}` : `מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}`}</p></div>`,
+          text: `${cleanEmailMessage}\n\n${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${projectName}` : `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -20664,14 +20776,19 @@ ${invalidRecipients.join("\n")}`);
       alert(
         `המייל נשלח בהצלחה אל ${normalizedRecipient}` +
           `
-צורף PDF אחד מאוחד הכולל את הטופס והנספחים.`,
+צורפו ${attachments.length} קבצי PDF.`,
       );
+      if (isMultiChecklistEmail) {
+        setPendingChecklistEmailIds([]);
+        setSelectedChecklistEmailIds((prev) => prev.filter((id) => !checklistRecordIds.includes(id)));
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
   };
 
   const sendCurrentFormEmail = async () => {
+    setPendingChecklistEmailIds([]);
     if (emailRecipientOptions.length) {
       setSelectedEmailRecipientIds([]);
       setEmailRecipientDialogOpen(true);
@@ -20681,7 +20798,25 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients);
+    await sendEmailToRecipients(rawRecipients, []);
+  };
+
+  const sendSelectedChecklistsEmail = async (ids: string[]) => {
+    const validIds = ids.filter((id) => projectChecklists.some((item) => item.id === id));
+    if (!validIds.length) {
+      alert("יש לסמן לפחות רשימת תיוג אחת לשליחה");
+      return;
+    }
+    setPendingChecklistEmailIds(validIds);
+    if (emailRecipientOptions.length) {
+      setSelectedEmailRecipientIds([]);
+      setEmailRecipientDialogOpen(true);
+      return;
+    }
+    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const rawRecipients = normalizeEmailList(recipientInput);
+    if (!rawRecipients.length) return;
+    await sendEmailToRecipients(rawRecipients, validIds);
   };
 
   const confirmSelectedEmailRecipients = async () => {
@@ -20693,7 +20828,7 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     setEmailRecipientDialogOpen(false);
-    await sendEmailToRecipients(recipientEmails);
+    await sendEmailToRecipients(recipientEmails, pendingChecklistEmailIds);
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -21574,7 +21709,9 @@ ${invalidRecipients.join("\n")}`);
           >
             <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 950 }}>בחירת נמענים לשליחת מייל</h3>
             <div style={{ color: "#64748b", marginBottom: 14 }}>
-              סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
+              {pendingChecklistEmailIds.length
+                ? `סמן נמענים לשליחת ${pendingChecklistEmailIds.length} רשימות תיוג כקבצי PDF נפרדים.`
+                : "סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים."}
             </div>
             <label style={{ display: "grid", gap: 6, marginBottom: 14, fontWeight: 800 }}>
               מה לשלוח / הערות למייל
@@ -22274,6 +22411,7 @@ ${invalidRecipients.join("\n")}`);
                               style={isActive ? styles.primaryBtn : styles.secondaryBtn}
                               onClick={() => {
                                 setSelectedChecklistTemplateKey(normalizedKey);
+                                setSelectedChecklistEmailIds([]);
                                 resetChecklistForm(normalizedKey);
                               }}
                             >
@@ -22302,6 +22440,9 @@ ${invalidRecipients.join("\n")}`);
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
                 onNew={() => resetChecklistForm(selectedChecklistTemplateKey)}
+                selectedIds={selectedChecklistEmailIds}
+                onSelectedIdsChange={setSelectedChecklistEmailIds}
+                onEmailSelected={sendSelectedChecklistsEmail}
               />
               <ChecklistsSection
                 guardedBody={guardedBody}
