@@ -3113,6 +3113,36 @@ const cleanPlanTitleText = (value: unknown, planNo?: unknown) => {
     .trim();
 };
 
+const isDateLikePlanCell = (value: unknown) =>
+  /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cleanPlanImportText(value)) ||
+  /^\d{4}-\d{2}-\d{2}$/.test(cleanPlanImportText(value));
+
+const isScaleLikePlanCell = (value: unknown) =>
+  /^1\s*[:/-]\s*\d{2,5}$/.test(cleanPlanImportText(value));
+
+const extractPdfPlanNumber = (value: unknown) => {
+  const text = cleanPlanImportText(value).replace(/[–—−]/g, "-");
+  const compact = text.replace(/\s+/g, "");
+  const strict = extractLikelyPlanNumber(compact);
+  if (strict) return strict;
+
+  const candidates = [
+    ...compact.matchAll(/\b[A-Z]{1,8}\d{1,6}(?:[-/.][A-Z0-9]{1,10}){1,8}\b/gi),
+    ...compact.matchAll(/\b[A-Z]{1,8}(?:[-/.][A-Z0-9]{1,10}){2,8}\b/gi),
+    ...compact.matchAll(/\b\d{2,6}(?:[-/.][A-Z0-9]{1,10}){1,8}\b/gi),
+  ]
+    .map((match) => String(match[0] ?? "").replace(/[/.]/g, "-"))
+    .filter((candidate) => {
+      if (!candidate || isDateLikePlanCell(candidate) || isScaleLikePlanCell(candidate)) return false;
+      const digitCount = (candidate.match(/\d/g) ?? []).length;
+      const separatorCount = (candidate.match(/-/g) ?? []).length;
+      return digitCount >= 2 && separatorCount >= 1 && candidate.length >= 5;
+    })
+    .sort((a, b) => b.length - a.length);
+
+  return candidates[0] ?? "";
+};
+
 const planImportHeaderMatches = (cell: unknown, aliases: string[]) => {
   const normalizedCell = normalizeLoosePlanHeader(cell);
   if (!normalizedCell) return false;
@@ -3359,6 +3389,64 @@ const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<Pl
       });
     })
     .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+};
+
+const parsePlanRegisterPdfTextFlexible = (text: string, fileName: string): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
+  const seen = new Set<string>();
+  const sourceName = fileName.replace(/\.[^.]+$/, "");
+  const rawLines = text
+    .split(/\r?\n/)
+    .map((line) => cleanPlanImportText(line))
+    .filter(Boolean);
+  const lines = rawLines.map((line, index) => {
+    const nextLine = rawLines[index + 1] ?? "";
+    return extractPdfPlanNumber(line) && nextLine && !extractPdfPlanNumber(nextLine)
+      ? `${line} ${nextLine}`
+      : line;
+  });
+
+  const parsed = lines
+    .map((line) => {
+      const planNo = extractPdfPlanNumber(line);
+      if (!planNo) return null;
+      const key = normalizeAccessValue(planNo);
+      if (!key || seen.has(key)) return null;
+      seen.add(key);
+
+      const dateRaw =
+        line.match(/\d{4}-\d{2}-\d{2}/)?.[0] ||
+        line.match(/\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/)?.[0] ||
+        "";
+      const scaleRaw = line.match(/1\s*[:/]\s*\d{2,5}|1\s*-\s*\d{2,5}/)?.[0] || "";
+      const statusRaw = line.match(/לביצוע|לעיון|לאישור|למכרז|בתוקף|מבוטל|הוחלף|טיוטה/i)?.[0] || "לביצוע";
+      const title = cleanPlanTitleText(
+        line
+          .replace(planNo, " ")
+          .replace(dateRaw, " ")
+          .replace(scaleRaw, " ")
+          .replace(statusRaw, " ")
+          .replace(/[|,:;]+/g, " "),
+        planNo,
+      );
+
+      return {
+        planNo,
+        revision: inferPlanRevisionFromPlanNo(planNo),
+        title: title || sourceName,
+        discipline: inferPlanDisciplineFromText(`${planNo} ${title} ${sourceName}`),
+        date: normalizePlanImportDate(dateRaw),
+        status: statusRaw,
+        notes: [sourceName ? `מקור: ${sourceName}` : "", scaleRaw ? `קנ"מ: ${scaleRaw}` : ""].filter(Boolean).join(" | "),
+        attachments: [],
+      };
+    })
+    .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+
+  if (parsed.length) return parsed;
+
+  return parsePlanRegisterRowsByHeuristic(
+    rawLines.map((line) => line.split(/\s{2,}|\t|\|/).map(cleanPlanImportText)),
+  );
 };
 
 const ROAD_806_PROJECT_ID = normalizeStoredProjectId("project-806");
@@ -18936,7 +19024,8 @@ export default function Page() {
       let importedPlans: Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> = [];
       if (lowerName.endsWith(".pdf") || file.type.includes("pdf")) {
         const pdfText = await extractTextFromReferenceFile(file);
-        importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
+        importedPlans = parsePlanRegisterPdfTextFlexible(pdfText, file.name);
+        if (!importedPlans.length) importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
       } else {
         const XLSX = await import("xlsx");
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
