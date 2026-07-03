@@ -8686,7 +8686,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
           })}
         </section>
 
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, alignItems: "stretch" }}>
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 0.32fr)", gap: 14, alignItems: "stretch" }}>
           <div style={{ ...dashboardCardStyle, padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
               <div>
@@ -8699,7 +8699,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
                 {homeModules.length}
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(245px, 1fr))", gap: 14 }}>
               {homeModules.map((module, index) => {
                 const isPrimary = index < 4;
                 return (
@@ -8709,14 +8709,14 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
                     onClick={() => setSection(module.key as AppSection)}
                     style={{
                       border: isPrimary ? "1px solid #bae6fd" : "1px solid #e2e8f0",
-                      borderTop: isPrimary ? "4px solid #0e7490" : "4px solid #e2e8f0",
+                      borderTop: isPrimary ? "4px solid #0e7490" : "4px solid #f59e0b",
                       background: "#fff",
                       borderRadius: 8,
-                      padding: 14,
-                      minHeight: 142,
+                      padding: 16,
+                      minHeight: 214,
                       textAlign: "right",
                       cursor: "pointer",
-                      boxShadow: "0 12px 28px rgba(15,23,42,0.06)",
+                      boxShadow: "0 16px 34px rgba(15,23,42,0.08)",
                       display: "grid",
                       alignContent: "space-between",
                       direction: "rtl",
@@ -8728,7 +8728,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
                           width: 44,
                           height: 44,
                           borderRadius: 8,
-                          background: isPrimary ? "#ecfeff" : "#f8fafc",
+                          background: isPrimary ? "#ecfeff" : "#fff7ed",
                           border: "1px solid #e2e8f0",
                           display: "inline-flex",
                           alignItems: "center",
@@ -8746,11 +8746,23 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
                       <span style={{ display: "block", color: "#0f172a", fontSize: 18, fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {module.title}
                       </span>
-                      <span style={{ display: "block", color: "#64748b", marginTop: 6, fontSize: 13, lineHeight: 1.45, minHeight: 36 }}>
+                      <span style={{ display: "block", color: "#64748b", marginTop: 10, fontSize: 14, lineHeight: 1.55, minHeight: 48 }}>
                         {module.description}
                       </span>
                     </span>
-                    <span style={{ color: "#0e7490", fontSize: 13, fontWeight: 950 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        borderRadius: 7,
+                        background: isPrimary ? "#111827" : "#f59e0b",
+                        color: isPrimary ? "#fff" : "#111827",
+                        padding: "12px 14px",
+                        textAlign: "center",
+                        fontSize: 14,
+                        fontWeight: 950,
+                        boxShadow: "0 10px 20px rgba(15,23,42,0.12)",
+                      }}
+                    >
                       כניסה לתיקייה
                     </span>
                   </button>
