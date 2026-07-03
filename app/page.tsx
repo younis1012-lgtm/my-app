@@ -8490,33 +8490,54 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
           ...dashboardCardStyle,
           overflow: "hidden",
           padding: 0,
-          borderColor: "#cbd5e1",
-          background: "#0b1120",
+          border: "none",
+          background: "#111",
+          boxShadow: "0 18px 45px rgba(15,23,42,0.12)",
         }}
       >
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gridTemplateColumns: "150px minmax(0, 1fr) 90px",
             gap: 18,
             alignItems: "center",
-            padding: "20px 22px",
+            minHeight: 176,
+            padding: "26px 32px",
             background:
-              "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(17,24,39,0.96) 58%, rgba(14,116,144,0.72))",
+              "linear-gradient(90deg, rgba(16,16,15,0.98), rgba(16,16,15,0.98)), repeating-linear-gradient(0deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 28px)",
             color: "#fff",
           }}
         >
-          <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              width: 86,
+              height: 86,
+              borderRadius: 8,
+              background: "#f59e0b",
+              color: "#111827",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 25,
+              fontWeight: 950,
+              boxShadow: "10px 10px 0 rgba(14,116,144,0.55)",
+            }}
+          >
+            RND
+          </div>
+          <div style={{ minWidth: 0, justifySelf: "end", textAlign: "right" }}>
             <div style={{ color: "#f59e0b", fontSize: 12, fontWeight: 950, letterSpacing: 0 }}>
               RND QUALITY CONTROL
             </div>
-            <h2 style={{ margin: "6px 0 0", fontSize: 28, lineHeight: 1.15, fontWeight: 950 }}>
+            <h2 style={{ margin: "8px 0 0", fontSize: 34, lineHeight: 1.1, fontWeight: 950 }}>
+              בקרת איכות פרויקטית
+            </h2>
+            <h2 style={{ display: "none", margin: "8px 0 0", fontSize: 34, lineHeight: 1.1, fontWeight: 950 }}>
               סביבת בקרת איכות לפרויקט
             </h2>
             <div
               style={{
                 marginTop: 8,
-                color: "#cbd5e1",
+                color: "#e5e7eb",
                 fontSize: 14,
                 fontWeight: 800,
                 whiteSpace: "nowrap",
@@ -8527,8 +8548,34 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
             >
               {projectDisplayName}
             </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 22, flexWrap: "wrap" }}>
+              <span style={{ border: "1px solid rgba(245,158,11,0.35)", color: "#fbbf24", borderRadius: 6, padding: "10px 18px", fontWeight: 950 }}>
+                {projects.length} פרויקטים פעילים
+              </span>
+              <span style={{ border: "1px solid rgba(14,116,144,0.55)", color: "#e0f2fe", borderRadius: 6, padding: "10px 18px", fontWeight: 900 }}>
+                בקרת איכות ותיעוד
+              </span>
+              <span style={{ border: "1px solid rgba(255,255,255,0.22)", color: "#f8fafc", borderRadius: 6, padding: "10px 18px", fontWeight: 900 }}>
+                הפרדה מלאה בין פרויקטים
+              </span>
+            </div>
           </div>
-          <div style={{ display: "grid", gap: 8, justifyItems: "end", minWidth: 220 }}>
+          <div style={{ display: "grid", gap: 10, justifyItems: "center", alignSelf: "start" }}>
+            <div
+              style={{
+                width: 58,
+                height: 58,
+                borderRadius: "50%",
+                border: "1px solid rgba(245,158,11,0.5)",
+                display: "grid",
+                placeItems: "center",
+                color: "#f59e0b",
+                fontWeight: 950,
+                fontSize: 20,
+              }}
+            >
+              {String(currentProjectDefaults?.qualityControl || currentProjectDefaults?.projectName || "R").trim().slice(0, 1).toUpperCase()}
+            </div>
             {visibleProjectCode && (
               <span
                 style={{
@@ -8546,6 +8593,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
             )}
             <span
               style={{
+                display: "none",
                 border: "1px solid rgba(45,212,191,0.34)",
                 background: "rgba(20,184,166,0.12)",
                 color: "#ccfbf1",
@@ -8559,7 +8607,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
             </span>
           </div>
         </div>
-        {projectMetaItems.length > 0 && (
+        {false && projectMetaItems.length > 0 && (
           <div
             style={{
               display: "grid",
@@ -22498,7 +22546,7 @@ ${invalidRecipients.join("\n")}`);
           </div>
         </div>
       )}
-      <header style={styles.header}>
+      <header style={{ ...styles.header, display: section === "home" ? "none" : undefined }}>
         <div style={styles.headerCard}>
           <div style={{ fontWeight: 900, fontSize: 24 }}>Y.K QUALITY</div>
           <div style={{ color: "#475569", marginTop: 6 }}>
@@ -22652,7 +22700,7 @@ ${invalidRecipients.join("\n")}`);
         />
       ) : null}
 
-      <div style={styles.navRow}>
+      <div style={{ ...styles.navRow, display: section === "home" ? "none" : undefined }}>
         {navItems.map(([key, label]) => (
           <button
             key={key}
@@ -22688,7 +22736,19 @@ ${invalidRecipients.join("\n")}`);
       </div>
 
       <div style={styles.layout}>
-        <main style={styles.mainCard}>
+        <main
+          style={
+            section === "home"
+              ? {
+                  ...styles.mainCard,
+                  padding: 0,
+                  border: "none",
+                  background: "transparent",
+                  boxShadow: "none",
+                }
+              : styles.mainCard
+          }
+        >
           {showExportButtons && !guardedBody && (
             <div
               style={{
