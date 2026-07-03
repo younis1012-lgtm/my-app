@@ -21809,23 +21809,6 @@ ${invalidRecipients.join("\n")}`);
                           {[project.description, project.manager].filter(Boolean).join(" · ")}
                         </div>
                       ) : null}
-                      <code
-                        style={{
-                          display: "inline-block",
-                          width: "fit-content",
-                          maxWidth: "100%",
-                          overflowWrap: "anywhere",
-                          background: "#f5f5f4",
-                          color: "#44403c",
-                          border: "1px solid #e7e5e4",
-                          borderRadius: 4,
-                          padding: "5px 8px",
-                          fontSize: 12,
-                          fontWeight: 800,
-                        }}
-                      >
-                        {project.id}
-                      </code>
                     </div>
                   </div>
                   <button
