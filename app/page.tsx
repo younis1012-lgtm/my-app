@@ -21601,86 +21601,124 @@ ${invalidRecipients.join("\n")}`);
         dir="rtl"
         style={{
           minHeight: "100vh",
-          padding: 24,
-          backgroundColor: "#f5f7fb",
+          padding: "28px 20px",
+          backgroundColor: "#fbfaf7",
           backgroundImage:
-            "linear-gradient(135deg, rgba(15,23,42,0.035) 25%, transparent 25%), linear-gradient(225deg, rgba(22,163,74,0.035) 25%, transparent 25%), linear-gradient(rgba(100,116,139,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,0.08) 1px, transparent 1px)",
-          backgroundSize: "110px 110px, 110px 110px, 34px 34px, 34px 34px",
-          backgroundPosition: "0 0, 0 0, -1px -1px, -1px -1px",
+            "radial-gradient(circle at 8% 12%, rgba(245,158,11,0.16), transparent 28%), radial-gradient(circle at 88% 18%, rgba(14,116,144,0.16), transparent 28%), linear-gradient(115deg, rgba(17,24,39,0.035) 0 1px, transparent 1px 64px)",
+          backgroundSize: "auto, auto, 64px 64px",
         }}
       >
         <div
           style={{
-            maxWidth: 1180,
+            maxWidth: 1220,
             margin: "0 auto",
             display: "grid",
-            gap: 20,
+            gap: 22,
           }}
         >
           <section
             style={{
               position: "relative",
               overflow: "hidden",
-              background: "#0f172a",
+              background: "#171614",
               color: "#fff",
-              borderRadius: 16,
-              padding: "30px 32px",
-              boxShadow: "0 22px 70px rgba(15, 23, 42, 0.24)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 8,
+              padding: "30px",
+              boxShadow: "0 24px 70px rgba(23, 22, 20, 0.22)",
+              border: "1px solid rgba(255,255,255,0.12)",
             }}
           >
             <div
               style={{
                 position: "absolute",
-                inset: 0,
-                opacity: 0.18,
-                backgroundImage:
-                  "linear-gradient(30deg, transparent 0 34%, rgba(255,255,255,0.5) 34.4% 34.8%, transparent 35.2% 100%), linear-gradient(150deg, transparent 0 42%, rgba(34,197,94,0.6) 42.3% 42.7%, transparent 43% 100%)",
-                backgroundSize: "180px 120px, 210px 140px",
+                insetInlineStart: 0,
+                top: 0,
+                bottom: 0,
+                width: 10,
+                background: "linear-gradient(180deg,#f59e0b,#0e7490)",
               }}
             />
-            <div style={{ position: "relative", display: "grid", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div
+              style={{
+                position: "absolute",
+                insetInlineEnd: -60,
+                top: -80,
+                width: 270,
+                height: 270,
+                border: "1px solid rgba(245,158,11,0.25)",
+                borderRadius: "50%",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                insetInlineEnd: 80,
+                bottom: -90,
+                width: 230,
+                height: 230,
+                border: "1px solid rgba(14,116,144,0.22)",
+                transform: "rotate(18deg)",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                opacity: 0.12,
+                backgroundImage:
+                  "linear-gradient(90deg, rgba(255,255,255,0.45) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.45) 1px, transparent 1px)",
+                backgroundSize: "44px 44px",
+              }}
+            />
+            <div style={{ position: "relative", display: "grid", gap: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ color: "#fbbf24", fontWeight: 900, fontSize: 13 }}>
+                    RND QUALITY CONTROL
+                  </div>
+                  <div style={{ fontSize: 32, fontWeight: 950, letterSpacing: 0 }}>
+                    בחירת סביבת פרויקט
+                  </div>
+                  <div style={{ color: "#d6d3d1", fontWeight: 750 }}>
+                    שלום {projectAccess.displayName || projectAccess.username}, כל פרויקט נפתח כסביבת עבודה נפרדת.
+                  </div>
+                </div>
                 <span
                   style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    background: "#16a34a",
+                    width: 74,
+                    height: 74,
+                    borderRadius: 4,
+                    background: "#f59e0b",
+                    color: "#171614",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontWeight: 950,
-                    color: "#fff",
+                    fontSize: 22,
                     letterSpacing: 0,
+                    boxShadow: "8px 8px 0 rgba(14,116,144,0.55)",
                   }}
                 >
-                  QA
+                  RND
                 </span>
-                <div>
-                  <div style={{ fontSize: 30, fontWeight: 950 }}>בחירת פרויקט לעבודה</div>
-                  <div style={{ marginTop: 5, color: "#cbd5e1", fontWeight: 800 }}>
-                    שלום {projectAccess.displayName || projectAccess.username}, בחר את סביבת העבודה שברצונך לפתוח.
-                  </div>
-                </div>
               </div>
               <div
                 style={{
                   display: "flex",
                   gap: 10,
                   flexWrap: "wrap",
-                  color: "#dbeafe",
+                  color: "#e7e5e4",
                   fontSize: 13,
                   fontWeight: 850,
                 }}
               >
-                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
+                <span style={{ border: "1px solid rgba(245,158,11,0.35)", borderRadius: 4, padding: "7px 10px" }}>
                   {accessibleProjects.length} פרויקטים זמינים
                 </span>
-                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
-                  סביבת QA/QC
+                <span style={{ border: "1px solid rgba(14,116,144,0.42)", borderRadius: 4, padding: "7px 10px" }}>
+                  בקרת איכות ותיעוד
                 </span>
-                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
+                <span style={{ border: "1px solid rgba(255,255,255,0.18)", borderRadius: 4, padding: "7px 10px" }}>
                   הפרדה מלאה בין פרויקטים
                 </span>
               </div>
@@ -21689,94 +21727,105 @@ ${invalidRecipients.join("\n")}`);
 
           <section
             style={{
-              background: "#fff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 16,
-              overflow: "hidden",
-              boxShadow: "0 16px 42px rgba(15, 23, 42, 0.1)",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: 14,
             }}
           >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 170px",
-                gap: 12,
-                padding: "16px 20px",
-                borderBottom: "1px solid #e2e8f0",
-                background: "#f8fafc",
-                color: "#334155",
-                fontWeight: 950,
-              }}
-            >
-              <div>שם הפרויקט</div>
-              <div style={{ textAlign: "center" }}>פעולה</div>
-            </div>
             {accessibleProjects.map((project) => {
               const isSelected =
                 normalizeStoredProjectId(project.id) ===
                 normalizeStoredProjectId(currentProjectId);
               return (
-                <div
+                <article
                   key={project.id}
                   style={{
+                    position: "relative",
                     display: "grid",
-                    gridTemplateColumns: "1fr 170px",
                     gap: 16,
-                    alignItems: "center",
-                    padding: "20px",
-                    borderBottom: "1px solid #e2e8f0",
-                    background: isSelected ? "#eefbf3" : "#fff",
+                    minHeight: 230,
+                    padding: 20,
+                    background: "#fff",
+                    border: isSelected ? "2px solid #f59e0b" : "1px solid #dedbd2",
+                    borderRadius: 8,
+                    boxShadow: isSelected
+                      ? "0 18px 45px rgba(245,158,11,0.18)"
+                      : "0 14px 34px rgba(23,22,20,0.08)",
+                    overflow: "hidden",
                   }}
                 >
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span
+                  <div
+                    style={{
+                      position: "absolute",
+                      insetInlineEnd: 0,
+                      top: 0,
+                      height: 6,
+                      width: "100%",
+                      background: isSelected
+                        ? "linear-gradient(90deg,#f59e0b,#0e7490)"
+                        : "linear-gradient(90deg,#d6d3d1,#0e7490)",
+                    }}
+                  />
+                  <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
+                      <div
                         style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 10,
-                          background: isSelected ? "#dcfce7" : "#eff6ff",
-                          color: isSelected ? "#15803d" : "#1d4ed8",
+                          width: 42,
+                          height: 42,
+                          borderRadius: 6,
+                          background: isSelected ? "#171614" : "#f5f5f4",
+                          color: isSelected ? "#fbbf24" : "#0e7490",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
                           fontWeight: 950,
+                          border: "1px solid #dedbd2",
+                          flex: "0 0 auto",
                         }}
                       >
                         {String(project.name || "P").trim().slice(0, 1)}
-                      </span>
-                      <div style={{ fontSize: 20, fontWeight: 950, color: "#0f172a" }}>
-                        {project.name}
                       </div>
                       {isSelected ? (
                         <span
                           style={{
-                            borderRadius: 999,
-                            background: "#dcfce7",
-                            color: "#15803d",
-                            padding: "4px 9px",
+                            borderRadius: 4,
+                            background: "#fff7ed",
+                            color: "#b45309",
+                            padding: "5px 9px",
                             fontSize: 12,
                             fontWeight: 950,
                           }}
                         >
-                          פרויקט נוכחי
+                          נוכחי
                         </span>
                       ) : null}
                     </div>
-                    {project.description || project.manager ? (
-                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 750 }}>
-                        {[project.description, project.manager].filter(Boolean).join(" · ")}
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ fontSize: 21, lineHeight: 1.25, fontWeight: 950, color: "#171614" }}>
+                        {project.name}
                       </div>
-                    ) : null}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "#475569", fontSize: 12, fontWeight: 850 }}>
-                      <span style={{ background: "#f1f5f9", borderRadius: 999, padding: "5px 9px" }}>
-                        מזהה: {project.id}
-                      </span>
-                      {project.isActive ? (
-                        <span style={{ background: "#ecfdf5", color: "#166534", borderRadius: 999, padding: "5px 9px" }}>
-                          פעיל
-                        </span>
+                      {project.description || project.manager ? (
+                        <div style={{ color: "#6b6257", fontWeight: 750, lineHeight: 1.5 }}>
+                          {[project.description, project.manager].filter(Boolean).join(" · ")}
+                        </div>
                       ) : null}
+                      <code
+                        style={{
+                          display: "inline-block",
+                          width: "fit-content",
+                          maxWidth: "100%",
+                          overflowWrap: "anywhere",
+                          background: "#f5f5f4",
+                          color: "#44403c",
+                          border: "1px solid #e7e5e4",
+                          borderRadius: 4,
+                          padding: "5px 8px",
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {project.id}
+                      </code>
                     </div>
                   </div>
                   <button
@@ -21787,19 +21836,22 @@ ${invalidRecipients.join("\n")}`);
                       }).then(() => setShowProjectPicker(false));
                     }}
                     style={{
-                      border: 0,
-                      borderRadius: 12,
-                      background: "#16a34a",
-                      color: "#fff",
-                      padding: "13px 14px",
+                      alignSelf: "end",
+                      border: "1px solid #171614",
+                      borderRadius: 6,
+                      background: isSelected ? "#f59e0b" : "#171614",
+                      color: isSelected ? "#171614" : "#fff",
+                      padding: "12px 14px",
                       fontWeight: 950,
                       cursor: "pointer",
-                      boxShadow: "0 8px 18px rgba(22, 163, 74, 0.22)",
+                      boxShadow: isSelected
+                        ? "0 10px 20px rgba(245,158,11,0.2)"
+                        : "0 10px 20px rgba(23,22,20,0.18)",
                     }}
                   >
                     כניסה לפרויקט
                   </button>
-                </div>
+                </article>
               );
             })}
           </section>
@@ -21809,13 +21861,14 @@ ${invalidRecipients.join("\n")}`);
               type="button"
               onClick={logoutProject}
               style={{
-                border: "1px solid #cbd5e1",
+                border: "1px solid #dedbd2",
                 background: "#fff",
-                borderRadius: 12,
+                borderRadius: 6,
                 padding: "10px 14px",
                 fontWeight: 900,
                 cursor: "pointer",
-                boxShadow: "0 8px 18px rgba(15, 23, 42, 0.05)",
+                color: "#171614",
+                boxShadow: "0 8px 18px rgba(23,22,20,0.05)",
               }}
             >
               יציאה
@@ -21825,13 +21878,14 @@ ${invalidRecipients.join("\n")}`);
                 type="button"
                 onClick={() => setShowProjectPicker(false)}
                 style={{
-                border: "1px solid #cbd5e1",
-                background: "#fff",
-                  borderRadius: 12,
+                  border: "1px solid #dedbd2",
+                  background: "#fff",
+                  borderRadius: 6,
                   padding: "10px 14px",
                   fontWeight: 900,
                   cursor: "pointer",
-                  boxShadow: "0 8px 18px rgba(15, 23, 42, 0.05)",
+                  color: "#171614",
+                  boxShadow: "0 8px 18px rgba(23,22,20,0.05)",
                 }}
               >
                 המשך בפרויקט הנוכחי
