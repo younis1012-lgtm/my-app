@@ -8494,6 +8494,33 @@ function getMaterialType(record: any) {
   return n?.materialType || n?.materialCategory || n?.materialName || n?.usage || record?.materialType || record?.materialCategory || record?.materialName || record?.usage || "";
 }
 
+function normalizePreliminarySubtype(record: any): PreliminaryTab {
+  const rawSubtype = String(record?.subtype ?? record ?? "").trim().toLowerCase();
+  if (["suppliers", "supplier"].includes(rawSubtype) || rawSubtype.includes("ספק")) return "suppliers";
+  if (["subcontractors", "subcontractor", "contractors", "contractor"].includes(rawSubtype) || rawSubtype.includes("קבל")) return "subcontractors";
+  if (["materials", "material"].includes(rawSubtype) || rawSubtype.includes("חומר")) return "materials";
+
+  const text = [
+    record?.title,
+    record?.subcontractor?.subcontractorName,
+    record?.subcontractor?.field,
+    record?.subcontractorName,
+    record?.contractorName,
+    record?.field,
+    record?.workField,
+    record?.supplier?.supplierName,
+    record?.material?.materialName,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (record?.subcontractor || text.includes("מודד") || text.includes("קבל")) return "subcontractors";
+  if (record?.supplier || text.includes("ספק")) return "suppliers";
+  if (record?.material || text.includes("חומר")) return "materials";
+  return "suppliers";
+}
+
 function preliminaryFolderColumns(tab: PreliminaryTab): FolderColumn[] {
   if (tab === "suppliers") {
     return [
@@ -14929,6 +14956,7 @@ export default function Page() {
         (parsed.savedPreliminary ?? []).map((item) => ({
           ...item,
           projectId: normalizeStoredProjectId((item as any).projectId),
+          subtype: normalizePreliminarySubtype(item),
           approval: normalizeApproval((item as any).approval),
         })),
       );
@@ -15083,7 +15111,7 @@ export default function Page() {
       (preliminaryRows ?? []).map((row) => ({
         id: row.id,
         projectId: normalizeStoredProjectId(row.project_id),
-        subtype: row.subtype,
+        subtype: normalizePreliminarySubtype(row),
         structureNodeId: row.structure_node_id ?? "",
         title: row.title ?? "",
         date: row.date ?? "",
@@ -16532,7 +16560,7 @@ export default function Page() {
       Array.from(
         new Set(
           projectPreliminary
-            .filter((record) => record.subtype === "suppliers")
+            .filter((record) => normalizePreliminarySubtype(record) === "suppliers")
             .filter((record) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
             .map((record) => String(getSupplierName(record) || "").trim())
             .filter(Boolean),
@@ -16583,7 +16611,7 @@ export default function Page() {
   ) =>
     records
       .filter((item) => normalizeStoredProjectId(item.projectId) === currentProjectIdNormalized)
-      .filter((item) => !subtype || item.subtype === subtype)
+      .filter((item) => !subtype || normalizePreliminarySubtype(item) === subtype)
       .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
 
   const nextSequentialNo = (
@@ -18778,10 +18806,11 @@ export default function Page() {
     resetPreliminaryEditor();
   };
   const loadPreliminary = (record: PreliminaryRecord) => {
+    const normalizedSubtype = normalizePreliminarySubtype(record);
     setSection("preliminary");
-    setPreliminaryTab(record.subtype);
+    setPreliminaryTab(normalizedSubtype);
     setEditingPreliminaryId(record.id);
-    if (record.subtype === "suppliers")
+    if (normalizedSubtype === "suppliers")
       setSupplierPreliminaryForm({
         subtype: "suppliers",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -18792,7 +18821,7 @@ export default function Page() {
           record.supplier ?? createDefaultPreliminary("suppliers").supplier,
         approval: normalizeApproval(record.approval),
       });
-    if (record.subtype === "subcontractors")
+    if (normalizedSubtype === "subcontractors")
       setSubcontractorPreliminaryForm({
         subtype: "subcontractors",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -18804,7 +18833,7 @@ export default function Page() {
           createDefaultPreliminary("subcontractors").subcontractor,
         approval: normalizeApproval(record.approval),
       });
-    if (record.subtype === "materials")
+    if (normalizedSubtype === "materials")
       setMaterialPreliminaryForm({
         subtype: "materials",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -19744,7 +19773,7 @@ export default function Page() {
     ])}${attachmentsList(record.attachments)}${signaturesTable(record.approval)}`;
 
   const preliminaryRecordArchiveBody = (record: any) => {
-    const subtype = record.subtype as PreliminaryTab;
+    const subtype = normalizePreliminarySubtype(record);
     if (subtype === "suppliers") {
       const supplier = record.supplier ?? {};
       return `${baseRows([
@@ -20070,12 +20099,12 @@ export default function Page() {
         `${projectRoot}/בקרה מקדימה`,
         allProjectPreliminary,
         [
-          ["סוג", (record) => labelForPreliminary(record.subtype)],
+          ["סוג", (record) => labelForPreliminary(normalizePreliminarySubtype(record))],
           ["כותרת", (record) => record.title],
           ["תאריך", (record) => record.date],
           ["סטטוס", (record) => record.status],
         ],
-        (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
+        (record) => `${labelForPreliminary(normalizePreliminarySubtype(record))} - ${record.title || record.id}`,
         (record) => preliminaryRecordArchiveBody(record),
       );
       await addCollection(
@@ -20760,7 +20789,7 @@ ${invalidRecipients.join("\n")}`);
               await Promise.all(
                 selectedPreliminaryRecords.map(async (record: any, index) => {
                   const recordTitle =
-                    `${labelForPreliminary(record.subtype)} - ${record.title || getSupplierName(record) || getContractorName(record) || getMaterialSupplierName(record) || index + 1}`;
+                    `${labelForPreliminary(normalizePreliminarySubtype(record))} - ${record.title || getSupplierName(record) || getContractorName(record) || getMaterialSupplierName(record) || index + 1}`;
                   const recordHtml = archivePrintableHtml(recordTitle, preliminaryRecordArchiveBody(record));
                   const mergedPdfBlob = await buildMergedPdfBlob(
                     recordTitle,
@@ -20855,7 +20884,7 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendSelectedPreliminaryEmail = async (ids: string[]) => {
-    const currentTabRecords = projectPreliminary.filter((record) => record.subtype === preliminaryTab);
+    const currentTabRecords = projectPreliminary.filter((record) => normalizePreliminarySubtype(record) === preliminaryTab);
     const validIds = ids.filter((id) => currentTabRecords.some((item) => item.id === id));
     if (!validIds.length) {
       alert("יש לסמן לפחות רשומה אחת לשליחה");
@@ -21139,7 +21168,8 @@ ${invalidRecipients.join("\n")}`);
   const preparePreliminaryAttachmentsForCloud = async (
     record: PreliminaryRecord,
   ) => {
-    const dataKey = preliminaryRecordKey(record.subtype);
+    const subtype = normalizePreliminarySubtype(record);
+    const dataKey = preliminaryRecordKey(subtype);
     const nestedData = ((record as any)[dataKey] ?? {}) as Record<string, any>;
     const sourceCertificates = Array.isArray(nestedData.certificates)
       ? nestedData.certificates
@@ -21158,7 +21188,7 @@ ${invalidRecipients.join("\n")}`);
           await uploadInlinePreliminaryAttachmentToCloud(
             attachment,
             record.id,
-            record.subtype,
+            subtype,
             certificateId,
           ),
         );
@@ -22769,7 +22799,7 @@ ${invalidRecipients.join("\n")}`);
               <FolderRecordsTable
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
                 description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
-                records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
+                records={projectPreliminary.filter((record) => normalizePreliminarySubtype(record) === preliminaryTab) as any[]}
                 columns={preliminaryFolderColumns(preliminaryTab)}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
