@@ -8460,6 +8460,21 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
     { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
+  const approvalRecords = [...projectChecklists, ...projectNonconformances, ...projectTrialSections, ...projectPreliminary, ...projectRFIs, ...projectSupervisionReports];
+  const approvedCount = approvalRecords.filter((item) => isClosed(item?.approval?.status ?? item?.status)).length;
+  const rejectedCount = approvalRecords.filter((item) => {
+    const status = String(item?.approval?.status ?? item?.status ?? "").toLowerCase();
+    return status.includes("נדחה") || status.includes("rejected") || status.includes("לא מאושר");
+  }).length;
+  const activeCount = Math.max(0, approvalRecords.length - approvedCount - rejectedCount);
+  const approvedPercent = approvalRecords.length ? Math.round((approvedCount / approvalRecords.length) * 100) : 0;
+  const activePercent = approvalRecords.length ? Math.round((activeCount / approvalRecords.length) * 100) : 0;
+  const rejectedPercent = Math.max(0, 100 - approvedPercent - activePercent);
+  const recentActivity = [
+    ...projectChecklists.slice(-2).map((item) => ({ title: item?.title || item?.checklistName || "רשימת תיוג", meta: normalizeDateValue(item?.date || item?.createdAt) || "עודכן בפרויקט", section: "checklists" as AppSection, tone: "good" as const })),
+    ...projectNonconformances.slice(-2).map((item) => ({ title: item?.title || item?.description || "אי התאמה", meta: item?.status || "דורש טיפול", section: "nonconformances" as AppSection, tone: "danger" as const })),
+    ...projectRFIs.slice(-1).map((item) => ({ title: item?.title || item?.referenceNo || "RFI", meta: item?.status || "ממתין", section: "rfi" as AppSection, tone: "warn" as const })),
+  ].slice(0, 5);
   return (
     <div
       style={{
@@ -8567,6 +8582,7 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
       <aside
         style={{
           ...dashboardCardStyle,
+          order: 3,
           direction: "rtl",
           padding: 12,
         }}
@@ -8621,34 +8637,175 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
         </div>
       </aside>
 
-      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl" }}>
-        <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
-              <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
+      <main style={{ display: "grid", gap: 14, minWidth: 0, direction: "rtl", order: 2 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+          {kpis.slice(0, 5).map((item) => {
+            const tone = statusTone(item.tone as any);
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => setSection(item.section)}
+                style={{
+                  ...dashboardCardStyle,
+                  minHeight: 118,
+                  padding: 14,
+                  textAlign: "right",
+                  background: "#fff",
+                  borderColor: "#e2e8f0",
+                  cursor: "pointer",
+                  display: "grid",
+                  alignContent: "space-between",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <span
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 8,
+                      background: tone.soft,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: tone.text,
+                      fontSize: 20,
+                    }}
+                  >
+                    {item.icon}
+                  </span>
+                  <span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span>
+                </div>
+                <div>
+                  <div style={{ color: "#475569", fontWeight: 900, fontSize: 13 }}>{item.label}</div>
+                  <div style={{ fontSize: 34, lineHeight: 1.05, fontWeight: 950, color: "#0f172a", marginTop: 5 }}>{item.value}</div>
+                </div>
+              </button>
+            );
+          })}
+        </section>
+
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(280px, 0.9fr) minmax(360px, 1.4fr)", gap: 14 }}>
+          <div style={{ ...dashboardCardStyle, minHeight: 220 }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 950 }}>סטטוס רשומות בפרויקט</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: 18, alignItems: "center" }}>
+              <div
+                style={{
+                  width: 124,
+                  height: 124,
+                  borderRadius: "50%",
+                  background: `conic-gradient(#16a34a 0 ${approvedPercent}%, #0ea5e9 ${approvedPercent}% ${approvedPercent + activePercent}%, #dc2626 ${approvedPercent + activePercent}% 100%)`,
+                  boxShadow: "inset 0 0 0 18px #fff, 0 12px 26px rgba(15,23,42,0.12)",
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                <div style={{ textAlign: "center", fontWeight: 950, color: "#0f172a" }}>
+                  <div style={{ fontSize: 24 }}>{approvalRecords.length}</div>
+                  <div style={{ fontSize: 11, color: "#64748b" }}>רשומות</div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: 9 }}>
+                {[
+                  { label: "מאושר", value: approvedCount, color: "#16a34a" },
+                  { label: "בתהליך", value: activeCount, color: "#0ea5e9" },
+                  { label: "נדחה", value: rejectedCount, color: "#dc2626" },
+                ].map((row) => (
+                  <div key={row.label} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 900 }}>
+                        <span>{row.label}</span>
+                        <span>{row.value}</span>
+                      </div>
+                      <div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden", marginTop: 4 }}>
+                        <div style={{ width: `${approvalRecords.length ? Math.max(5, Math.round((row.value / approvalRecords.length) * 100)) : 0}%`, height: "100%", borderRadius: 999, background: row.color }} />
+                      </div>
+                    </div>
+                    <span style={{ width: 10, height: 10, borderRadius: 999, background: row.color }} />
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
           </div>
-        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
-          {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 88, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
-            <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
-          </button>; })}
-        </div>
+          <div style={{ ...dashboardCardStyle, minHeight: 220 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 950 }}>פעילות אחרונה</h3>
+              <button type="button" onClick={() => setSection("checklists" as AppSection)} style={{ border: 0, background: "transparent", color: "#0e7490", cursor: "pointer", fontWeight: 900 }}>
+                לכל הפעילות
+              </button>
+            </div>
+            {recentActivity.length ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {recentActivity.map((item, index) => {
+                  const tone = statusTone(item.tone);
+                  return (
+                    <button
+                      key={`${item.title}-${index}`}
+                      type="button"
+                      onClick={() => setSection(item.section)}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr auto",
+                        gap: 10,
+                        alignItems: "center",
+                        border: "1px solid #e2e8f0",
+                        background: "#fff",
+                        borderRadius: 8,
+                        padding: "10px 12px",
+                        cursor: "pointer",
+                        textAlign: "right",
+                      }}
+                    >
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", color: "#0f172a", fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
+                        <span style={{ color: "#64748b", fontSize: 12 }}>{item.meta}</span>
+                      </span>
+                      <span style={{ width: 10, height: 10, borderRadius: 999, background: tone.pill }} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ padding: 14, borderRadius: 8, background: "#f8fafc", color: "#475569", fontWeight: 850 }}>אין עדיין פעילות להצגה בפרויקט זה.</div>
+            )}
+          </div>
+        </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(360px,1.05fr) minmax(320px,0.95fr)", gap: 14 }}>
           <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-            {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
+            <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
+            {urgentTasks.length ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {urgentTasks.map((task, index) => {
+                  const tone = statusTone(task.tone);
+                  return (
+                    <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontWeight: 950, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span>
+                        <span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span>
+                      </span>
+                      <span style={{ color: tone.text, fontWeight: 950, fontSize: 12 }}>{task.meta}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ padding: 14, borderRadius: 8, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>אין כרגע משימות דחופות פתוחות.</div>
+            )}
           </div>
           <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
-            <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
+            <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
+            <div style={{ display: "grid", gap: 8 }}>
+              {distribution.map((row) => (
+                <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, marginBottom: 4, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div>
+                  <div style={{ height: 8, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </section>
       </main>
     </div>
   );
