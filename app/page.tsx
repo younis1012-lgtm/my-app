@@ -21597,27 +21597,93 @@ ${invalidRecipients.join("\n")}`);
 
   if (showProjectPicker && accessibleProjects.length > 1) {
     return (
-      <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
+      <div
+        dir="rtl"
+        style={{
+          minHeight: "100vh",
+          padding: 24,
+          backgroundColor: "#f5f7fb",
+          backgroundImage:
+            "linear-gradient(135deg, rgba(15,23,42,0.035) 25%, transparent 25%), linear-gradient(225deg, rgba(22,163,74,0.035) 25%, transparent 25%), linear-gradient(rgba(100,116,139,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,0.08) 1px, transparent 1px)",
+          backgroundSize: "110px 110px, 110px 110px, 34px 34px, 34px 34px",
+          backgroundPosition: "0 0, 0 0, -1px -1px, -1px -1px",
+        }}
+      >
         <div
           style={{
             maxWidth: 1180,
             margin: "0 auto",
             display: "grid",
-            gap: 18,
+            gap: 20,
           }}
         >
           <section
             style={{
+              position: "relative",
+              overflow: "hidden",
               background: "#0f172a",
               color: "#fff",
-              borderRadius: 18,
-              padding: "26px 28px",
-              boxShadow: "0 18px 55px rgba(15, 23, 42, 0.22)",
+              borderRadius: 16,
+              padding: "30px 32px",
+              boxShadow: "0 22px 70px rgba(15, 23, 42, 0.24)",
+              border: "1px solid rgba(255,255,255,0.08)",
             }}
           >
-            <div style={{ fontSize: 28, fontWeight: 950 }}>בחירת פרויקט לעבודה</div>
-            <div style={{ marginTop: 8, color: "#cbd5e1", fontWeight: 800 }}>
-              שלום {projectAccess.displayName || projectAccess.username}, בחר את הפרויקט שברצונך לפתוח.
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                opacity: 0.18,
+                backgroundImage:
+                  "linear-gradient(30deg, transparent 0 34%, rgba(255,255,255,0.5) 34.4% 34.8%, transparent 35.2% 100%), linear-gradient(150deg, transparent 0 42%, rgba(34,197,94,0.6) 42.3% 42.7%, transparent 43% 100%)",
+                backgroundSize: "180px 120px, 210px 140px",
+              }}
+            />
+            <div style={{ position: "relative", display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: "#16a34a",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 950,
+                    color: "#fff",
+                    letterSpacing: 0,
+                  }}
+                >
+                  QA
+                </span>
+                <div>
+                  <div style={{ fontSize: 30, fontWeight: 950 }}>בחירת פרויקט לעבודה</div>
+                  <div style={{ marginTop: 5, color: "#cbd5e1", fontWeight: 800 }}>
+                    שלום {projectAccess.displayName || projectAccess.username}, בחר את סביבת העבודה שברצונך לפתוח.
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  color: "#dbeafe",
+                  fontSize: 13,
+                  fontWeight: 850,
+                }}
+              >
+                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
+                  {accessibleProjects.length} פרויקטים זמינים
+                </span>
+                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
+                  סביבת QA/QC
+                </span>
+                <span style={{ border: "1px solid rgba(219,234,254,0.22)", borderRadius: 999, padding: "6px 10px" }}>
+                  הפרדה מלאה בין פרויקטים
+                </span>
+              </div>
             </div>
           </section>
 
@@ -21625,19 +21691,19 @@ ${invalidRecipients.join("\n")}`);
             style={{
               background: "#fff",
               border: "1px solid #e2e8f0",
-              borderRadius: 18,
+              borderRadius: 16,
               overflow: "hidden",
-              boxShadow: "0 12px 35px rgba(15, 23, 42, 0.08)",
+              boxShadow: "0 16px 42px rgba(15, 23, 42, 0.1)",
             }}
           >
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 160px",
+                gridTemplateColumns: "1fr 170px",
                 gap: 12,
-                padding: "14px 18px",
+                padding: "16px 20px",
                 borderBottom: "1px solid #e2e8f0",
-                background: "#f1f5f9",
+                background: "#f8fafc",
                 color: "#334155",
                 fontWeight: 950,
               }}
@@ -21654,23 +21720,64 @@ ${invalidRecipients.join("\n")}`);
                   key={project.id}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 160px",
-                    gap: 12,
+                    gridTemplateColumns: "1fr 170px",
+                    gap: 16,
                     alignItems: "center",
-                    padding: "18px",
+                    padding: "20px",
                     borderBottom: "1px solid #e2e8f0",
-                    background: isSelected ? "#f0fdf4" : "#fff",
+                    background: isSelected ? "#eefbf3" : "#fff",
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 950, color: "#0f172a" }}>
-                      {project.name}
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          background: isSelected ? "#dcfce7" : "#eff6ff",
+                          color: isSelected ? "#15803d" : "#1d4ed8",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: 950,
+                        }}
+                      >
+                        {String(project.name || "P").trim().slice(0, 1)}
+                      </span>
+                      <div style={{ fontSize: 20, fontWeight: 950, color: "#0f172a" }}>
+                        {project.name}
+                      </div>
+                      {isSelected ? (
+                        <span
+                          style={{
+                            borderRadius: 999,
+                            background: "#dcfce7",
+                            color: "#15803d",
+                            padding: "4px 9px",
+                            fontSize: 12,
+                            fontWeight: 950,
+                          }}
+                        >
+                          פרויקט נוכחי
+                        </span>
+                      ) : null}
                     </div>
                     {project.description || project.manager ? (
                       <div style={{ marginTop: 6, color: "#64748b", fontWeight: 750 }}>
                         {[project.description, project.manager].filter(Boolean).join(" · ")}
                       </div>
                     ) : null}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "#475569", fontSize: 12, fontWeight: 850 }}>
+                      <span style={{ background: "#f1f5f9", borderRadius: 999, padding: "5px 9px" }}>
+                        מזהה: {project.id}
+                      </span>
+                      {project.isActive ? (
+                        <span style={{ background: "#ecfdf5", color: "#166534", borderRadius: 999, padding: "5px 9px" }}>
+                          פעיל
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -21681,12 +21788,13 @@ ${invalidRecipients.join("\n")}`);
                     }}
                     style={{
                       border: 0,
-                      borderRadius: 10,
+                      borderRadius: 12,
                       background: "#16a34a",
                       color: "#fff",
-                      padding: "11px 12px",
+                      padding: "13px 14px",
                       fontWeight: 950,
                       cursor: "pointer",
+                      boxShadow: "0 8px 18px rgba(22, 163, 74, 0.22)",
                     }}
                   >
                     כניסה לפרויקט
@@ -21703,10 +21811,11 @@ ${invalidRecipients.join("\n")}`);
               style={{
                 border: "1px solid #cbd5e1",
                 background: "#fff",
-                borderRadius: 10,
+                borderRadius: 12,
                 padding: "10px 14px",
                 fontWeight: 900,
                 cursor: "pointer",
+                boxShadow: "0 8px 18px rgba(15, 23, 42, 0.05)",
               }}
             >
               יציאה
@@ -21716,12 +21825,13 @@ ${invalidRecipients.join("\n")}`);
                 type="button"
                 onClick={() => setShowProjectPicker(false)}
                 style={{
-                  border: "1px solid #cbd5e1",
-                  background: "#fff",
-                  borderRadius: 10,
+                border: "1px solid #cbd5e1",
+                background: "#fff",
+                  borderRadius: 12,
                   padding: "10px 14px",
                   fontWeight: 900,
                   cursor: "pointer",
+                  boxShadow: "0 8px 18px rgba(15, 23, 42, 0.05)",
                 }}
               >
                 המשך בפרויקט הנוכחי
