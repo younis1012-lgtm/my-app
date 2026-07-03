@@ -8355,6 +8355,9 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
 
 type HomeDashboardProps = {
   projects: Project[];
+  currentProject?: Project | null;
+  projectName?: string;
+  currentProjectDefaults?: any;
   projectChecklists: any[];
   projectNonconformances: any[];
   projectTrialSections: any[];
@@ -8369,7 +8372,7 @@ type HomeDashboardProps = {
 const dashboardCardStyle: CSSProperties = {
   background: "#fff",
   border: "1px solid #e2e8f0",
-  borderRadius: 16,
+  borderRadius: 8,
   padding: 12,
   boxShadow: "0 8px 22px rgba(15,23,42,0.035)",
 };
@@ -8381,7 +8384,7 @@ const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
   return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
-function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
+function HomeSection({ currentProject, projectName, currentProjectDefaults, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const isClosed = (value: unknown) => {
@@ -8438,6 +8441,16 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
   ];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
+  const projectDisplayName = projectName || currentProject?.name || "פרויקט פעיל";
+  const visibleProjectCode =
+    String(projectDisplayName).match(/\d{2,4}/)?.[0] ||
+    String((currentProject as any)?.code ?? "").trim() ||
+    "";
+  const projectMetaItems = [
+    { label: "חברת ניהול", value: currentProjectDefaults?.managementCompany || currentProjectDefaults?.projectManager || (currentProject as any)?.managementCompany },
+    { label: "קבלן ראשי", value: currentProjectDefaults?.mainContractor || currentProjectDefaults?.contractor || (currentProject as any)?.contractor },
+    { label: "בקרת איכות", value: currentProjectDefaults?.qaCompany || currentProjectDefaults?.qualityCompany || (currentProject as any)?.qaCompany },
+  ].filter((item) => String(item.value ?? "").trim());
   const distribution = [
     { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
     { label: "אי התאמות", value: projectNonconformances.length, section: "nonconformances" as AppSection },
@@ -8457,6 +8470,100 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
         direction: "rtl",
       }}
     >
+      <section
+        style={{
+          ...dashboardCardStyle,
+          overflow: "hidden",
+          padding: 0,
+          borderColor: "#cbd5e1",
+          background: "#0b1120",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 18,
+            alignItems: "center",
+            padding: "20px 22px",
+            background:
+              "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(17,24,39,0.96) 58%, rgba(14,116,144,0.72))",
+            color: "#fff",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: "#f59e0b", fontSize: 12, fontWeight: 950, letterSpacing: 0 }}>
+              RND QUALITY CONTROL
+            </div>
+            <h2 style={{ margin: "6px 0 0", fontSize: 28, lineHeight: 1.15, fontWeight: 950 }}>
+              סביבת בקרת איכות לפרויקט
+            </h2>
+            <div
+              style={{
+                marginTop: 8,
+                color: "#cbd5e1",
+                fontSize: 14,
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={projectDisplayName}
+            >
+              {projectDisplayName}
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 8, justifyItems: "end", minWidth: 220 }}>
+            {visibleProjectCode && (
+              <span
+                style={{
+                  border: "1px solid rgba(245,158,11,0.45)",
+                  background: "rgba(245,158,11,0.14)",
+                  color: "#fde68a",
+                  borderRadius: 999,
+                  padding: "6px 10px",
+                  fontWeight: 950,
+                  fontSize: 13,
+                }}
+              >
+                קוד פרויקט {visibleProjectCode}
+              </span>
+            )}
+            <span
+              style={{
+                border: "1px solid rgba(45,212,191,0.34)",
+                background: "rgba(20,184,166,0.12)",
+                color: "#ccfbf1",
+                borderRadius: 999,
+                padding: "6px 10px",
+                fontWeight: 900,
+                fontSize: 13,
+              }}
+            >
+              נתונים מוצגים לפרויקט זה בלבד
+            </span>
+          </div>
+        </div>
+        {projectMetaItems.length > 0 && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 1,
+              background: "#e2e8f0",
+              borderTop: "1px solid rgba(226,232,240,0.18)",
+            }}
+          >
+            {projectMetaItems.map((item) => (
+              <div key={item.label} style={{ background: "#f8fafc", padding: "10px 14px" }}>
+                <div style={{ color: "#64748b", fontSize: 12, fontWeight: 850 }}>{item.label}</div>
+                <div style={{ color: "#0f172a", fontSize: 14, fontWeight: 950, marginTop: 3 }}>{String(item.value)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <aside
         style={{
           ...dashboardCardStyle,
@@ -22619,6 +22726,9 @@ ${invalidRecipients.join("\n")}`);
           {section === "home" && (
             <HomeSection
               projects={accessibleProjects}
+              currentProject={currentProject}
+              projectName={projectName}
+              currentProjectDefaults={currentProjectDefaults}
               projectChecklists={projectChecklists}
               projectNonconformances={projectNonconformances}
               projectTrialSections={projectTrialSections}
