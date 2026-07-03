@@ -18815,13 +18815,19 @@ export default function Page() {
     if (!form.title.trim()) return alert("יש להזין כותרת");
     const validation = validateApproval(form.approval);
     if (validation) return alert(validation);
+    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
+    if (!activeProjectId) return alert("יש לבחור פרויקט לפני שמירה");
+    if (normalizeStoredProjectId(currentProjectId) !== activeProjectId) {
+      setCurrentProjectId(activeProjectId);
+      writeLocalCurrentProjectId(activeProjectId);
+    }
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title =
       editingPreliminaryId || titleHasNumber(form.title)
         ? form.title
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
-    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const normalizedProjectId = activeProjectId;
     if (cloudEnabled && normalizedProjectId) {
       const projectForCloud =
         currentProject ??
