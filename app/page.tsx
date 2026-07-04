@@ -2314,6 +2314,15 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
               .map((alias: unknown) => String(alias ?? "").trim())
               .filter(Boolean)
           : undefined,
+        projectIds: Array.isArray(item.projectIds ?? item.project_ids)
+          ? (item.projectIds ?? item.project_ids)
+              .map(normalizeStoredProjectId)
+              .filter(Boolean)
+          : item.projectId || item.project_id
+            ? [normalizeStoredProjectId(item.projectId ?? item.project_id)].filter(Boolean)
+            : item.code && normalizeStoredProjectId(item.code).includes("-")
+              ? [normalizeStoredProjectId(item.code)].filter(Boolean)
+              : undefined,
         projectName:
           normalizeAccessRole(item.role) === "admin"
             ? null
@@ -2365,6 +2374,13 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   ).trim(),
   role: normalizeAccessRole(row?.role),
   code: row?.code ? String(row.code).trim() : undefined,
+  projectIds: Array.isArray(row?.project_ids ?? row?.projectIds)
+    ? (row.project_ids ?? row.projectIds).map(normalizeStoredProjectId).filter(Boolean)
+    : row?.project_id
+      ? [normalizeStoredProjectId(row.project_id)].filter(Boolean)
+      : row?.code && normalizeStoredProjectId(row.code).includes("-")
+        ? [normalizeStoredProjectId(row.code)].filter(Boolean)
+        : undefined,
   projectName:
     normalizeAccessRole(row?.role) === "admin"
       ? null
@@ -2389,6 +2405,7 @@ type StoredAuthSession = {
   username?: string;
   code?: string;
   role?: ProjectAccess["role"];
+  projectIds?: string[];
   authProvider?: ProjectAccess["authProvider"];
   expiresAt?: number;
 };
@@ -2433,6 +2450,7 @@ const writeAuthSession = (access: ProjectAccess) => {
     username: access.username,
     code: access.code,
     role: access.role,
+    projectIds: access.projectIds,
     authProvider: access.authProvider,
     expiresAt: Date.now() + AUTH_SESSION_TIMEOUT_MS,
   };
@@ -14641,16 +14659,18 @@ export default function Page() {
   };
 
   const addAccessUser = () => {
-    const nextNumber = draftAccessUsers.length + 1;
+    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
+    const activeProjectName = currentProject?.name ?? "";
     setDraftAccessUsers((prevUsers) => [
       ...prevUsers,
       {
         username: `user${prevUsers.length + 1}`,
         password: "1234",
         displayName: `משתמש ${prevUsers.length + 1}`,
-        role: "readwrite",
-        code: `new-project-${nextNumber}`,
-        projectName: "",
+        role: "readonly",
+        code: activeProjectId || `project-user-${prevUsers.length + 1}`,
+        projectIds: activeProjectId ? [activeProjectId] : undefined,
+        projectName: activeProjectName,
         signatureDataUrl: "",
         signatureFileName: "",
       },
@@ -15204,13 +15224,6 @@ export default function Page() {
           return missing.length ? [...missing, ...prev] : prev;
         });
 
-        if (
-          candidateProjectId !== normalizedProjectId &&
-          !isAdminAccess(projectAccess)
-        ) {
-          setCurrentProjectId(candidateProjectId);
-          writeLocalCurrentProjectId(candidateProjectId);
-        }
         return;
       }
     })();
