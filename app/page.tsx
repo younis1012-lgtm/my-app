@@ -1962,7 +1962,7 @@ const supervisionReportRowToRecord = (row: any): SupervisionReportRecord | null 
     notes: row?.notes,
     attachments: row?.attachments,
     savedAt: row?.saved_at
-      ? new Date(row.saved_at).toLocaleString("he-IL")
+      ? new Date(row.saved_at).toLocaleDateString("he-IL")
       : "",
   });
 
@@ -3113,36 +3113,6 @@ const cleanPlanTitleText = (value: unknown, planNo?: unknown) => {
     .trim();
 };
 
-const isDateLikePlanCell = (value: unknown) =>
-  /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cleanPlanImportText(value)) ||
-  /^\d{4}-\d{2}-\d{2}$/.test(cleanPlanImportText(value));
-
-const isScaleLikePlanCell = (value: unknown) =>
-  /^1\s*[:/-]\s*\d{2,5}$/.test(cleanPlanImportText(value));
-
-const extractPdfPlanNumber = (value: unknown) => {
-  const text = cleanPlanImportText(value).replace(/[–—−]/g, "-");
-  const compact = text.replace(/\s+/g, "");
-  const strict = extractLikelyPlanNumber(compact);
-  if (strict) return strict;
-
-  const candidates = [
-    ...compact.matchAll(/\b[A-Z]{1,8}\d{1,6}(?:[-/.][A-Z0-9]{1,10}){1,8}\b/gi),
-    ...compact.matchAll(/\b[A-Z]{1,8}(?:[-/.][A-Z0-9]{1,10}){2,8}\b/gi),
-    ...compact.matchAll(/\b\d{2,6}(?:[-/.][A-Z0-9]{1,10}){1,8}\b/gi),
-  ]
-    .map((match) => String(match[0] ?? "").replace(/[/.]/g, "-"))
-    .filter((candidate) => {
-      if (!candidate || isDateLikePlanCell(candidate) || isScaleLikePlanCell(candidate)) return false;
-      const digitCount = (candidate.match(/\d/g) ?? []).length;
-      const separatorCount = (candidate.match(/-/g) ?? []).length;
-      return digitCount >= 2 && separatorCount >= 1 && candidate.length >= 5;
-    })
-    .sort((a, b) => b.length - a.length);
-
-  return candidates[0] ?? "";
-};
-
 const planImportHeaderMatches = (cell: unknown, aliases: string[]) => {
   const normalizedCell = normalizeLoosePlanHeader(cell);
   if (!normalizedCell) return false;
@@ -3389,64 +3359,6 @@ const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<Pl
       });
     })
     .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
-};
-
-const parsePlanRegisterPdfTextFlexible = (text: string, fileName: string): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
-  const seen = new Set<string>();
-  const sourceName = fileName.replace(/\.[^.]+$/, "");
-  const rawLines = text
-    .split(/\r?\n/)
-    .map((line) => cleanPlanImportText(line))
-    .filter(Boolean);
-  const lines = rawLines.map((line, index) => {
-    const nextLine = rawLines[index + 1] ?? "";
-    return extractPdfPlanNumber(line) && nextLine && !extractPdfPlanNumber(nextLine)
-      ? `${line} ${nextLine}`
-      : line;
-  });
-
-  const parsed = lines
-    .map((line) => {
-      const planNo = extractPdfPlanNumber(line);
-      if (!planNo) return null;
-      const key = normalizeAccessValue(planNo);
-      if (!key || seen.has(key)) return null;
-      seen.add(key);
-
-      const dateRaw =
-        line.match(/\d{4}-\d{2}-\d{2}/)?.[0] ||
-        line.match(/\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/)?.[0] ||
-        "";
-      const scaleRaw = line.match(/1\s*[:/]\s*\d{2,5}|1\s*-\s*\d{2,5}/)?.[0] || "";
-      const statusRaw = line.match(/לביצוע|לעיון|לאישור|למכרז|בתוקף|מבוטל|הוחלף|טיוטה/i)?.[0] || "לביצוע";
-      const title = cleanPlanTitleText(
-        line
-          .replace(planNo, " ")
-          .replace(dateRaw, " ")
-          .replace(scaleRaw, " ")
-          .replace(statusRaw, " ")
-          .replace(/[|,:;]+/g, " "),
-        planNo,
-      );
-
-      return {
-        planNo,
-        revision: inferPlanRevisionFromPlanNo(planNo),
-        title: title || sourceName,
-        discipline: inferPlanDisciplineFromText(`${planNo} ${title} ${sourceName}`),
-        date: normalizePlanImportDate(dateRaw),
-        status: statusRaw,
-        notes: [sourceName ? `מקור: ${sourceName}` : "", scaleRaw ? `קנ"מ: ${scaleRaw}` : ""].filter(Boolean).join(" | "),
-        attachments: [],
-      };
-    })
-    .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
-
-  if (parsed.length) return parsed;
-
-  return parsePlanRegisterRowsByHeuristic(
-    rawLines.map((line) => line.split(/\s{2,}|\t|\|/).map(cleanPlanImportText)),
-  );
 };
 
 const ROAD_806_PROJECT_ID = normalizeStoredProjectId("project-806");
@@ -8041,7 +7953,7 @@ function getRecordTitle(record: any) {
 }
 
 function getRecordDate(record: any) {
-  return normalizeDateValue(record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "");
+  return record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "";
 }
 
 function getRecordStatus(record: any) {
@@ -8093,33 +8005,6 @@ function hasApprovalSignatureEvidence(value: unknown) {
     signature.approverName,
     signature.approvalDate,
   ].some(hasApprovalText);
-}
-
-function hasChecklistItemApprovalEvidence(record: any) {
-  const items = normalizeChecklistItems(record?.items);
-  if (!items.length) return false;
-  return items.some((item: any) =>
-    [
-      item?.signature,
-      item?.signatures,
-      item?.approval,
-      item?.approval?.signature,
-      item?.approval?.signatures,
-      item?.approvedBy,
-      item?.approvedAt,
-      item?.signedAt,
-      item?.signerName,
-      item?.approverName,
-      item?.qualityControlSignature,
-      item?.qualityManagerSignature,
-      item?.contractorSignature,
-      item?.managerSignature,
-    ].some((value) =>
-      Array.isArray(value)
-        ? value.some(hasApprovalSignatureEvidence)
-        : hasApprovalSignatureEvidence(value),
-    ),
-  );
 }
 
 function hasCompletedApprovalSignatures(record: any) {
@@ -8178,7 +8063,7 @@ function hasChecklistApprovalEvidence(record: any) {
     record?.data?.approval?.signatures,
   ];
   const signatures = signatureSources.find(Array.isArray) ?? [];
-  return signatures.some(hasApprovalSignatureEvidence) || hasChecklistItemApprovalEvidence(record);
+  return signatures.some(hasApprovalSignatureEvidence);
 }
 
 function normalizeApprovalDisplayStatus(status?: unknown) {
@@ -8355,9 +8240,6 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
 
 type HomeDashboardProps = {
   projects: Project[];
-  currentProject?: Project | null;
-  projectName?: string;
-  currentProjectDefaults?: any;
   projectChecklists: any[];
   projectNonconformances: any[];
   projectTrialSections: any[];
@@ -8372,7 +8254,7 @@ type HomeDashboardProps = {
 const dashboardCardStyle: CSSProperties = {
   background: "#fff",
   border: "1px solid #e2e8f0",
-  borderRadius: 8,
+  borderRadius: 16,
   padding: 12,
   boxShadow: "0 8px 22px rgba(15,23,42,0.035)",
 };
@@ -8384,7 +8266,7 @@ const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
   return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
-function HomeSection({ currentProject, projectName, currentProjectDefaults, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
+function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const isClosed = (value: unknown) => {
@@ -8441,16 +8323,6 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
     { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
   ];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
-  const projectDisplayName = projectName || currentProject?.name || "פרויקט פעיל";
-  const visibleProjectCode =
-    String(projectDisplayName).match(/\d{2,4}/)?.[0] ||
-    String((currentProject as any)?.code ?? "").trim() ||
-    "";
-  const projectMetaItems = [
-    { label: "חברת ניהול", value: currentProjectDefaults?.managementCompany || currentProjectDefaults?.projectManager || (currentProject as any)?.managementCompany },
-    { label: "קבלן ראשי", value: currentProjectDefaults?.mainContractor || currentProjectDefaults?.contractor || (currentProject as any)?.contractor },
-    { label: "בקרת איכות", value: currentProjectDefaults?.qaCompany || currentProjectDefaults?.qualityCompany || (currentProject as any)?.qaCompany },
-  ].filter((item) => String(item.value ?? "").trim());
   const distribution = [
     { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
     { label: "אי התאמות", value: projectNonconformances.length, section: "nonconformances" as AppSection },
@@ -8460,21 +8332,6 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
     { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
-  const approvalRecords = [...projectChecklists, ...projectNonconformances, ...projectTrialSections, ...projectPreliminary, ...projectRFIs, ...projectSupervisionReports];
-  const approvedCount = approvalRecords.filter((item) => isClosed(item?.approval?.status ?? item?.status)).length;
-  const rejectedCount = approvalRecords.filter((item) => {
-    const status = String(item?.approval?.status ?? item?.status ?? "").toLowerCase();
-    return status.includes("נדחה") || status.includes("rejected") || status.includes("לא מאושר");
-  }).length;
-  const activeCount = Math.max(0, approvalRecords.length - approvedCount - rejectedCount);
-  const approvedPercent = approvalRecords.length ? Math.round((approvedCount / approvalRecords.length) * 100) : 0;
-  const activePercent = approvalRecords.length ? Math.round((activeCount / approvalRecords.length) * 100) : 0;
-  const rejectedPercent = Math.max(0, 100 - approvedPercent - activePercent);
-  const recentActivity = [
-    ...projectChecklists.slice(-2).map((item) => ({ title: item?.title || item?.checklistName || "רשימת תיוג", meta: normalizeDateValue(item?.date || item?.createdAt) || "עודכן בפרויקט", section: "checklists" as AppSection, tone: "good" as const })),
-    ...projectNonconformances.slice(-2).map((item) => ({ title: item?.title || item?.description || "אי התאמה", meta: item?.status || "דורש טיפול", section: "nonconformances" as AppSection, tone: "danger" as const })),
-    ...projectRFIs.slice(-1).map((item) => ({ title: item?.title || item?.referenceNo || "RFI", meta: item?.status || "ממתין", section: "rfi" as AppSection, tone: "warn" as const })),
-  ].slice(0, 5);
   return (
     <div
       style={{
@@ -8485,105 +8342,9 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
         direction: "rtl",
       }}
     >
-      <section
-        style={{
-          ...dashboardCardStyle,
-          overflow: "hidden",
-          padding: 0,
-          borderColor: "#cbd5e1",
-          background: "#0b1120",
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
-            gap: 18,
-            alignItems: "center",
-            padding: "20px 22px",
-            background:
-              "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(17,24,39,0.96) 58%, rgba(14,116,144,0.72))",
-            color: "#fff",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: "#f59e0b", fontSize: 12, fontWeight: 950, letterSpacing: 0 }}>
-              RND QUALITY CONTROL
-            </div>
-            <h2 style={{ margin: "6px 0 0", fontSize: 28, lineHeight: 1.15, fontWeight: 950 }}>
-              סביבת בקרת איכות לפרויקט
-            </h2>
-            <div
-              style={{
-                marginTop: 8,
-                color: "#cbd5e1",
-                fontSize: 14,
-                fontWeight: 800,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-              title={projectDisplayName}
-            >
-              {projectDisplayName}
-            </div>
-          </div>
-          <div style={{ display: "grid", gap: 8, justifyItems: "end", minWidth: 220 }}>
-            {visibleProjectCode && (
-              <span
-                style={{
-                  border: "1px solid rgba(245,158,11,0.45)",
-                  background: "rgba(245,158,11,0.14)",
-                  color: "#fde68a",
-                  borderRadius: 999,
-                  padding: "6px 10px",
-                  fontWeight: 950,
-                  fontSize: 13,
-                }}
-              >
-                קוד פרויקט {visibleProjectCode}
-              </span>
-            )}
-            <span
-              style={{
-                border: "1px solid rgba(45,212,191,0.34)",
-                background: "rgba(20,184,166,0.12)",
-                color: "#ccfbf1",
-                borderRadius: 999,
-                padding: "6px 10px",
-                fontWeight: 900,
-                fontSize: 13,
-              }}
-            >
-              נתונים מוצגים לפרויקט זה בלבד
-            </span>
-          </div>
-        </div>
-        {projectMetaItems.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: 1,
-              background: "#e2e8f0",
-              borderTop: "1px solid rgba(226,232,240,0.18)",
-            }}
-          >
-            {projectMetaItems.map((item) => (
-              <div key={item.label} style={{ background: "#f8fafc", padding: "10px 14px" }}>
-                <div style={{ color: "#64748b", fontSize: 12, fontWeight: 850 }}>{item.label}</div>
-                <div style={{ color: "#0f172a", fontSize: 14, fontWeight: 950, marginTop: 3 }}>{String(item.value)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
       <aside
         style={{
           ...dashboardCardStyle,
-          order: 3,
-          display: "none",
           direction: "rtl",
           padding: 12,
         }}
@@ -8638,299 +8399,34 @@ function HomeSection({ currentProject, projectName, currentProjectDefaults, proj
         </div>
       </aside>
 
-      <main style={{ display: "grid", gap: 14, minWidth: 0, direction: "rtl", order: 2 }}>
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-          {kpis.slice(0, 5).map((item) => {
-            const tone = statusTone(item.tone as any);
-            return (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => setSection(item.section)}
-                style={{
-                  ...dashboardCardStyle,
-                  minHeight: 118,
-                  padding: 14,
-                  textAlign: "right",
-                  background: "#fff",
-                  borderColor: "#e2e8f0",
-                  cursor: "pointer",
-                  display: "grid",
-                  alignContent: "space-between",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                  <span
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 8,
-                      background: tone.soft,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: tone.text,
-                      fontSize: 20,
-                    }}
-                  >
-                    {item.icon}
-                  </span>
-                  <span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span>
-                </div>
-                <div>
-                  <div style={{ color: "#475569", fontWeight: 900, fontSize: 13 }}>{item.label}</div>
-                  <div style={{ fontSize: 34, lineHeight: 1.05, fontWeight: 950, color: "#0f172a", marginTop: 5 }}>{item.value}</div>
-                </div>
-              </button>
-            );
-          })}
-        </section>
-
-        <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 0.32fr)", gap: 14, alignItems: "stretch" }}>
-          <div style={{ ...dashboardCardStyle, padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>תיקיות הפרויקט</h3>
-                <div style={{ marginTop: 3, color: "#64748b", fontSize: 13, fontWeight: 800 }}>
-                  כניסה מהירה לכל תחום עבודה בפרויקט הפעיל
-                </div>
-              </div>
-              <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "5px 10px", fontSize: 12, fontWeight: 950, color: "#475569" }}>
-                {homeModules.length}
-              </span>
+      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl" }}>
+        <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
+              <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(245px, 1fr))", gap: 14 }}>
-              {homeModules.map((module, index) => {
-                const isPrimary = index < 4;
-                return (
-                  <button
-                    key={String(module.key)}
-                    type="button"
-                    onClick={() => setSection(module.key as AppSection)}
-                    style={{
-                      border: isPrimary ? "1px solid #bae6fd" : "1px solid #e2e8f0",
-                      borderTop: isPrimary ? "4px solid #0e7490" : "4px solid #f59e0b",
-                      background: "#fff",
-                      borderRadius: 8,
-                      padding: 16,
-                      minHeight: 214,
-                      textAlign: "right",
-                      cursor: "pointer",
-                      boxShadow: "0 16px 34px rgba(15,23,42,0.08)",
-                      display: "grid",
-                      alignContent: "space-between",
-                      direction: "rtl",
-                    }}
-                  >
-                    <span style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" }}>
-                      <span
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 8,
-                          background: isPrimary ? "#ecfeff" : "#fff7ed",
-                          border: "1px solid #e2e8f0",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 20,
-                        }}
-                      >
-                        {module.icon}
-                      </span>
-                      <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "4px 9px", color: "#0f172a", fontWeight: 950, fontSize: 12 }}>
-                        {module.count}
-                      </span>
-                    </span>
-                    <span>
-                      <span style={{ display: "block", color: "#0f172a", fontSize: 18, fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {module.title}
-                      </span>
-                      <span style={{ display: "block", color: "#64748b", marginTop: 10, fontSize: 14, lineHeight: 1.55, minHeight: 48 }}>
-                        {module.description}
-                      </span>
-                    </span>
-                    <span
-                      style={{
-                        display: "block",
-                        borderRadius: 7,
-                        background: isPrimary ? "#111827" : "#f59e0b",
-                        color: isPrimary ? "#fff" : "#111827",
-                        padding: "12px 14px",
-                        textAlign: "center",
-                        fontSize: 14,
-                        fontWeight: 950,
-                        boxShadow: "0 10px 20px rgba(15,23,42,0.12)",
-                      }}
-                    >
-                      כניסה לתיקייה
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
           </div>
+        </div>
 
-          <div style={{ ...dashboardCardStyle, padding: 16 }}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 950 }}>פעילות אחרונה</h3>
-            {recentActivity.length ? (
-              <div style={{ display: "grid", gap: 8 }}>
-                {recentActivity.map((item, index) => {
-                  const tone = statusTone(item.tone);
-                  return (
-                    <button
-                      key={`${item.title}-${index}`}
-                      type="button"
-                      onClick={() => setSection(item.section)}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto",
-                        gap: 10,
-                        alignItems: "center",
-                        border: "1px solid #e2e8f0",
-                        background: "#fff",
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        textAlign: "right",
-                      }}
-                    >
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", color: "#0f172a", fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
-                        <span style={{ color: "#64748b", fontSize: 12 }}>{item.meta}</span>
-                      </span>
-                      <span style={{ width: 10, height: 10, borderRadius: 999, background: tone.pill }} />
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ padding: 14, borderRadius: 8, background: "#f8fafc", color: "#475569", fontWeight: 850 }}>אין עדיין פעילות להצגה בפרויקט זה.</div>
-            )}
-          </div>
-        </section>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
+          {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 88, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
+            <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
+          </button>; })}
+        </div>
 
-        <section style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr)", gap: 14 }}>
-          <div style={{ ...dashboardCardStyle, minHeight: 220 }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 950 }}>סטטוס רשומות בפרויקט</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: 18, alignItems: "center" }}>
-              <div
-                style={{
-                  width: 124,
-                  height: 124,
-                  borderRadius: "50%",
-                  background: `conic-gradient(#16a34a 0 ${approvedPercent}%, #0ea5e9 ${approvedPercent}% ${approvedPercent + activePercent}%, #dc2626 ${approvedPercent + activePercent}% 100%)`,
-                  boxShadow: "inset 0 0 0 18px #fff, 0 12px 26px rgba(15,23,42,0.12)",
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                <div style={{ textAlign: "center", fontWeight: 950, color: "#0f172a" }}>
-                  <div style={{ fontSize: 24 }}>{approvalRecords.length}</div>
-                  <div style={{ fontSize: 11, color: "#64748b" }}>רשומות</div>
-                </div>
-              </div>
-              <div style={{ display: "grid", gap: 9 }}>
-                {[
-                  { label: "מאושר", value: approvedCount, color: "#16a34a" },
-                  { label: "בתהליך", value: activeCount, color: "#0ea5e9" },
-                  { label: "נדחה", value: rejectedCount, color: "#dc2626" },
-                ].map((row) => (
-                  <div key={row.label} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 900 }}>
-                        <span>{row.label}</span>
-                        <span>{row.value}</span>
-                      </div>
-                      <div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden", marginTop: 4 }}>
-                        <div style={{ width: `${approvalRecords.length ? Math.max(5, Math.round((row.value / approvalRecords.length) * 100)) : 0}%`, height: "100%", borderRadius: 999, background: row.color }} />
-                      </div>
-                    </div>
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: row.color }} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ ...dashboardCardStyle, minHeight: 220, display: "none" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 950 }}>פעילות אחרונה</h3>
-              <button type="button" onClick={() => setSection("checklists" as AppSection)} style={{ border: 0, background: "transparent", color: "#0e7490", cursor: "pointer", fontWeight: 900 }}>
-                לכל הפעילות
-              </button>
-            </div>
-            {recentActivity.length ? (
-              <div style={{ display: "grid", gap: 8 }}>
-                {recentActivity.map((item, index) => {
-                  const tone = statusTone(item.tone);
-                  return (
-                    <button
-                      key={`${item.title}-${index}`}
-                      type="button"
-                      onClick={() => setSection(item.section)}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto",
-                        gap: 10,
-                        alignItems: "center",
-                        border: "1px solid #e2e8f0",
-                        background: "#fff",
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        textAlign: "right",
-                      }}
-                    >
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", color: "#0f172a", fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
-                        <span style={{ color: "#64748b", fontSize: 12 }}>{item.meta}</span>
-                      </span>
-                      <span style={{ width: 10, height: 10, borderRadius: 999, background: tone.pill }} />
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ padding: 14, borderRadius: 8, background: "#f8fafc", color: "#475569", fontWeight: 850 }}>אין עדיין פעילות להצגה בפרויקט זה.</div>
-            )}
-          </div>
-        </section>
-
-        <section style={{ display: "grid", gridTemplateColumns: "minmax(360px,1.05fr) minmax(320px,0.95fr)", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
           <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-            {urgentTasks.length ? (
-              <div style={{ display: "grid", gap: 8 }}>
-                {urgentTasks.map((task, index) => {
-                  const tone = statusTone(task.tone);
-                  return (
-                    <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", fontWeight: 950, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span>
-                        <span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span>
-                      </span>
-                      <span style={{ color: tone.text, fontWeight: 950, fontSize: 12 }}>{task.meta}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ padding: 14, borderRadius: 8, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>אין כרגע משימות דחופות פתוחות.</div>
-            )}
+            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
+            {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
           </div>
           <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
-            <div style={{ display: "grid", gap: 8 }}>
-              {distribution.map((row) => (
-                <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, marginBottom: 4, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div>
-                  <div style={{ height: 8, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div>
-                </button>
-              ))}
-            </div>
+            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
+            <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
           </div>
-        </section>
+        </div>
       </main>
     </div>
   );
@@ -8969,33 +8465,6 @@ function getMaterialSupplierName(record: any) {
 function getMaterialType(record: any) {
   const n = getPreliminaryNested(record);
   return n?.materialType || n?.materialCategory || n?.materialName || n?.usage || record?.materialType || record?.materialCategory || record?.materialName || record?.usage || "";
-}
-
-function normalizePreliminarySubtype(record: any): PreliminaryTab {
-  const rawSubtype = String(record?.subtype ?? record ?? "").trim().toLowerCase();
-  if (["suppliers", "supplier"].includes(rawSubtype) || rawSubtype.includes("ספק")) return "suppliers";
-  if (["subcontractors", "subcontractor", "contractors", "contractor"].includes(rawSubtype) || rawSubtype.includes("קבל")) return "subcontractors";
-  if (["materials", "material"].includes(rawSubtype) || rawSubtype.includes("חומר")) return "materials";
-
-  const text = [
-    record?.title,
-    record?.subcontractor?.subcontractorName,
-    record?.subcontractor?.field,
-    record?.subcontractorName,
-    record?.contractorName,
-    record?.field,
-    record?.workField,
-    record?.supplier?.supplierName,
-    record?.material?.materialName,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (record?.subcontractor || text.includes("מודד") || text.includes("קבל")) return "subcontractors";
-  if (record?.supplier || text.includes("ספק")) return "suppliers";
-  if (record?.material || text.includes("חומר")) return "materials";
-  return "suppliers";
 }
 
 function preliminaryFolderColumns(tab: PreliminaryTab): FolderColumn[] {
@@ -9050,9 +8519,6 @@ function FolderRecordsTable({
   onOpen,
   onDelete,
   onNew,
-  selectedIds,
-  onSelectedIdsChange,
-  onEmailSelected,
 }: {
   title: string;
   description?: string;
@@ -9061,32 +8527,9 @@ function FolderRecordsTable({
   onOpen?: (id: string) => void;
   onDelete?: (id: string) => void;
   onNew?: () => void;
-  selectedIds?: string[];
-  onSelectedIdsChange?: (ids: string[]) => void;
-  onEmailSelected?: (ids: string[]) => void | Promise<void>;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
-  const selectable = Boolean(onSelectedIdsChange);
-  const selectedSet = new Set(selectedIds ?? []);
-  const visibleIds = safeRecords.map((record, index) => String(record?.id ?? index));
-  const selectedVisibleIds = visibleIds.filter((id) => selectedSet.has(id));
-  const setRecordChecked = (id: string, checked: boolean) => {
-    if (!onSelectedIdsChange) return;
-    onSelectedIdsChange(
-      checked
-        ? Array.from(new Set([...(selectedIds ?? []), id]))
-        : (selectedIds ?? []).filter((item) => item !== id),
-    );
-  };
-  const toggleAllVisible = (checked: boolean) => {
-    if (!onSelectedIdsChange) return;
-    if (!checked) {
-      onSelectedIdsChange((selectedIds ?? []).filter((id) => !visibleIds.includes(id)));
-      return;
-    }
-    onSelectedIdsChange(Array.from(new Set([...(selectedIds ?? []), ...visibleIds])));
-  };
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
 
@@ -9119,23 +8562,11 @@ function FolderRecordsTable({
             <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>{description}</div>
           ) : null}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-start" }}>
-          {onEmailSelected ? (
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => onEmailSelected(selectedVisibleIds)}
-              disabled={!selectedVisibleIds.length}
-            >
-              שלח מסומנים במייל ({selectedVisibleIds.length})
-            </button>
-          ) : null}
-          {onNew ? (
-            <button type="button" style={styles.primaryBtn} onClick={onNew}>
-              חדש
-            </button>
-          ) : null}
-        </div>
+        {onNew ? (
+          <button type="button" style={styles.primaryBtn} onClick={onNew}>
+            חדש
+          </button>
+        ) : null}
       </div>
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
@@ -9154,17 +8585,7 @@ function FolderRecordsTable({
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 950, color: "#0f172a" }}>
-                      {selectable ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedSet.has(id)}
-                          onChange={(event) => setRecordChecked(id, event.currentTarget.checked)}
-                          style={{ width: 18, height: 18 }}
-                        />
-                      ) : null}
-                      #{serialFor(record, index)}
-                    </span>
+                    <span style={{ fontWeight: 950, color: "#0f172a" }}>#{serialFor(record, index)}</span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
                         <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
@@ -9217,17 +8638,6 @@ function FolderRecordsTable({
         >
           <thead>
             <tr style={{ background: "#eef2f7" }}>
-              {selectable ? (
-                <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center", width: 54 }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(visibleIds.length) && selectedVisibleIds.length === visibleIds.length}
-                    onChange={(event) => toggleAllVisible(event.currentTarget.checked)}
-                    style={{ width: 18, height: 18 }}
-                    aria-label="בחר הכל"
-                  />
-                </th>
-              ) : null}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
               {columns.map((column) => (
                 <th
@@ -9246,17 +8656,6 @@ function FolderRecordsTable({
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
-                    {selectable ? (
-                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSet.has(id)}
-                          onChange={(event) => setRecordChecked(id, event.currentTarget.checked)}
-                          style={{ width: 18, height: 18 }}
-                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
-                        />
-                      </td>
-                    ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
                       {serialFor(record, index)}
                     </td>
@@ -9284,7 +8683,7 @@ function FolderRecordsTable({
               })
             ) : (
               <tr>
-                <td colSpan={columns.length + 2 + (selectable ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={columns.length + 2} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
@@ -12189,6 +11588,33 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["תיאור החומר", "סוג החומר"], firstText(valueAfterExactLabel(["סוג החומר"]), material));
   setMetric(["מקור החומר", "מקור"], firstText(valueAfterExactLabel(["מקור החומר"]), source));
   setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], firstText(valueAfterExactLabel(["קטע נבדק"]), samplePlace));
+
+  const isSoilSurveyTable =
+    /\bA-\d-[A-Za-z0-9]\(\d+\)/.test(text) &&
+    rawLines.some((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4")) &&
+    /(?:LL|PL|PI|AASHTO)/i.test(text);
+  const isPercentValue = (value: unknown) => {
+    const numeric = Number(String(value ?? "").replace(",", "."));
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100;
+  };
+  const firstSoilSurveyRow = () => {
+    for (const line of rawLines) {
+      const match = line.match(
+        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
+      );
+      if (!match) continue;
+      const nums = match[1].trim().split(/\s+/).map((value) => value.replace(",", "."));
+      if (nums.length < 8) continue;
+      const pi = nums.pop() ?? "";
+      const pl = nums.pop() ?? "";
+      const ll = nums.pop() ?? "";
+      const gs = nums.pop() ?? "";
+      const sieves = nums.filter(isPercentValue);
+      if (sieves.length < 5) continue;
+      return { sieves, gs, ll, pl, pi, aashto: match[3].trim(), unified: match[2].trim().toUpperCase() };
+    }
+    return null;
+  };
 
   const setSieveValues = (values: string[]) => {
     const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
@@ -15433,7 +14859,6 @@ export default function Page() {
         (parsed.savedPreliminary ?? []).map((item) => ({
           ...item,
           projectId: normalizeStoredProjectId((item as any).projectId),
-          subtype: normalizePreliminarySubtype(item),
           approval: normalizeApproval((item as any).approval),
         })),
       );
@@ -15588,7 +15013,7 @@ export default function Page() {
       (preliminaryRows ?? []).map((row) => ({
         id: row.id,
         projectId: normalizeStoredProjectId(row.project_id),
-        subtype: normalizePreliminarySubtype(row),
+        subtype: row.subtype,
         structureNodeId: row.structure_node_id ?? "",
         title: row.title ?? "",
         date: row.date ?? "",
@@ -15749,7 +15174,18 @@ export default function Page() {
     if (hasProjectChecklists) return;
 
     let cancelled = false;
-    const candidateProjectIds = [normalizedProjectId];
+    const candidateProjectIds = Array.from(
+      new Set(
+        [
+          normalizedProjectId,
+          ...(projectAccess?.projectIds ?? []),
+          projectAccess?.code ? `project-${projectAccess.code}` : "",
+          projectAccess?.code,
+        ]
+          .map(normalizeStoredProjectId)
+          .filter(Boolean),
+      ),
+    );
 
     (async () => {
       for (const candidateProjectId of candidateProjectIds) {
@@ -15768,6 +15204,13 @@ export default function Page() {
           return missing.length ? [...missing, ...prev] : prev;
         });
 
+        if (
+          candidateProjectId !== normalizedProjectId &&
+          !isAdminAccess(projectAccess)
+        ) {
+          setCurrentProjectId(candidateProjectId);
+          writeLocalCurrentProjectId(candidateProjectId);
+        }
         return;
       }
     })();
@@ -17037,7 +16480,7 @@ export default function Page() {
       Array.from(
         new Set(
           projectPreliminary
-            .filter((record) => normalizePreliminarySubtype(record) === "suppliers")
+            .filter((record) => record.subtype === "suppliers")
             .filter((record) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
             .map((record) => String(getSupplierName(record) || "").trim())
             .filter(Boolean),
@@ -17088,7 +16531,7 @@ export default function Page() {
   ) =>
     records
       .filter((item) => normalizeStoredProjectId(item.projectId) === currentProjectIdNormalized)
-      .filter((item) => !subtype || normalizePreliminarySubtype(item) === subtype)
+      .filter((item) => !subtype || item.subtype === subtype)
       .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
 
   const nextSequentialNo = (
@@ -19204,19 +18647,13 @@ export default function Page() {
     if (!form.title.trim()) return alert("יש להזין כותרת");
     const validation = validateApproval(form.approval);
     if (validation) return alert(validation);
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    if (!activeProjectId) return alert("יש לבחור פרויקט לפני שמירה");
-    if (normalizeStoredProjectId(currentProjectId) !== activeProjectId) {
-      setCurrentProjectId(activeProjectId);
-      writeLocalCurrentProjectId(activeProjectId);
-    }
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title =
       editingPreliminaryId || titleHasNumber(form.title)
         ? form.title
         : nextPreliminaryTitle(subtype);
     rememberSequentialNo(preliminarySequenceKind(subtype), title);
-    const normalizedProjectId = activeProjectId;
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
     if (cloudEnabled && normalizedProjectId) {
       const projectForCloud =
         currentProject ??
@@ -19289,11 +18726,10 @@ export default function Page() {
     resetPreliminaryEditor();
   };
   const loadPreliminary = (record: PreliminaryRecord) => {
-    const normalizedSubtype = normalizePreliminarySubtype(record);
     setSection("preliminary");
-    setPreliminaryTab(normalizedSubtype);
+    setPreliminaryTab(record.subtype);
     setEditingPreliminaryId(record.id);
-    if (normalizedSubtype === "suppliers")
+    if (record.subtype === "suppliers")
       setSupplierPreliminaryForm({
         subtype: "suppliers",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -19304,7 +18740,7 @@ export default function Page() {
           record.supplier ?? createDefaultPreliminary("suppliers").supplier,
         approval: normalizeApproval(record.approval),
       });
-    if (normalizedSubtype === "subcontractors")
+    if (record.subtype === "subcontractors")
       setSubcontractorPreliminaryForm({
         subtype: "subcontractors",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -19316,7 +18752,7 @@ export default function Page() {
           createDefaultPreliminary("subcontractors").subcontractor,
         approval: normalizeApproval(record.approval),
       });
-    if (normalizedSubtype === "materials")
+    if (record.subtype === "materials")
       setMaterialPreliminaryForm({
         subtype: "materials",
         structureNodeId: (record as any).structureNodeId ?? "",
@@ -19419,8 +18855,7 @@ export default function Page() {
       let importedPlans: Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> = [];
       if (lowerName.endsWith(".pdf") || file.type.includes("pdf")) {
         const pdfText = await extractTextFromReferenceFile(file);
-        importedPlans = parsePlanRegisterPdfTextFlexible(pdfText, file.name);
-        if (!importedPlans.length) importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
+        importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
       } else {
         const XLSX = await import("xlsx");
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
@@ -20257,7 +19692,7 @@ export default function Page() {
     ])}${attachmentsList(record.attachments)}${signaturesTable(record.approval)}`;
 
   const preliminaryRecordArchiveBody = (record: any) => {
-    const subtype = normalizePreliminarySubtype(record);
+    const subtype = record.subtype as PreliminaryTab;
     if (subtype === "suppliers") {
       const supplier = record.supplier ?? {};
       return `${baseRows([
@@ -20407,17 +19842,6 @@ export default function Page() {
     const header = exportCompanyHeader();
     const footer = exportCompanyFooter();
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${footer}</div></body></html>`;
-  };
-
-  const checklistRecordExportHtml = (
-    record: ChecklistRecord,
-    forcedChecklistNo?: number,
-    titleOverride?: string,
-  ) => {
-    const title = titleOverride || getRecordTitle(record) || "רשימת תיוג";
-    const header = exportCompanyHeader();
-    const footer = exportCompanyFooter();
-    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${header}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${checklistExportHtml(forcedChecklistNo, record)}${footer}</div></body></html>`;
   };
 
   const downloadTextFile = (
@@ -20583,12 +20007,12 @@ export default function Page() {
         `${projectRoot}/בקרה מקדימה`,
         allProjectPreliminary,
         [
-          ["סוג", (record) => labelForPreliminary(normalizePreliminarySubtype(record))],
+          ["סוג", (record) => labelForPreliminary(record.subtype)],
           ["כותרת", (record) => record.title],
           ["תאריך", (record) => record.date],
           ["סטטוס", (record) => record.status],
         ],
-        (record) => `${labelForPreliminary(normalizePreliminarySubtype(record))} - ${record.title || record.id}`,
+        (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
         (record) => preliminaryRecordArchiveBody(record),
       );
       await addCollection(
@@ -21162,11 +20586,6 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
-  const [emailMessage, setEmailMessage] = useState("מצורף לעיונכם קובץ PDF מתוך מערכת RND QUALITY.");
-  const [selectedChecklistEmailIds, setSelectedChecklistEmailIds] = useState<string[]>([]);
-  const [pendingChecklistEmailIds, setPendingChecklistEmailIds] = useState<string[]>([]);
-  const [selectedPreliminaryEmailIds, setSelectedPreliminaryEmailIds] = useState<string[]>([]);
-  const [pendingPreliminaryEmailIds, setPendingPreliminaryEmailIds] = useState<string[]>([]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -21204,11 +20623,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return false;
   };
 
-  const sendEmailToRecipients = async (
-    recipientEmails: string[],
-    checklistRecordIds = pendingChecklistEmailIds,
-    preliminaryRecordIds = pendingPreliminaryEmailIds,
-  ) => {
+  const sendEmailToRecipients = async (recipientEmails: string[]) => {
     if (!ensureQualityControllerEmailSender()) return;
     try {
       const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
@@ -21224,78 +20639,19 @@ ${invalidRecipients.join("\n")}`);
       }
       const normalizedRecipient = uniqueRecipients.join(", ");
 
-      const selectedChecklistRecords = checklistRecordIds
-        .map((id) => projectChecklists.find((item) => item.id === id))
-        .filter((item): item is ChecklistRecord => Boolean(item));
-      const selectedPreliminaryRecords = preliminaryRecordIds
-        .map((id) => projectPreliminary.find((item) => item.id === id))
-        .filter(Boolean);
-      const isMultiChecklistEmail = selectedChecklistRecords.length > 0;
-      const isMultiPreliminaryEmail = !isMultiChecklistEmail && selectedPreliminaryRecords.length > 0;
-      const exportChecklistNo = isMultiChecklistEmail ? undefined : getExportChecklistNo();
-      const title = isMultiChecklistEmail
-        ? `רשימות תיוג (${selectedChecklistRecords.length})`
-        : isMultiPreliminaryEmail
-          ? `${labelForPreliminary(preliminaryTab)} (${selectedPreliminaryRecords.length})`
-        : recordTitleForExport();
-      const html = isMultiChecklistEmail || isMultiPreliminaryEmail ? "" : exportHtml(exportChecklistNo);
-      const cleanEmailMessage =
-        emailMessage.trim() || `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`;
-      const emailMessageHtml = cleanEmailMessage
-        .split(/\r?\n/)
-        .map((line) => `<p style="margin:0 0 10px">${safeText(line) || "&nbsp;"}</p>`)
-        .join("");
+      const exportChecklistNo = getExportChecklistNo();
+      const title = recordTitleForExport();
+      const html = exportHtml(exportChecklistNo);
 
-      const attachments = isMultiChecklistEmail
-        ? uniqueEmailAttachments(
-            await Promise.all(
-              selectedChecklistRecords.map(async (record) => {
-                const recordIndex = projectChecklists.findIndex((item) => item.id === record.id);
-                const displayNo = getChecklistDisplayNumber(record, recordIndex >= 0 ? recordIndex : 0);
-                const recordTitle = getRecordTitle(record) || `רשימת תיוג ${displayNo}`;
-                const recordHtml = checklistRecordExportHtml(record, displayNo, recordTitle);
-                const mergedPdfBlob = await buildMergedPdfBlob(
-                  recordTitle,
-                  recordHtml,
-                  archiveRecordPdfAppendices(record),
-                );
-                const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
-                return dataUrlToEmailAttachment(
-                  `${sanitizeZipSegment(`${displayNo} - ${recordTitle}`, `רשימת תיוג ${displayNo}`)} - כולל נספחים.pdf`,
-                  pdfDataUrl,
-                  "application/pdf",
-                );
-              }),
-            ),
-          )
-        : isMultiPreliminaryEmail
-          ? uniqueEmailAttachments(
-              await Promise.all(
-                selectedPreliminaryRecords.map(async (record: any, index) => {
-                  const recordTitle =
-                    `${labelForPreliminary(normalizePreliminarySubtype(record))} - ${record.title || getSupplierName(record) || getContractorName(record) || getMaterialSupplierName(record) || index + 1}`;
-                  const recordHtml = archivePrintableHtml(recordTitle, preliminaryRecordArchiveBody(record));
-                  const mergedPdfBlob = await buildMergedPdfBlob(
-                    recordTitle,
-                    recordHtml,
-                    archiveRecordPdfAppendices(record),
-                  );
-                  const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
-                  return dataUrlToEmailAttachment(
-                    `${sanitizeZipSegment(recordTitle, `בקרה מקדימה ${index + 1}`)} - כולל נספחים.pdf`,
-                    pdfDataUrl,
-                    "application/pdf",
-                  );
-                }),
-              ),
-            )
-        : uniqueEmailAttachments([
-            dataUrlToEmailAttachment(
-              `${title} - כולל נספחים.pdf`,
-              await blobToDataUrl(await buildMergedPdfBlob(title, html)),
-              "application/pdf",
-            ),
-          ]);
+      const mergedPdfBlob = await buildMergedPdfBlob(title, html);
+      const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
+      const formPdfAttachment = dataUrlToEmailAttachment(
+        `${title} - כולל נספחים.pdf`,
+        pdfDataUrl,
+        "application/pdf",
+      );
+
+      const attachments = uniqueEmailAttachments([formPdfAttachment]);
 
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
@@ -21303,8 +20659,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#0f172a">${emailMessageHtml}<p style="margin:12px 0 0;color:#475569">${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${safeText(projectName)}` : isMultiPreliminaryEmail ? `מצורפים ${attachments.length} קבצי PDF עבור ${safeText(labelForPreliminary(preliminaryTab))} מפרויקט ${safeText(projectName)}` : `מצורף קובץ PDF עבור ${safeText(title)} מפרויקט ${safeText(projectName)}`}</p></div>`,
-          text: `${cleanEmailMessage}\n\n${isMultiChecklistEmail ? `מצורפים ${attachments.length} קבצי PDF עבור רשימות תיוג מפרויקט ${projectName}` : isMultiPreliminaryEmail ? `מצורפים ${attachments.length} קבצי PDF עבור ${labelForPreliminary(preliminaryTab)} מפרויקט ${projectName}` : `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`}`,
+          html: `<div dir="rtl">מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div>`,
+          text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -21319,24 +20675,14 @@ ${invalidRecipients.join("\n")}`);
       alert(
         `המייל נשלח בהצלחה אל ${normalizedRecipient}` +
           `
-צורפו ${attachments.length} קבצי PDF.`,
+צורף PDF אחד מאוחד הכולל את הטופס והנספחים.`,
       );
-      if (isMultiChecklistEmail) {
-        setPendingChecklistEmailIds([]);
-        setSelectedChecklistEmailIds((prev) => prev.filter((id) => !checklistRecordIds.includes(id)));
-      }
-      if (isMultiPreliminaryEmail) {
-        setPendingPreliminaryEmailIds([]);
-        setSelectedPreliminaryEmailIds((prev) => prev.filter((id) => !preliminaryRecordIds.includes(id)));
-      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
   };
 
   const sendCurrentFormEmail = async () => {
-    setPendingChecklistEmailIds([]);
-    setPendingPreliminaryEmailIds([]);
     if (emailRecipientOptions.length) {
       setSelectedEmailRecipientIds([]);
       setEmailRecipientDialogOpen(true);
@@ -21346,45 +20692,7 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients, [], []);
-  };
-
-  const sendSelectedChecklistsEmail = async (ids: string[]) => {
-    const validIds = ids.filter((id) => projectChecklists.some((item) => item.id === id));
-    if (!validIds.length) {
-      alert("יש לסמן לפחות רשימת תיוג אחת לשליחה");
-      return;
-    }
-    setPendingChecklistEmailIds(validIds);
-    if (emailRecipientOptions.length) {
-      setSelectedEmailRecipientIds([]);
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const rawRecipients = normalizeEmailList(recipientInput);
-    if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients, validIds, []);
-  };
-
-  const sendSelectedPreliminaryEmail = async (ids: string[]) => {
-    const currentTabRecords = projectPreliminary.filter((record) => normalizePreliminarySubtype(record) === preliminaryTab);
-    const validIds = ids.filter((id) => currentTabRecords.some((item) => item.id === id));
-    if (!validIds.length) {
-      alert("יש לסמן לפחות רשומה אחת לשליחה");
-      return;
-    }
-    setPendingChecklistEmailIds([]);
-    setPendingPreliminaryEmailIds(validIds);
-    if (emailRecipientOptions.length) {
-      setSelectedEmailRecipientIds([]);
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const rawRecipients = normalizeEmailList(recipientInput);
-    if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients, [], validIds);
+    await sendEmailToRecipients(rawRecipients);
   };
 
   const confirmSelectedEmailRecipients = async () => {
@@ -21396,7 +20704,7 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     setEmailRecipientDialogOpen(false);
-    await sendEmailToRecipients(recipientEmails, pendingChecklistEmailIds, pendingPreliminaryEmailIds);
+    await sendEmailToRecipients(recipientEmails);
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -21652,8 +20960,7 @@ ${invalidRecipients.join("\n")}`);
   const preparePreliminaryAttachmentsForCloud = async (
     record: PreliminaryRecord,
   ) => {
-    const subtype = normalizePreliminarySubtype(record);
-    const dataKey = preliminaryRecordKey(subtype);
+    const dataKey = preliminaryRecordKey(record.subtype);
     const nestedData = ((record as any)[dataKey] ?? {}) as Record<string, any>;
     const sourceCertificates = Array.isArray(nestedData.certificates)
       ? nestedData.certificates
@@ -21672,7 +20979,7 @@ ${invalidRecipients.join("\n")}`);
           await uploadInlinePreliminaryAttachmentToCloud(
             attachment,
             record.id,
-            subtype,
+            record.subtype,
             certificateId,
           ),
         );
@@ -22110,216 +21417,95 @@ ${invalidRecipients.join("\n")}`);
   }
 
   if (showProjectPicker && accessibleProjects.length > 1) {
+    const pickerAccentGold = "#d9a441";
+    const pickerNavy = "#0f1b2d";
     return (
-      <div
-        dir="rtl"
-        style={{
-          minHeight: "100vh",
-          padding: "28px 20px",
-          backgroundColor: "#fbfaf7",
-          backgroundImage:
-            "radial-gradient(circle at 8% 12%, rgba(245,158,11,0.16), transparent 28%), radial-gradient(circle at 88% 18%, rgba(14,116,144,0.16), transparent 28%), linear-gradient(115deg, rgba(17,24,39,0.035) 0 1px, transparent 1px 64px)",
-          backgroundSize: "auto, auto, 64px 64px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1220,
-            margin: "0 auto",
-            display: "grid",
-            gap: 22,
-          }}
-        >
-          <section
-            style={{
-              position: "relative",
-              overflow: "hidden",
-              background: "#171614",
-              color: "#fff",
-              borderRadius: 8,
-              padding: "30px",
-              boxShadow: "0 24px 70px rgba(23, 22, 20, 0.22)",
-              border: "1px solid rgba(255,255,255,0.12)",
-            }}
-          >
+      <div dir="rtl" style={{ minHeight: "100vh", background: "#f7f7f5", padding: 24 }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "grid", gap: 18 }}>
+          <div style={{ textAlign: "center", padding: "12px 0" }}>
             <div
               style={{
-                position: "absolute",
-                insetInlineStart: 0,
-                top: 0,
-                bottom: 0,
-                width: 10,
-                background: "linear-gradient(180deg,#f59e0b,#0e7490)",
+                width: 56,
+                height: 56,
+                borderRadius: 12,
+                background: pickerAccentGold,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+                fontSize: 18,
+                color: pickerNavy,
+                margin: "0 auto 12px",
               }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                insetInlineEnd: -60,
-                top: -80,
-                width: 270,
-                height: 270,
-                border: "1px solid rgba(245,158,11,0.25)",
-                borderRadius: "50%",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                insetInlineEnd: 80,
-                bottom: -90,
-                width: 230,
-                height: 230,
-                border: "1px solid rgba(14,116,144,0.22)",
-                transform: "rotate(18deg)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                opacity: 0.12,
-                backgroundImage:
-                  "linear-gradient(90deg, rgba(255,255,255,0.45) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.45) 1px, transparent 1px)",
-                backgroundSize: "44px 44px",
-              }}
-            />
-            <div style={{ position: "relative", display: "grid", gap: 18 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, flexWrap: "wrap" }}>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ color: "#fbbf24", fontWeight: 900, fontSize: 13 }}>
-                    RND QUALITY CONTROL
-                  </div>
-                  <div style={{ fontSize: 32, fontWeight: 950, letterSpacing: 0 }}>
-                    בחירת סביבת פרויקט
-                  </div>
-                  <div style={{ color: "#d6d3d1", fontWeight: 750 }}>
-                    שלום {projectAccess.displayName || projectAccess.username}, כל פרויקט נפתח כסביבת עבודה נפרדת.
-                  </div>
-                </div>
-                <span
-                  style={{
-                    width: 74,
-                    height: 74,
-                    borderRadius: 4,
-                    background: "#f59e0b",
-                    color: "#171614",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 950,
-                    fontSize: 22,
-                    letterSpacing: 0,
-                    boxShadow: "8px 8px 0 rgba(14,116,144,0.55)",
-                  }}
-                >
-                  RND
-                </span>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  color: "#e7e5e4",
-                  fontSize: 13,
-                  fontWeight: 850,
-                }}
-              >
-                <span style={{ border: "1px solid rgba(245,158,11,0.35)", borderRadius: 4, padding: "7px 10px" }}>
-                  {accessibleProjects.length} פרויקטים זמינים
-                </span>
-                <span style={{ border: "1px solid rgba(14,116,144,0.42)", borderRadius: 4, padding: "7px 10px" }}>
-                  בקרת איכות ותיעוד
-                </span>
-                <span style={{ border: "1px solid rgba(255,255,255,0.18)", borderRadius: 4, padding: "7px 10px" }}>
-                  הפרדה מלאה בין פרויקטים
-                </span>
-              </div>
+            >
+              YK
             </div>
-          </section>
+            <div style={{ fontSize: 20, fontWeight: 800, color: pickerNavy }}>בחירת פרויקט לעבודה</div>
+            <div style={{ marginTop: 4, fontSize: 13, color: "#6b6f76" }}>
+              שלום {projectAccess.displayName || projectAccess.username}, בחר את הפרויקט שברצונך לפתוח
+            </div>
+          </div>
 
-          <section
+          <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 14,
+              gap: 12,
             }}
           >
             {accessibleProjects.map((project) => {
               const isSelected =
                 normalizeStoredProjectId(project.id) ===
                 normalizeStoredProjectId(currentProjectId);
+              const initial = (project.name || "?").trim().charAt(0);
               return (
-                <article
+                <div
                   key={project.id}
                   style={{
-                    position: "relative",
-                    display: "grid",
-                    gap: 16,
-                    minHeight: 230,
-                    padding: 20,
                     background: "#fff",
-                    border: isSelected ? "2px solid #f59e0b" : "1px solid #dedbd2",
-                    borderRadius: 8,
-                    boxShadow: isSelected
-                      ? "0 18px 45px rgba(245,158,11,0.18)"
-                      : "0 14px 34px rgba(23,22,20,0.08)",
-                    overflow: "hidden",
+                    border: isSelected ? `2px solid ${pickerAccentGold}` : "1px solid #e5e5e1",
+                    borderRadius: 12,
+                    padding: "18px 20px",
                   }}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      insetInlineEnd: 0,
-                      top: 0,
-                      height: 6,
-                      width: "100%",
-                      background: isSelected
-                        ? "linear-gradient(90deg,#f59e0b,#0e7490)"
-                        : "linear-gradient(90deg,#d6d3d1,#0e7490)",
-                    }}
-                  />
-                  <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
-                      <div
-                        style={{
-                          width: 42,
-                          height: 42,
-                          borderRadius: 6,
-                          background: isSelected ? "#171614" : "#f5f5f4",
-                          color: isSelected ? "#fbbf24" : "#0e7490",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontWeight: 950,
-                          border: "1px solid #dedbd2",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        {String(project.name || "P").trim().slice(0, 1)}
-                      </div>
-                      {isSelected ? (
-                        <span
-                          style={{
-                            borderRadius: 4,
-                            background: "#fff7ed",
-                            color: "#b45309",
-                            padding: "5px 9px",
-                            fontSize: 12,
-                            fontWeight: 950,
-                          }}
-                        >
-                          נוכחי
-                        </span>
-                      ) : null}
+                  {isSelected ? (
+                    <span
+                      style={{
+                        display: "inline-block",
+                        background: "#fdf3e2",
+                        color: "#8a5a10",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "2px 10px",
+                        borderRadius: 6,
+                        marginBottom: 8,
+                      }}
+                    >
+                      נכנסת לאחרונה
+                    </span>
+                  ) : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 8,
+                        background: "#eaf1fb",
+                        color: "#185fa5",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {initial}
                     </div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <div style={{ fontSize: 21, lineHeight: 1.25, fontWeight: 950, color: "#171614" }}>
-                        {project.name}
-                      </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: pickerNavy }}>{project.name}</div>
                       {project.description || project.manager ? (
-                        <div style={{ color: "#6b6257", fontWeight: 750, lineHeight: 1.5 }}>
+                        <div style={{ marginTop: 2, fontSize: 12, color: "#8a8d94" }}>
                           {[project.description, project.manager].filter(Boolean).join(" · ")}
                         </div>
                       ) : null}
@@ -22333,39 +21519,36 @@ ${invalidRecipients.join("\n")}`);
                       }).then(() => setShowProjectPicker(false));
                     }}
                     style={{
-                      alignSelf: "end",
-                      border: "1px solid #171614",
-                      borderRadius: 6,
-                      background: isSelected ? "#f59e0b" : "#171614",
-                      color: isSelected ? "#171614" : "#fff",
-                      padding: "12px 14px",
-                      fontWeight: 950,
+                      width: "100%",
+                      border: 0,
+                      borderRadius: 8,
+                      background: pickerNavy,
+                      color: "#fff",
+                      padding: "10px 12px",
+                      fontWeight: 700,
+                      fontSize: 13,
                       cursor: "pointer",
-                      boxShadow: isSelected
-                        ? "0 10px 20px rgba(245,158,11,0.2)"
-                        : "0 10px 20px rgba(23,22,20,0.18)",
                     }}
                   >
-                    כניסה לפרויקט
+                    כניסה לפרויקט ↗
                   </button>
-                </article>
+                </div>
               );
             })}
-          </section>
+          </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={logoutProject}
               style={{
-                border: "1px solid #dedbd2",
+                border: "1px solid #d6d6d1",
                 background: "#fff",
-                borderRadius: 6,
+                borderRadius: 8,
                 padding: "10px 14px",
-                fontWeight: 900,
+                fontWeight: 700,
+                fontSize: 13,
                 cursor: "pointer",
-                color: "#171614",
-                boxShadow: "0 8px 18px rgba(23,22,20,0.05)",
               }}
             >
               יציאה
@@ -22375,14 +21558,13 @@ ${invalidRecipients.join("\n")}`);
                 type="button"
                 onClick={() => setShowProjectPicker(false)}
                 style={{
-                  border: "1px solid #dedbd2",
+                  border: "1px solid #d6d6d1",
                   background: "#fff",
-                  borderRadius: 6,
+                  borderRadius: 8,
                   padding: "10px 14px",
-                  fontWeight: 900,
+                  fontWeight: 700,
+                  fontSize: 13,
                   cursor: "pointer",
-                  color: "#171614",
-                  boxShadow: "0 8px 18px rgba(23,22,20,0.05)",
                 }}
               >
                 המשך בפרויקט הנוכחי
@@ -22425,33 +21607,8 @@ ${invalidRecipients.join("\n")}`);
           >
             <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 950 }}>בחירת נמענים לשליחת מייל</h3>
             <div style={{ color: "#64748b", marginBottom: 14 }}>
-              {pendingChecklistEmailIds.length
-                ? `סמן נמענים לשליחת ${pendingChecklistEmailIds.length} רשימות תיוג כקבצי PDF נפרדים.`
-                : pendingPreliminaryEmailIds.length
-                  ? `סמן נמענים לשליחת ${pendingPreliminaryEmailIds.length} רשומות ${labelForPreliminary(preliminaryTab)} כקבצי PDF נפרדים.`
-                : "סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים."}
+              סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
             </div>
-            <label style={{ display: "grid", gap: 6, marginBottom: 14, fontWeight: 800 }}>
-              מה לשלוח / הערות למייל
-              <textarea
-                value={emailMessage}
-                onChange={(event) => setEmailMessage(event.target.value)}
-                rows={4}
-                placeholder="לדוגמה: מצורפת רשימת תיוג חתומה לעיונכם ולאישורכם."
-                style={{
-                  width: "100%",
-                  minHeight: 96,
-                  resize: "vertical",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 12,
-                  padding: "10px 12px",
-                  font: "inherit",
-                  lineHeight: 1.6,
-                  color: "#0f172a",
-                  background: "#fff",
-                }}
-              />
-            </label>
             <div style={{ display: "grid", gap: 8 }}>
               {emailRecipientOptions.map((user) => {
                 const checked = selectedEmailRecipientIds.includes(user.id);
@@ -22742,11 +21899,7 @@ ${invalidRecipients.join("\n")}`);
                     background: preliminaryTab === tab ? "#0f172a" : "#fff",
                     color: preliminaryTab === tab ? "#fff" : "#0f172a",
                   }}
-                  onClick={() => {
-                    setPreliminaryTab(tab);
-                    setSelectedPreliminaryEmailIds([]);
-                    setPendingPreliminaryEmailIds([]);
-                  }}
+                  onClick={() => setPreliminaryTab(tab)}
                 >
                   {labelForPreliminary(tab)}
                 </button>
@@ -23008,9 +22161,6 @@ ${invalidRecipients.join("\n")}`);
           {section === "home" && (
             <HomeSection
               projects={accessibleProjects}
-              currentProject={currentProject}
-              projectName={projectName}
-              currentProjectDefaults={currentProjectDefaults}
               projectChecklists={projectChecklists}
               projectNonconformances={projectNonconformances}
               projectTrialSections={projectTrialSections}
@@ -23136,7 +22286,6 @@ ${invalidRecipients.join("\n")}`);
                               style={isActive ? styles.primaryBtn : styles.secondaryBtn}
                               onClick={() => {
                                 setSelectedChecklistTemplateKey(normalizedKey);
-                                setSelectedChecklistEmailIds([]);
                                 resetChecklistForm(normalizedKey);
                               }}
                             >
@@ -23165,9 +22314,6 @@ ${invalidRecipients.join("\n")}`);
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
                 onNew={() => resetChecklistForm(selectedChecklistTemplateKey)}
-                selectedIds={selectedChecklistEmailIds}
-                onSelectedIdsChange={setSelectedChecklistEmailIds}
-                onEmailSelected={sendSelectedChecklistsEmail}
               />
               <ChecklistsSection
                 guardedBody={guardedBody}
@@ -23286,14 +22432,11 @@ ${invalidRecipients.join("\n")}`);
               <FolderRecordsTable
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
                 description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
-                records={projectPreliminary.filter((record) => normalizePreliminarySubtype(record) === preliminaryTab) as any[]}
+                records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
                 columns={preliminaryFolderColumns(preliminaryTab)}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
-                selectedIds={selectedPreliminaryEmailIds}
-                onSelectedIdsChange={setSelectedPreliminaryEmailIds}
-                onEmailSelected={sendSelectedPreliminaryEmail}
               />
             <PreliminarySection
               guardedBody={guardedBody}
