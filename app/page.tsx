@@ -14727,6 +14727,8 @@ export default function Page() {
     field: keyof ProjectAccess,
     value: string,
   ) => {
+    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
+    const activeProjectName = currentProject?.name ?? "";
     setDraftAccessUsers((prevUsers) =>
       prevUsers.map((user, userIndex) => {
         if (userIndex !== index) return user;
@@ -14736,8 +14738,13 @@ export default function Page() {
         } as ProjectAccess;
         if (field === "role") updated.role = normalizeAccessRole(value);
         if (field === "role" && updated.role === "admin") updated.projectName = null;
-        if (field === "role" && updated.role !== "admin" && !updated.projectName)
-          updated.projectName = projects[0]?.name ?? "";
+        if (updated.role !== "admin") {
+          if (!updated.projectName) updated.projectName = activeProjectName;
+          if ((!updated.projectIds || updated.projectIds.length === 0) && activeProjectId) {
+            updated.projectIds = [activeProjectId];
+          }
+          if (!updated.code && activeProjectId) updated.code = activeProjectId;
+        }
         return updated;
       }),
     );
