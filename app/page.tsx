@@ -236,7 +236,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
-  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
+  "80600000-0000-0000-0000-000000000806": "80600000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
@@ -17042,8 +17042,7 @@ export default function Page() {
         }));
       });
 
-      const persistGlobalActive =
-        options.persistGlobalActive ?? isAdminAccess(projectAccess);
+      const persistGlobalActive = options.persistGlobalActive ?? false;
       if (persistGlobalActive && cloudEnabled && supabase) {
         try {
           await supabase
@@ -21514,9 +21513,7 @@ ${invalidRecipients.join("\n")}`);
                   <button
                     type="button"
                     onClick={() => {
-                      void setActiveProject(project.id, {
-                        persistGlobalActive: isAdminAccess(projectAccess),
-                      }).then(() => setShowProjectPicker(false));
+                      void setActiveProject(project.id).then(() => setShowProjectPicker(false));
                     }}
                     style={{
                       width: "100%",
