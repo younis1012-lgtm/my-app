@@ -56,6 +56,9 @@ const isRoad806Value = (value: unknown) => {
 };
 
 const ROAD_65_PROJECT_ID = "06500000-0000-0000-0000-000000000000";
+const ROAD_806_PROJECT_ID_CANONICAL = "80600000-0000-0000-0000-000000000000";
+const ROAD_806_PROJECT_NAME = "כביש 806 צלמון שלב א׳";
+const ROAD_65_PROJECT_NAME = "ביצוע מפרץ בדיקה דברת בכביש 65";
 
 const isRoad65Value = (value: unknown) => {
   const text = String(value ?? "");
@@ -264,6 +267,53 @@ const normalizeStoredProjectId = (value: unknown) => {
 const normalizeProjectIdValue = (value: unknown) =>
   normalizeStoredProjectId(value);
 
+const canonicalProjectNameForId = (projectId: unknown) => {
+  const normalized = normalizeStoredProjectId(projectId);
+  if (normalized === ROAD_806_PROJECT_ID_CANONICAL) return ROAD_806_PROJECT_NAME;
+  if (normalized === ROAD_65_PROJECT_ID) return ROAD_65_PROJECT_NAME;
+  return "";
+};
+
+const projectNameConflictsWithCanonicalId = (
+  projectId: unknown,
+  projectName: unknown,
+) => {
+  const normalized = normalizeStoredProjectId(projectId);
+  if (normalized === ROAD_806_PROJECT_ID_CANONICAL)
+    return isRoad65Value(projectName);
+  if (normalized === ROAD_65_PROJECT_ID)
+    return isRoad806Value(projectName);
+  return false;
+};
+
+const sanitizeProjectForCanonicalId = <T extends { id?: unknown; name?: unknown; description?: unknown }>(
+  project: T,
+): T => {
+  const canonicalName = canonicalProjectNameForId(project.id);
+  if (!canonicalName)
+    return project;
+  return {
+    ...project,
+    name: canonicalName,
+    description: projectNameConflictsWithCanonicalId(project.id, project.description)
+      ? ""
+      : project.description,
+  };
+};
+
+const sanitizeLegendForProjectId = (
+  projectId: unknown,
+  legend: ProjectLegend,
+  fallbackProjectName = "",
+): ProjectLegend => {
+  const canonicalName = canonicalProjectNameForId(projectId);
+  if (!canonicalName) return legend;
+  return {
+    ...legend,
+    projectName: canonicalName || fallbackProjectName || String(legend.projectName ?? "").trim(),
+  };
+};
+
 const extractProjectCodeCandidates = (...values: unknown[]) => {
   const codes = new Set<string>();
   values.forEach((value) => {
@@ -322,7 +372,10 @@ const migrateProjectLegendMap = (
   Object.entries(value as Record<string, unknown>).forEach(([key, legend]) => {
     const normalizedKey = normalizeStoredProjectId(key);
     if (!normalizedKey) return;
-    result[normalizedKey] = normalizeProjectLegend(legend);
+    result[normalizedKey] = sanitizeLegendForProjectId(
+      normalizedKey,
+      normalizeProjectLegend(legend),
+    );
   });
   return result;
 };
@@ -352,7 +405,7 @@ const getDefaultProjectList = (): Project[] => {
       ? defaultProjects
       : FALLBACK_PROJECTS;
   return source.map((project, index) => ({
-    ...project,
+    ...sanitizeProjectForCanonicalId(project),
     id: normalizeStoredProjectId(project.id),
     isActive: index === 0 ? true : Boolean(project.isActive),
   }));
@@ -361,16 +414,18 @@ const getDefaultProjectList = (): Project[] => {
 const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
   const mapped = (rows ?? [])
     .filter((row) => row && typeof row === "object")
-    .map((row) => ({
-      id: normalizeStoredProjectId(row.id ?? crypto.randomUUID()),
-      name: String(row.name ?? "").trim(),
-      description: String(row.description ?? ""),
-      manager: String(row.manager ?? ""),
-      isActive: Boolean(row.is_active ?? row.isActive),
-      createdAt: row.created_at
-        ? new Date(row.created_at).toLocaleString("he-IL")
-        : String(row.createdAt ?? ""),
-    }))
+    .map((row) =>
+      sanitizeProjectForCanonicalId({
+        id: normalizeStoredProjectId(row.id ?? crypto.randomUUID()),
+        name: String(row.name ?? "").trim(),
+        description: String(row.description ?? ""),
+        manager: String(row.manager ?? ""),
+        isActive: Boolean(row.is_active ?? row.isActive),
+        createdAt: row.created_at
+          ? new Date(row.created_at).toLocaleString("he-IL")
+          : String(row.createdAt ?? ""),
+      }),
+    )
     .filter((project) => project.id && project.name);
 
   const merged = Array.from(
@@ -399,7 +454,7 @@ const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
 
   const source = merged.length ? merged : getDefaultProjectList();
   return source.map((project, index) => ({
-    ...project,
+    ...sanitizeProjectForCanonicalId(project),
     isActive: source.some((item) => item.isActive)
       ? Boolean(project.isActive)
       : index === 0,
@@ -2141,17 +2196,20 @@ const rowToProjectLegend = (
   if (!projectId) return null;
   return {
     projectId,
-    legend: normalizeProjectLegend({
-      projectName: row.project_name ?? row.projectName ?? "",
-      projectManagement: row.project_management ?? row.projectManagement ?? "",
-      contractor: row.contractor ?? "",
-      qualityAssurance: row.quality_assurance ?? row.qualityAssurance ?? "",
-      qualityControl: row.quality_control ?? row.qualityControl ?? "",
-      workManager: row.work_manager ?? row.workManager ?? "",
-      surveyor: row.surveyor ?? "",
-      supervisor: row.supervisor ?? "",
-      extraFactors: row.extra_factors ?? row.extraFactors ?? [],
-    }),
+    legend: sanitizeLegendForProjectId(
+      projectId,
+      normalizeProjectLegend({
+        projectName: row.project_name ?? row.projectName ?? "",
+        projectManagement: row.project_management ?? row.projectManagement ?? "",
+        contractor: row.contractor ?? "",
+        qualityAssurance: row.quality_assurance ?? row.qualityAssurance ?? "",
+        qualityControl: row.quality_control ?? row.qualityControl ?? "",
+        workManager: row.work_manager ?? row.workManager ?? "",
+        surveyor: row.surveyor ?? "",
+        supervisor: row.supervisor ?? "",
+        extraFactors: row.extra_factors ?? row.extraFactors ?? [],
+      }),
+    ),
   };
 };
 
@@ -15527,9 +15585,13 @@ export default function Page() {
   const savedCurrentProjectLegend = useMemo(
     () =>
       currentProject
-        ? normalizeProjectLegend(
-            projectLegends[normalizeStoredProjectId(currentProject.id)] ??
-              projectLegends[currentProject.id],
+        ? sanitizeLegendForProjectId(
+            currentProject.id,
+            normalizeProjectLegend(
+              projectLegends[normalizeStoredProjectId(currentProject.id)] ??
+                projectLegends[currentProject.id],
+              currentProject.name,
+            ),
             currentProject.name,
           )
         : normalizeProjectLegend(null, ""),
@@ -15538,13 +15600,17 @@ export default function Page() {
   const currentProjectLegend = useMemo(
     () =>
       currentProject && (editingProjectLegend || projectLegendDirty)
-        ? normalizeProjectLegend(
-            draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-              draftProjectLegends[
-                normalizeStoredProjectId(currentProject.id)
-              ] ??
-              draftProjectLegends[currentProject.id] ??
-              savedCurrentProjectLegend,
+        ? sanitizeLegendForProjectId(
+            currentProject.id,
+            normalizeProjectLegend(
+              draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
+                draftProjectLegends[
+                  normalizeStoredProjectId(currentProject.id)
+                ] ??
+                draftProjectLegends[currentProject.id] ??
+                savedCurrentProjectLegend,
+              currentProject.name,
+            ),
             currentProject.name,
           )
         : savedCurrentProjectLegend,
