@@ -2329,6 +2329,67 @@ const normalizeAccessValue = (value: unknown) =>
     .trim()
     .toLowerCase();
 
+const accessProjectIds = (access: Pick<ProjectAccess, "code" | "projectIds">) => {
+  const ids = Array.isArray(access.projectIds)
+    ? access.projectIds.map(normalizeStoredProjectId).filter(Boolean)
+    : [];
+  const codeId = normalizeStoredProjectId(access.code);
+  if (codeId && codeId.includes("-")) ids.push(codeId);
+  return Array.from(new Set(ids));
+};
+
+const accessDedupeKey = (access: ProjectAccess) => {
+  const username = normalizeAccessValue(access.username);
+  const code = normalizeAccessValue(access.code);
+  const aliases = (access.aliases ?? [])
+    .map(normalizeAccessValue)
+    .filter(Boolean);
+  const projectIds = accessProjectIds(access);
+
+  if (access.role === "admin") return `admin:${username || aliases[0] || code}`;
+  if (username) return `user:${username}`;
+  if (aliases.length) return `alias:${aliases[0]}`;
+  if (projectIds.length && code) return `project-code:${projectIds.join(",")}:${code}`;
+  if (code) return `code:${code}`;
+  return `project:${projectIds.join(",") || normalizeAccessValue(access.projectName)}`;
+};
+
+const mergeProjectAccess = (
+  existing: ProjectAccess,
+  item: ProjectAccess,
+): ProjectAccess => {
+  const projectIds = Array.from(
+    new Set([...accessProjectIds(existing), ...accessProjectIds(item)]),
+  );
+  const role: ProjectAccess["role"] =
+    existing.role === "admin" || item.role === "admin"
+      ? "admin"
+      : existing.role === "readonly" || item.role === "readonly"
+        ? "readonly"
+        : "readwrite";
+
+  return {
+    ...existing,
+    ...item,
+    username: item.username || existing.username,
+    password: item.password || existing.password,
+    displayName: item.displayName || existing.displayName,
+    role,
+    code: item.code || existing.code,
+    aliases: Array.from(
+      new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
+    ),
+    projectName:
+      role === "admin"
+        ? null
+        : item.projectName || existing.projectName || null,
+    projectIds: projectIds.length ? projectIds : undefined,
+    signatureDataUrl: item.signatureDataUrl || existing.signatureDataUrl || "",
+    signatureFileName:
+      item.signatureFileName || existing.signatureFileName || "",
+  };
+};
+
 const accessLoginMatches = (access: ProjectAccess, value: string) => {
   const normalized = normalizeAccessValue(value);
   const aliases = Array.isArray(access.aliases) ? access.aliases : [];
@@ -2393,27 +2454,13 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   const unique = Array.from(
     normalized
       .reduce((map, item) => {
-        const key = [
-          normalizeAccessValue(item.role),
-          normalizeAccessValue(item.username),
-          normalizeAccessValue(item.code),
-        ].join("|");
+        const key = accessDedupeKey(item);
         const existing = map.get(key);
         if (!existing) {
           map.set(key, item);
           return map;
         }
-        map.set(key, {
-          ...existing,
-          ...item,
-          aliases: Array.from(
-            new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
-          ),
-          signatureDataUrl:
-            item.signatureDataUrl || existing.signatureDataUrl || "",
-          signatureFileName:
-            item.signatureFileName || existing.signatureFileName || "",
-        });
+        map.set(key, mergeProjectAccess(existing, item));
         return map;
       }, new Map<string, ProjectAccess>())
       .values(),
