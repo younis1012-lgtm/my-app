@@ -20718,6 +20718,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
+  const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi">("form");
+  const [emailCustomMessage, setEmailCustomMessage] = useState("");
+  const [pendingRfiEmailRecord, setPendingRfiEmailRecord] = useState<RfiRecord | null>(null);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20755,7 +20758,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return false;
   };
 
-  const sendEmailToRecipients = async (recipientEmails: string[]) => {
+  const sendEmailToRecipients = async (recipientEmails: string[], customMessage = "") => {
     if (!ensureQualityControllerEmailSender()) return;
     try {
       const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
@@ -20774,6 +20777,11 @@ ${invalidRecipients.join("\n")}`);
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
+      const messageText = customMessage.trim();
+      const messageHtml = messageText
+        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
+        : "";
+      const messagePlain = messageText ? `${messageText}\n\n` : "";
 
       const mergedPdfBlob = await buildMergedPdfBlob(title, html);
       const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
@@ -20791,8 +20799,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl">מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div>`,
-          text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
+          html: `<div dir="rtl">${messageHtml}<div>מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div></div>`,
+          text: `${messagePlain}מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -20816,7 +20824,10 @@ ${invalidRecipients.join("\n")}`);
 
   const sendCurrentFormEmail = async () => {
     if (emailRecipientOptions.length) {
+      setEmailRecipientDialogMode("form");
+      setPendingRfiEmailRecord(null);
       setSelectedEmailRecipientIds([]);
+      setEmailCustomMessage("");
       setEmailRecipientDialogOpen(true);
       return;
     }
@@ -20824,7 +20835,8 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    await sendEmailToRecipients(rawRecipients);
+    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
+    await sendEmailToRecipients(rawRecipients, message);
   };
 
   const confirmSelectedEmailRecipients = async () => {
@@ -20835,8 +20847,18 @@ ${invalidRecipients.join("\n")}`);
       alert("יש לסמן לפחות משתמש אחד בריבוע הבחירה");
       return;
     }
+    const mode = emailRecipientDialogMode;
+    const message = emailCustomMessage;
+    const rfiRecord = pendingRfiEmailRecord;
     setEmailRecipientDialogOpen(false);
-    await sendEmailToRecipients(recipientEmails);
+    if (mode === "rfi" && rfiRecord) {
+      await sendRfiEmailToRecipients(rfiRecord, recipientEmails, message);
+      setPendingRfiEmailRecord(null);
+      setEmailCustomMessage("");
+      return;
+    }
+    await sendEmailToRecipients(recipientEmails, message);
+    setEmailCustomMessage("");
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -21438,9 +21460,13 @@ ${invalidRecipients.join("\n")}`);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const sendRfiEmail = async (record: RfiRecord) => {
+  const sendRfiEmailToRecipients = async (
+    record: RfiRecord,
+    recipientEmails: string[],
+    customMessage = "",
+  ) => {
     if (!ensureQualityControllerEmailSender()) return;
-    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const recipientInput = recipientEmails.join(",");
     const recipients = normalizeEmailList(recipientInput);
     if (!recipients.length) return;
     const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
@@ -21455,14 +21481,19 @@ ${invalidRecipients.join("\n")}`);
       const attachments = uniqueEmailAttachments([
         dataUrlToEmailAttachment(`${rfiExportTitle(record)} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
       ]);
+      const messageText = customMessage.trim();
+      const messageHtml = messageText
+        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
+        : "";
+      const messagePlain = messageText ? `${messageText}\n\n` : "";
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: Array.from(new Set(recipients)).join(", "),
           subject: `${rfiExportTitle(record)} - ${projectName}`,
-          html: `<div dir="rtl">מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div>`,
-          text: `מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
+          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div></div>`,
+          text: `${messagePlain}מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -21477,6 +21508,23 @@ ${invalidRecipients.join("\n")}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
+  };
+
+  const sendRfiEmail = async (record: RfiRecord) => {
+    if (emailRecipientOptions.length) {
+      setEmailRecipientDialogMode("rfi");
+      setPendingRfiEmailRecord(record);
+      setSelectedEmailRecipientIds([]);
+      setEmailCustomMessage("");
+      setEmailRecipientDialogOpen(true);
+      return;
+    }
+
+    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const recipients = normalizeEmailList(recipientInput);
+    if (!recipients.length) return;
+    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
+    await sendRfiEmailToRecipients(record, recipients, message);
   };
 
   const showExportButtons = [
@@ -21739,6 +21787,26 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ color: "#64748b", marginBottom: 14 }}>
               סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
             </div>
+            <label style={{ display: "block", marginBottom: 14 }}>
+              <span style={{ display: "block", fontWeight: 900, marginBottom: 6 }}>
+                הודעה שתופיע בגוף המייל
+              </span>
+              <textarea
+                value={emailCustomMessage}
+                onChange={(event) => setEmailCustomMessage(event.target.value)}
+                placeholder="לדוגמה: מצורפים מסמכים לבדיקה/התייחסות."
+                rows={4}
+                style={{
+                  width: "100%",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 12,
+                  padding: 12,
+                  font: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+            </label>
             <div style={{ display: "grid", gap: 8 }}>
               {emailRecipientOptions.map((user) => {
                 const checked = selectedEmailRecipientIds.includes(user.id);
