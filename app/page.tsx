@@ -7772,6 +7772,49 @@ function ProjectStructureSection({
     [plans],
   );
   const visiblePlanTreeNodes = draftPlanTreeNodes ?? planTreeProposal.nodes;
+  const [showTemplateBuilder, setShowTemplateBuilder] = useState(false);
+  const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<Set<string>>(
+    new Set(["road-structure"]),
+  );
+
+  const templateBuilderProposal = useMemo(() => {
+    const selectedTemplates = PROJECT_STRUCTURE_TEMPLATE_LIBRARY.filter((template) =>
+      selectedTemplateKeys.has(template.key),
+    );
+    const nodes: GeneratedProjectTreeDraft[] = [];
+    selectedTemplates.forEach((template, index) => {
+      const rootCode = String(index + 1);
+      const rootKey = `manual-template:${template.key}`;
+      nodes.push({
+        key: rootKey,
+        parentKey: "",
+        nodeType: template.rootNodeType,
+        name: template.defaultElementName,
+        code: rootCode,
+        fromChainage: "",
+        toChainage: "",
+        side: "",
+        sortOrder: template.sortOrder + index,
+      });
+      appendTemplateStepsToProjectTreeDraft({
+        nodes,
+        parentKey: rootKey,
+        steps: template.steps,
+        baseCode: rootCode,
+        baseSortOrder: (index + 1) * 1000,
+      });
+    });
+    return { nodes, includedPlans: [], excludedPlans: [] };
+  }, [selectedTemplateKeys]);
+
+  const toggleTemplateSelection = (templateKey: string) => {
+    setSelectedTemplateKeys((current) => {
+      const next = new Set(current);
+      if (next.has(templateKey)) next.delete(templateKey);
+      else next.add(templateKey);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setDraftPlanTreeNodes(null);
@@ -7899,6 +7942,81 @@ function ProjectStructureSection({
         <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
           היררכיה לפי דרישת נתיבי ישראל: פרויקט → כביש/אתר → מבנה → קטע/מקטע → אלמנט/פעילות.
         </div>
+      </div>
+
+      <div
+        style={{
+          ...styles.card,
+          marginBottom: 16,
+          background: "linear-gradient(135deg,#fff7ed,#ffffff 45%,#f8fafc)",
+          borderColor: "#f59e0b",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 950 }}>
+              🏗️ יצירת עץ מתבנית
+            </div>
+            <div style={{ color: "#64748b", marginTop: 4, fontWeight: 750 }}>
+              בחר אלמנטים הנדסיים, והמערכת תיצור עץ מסודר לפי סדר ביצוע: עבודות עפר, בטון, ניקוז, שכבות מבנה, אספלט, גמר ועוד.
+            </div>
+          </div>
+          <button
+            type="button"
+            style={{ ...styles.primaryBtn, background: "#f59e0b", color: "#111827" }}
+            onClick={() => setShowTemplateBuilder((value) => !value)}
+          >
+            {showTemplateBuilder ? "סגור בחירת תבניות" : "פתח בחירת תבניות"}
+          </button>
+        </div>
+
+        {showTemplateBuilder ? (
+          <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+              {PROJECT_STRUCTURE_TEMPLATE_LIBRARY.map((template) => {
+                const active = selectedTemplateKeys.has(template.key);
+                return (
+                  <button
+                    key={template.key}
+                    type="button"
+                    disabled={!canWrite}
+                    onClick={() => toggleTemplateSelection(template.key)}
+                    style={{
+                      border: active ? "2px solid #f59e0b" : "1px solid #e2e8f0",
+                      background: active ? "#fffbeb" : "#fff",
+                      borderRadius: 14,
+                      padding: "12px 10px",
+                      textAlign: "right",
+                      cursor: canWrite ? "pointer" : "not-allowed",
+                      fontWeight: 900,
+                      color: "#0f172a",
+                      minHeight: 72,
+                    }}
+                  >
+                    <div style={{ fontSize: 22 }}>{template.icon}</div>
+                    <div>{template.label}</div>
+                    <div style={{ color: "#64748b", fontSize: 12, marginTop: 3 }}>
+                      {active ? "נבחר" : "לחץ לבחירה"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ color: "#64748b", fontWeight: 800 }}>
+                נבחרו {selectedTemplateKeys.size} תבניות · ייווצרו {templateBuilderProposal.nodes.length} פריטים בעץ
+              </div>
+              <button
+                type="button"
+                style={styles.primaryBtn}
+                disabled={!canWrite || !templateBuilderProposal.nodes.length}
+                onClick={() => onGenerateFromPlans(templateBuilderProposal)}
+              >
+                צור עץ מהתבניות שנבחרו
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -8865,6 +8983,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { icon: "🧪", label: "קטעי ניסוי", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "פתוחים", section: "trialSections" as AppSection },
   ] as const;
   const quickActions = [
+    { label: "עץ מתבנית", icon: "🏗️", section: "projectStructure" as AppSection },
     { label: "אי התאמה", icon: "⚠️", section: "nonconformances" as AppSection },
     { label: "RFI", icon: "📨", section: "rfi" as AppSection },
     { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
