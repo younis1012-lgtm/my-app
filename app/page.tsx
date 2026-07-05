@@ -3037,9 +3037,434 @@ const extractPlanSide = (text: string) => {
   return "";
 };
 
+type ProjectStructureTemplateStep = {
+  name: string;
+  nodeType?: ProjectStructureNodeType;
+  children?: ProjectStructureTemplateStep[];
+};
+
+type ProjectStructureTemplate = {
+  key: string;
+  label: string;
+  icon: string;
+  aliases: string[];
+  pattern: RegExp;
+  defaultElementName: string;
+  rootNodeType: ProjectStructureNodeType;
+  sortOrder: number;
+  steps: ProjectStructureTemplateStep[];
+};
+
+const buildLayerSteps = (count: number): ProjectStructureTemplateStep[] =>
+  Array.from({ length: count }, (_, index) => ({
+    name: `שכבה ${index + 1}`,
+    nodeType: "activity",
+  }));
+
+// ספריית Templates הנדסית קבועה: לא לפי מספר תוכנית, אלא לפי סוג האלמנט בעבודה.
+// בעתיד ניתן לחבר את מספר השכבות לחישוב לפי חתכים/גבהים מתוך PDF.
+const PROJECT_STRUCTURE_TEMPLATE_LIBRARY: ProjectStructureTemplate[] = [
+  {
+    key: "road-structure",
+    label: "מבנה כביש",
+    icon: "🚧",
+    aliases: ["כביש", "מבנה כביש", "סלילה", "אספלט"],
+    pattern: /כביש|מבנה\s+כביש|סלילה|אספלט|מצע|אגו.?ם|שתית|קרקע\s+יסוד/i,
+    defaultElementName: "מבנה כביש",
+    rootNodeType: "road",
+    sortOrder: 100,
+    steps: [
+      {
+        name: "עבודות עפר",
+        nodeType: "element",
+        children: [
+          { name: "חפירה", nodeType: "activity" },
+          { name: "קרקע יסוד", nodeType: "activity" },
+          {
+            name: "החלפת קרקע",
+            nodeType: "activity",
+            children: buildLayerSteps(5),
+          },
+          { name: "מילוי מובא", nodeType: "activity" },
+          { name: "הידוק", nodeType: "activity" },
+        ],
+      },
+      {
+        name: "שכבות מבנה",
+        nodeType: "element",
+        children: [
+          { name: "מצע א׳", nodeType: "activity" },
+          { name: "מצע ב׳", nodeType: "activity" },
+          { name: "אגו״מ", nodeType: "activity" },
+          { name: "שכבה מקשרת", nodeType: "activity" },
+          { name: "שכבת שחיקה", nodeType: "activity" },
+        ],
+      },
+      {
+        name: "עבודות גמר",
+        nodeType: "element",
+        children: [
+          { name: "סימון כביש", nodeType: "activity" },
+          { name: "שילוט ותמרור", nodeType: "activity" },
+          { name: "מעקות בטיחות", nodeType: "activity" },
+        ],
+      },
+    ],
+  },
+  {
+    key: "retaining-wall",
+    label: "קיר תומך",
+    icon: "🧱",
+    aliases: ["קיר תומך", "RW", "RW01", "RW-01"],
+    pattern: /\bRW\s*-?\s*\d+\b|קיר\s+תומך|קיר\s+בטון|קירות/i,
+    defaultElementName: "קיר תומך",
+    rootNodeType: "structure",
+    sortOrder: 200,
+    steps: [
+      {
+        name: "עבודות עפר",
+        nodeType: "element",
+        children: [{ name: "חפירה", nodeType: "activity" }],
+      },
+      {
+        name: "עבודות בטון",
+        nodeType: "element",
+        children: [
+          { name: "בטון רזה", nodeType: "activity" },
+          { name: "יסוד", nodeType: "activity" },
+          { name: "קיר", nodeType: "activity" },
+        ],
+      },
+      { name: "איטום", nodeType: "activity" },
+      {
+        name: "ניקוז",
+        nodeType: "element",
+        children: [{ name: "נקזים", nodeType: "activity" }],
+      },
+      {
+        name: "מילוי בגב קיר",
+        nodeType: "activity",
+        children: buildLayerSteps(10),
+      },
+      { name: "מבנה כביש", nodeType: "element" },
+    ],
+  },
+  {
+    key: "drainage-channel",
+    label: "תעלת ניקוז",
+    icon: "🌊",
+    aliases: ["תעלת ניקוז", "DC", "DC01", "DC-01"],
+    pattern: /\bDC\s*-?\s*\d+\b|תעל(?:ת)?\s+ניקוז|תעלת|תעלה/i,
+    defaultElementName: "תעלת ניקוז",
+    rootNodeType: "structure",
+    sortOrder: 300,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "בטון רזה", nodeType: "activity" },
+      { name: "זיון", nodeType: "activity" },
+      { name: "בטון", nodeType: "activity" },
+      { name: "עטיפה", nodeType: "activity" },
+      {
+        name: "מילוי חוזר",
+        nodeType: "activity",
+        children: buildLayerSteps(8),
+      },
+      { name: "עבודות גמר", nodeType: "element" },
+    ],
+  },
+  {
+    key: "drainage-line",
+    label: "קו ניקוז",
+    icon: "🚰",
+    aliases: ["קו ניקוז", "צינור ניקוז", "ניקוז"],
+    pattern: /קו\s+ניקוז|צינור(?:ות)?\s+ניקוז|צנרת\s+ניקוז/i,
+    defaultElementName: "קו ניקוז",
+    rootNodeType: "element",
+    sortOrder: 400,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "מצע לצינור", nodeType: "activity" },
+      { name: "הנחת צינור", nodeType: "activity" },
+      { name: "בדיקות", nodeType: "activity" },
+      { name: "עטיפה", nodeType: "activity" },
+      { name: "מילוי חוזר", nodeType: "activity", children: buildLayerSteps(6) },
+      { name: "שיקום", nodeType: "activity" },
+    ],
+  },
+  {
+    key: "manhole",
+    label: "שוחה",
+    icon: "🕳️",
+    aliases: ["שוחה", "שוחות", "תא בקרה"],
+    pattern: /שוח(?:ה|ות)|תא\s+בקרה/i,
+    defaultElementName: "שוחה",
+    rootNodeType: "structure",
+    sortOrder: 500,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "בטון רזה", nodeType: "activity" },
+      { name: "תחתית", nodeType: "activity" },
+      { name: "קירות", nodeType: "activity" },
+      { name: "תקרה", nodeType: "activity" },
+      { name: "שלבים", nodeType: "activity" },
+      { name: "מכסה", nodeType: "activity" },
+      { name: "מילוי חוזר", nodeType: "activity", children: buildLayerSteps(4) },
+    ],
+  },
+  {
+    key: "culvert",
+    label: "מעביר מים",
+    icon: "🌉",
+    aliases: ["מעביר מים", "מובל"],
+    pattern: /מעביר\s*מים|מובל|מובל\s+ניקוז/i,
+    defaultElementName: "מעביר מים",
+    rootNodeType: "structure",
+    sortOrder: 600,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "בטון רזה", nodeType: "activity" },
+      { name: "זיון", nodeType: "activity" },
+      { name: "יציקת רצפה", nodeType: "activity" },
+      { name: "יציקת קירות", nodeType: "activity" },
+      { name: "יציקת תקרה", nodeType: "activity" },
+      { name: "איטום", nodeType: "activity" },
+      { name: "מילוי חוזר", nodeType: "activity", children: buildLayerSteps(8) },
+    ],
+  },
+  {
+    key: "rockfill",
+    label: "מסלעה",
+    icon: "🪨",
+    aliases: ["מסלעה", "ריפ ראפ", "ריפ-ראפ"],
+    pattern: /מסלע|ריפ.?ראפ|אבן\s+מושלכת/i,
+    defaultElementName: "מסלעה",
+    rootNodeType: "element",
+    sortOrder: 700,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "הכנת שתית", nodeType: "activity" },
+      { name: "בד גיאוטכני", nodeType: "activity" },
+      { name: "סידור אבן", nodeType: "activity" },
+      { name: "גמר", nodeType: "activity" },
+    ],
+  },
+  {
+    key: "sidewalk",
+    label: "מדרכה",
+    icon: "🚧",
+    aliases: ["מדרכה", "ריצוף", "אבן שפה"],
+    pattern: /מדרכה|ריצוף|אבן\s+שפה/i,
+    defaultElementName: "מדרכה",
+    rootNodeType: "element",
+    sortOrder: 800,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "הידוק שתית", nodeType: "activity" },
+      { name: "מצע", nodeType: "activity" },
+      { name: "אבן שפה", nodeType: "activity" },
+      { name: "ריצוף", nodeType: "activity" },
+    ],
+  },
+  {
+    key: "safety",
+    label: "עבודות בטיחות",
+    icon: "🚦",
+    aliases: ["בטיחות", "מעקות", "תמרור", "שילוט"],
+    pattern: /בטיחות|מעקה|מעקות|תמרור|שילוט|סימון\s+כביש/i,
+    defaultElementName: "עבודות בטיחות",
+    rootNodeType: "element",
+    sortOrder: 900,
+    steps: [
+      { name: "מעקות בטיחות", nodeType: "activity" },
+      { name: "שילוט ותמרור", nodeType: "activity" },
+      { name: "סימון כביש", nodeType: "activity" },
+      { name: "בדיקת מסירה", nodeType: "activity" },
+    ],
+  },
+  {
+    key: "lighting",
+    label: "תאורה",
+    icon: "💡",
+    aliases: ["תאורה", "חשמל", "עמודי תאורה"],
+    pattern: /תאורה|חשמל|עמוד(?:י)?\s+תאורה|כבל|שרוול/i,
+    defaultElementName: "תאורה",
+    rootNodeType: "element",
+    sortOrder: 1000,
+    steps: [
+      { name: "חפירה", nodeType: "activity" },
+      { name: "שרוולים", nodeType: "activity" },
+      { name: "יסודות לעמודים", nodeType: "activity" },
+      { name: "השחלת כבלים", nodeType: "activity" },
+      { name: "התקנת עמודים וגופים", nodeType: "activity" },
+      { name: "בדיקות חשמל", nodeType: "activity" },
+    ],
+  },
+  {
+    key: "landscaping",
+    label: "גינון",
+    icon: "🌿",
+    aliases: ["גינון", "השקיה", "נטיעות"],
+    pattern: /גינון|השקיה|נטיעות|הידרוזריעה/i,
+    defaultElementName: "גינון",
+    rootNodeType: "element",
+    sortOrder: 1100,
+    steps: [
+      { name: "הכנת קרקע", nodeType: "activity" },
+      { name: "מערכת השקיה", nodeType: "activity" },
+      { name: "שתילה ונטיעות", nodeType: "activity" },
+      { name: "הידרוזריעה", nodeType: "activity" },
+      { name: "תחזוקה ראשונית", nodeType: "activity" },
+    ],
+  },
+];
+
+const extractTemplateElementCodes = (text: string, template: ProjectStructureTemplate) => {
+  const normalizedText = String(text ?? "");
+  const codes = new Set<string>();
+  if (template.key === "retaining-wall") {
+    normalizedText.match(/\bRW\s*-?\s*\d+\b/gi)?.forEach((value) =>
+      codes.add(value.replace(/\s+/g, "").replace(/RW-?/i, "RW-")),
+    );
+  }
+  if (template.key === "drainage-channel") {
+    normalizedText.match(/\bDC\s*-?\s*\d+\b/gi)?.forEach((value) =>
+      codes.add(value.replace(/\s+/g, "").replace(/DC-?/i, "DC-")),
+    );
+  }
+  return Array.from(codes);
+};
+
+const detectProjectStructureTemplateInstances = (plans: PlanRecord[]) => {
+  const detected = new Map<
+    string,
+    {
+      template: ProjectStructureTemplate;
+      name: string;
+      code: string;
+      fromChainage: string;
+      toChainage: string;
+      side: string;
+    }
+  >();
+
+  plans.forEach((plan) => {
+    const text = planTextForProjectTree(plan);
+    if (!text || PROJECT_TREE_PLAN_EXCLUSION_PATTERN.test(text)) return;
+    const location = extractPlanChainage(text);
+    const side = extractPlanSide(text);
+    PROJECT_STRUCTURE_TEMPLATE_LIBRARY.forEach((template) => {
+      if (!template.pattern.test(text)) return;
+      const codes = extractTemplateElementCodes(text, template);
+      const names = codes.length ? codes : [template.defaultElementName];
+      names.forEach((codeOrName) => {
+        const isCode = Boolean(codes.length);
+        const cleanCode = isCode ? codeOrName.toUpperCase() : "";
+        const name = isCode
+          ? `${template.label} ${cleanCode}`
+          : template.defaultElementName;
+        const key = `${template.key}|${cleanCode || normalizeHebrewProjectName(name)}`;
+        if (detected.has(key)) return;
+        detected.set(key, {
+          template,
+          name,
+          code: cleanCode,
+          fromChainage: location.fromChainage,
+          toChainage: location.toChainage,
+          side,
+        });
+      });
+    });
+  });
+
+  return Array.from(detected.values()).sort(
+    (left, right) => left.template.sortOrder - right.template.sortOrder || left.name.localeCompare(right.name, "he"),
+  );
+};
+
+const appendTemplateStepsToProjectTreeDraft = ({
+  nodes,
+  parentKey,
+  steps,
+  baseCode,
+  baseSortOrder,
+}: {
+  nodes: GeneratedProjectTreeDraft[];
+  parentKey: string;
+  steps: ProjectStructureTemplateStep[];
+  baseCode: string;
+  baseSortOrder: number;
+}) => {
+  steps.forEach((step, index) => {
+    const code = `${baseCode}.${index + 1}`;
+    const key = `${parentKey}|${normalizeHebrewProjectName(step.name)}|${index}`;
+    nodes.push({
+      key,
+      parentKey,
+      nodeType: step.nodeType ?? "activity",
+      name: step.name,
+      code,
+      fromChainage: "",
+      toChainage: "",
+      side: "",
+      sortOrder: baseSortOrder + index + 1,
+    });
+    if (step.children?.length) {
+      appendTemplateStepsToProjectTreeDraft({
+        nodes,
+        parentKey: key,
+        steps: step.children,
+        baseCode: code,
+        baseSortOrder: baseSortOrder + (index + 1) * 100,
+      });
+    }
+  });
+};
+
+const buildProjectTreeProposalFromTemplateLibrary = (
+  plans: PlanRecord[],
+): GeneratedProjectTreeProposal => {
+  const includedPlans: PlanRecord[] = [];
+  const excludedPlans: PlanRecord[] = [];
+  plans.forEach((plan) => {
+    const text = planTextForProjectTree(plan);
+    if (!text || PROJECT_TREE_PLAN_EXCLUSION_PATTERN.test(text)) excludedPlans.push(plan);
+    else includedPlans.push(plan);
+  });
+
+  const nodes: GeneratedProjectTreeDraft[] = [];
+  const instances = detectProjectStructureTemplateInstances(includedPlans);
+  instances.forEach((instance, index) => {
+    const rootCode = String(index + 1);
+    const rootKey = `template:${instance.template.key}:${instance.code || normalizeHebrewProjectName(instance.name)}`;
+    nodes.push({
+      key: rootKey,
+      parentKey: "",
+      nodeType: instance.template.rootNodeType,
+      name: instance.name,
+      code: instance.code || rootCode,
+      fromChainage: instance.fromChainage,
+      toChainage: instance.toChainage,
+      side: instance.side,
+      sortOrder: instance.template.sortOrder + index,
+    });
+    appendTemplateStepsToProjectTreeDraft({
+      nodes,
+      parentKey: rootKey,
+      steps: instance.template.steps,
+      baseCode: rootCode,
+      baseSortOrder: (index + 1) * 1000,
+    });
+  });
+
+  return { nodes, includedPlans, excludedPlans };
+};
+
 const buildProjectTreeProposalFromPlans = (
   plans: PlanRecord[],
 ): GeneratedProjectTreeProposal => {
+  const templateProposal = buildProjectTreeProposalFromTemplateLibrary(plans);
+  if (templateProposal.nodes.length) return templateProposal;
+
   const includedPlans: PlanRecord[] = [];
   const excludedPlans: PlanRecord[] = [];
   const nodes: GeneratedProjectTreeDraft[] = [];
@@ -7491,7 +7916,7 @@ function ProjectStructureSection({
             </div>
             <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
               זוהו {planTreeProposal.includedPlans.length} תוכניות מתאימות;{" "}
-              {planTreeProposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות הוחרגו.
+              {planTreeProposal.excludedPlans.length} תוכניות פירוק/עבודות זמניות הוחרגו. הבנייה מבוססת על ספריית Templates הנדסית בעברית לפי אלמנטים: מבנה כביש, קיר תומך, תעלת ניקוז, קו ניקוז, שוחה, מעביר מים, מסלעה, מדרכה, בטיחות, תאורה וגינון.
             </div>
           </div>
           <button
