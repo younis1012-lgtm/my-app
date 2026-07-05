@@ -8642,6 +8642,8 @@ function FolderRecordsTable({
   onOpen,
   onDelete,
   onNew,
+  onSendSelectedEmail,
+  sendSelectedLabel = "שלח מסומנים במייל",
 }: {
   title: string;
   description?: string;
@@ -8650,11 +8652,45 @@ function FolderRecordsTable({
   onOpen?: (id: string) => void;
   onDelete?: (id: string) => void;
   onNew?: () => void;
+  onSendSelectedEmail?: (records: any[]) => void | Promise<void>;
+  sendSelectedLabel?: string;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const canSelectRecords = Boolean(onSendSelectedEmail);
+  const visibleRecordIds = safeRecords.map((record, index) => String(record?.id ?? index));
+  const selectedRecords = safeRecords.filter((record, index) =>
+    selectedRecordIds.includes(String(record?.id ?? index)),
+  );
+  const allVisibleSelected = Boolean(
+    canSelectRecords &&
+      visibleRecordIds.length &&
+      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
+  );
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
+
+  useEffect(() => {
+    setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
+  }, [visibleRecordIds.join("|")]);
+
+  const toggleRecordSelection = (id: string, checked: boolean) => {
+    setSelectedRecordIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id)));
+  };
+
+  const toggleAllVisibleRecords = (checked: boolean) => {
+    setSelectedRecordIds((prev) =>
+      checked
+        ? Array.from(new Set([...prev, ...visibleRecordIds]))
+        : prev.filter((id) => !visibleRecordIds.includes(id)),
+    );
+  };
+
+  const sendSelectedRecords = async () => {
+    if (!onSendSelectedEmail || !selectedRecords.length) return;
+    await onSendSelectedEmail(selectedRecords);
+  };
 
   return (
     <section
@@ -8685,11 +8721,23 @@ function FolderRecordsTable({
             <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>{description}</div>
           ) : null}
         </div>
-        {onNew ? (
-          <button type="button" style={styles.primaryBtn} onClick={onNew}>
-            חדש
-          </button>
-        ) : null}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {onSendSelectedEmail ? (
+            <button
+              type="button"
+              style={selectedRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              onClick={sendSelectedRecords}
+              disabled={!selectedRecords.length}
+            >
+              {sendSelectedLabel} ({selectedRecords.length})
+            </button>
+          ) : null}
+          {onNew ? (
+            <button type="button" style={styles.primaryBtn} onClick={onNew}>
+              חדש
+            </button>
+          ) : null}
+        </div>
       </div>
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
@@ -8708,7 +8756,18 @@ function FolderRecordsTable({
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ fontWeight: 950, color: "#0f172a" }}>#{serialFor(record, index)}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950, color: "#0f172a" }}>
+                      {canSelectRecords ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedRecordIds.includes(id)}
+                          onChange={(event) => toggleRecordSelection(id, event.target.checked)}
+                          style={{ width: 18, height: 18 }}
+                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
+                        />
+                      ) : null}
+                      #{serialFor(record, index)}
+                    </span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
                         <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
@@ -8761,6 +8820,17 @@ function FolderRecordsTable({
         >
           <thead>
             <tr style={{ background: "#eef2f7" }}>
+              {canSelectRecords ? (
+                <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center", width: 54 }}>
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={(event) => toggleAllVisibleRecords(event.target.checked)}
+                    aria-label="בחר את כל הרשומות"
+                    style={{ width: 18, height: 18 }}
+                  />
+                </th>
+              ) : null}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
               {columns.map((column) => (
                 <th
@@ -8779,6 +8849,17 @@ function FolderRecordsTable({
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
+                    {canSelectRecords ? (
+                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRecordIds.includes(id)}
+                          onChange={(event) => toggleRecordSelection(id, event.target.checked)}
+                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
+                          style={{ width: 18, height: 18 }}
+                        />
+                      </td>
+                    ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
                       {serialFor(record, index)}
                     </td>
@@ -8806,7 +8887,7 @@ function FolderRecordsTable({
               })
             ) : (
               <tr>
-                <td colSpan={columns.length + 2} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={columns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
@@ -20718,9 +20799,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
-  const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi">("form");
+  const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi" | "preliminaryRecords">("form");
   const [emailCustomMessage, setEmailCustomMessage] = useState("");
   const [pendingRfiEmailRecord, setPendingRfiEmailRecord] = useState<RfiRecord | null>(null);
+  const [pendingPreliminaryEmailRecords, setPendingPreliminaryEmailRecords] = useState<any[]>([]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20822,10 +20904,94 @@ ${invalidRecipients.join("\n")}`);
     }
   };
 
+  const sendPreliminaryRecordsEmailToRecipients = async (
+    recordsToSend: any[],
+    recipientEmails: string[],
+    customMessage = "",
+  ) => {
+    if (!ensureQualityControllerEmailSender()) return;
+    const records = recordsToSend.filter(Boolean);
+    if (!records.length) {
+      alert("יש לסמן לפחות רשומה אחת לשליחה");
+      return;
+    }
+    const recipients = normalizeEmailList(recipientEmails.join(","));
+    if (!recipients.length) return;
+    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
+    if (invalidRecipients.length) {
+      alert(`כתובות המייל הבאות אינן תקינות:\n${invalidRecipients.join("\n")}`);
+      return;
+    }
+    try {
+      const uniqueRecipients = Array.from(new Set(recipients));
+      const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
+      const body = records
+        .map((record, index) => {
+          const recordTitle = record?.title || labelForPreliminary(record?.subtype || preliminaryTab);
+          return `<section style="${index ? "page-break-before:always;" : ""}"><h2>${index + 1}. ${safeText(recordTitle)}</h2>${preliminaryRecordArchiveBody(record)}</section>`;
+        })
+        .join("");
+      const html = archivePrintableHtml(sectionTitle, body);
+      const appendices = uniqueEmailAttachments(records.flatMap((record) => archiveRecordPdfAppendices(record)));
+      const pdfBlob = await buildMergedPdfBlob(sectionTitle, html, appendices);
+      const pdfDataUrl = await blobToDataUrl(pdfBlob);
+      const attachments = uniqueEmailAttachments([
+        dataUrlToEmailAttachment(`${sectionTitle} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
+      ]);
+      const messageText = customMessage.trim();
+      const messageHtml = messageText
+        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
+        : "";
+      const messagePlain = messageText ? `${messageText}\n\n` : "";
+      const response = await fetch("/api/send-checklist-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: uniqueRecipients.join(", "),
+          subject: `${sectionTitle} - ${projectName}`,
+          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${safeText(projectName)}.</div></div>`,
+          text: `${messagePlain}מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${projectName}.`,
+          attachments,
+          projectId: currentProject?.id || projectName || "806",
+          ...currentEmailSender,
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
+      }
+      alert(`המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} רשומות מסומנות.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
+    }
+  };
+
+  const sendPreliminaryRecordsEmail = async (recordsToSend: any[]) => {
+    if (!recordsToSend.length) {
+      alert("יש לסמן לפחות רשומה אחת לשליחה");
+      return;
+    }
+    if (emailRecipientOptions.length) {
+      setEmailRecipientDialogMode("preliminaryRecords");
+      setPendingRfiEmailRecord(null);
+      setPendingPreliminaryEmailRecords(recordsToSend);
+      setSelectedEmailRecipientIds([]);
+      setEmailCustomMessage("");
+      setEmailRecipientDialogOpen(true);
+      return;
+    }
+    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
+    const rawRecipients = normalizeEmailList(recipientInput);
+    if (!rawRecipients.length) return;
+    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
+    await sendPreliminaryRecordsEmailToRecipients(recordsToSend, rawRecipients, message);
+  };
+
   const sendCurrentFormEmail = async () => {
     if (emailRecipientOptions.length) {
       setEmailRecipientDialogMode("form");
       setPendingRfiEmailRecord(null);
+      setPendingPreliminaryEmailRecords([]);
       setSelectedEmailRecipientIds([]);
       setEmailCustomMessage("");
       setEmailRecipientDialogOpen(true);
@@ -20854,6 +21020,12 @@ ${invalidRecipients.join("\n")}`);
     if (mode === "rfi" && rfiRecord) {
       await sendRfiEmailToRecipients(rfiRecord, recipientEmails, message);
       setPendingRfiEmailRecord(null);
+      setEmailCustomMessage("");
+      return;
+    }
+    if (mode === "preliminaryRecords") {
+      await sendPreliminaryRecordsEmailToRecipients(pendingPreliminaryEmailRecords, recipientEmails, message);
+      setPendingPreliminaryEmailRecords([]);
       setEmailCustomMessage("");
       return;
     }
@@ -21514,6 +21686,7 @@ ${invalidRecipients.join("\n")}`);
     if (emailRecipientOptions.length) {
       setEmailRecipientDialogMode("rfi");
       setPendingRfiEmailRecord(record);
+      setPendingPreliminaryEmailRecords([]);
       setSelectedEmailRecipientIds([]);
       setEmailCustomMessage("");
       setEmailRecipientDialogOpen(true);
@@ -22635,6 +22808,8 @@ ${invalidRecipients.join("\n")}`);
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
+                onSendSelectedEmail={sendPreliminaryRecordsEmail}
+                sendSelectedLabel="שלח מסומנים במייל"
               />
             <PreliminarySection
               guardedBody={guardedBody}
