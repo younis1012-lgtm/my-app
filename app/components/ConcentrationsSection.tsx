@@ -1548,7 +1548,23 @@ const referenceDocNo = (record: any): string => {
 
 const isMatzeaAProcess = (record: any): boolean => {
   const text = recordText(record);
-  return includesAny(text, ["מצע א", "מצע א׳", "אפיון מצע", "תעודת ייחוס", "24403"]);
+  const mentionsMatzeaA = includesAny(text, ["מצע א", "מצע א׳", "מצע א'", "מצע סוג א", "מצע סוג א׳", "מצע סוג א'", "24403"]);
+  const hasCharacterizationEvidence = includesAny(text, [
+    "אפיון מצע",
+    "תעודת ייחוס",
+    "גרדציה",
+    "CBR",
+    "cbr",
+    "AASHTO",
+    "100%",
+    "פרוקטור",
+    "צפיפות מעבדתית",
+    "רטיבות אופטימלית",
+    "LL",
+    "PL",
+    "PI",
+  ]);
+  return mentionsMatzeaA && hasCharacterizationEvidence;
 };
 
 const matzeaAProcessRow = (record: any, index: number): Row => ({
@@ -1616,7 +1632,7 @@ const matzeaAChecklistRow = (row: Row, index: number): Row => ({
 });
 
 const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[]): Row[] => {
-  const checklist = checklistRows(checklists, ["מצע א", "מצע א׳", "אפיון מצע", "cbr", "גרדציה", "תעודת ייחוס", "24403"], "אפיון מצע א׳")
+  const checklist = checklistRows(checklists, ["אפיון מצע", "cbr", "CBR", "גרדציה", "תעודת ייחוס", "24403", "פרוקטור", "צפיפות מעבדתית", "רטיבות אופטימלית"], "אפיון מצע א׳")
     .map((row, index) => matzeaAChecklistRow(row, index));
   const process = processes
     .filter(isMatzeaAProcess)
@@ -1769,6 +1785,31 @@ const subbaseFieldKeywords = [
   "מצע סוג א'",
   "אגו״ם",
   "אגום",
+];
+
+const subbaseFieldStrongKeywords = [
+  "רשימת תיוג פיזור מצעים",
+  "פיזור מצעים",
+  "בדיקת שדה למצעים",
+  "צפיפות",
+  "רטיבות",
+  "מד גרעיני",
+  "הידוק",
+  "מנת בדיקה",
+  "מעביר מכבש",
+];
+
+const subbaseCharacterizationKeywords = [
+  "אפיון מצע",
+  "תעודת ייחוס",
+  "גרדציה",
+  "CBR",
+  "cbr",
+  "פרוקטור",
+  "צפיפות מעבדתית",
+  "רטיבות אופטימלית",
+  "AASHTO",
+  "24403",
 ];
 
 const earthworksLabCertificateKeywords = [
@@ -2003,7 +2044,9 @@ const isEarthworksChecklist = (record: any): boolean => {
 
 const isSubbaseFieldChecklist = (record: any): boolean => {
   const text = `${earthworksChecklistKindText(record)} ${recordText(record)}`;
-  return includesAny(text, subbaseFieldKeywords);
+  if (includesAny(text, subbaseCharacterizationKeywords) && !includesAny(text, subbaseFieldStrongKeywords)) return false;
+  return includesAny(text, subbaseFieldStrongKeywords) ||
+    (includesAny(text, subbaseFieldKeywords) && !includesAny(text, subbaseCharacterizationKeywords));
 };
 
 const subbaseFieldItemText = (checklist: any, item: any, attachment?: any): string =>
@@ -2024,7 +2067,7 @@ const subbaseFieldItemText = (checklist: any, item: any, attachment?: any): stri
   ].map(cleanText).filter(Boolean).join(" ");
 
 const isSubbaseFieldItem = (checklist: any, item: any, attachment?: any): boolean =>
-  isSubbaseFieldChecklist(checklist) || includesAny(subbaseFieldItemText(checklist, item, attachment), subbaseFieldKeywords);
+  isSubbaseFieldChecklist(checklist) || includesAny(subbaseFieldItemText(checklist, item, attachment), subbaseFieldStrongKeywords);
 
 const earthworksStatus = (...values: unknown[]): string => {
   const text = firstText(...values);
@@ -2253,6 +2296,13 @@ const normalizeEarthworksStatus = (value: unknown): string => {
   if (includesAny(text, ["לא תקין", "נכשל", "NC", "נדחה", "פסול"])) return "NC";
   if (includesAny(text, ["תקין", "מאושר", "OK", "עבר"])) return "OK";
   return text;
+};
+
+const normalizeSubbaseStatus = (...values: unknown[]): string => {
+  const status = normalizeEarthworksStatus(firstText(...values));
+  if (!status) return "";
+  if (status === "OK" || status === "NC") return status;
+  return "";
 };
 
 const earthworksChecklistSortValue = (value: unknown, fallback: number): number => {
@@ -3074,6 +3124,8 @@ const subbaseDensityResultValue = (row: Row): string => {
   const avg = firstText(row['צפיפות סטטיסטיקה ממוצע']);
   const lower = firstText(row['צפיפות סטטיסטיקה גבול תחתון']);
   const resultNumber = numberValue(result);
+  const avgNumber = numberValue(avg);
+  if (result && avg && resultNumber !== null && avgNumber !== null && resultNumber === avgNumber) return "";
   if (resultNumber !== null && resultNumber > 130) return firstText(avg, lower, "");
   return firstText(result, avg);
 };
@@ -3122,19 +3174,19 @@ const subbaseFieldRowFromEarthworks = (row: Row, reference: Row = {}): Row => ({
   'מעמד הידוק רגיל': '',
   "מס' תעודת בדיקה צפיפות/ רטיבות שדה": row["מס' תעודת בדיקה צפיפות/ רטיבות שדה"] ?? '',
   'הידוק מבוקר (צפיפות מד גרעיני)': row['הידוק מבוקר (צפיפות מד גרעיני)'] ?? '',
-  'מעמד צפיפות/רטיבות': row['מעמד צפיפות/רטיבות'] ?? '',
+  'מעמד צפיפות/רטיבות': normalizeSubbaseStatus(row['מעמד צפיפות/רטיבות'], row['מעמד תוצאות'], row['סטטוס']),
   ' מנת בדיקה (חרוט חול / שלבי)': row[' מנת בדיקה (חרוט חול / שלבי)'] ?? '',
-  'מעמד מנת בדיקה': row['מעמד מנת בדיקה'] ?? '',
+  'מעמד מנת בדיקה': normalizeSubbaseStatus(row['מעמד מנת בדיקה'], row['מעמד תוצאות'], row['סטטוס']),
   'מדידה': row['מדידה'] ?? '',
-  'מעמד מדידה': row['מעמד מדידה'] ?? '',
+  'מעמד מדידה': normalizeSubbaseStatus(row['מעמד מדידה'], row['מעמד תוצאות'], row['סטטוס']),
   'מספר תעודת בדיקה אפיון - 100%': firstText(row['מספר תעודת בדיקה אפיון - 100%'], reference['מספר תעודת בדיקה אפיון - 100%']),
   'HWD': row['HWD'] ?? '',
-  'מעמד HWD': row['מעמד HWD'] ?? '',
+  'מעמד HWD': normalizeSubbaseStatus(row['מעמד HWD'], row['מעמד תוצאות'], row['סטטוס']),
   'צפיפות מחושבת': subbaseDensityResultValue(row),
   'צפיפות סטטיסטיקה גבול תחתון': row['צפיפות סטטיסטיקה גבול תחתון'] ?? '',
   'צפיפות סטטיסטיקה גבול עליון': row['צפיפות סטטיסטיקה גבול עליון'] ?? '',
   'צפיפות סטטיסטיקה ממוצע': row['צפיפות סטטיסטיקה ממוצע'] ?? '',
-  'מעמד תוצאות': row['מעמד תוצאות'] ?? '',
+  'מעמד תוצאות': normalizeSubbaseStatus(row['מעמד תוצאות'], row['סטטוס']),
   'בדיקה חוזרת לתעודה ': row['בדיקה חוזרת לתעודה '] ?? '',
   'מתאריך': row['מתאריך'] ?? '',
   'מספר אי התאמה': row['מספר אי התאמה'] ?? '',
@@ -3186,6 +3238,12 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
         }
         checklistRows.push(row);
       });
+
+      if (!attachments.length) {
+        const row = earthworksRowFromSources([checklist, item], {}, rows.length + checklistRows.length + measurementRows.length + 1, checklistIndex);
+        const outputRow = subbaseFieldRowFromEarthworks(row, reference);
+        if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
+      }
     });
 
     const checklistAttachments = directRecordAttachments(checklist)
@@ -3204,6 +3262,12 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
       }
       checklistRows.push(row);
     });
+
+    if (!checklistRows.length && !measurementRows.length) {
+      const row = earthworksRowFromSources([checklist], {}, rows.length + 1, checklistIndex);
+      const outputRow = subbaseFieldRowFromEarthworks(row, reference);
+      if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
+    }
 
     const measurementRow = measurementRows.reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
     const labRows = checklistRows.length ? checklistRows : measurementRows;
