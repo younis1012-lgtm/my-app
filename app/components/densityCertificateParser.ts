@@ -402,7 +402,7 @@ const decimalValuesNearLabel = (text: string, label: string) => {
 
 const extractChainage = (text: string) => {
   const match = text.match(
-    /חתך\s*(\d{2,5})\s*[-–]\s*(\d{2,5})/i
+    /חתך\s*(\d{2,5})\s*(?:[-–]\s*|\s+)(\d{2,5})\s*-?/i
   );
 
   if (!match) {
@@ -420,7 +420,7 @@ const extractChainage = (text: string) => {
 
 const extractShortLocation = (text: string) => {
   const match = text.match(
-    /(חתך\s*\d{2,5}\s*[-–]\s*\d{2,5}(?:\s+[^.\n\r]{0,80}?)?(?:צד\s*(?:R\+L|R|L|ימין|שמאל))?)/i
+    /(חתך\s*\d{2,5}\s*(?:[-–]\s*|\s+)\d{2,5}\s*-?(?:\s+[^.\n\r]{0,80}?)?(?:צד\s*(?:R\+L|R|L|ימין|שמאל))?)/i
   );
 
   return clean(match?.[1] ?? "");
@@ -787,6 +787,17 @@ export const parseEarthworksDensityText = (
   if (compactionValues.length) {
     results["כמות נקודות בדיקה"] = String(compactionValues.length);
     results["הידוק מבוקר (צפיפות מד גרעיני)"] = String(compactionValues.length);
+  }
+
+  const rollerPasses = firstText(
+    pickValueNearLabel(text, ["מעברי מכבש", "כמות מעברי מכבש", "מספר מעברים"]),
+    flatText.match(/(\d{1,2})\s*(?:מעברי|מעברים)\s*מכבש/i)?.[1] ?? "",
+  );
+
+  if (rollerPasses) {
+    results["מעברי מכבש"] = rollerPasses;
+    results["כמות מעברי מכבש"] = rollerPasses;
+    results["מס' תעודת בדיקההידוק רגיל"] = certificateNo;
   }
 
   if (avgCompaction) {
