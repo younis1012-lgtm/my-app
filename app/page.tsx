@@ -22210,12 +22210,14 @@ ${invalidRecipients.join("\n")}`);
           type="button"
           style={{
             ...styles.navBtn,
-            background: section === "projectStructure" ? "#0f172a" : "#fff",
-            color: section === "projectStructure" ? "#fff" : "#0f172a",
+            background: "#fff",
+            color: "#0f172a",
           }}
-          onClick={() => setSection("projectStructure")}
+          onClick={() => {
+            window.location.href = "/engineering-templates";
+          }}
         >
-          עץ פרויקט
+          🏗️ ספריית תבניות / עץ פרויקט חדש
         </button>
         <button
           type="button"
@@ -22284,23 +22286,7 @@ ${invalidRecipients.join("\n")}`);
               onChange={setActiveStructureNodeId}
             />
           )}
-          {section === "projectStructure" && (
-            <ProjectStructureSection
-              nodes={currentProjectStructureNodes}
-              plans={currentProjectPlans}
-              form={projectStructureForm}
-              editingId={editingProjectStructureNodeId}
-              canWrite={canWriteAccess(projectAccess)}
-              onChange={(patch) =>
-                setProjectStructureForm((prev) => ({ ...prev, ...patch }))
-              }
-              onSave={saveProjectStructureNode}
-              onEdit={editProjectStructureNode}
-              onDelete={deleteProjectStructureNode}
-              onReset={resetProjectStructureForm}
-              onGenerateFromPlans={generateProjectStructureFromPlans}
-            />
-          )}
+          {false && section === "projectStructure" && null}
           {section === "projectDetails" && currentProject && (
             <ProjectLegendPanel
               legend={currentProjectLegend}
