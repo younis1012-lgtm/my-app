@@ -2362,6 +2362,7 @@ const cleanEarthworksMaterial = (value: unknown): string => {
 const earthworksRowHasCertificateEvidence = (row: Row): boolean =>
   [
     earthworksFieldColumns[16],
+    earthworksFieldColumns[17],
     earthworksFieldColumns[19],
     earthworksFieldColumns[26],
     earthworksFieldColumns[27],
@@ -2648,6 +2649,20 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const densityAverage = firstText(exactFirstFromSources(fieldSources, ["צפיפות סטטיסטיקה ממוצע", "ממוצע", "Xn", "xn", "statisticalAverage", "average", "avg", "צפיפות ממוצע"]));
   const densityUpperLimit = firstText(exactFirstFromSources(fieldSources, ["צפיפות סטטיסטיקה גבול עליון", "גבול עליון", "La'", "laPrime", "statisticalUpper", "upperLimit", "upperDensity", "צפיפות גבול עליון"]));
   const hasDensityStatistics = Boolean(densityLowerLimit || densityAverage || densityResultValue);
+  const hasRollerPassText = includesAny(
+    `${workType} ${item?.description ?? ""} ${item?.title ?? ""} ${checklist?.title ?? ""}`,
+    ["מעברי מכבש", "מעביר מכבש", "מכבש", "roller", "passes"],
+  );
+  const hasRegularCompactionEvidence = Boolean(regularCertificate || rollerPasses || hasRollerPassText);
+  const isRollerPassOnlyRow = Boolean(
+    hasRegularCompactionEvidence &&
+      !densityCertificate &&
+      !exactReferenceCert &&
+      !hasDensityPayload &&
+      kind !== "characterization" &&
+      kind !== "survey" &&
+      kind !== "hwd",
+  );
 
   const row: Row = {
     'ביצוע ע"י ': firstText(earthworksDirectValue(fieldSources, ["ביצוע עי", 'ביצוע ע"י', "performedBy", "מבצע"]), "QC"),
@@ -2667,11 +2682,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'עובי השכבה': firstText(earthworksDirectValue(fieldSources, ["עובי", "עובי שכבה", "עובי השכבה", "layerThickness", "thickness", "cm"])),
     'סוג העבודה ': workType,
     'תאור החומר ': exactMaterial,
-    'מיון החומר ': exactAashto,
+    'מיון החומר ': isRollerPassOnlyRow ? "" : exactAashto,
     'מקור החומר': firstText(earthworksDirectValue(fieldSources, ["מקור החומר", "מקור", "source", "materialSource"])),
     "מס' תעודת בדיקההידוק רגיל": regularCertificate,
-    'מעברי מכבש': regularCertificate ? normalizeRollerPasses(rollerPasses) : "",
-    'מעמד הידוק רגיל': regularCertificate ? firstText(status, "OK") : "",
+    'מעברי מכבש': hasRegularCompactionEvidence ? normalizeRollerPasses(rollerPasses) : "",
+    'מעמד הידוק רגיל': hasRegularCompactionEvidence ? firstText(status, "OK") : "",
     "מס' תעודת בדיקה צפיפות/ רטיבות שדה": densityCertificate,
     'הידוק מבוקר (צפיפות מד גרעיני)': densityCertificate ? firstText(densityPoints, exactFirstFromSources(fieldSources, ["הידוק מבוקר (צפיפות מד גרעיני)", "כמות נקודות בדיקה", "נקודות בדיקה"]), densitySampleCount, "1") : "",
     'מעמד צפיפות/רטיבות': densityCertificate ? firstText(status, "OK") : "",
@@ -2901,7 +2916,11 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
         isEarthworksLabCertificateAttachment(attachment, item) || isEarthworksMeasurementAttachment(attachment, item)
       ).filter(rememberAttachment);
 
-      if (!earthworksAttachments.length) return;
+      if (!earthworksAttachments.length) {
+        const fallbackRow = earthworksRowFromSources([checklist, item], {}, rows.length + 1, checklistIndex);
+        if (earthworksRowHasCertificateEvidence(fallbackRow)) rows.push(fallbackRow);
+        return;
+      }
 
       const mergeEarthworksRows = (base: Row, next: Row): Row => {
         const merged: Row = { ...base };
