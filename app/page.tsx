@@ -8634,6 +8634,59 @@ function useNarrowScreen(maxWidth = 720) {
   return isNarrow;
 }
 
+const firstFolderRecordValue = (...values: unknown[]) =>
+  values.map((value) => String(value ?? "").trim()).find(Boolean) || "";
+
+const folderRecordDetails = (record: any) => (record && typeof record.details === "object" ? record.details : {});
+
+const folderRecordFromSection = (record: any) => {
+  const details = folderRecordDetails(record);
+  return firstFolderRecordValue(
+    record?.fromSection,
+    record?.stationSection,
+    record?.fromChainage,
+    record?.fromStation,
+    record?.from_section,
+    record?.station_section,
+    details.fromSection,
+    details.stationSection,
+    details.from_section,
+    details.station_section,
+  );
+};
+
+const folderRecordToSection = (record: any) => {
+  const details = folderRecordDetails(record);
+  return firstFolderRecordValue(
+    record?.toSection,
+    record?.toStationSection,
+    record?.toChainage,
+    record?.toStation,
+    record?.to_section,
+    record?.to_station_section,
+    details.toSection,
+    details.toStationSection,
+    details.to_section,
+    details.to_station_section,
+  );
+};
+
+const folderRecordOffsetSide = (record: any) => {
+  const details = folderRecordDetails(record);
+  return firstFolderRecordValue(
+    record?.offset,
+    record?.side,
+    record?.roadSide,
+    record?.offsetSide,
+    record?.road_side,
+    details.offset,
+    details.side,
+    details.roadSide,
+    details.offsetSide,
+    details.road_side,
+  );
+};
+
 function FolderRecordsTable({
   title,
   description,
@@ -8670,6 +8723,22 @@ function FolderRecordsTable({
   );
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
+  const existingColumnLabels = new Set(columns.map((column) => String(column.label).trim()));
+  const locationColumns: FolderColumn[] = [
+    { label: "מחתך", value: (record) => folderRecordFromSection(record) || "-" },
+    { label: "עד חתך", value: (record) => folderRecordToSection(record) || "-" },
+    { label: "היסט/צד", value: (record) => folderRecordOffsetSide(record) || "-" },
+  ].filter((column) => {
+    if (column.label === "היסט/צד") {
+      return !["היסט/צד", "היסט", "הסט", "צד"].some((label) => existingColumnLabels.has(label));
+    }
+    return !existingColumnLabels.has(column.label);
+  });
+  const locationInsertIndex = columns.findIndex((column) => String(column.label).includes("מיקום"));
+  const displayColumns =
+    locationInsertIndex >= 0
+      ? [...columns.slice(0, locationInsertIndex + 1), ...locationColumns, ...columns.slice(locationInsertIndex + 1)]
+      : [...columns, ...locationColumns];
 
   useEffect(() => {
     setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
@@ -8782,7 +8851,7 @@ function FolderRecordsTable({
                     </div>
                   </div>
                   <div style={{ display: "grid", gap: 8 }}>
-                    {columns.map((column) => (
+                    {displayColumns.map((column) => (
                       <div
                         key={column.label}
                         style={{
@@ -8832,7 +8901,7 @@ function FolderRecordsTable({
                 </th>
               ) : null}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
-              {columns.map((column) => (
+              {displayColumns.map((column) => (
                 <th
                   key={column.label}
                   style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}
@@ -8863,7 +8932,7 @@ function FolderRecordsTable({
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
                       {serialFor(record, index)}
                     </td>
-                    {columns.map((column) => (
+                    {displayColumns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
                         {column.value(record, index) || "-"}
                       </td>
@@ -8887,7 +8956,7 @@ function FolderRecordsTable({
               })
             ) : (
               <tr>
-                <td colSpan={columns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={displayColumns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
