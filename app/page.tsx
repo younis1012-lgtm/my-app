@@ -56,9 +56,6 @@ const isRoad806Value = (value: unknown) => {
 };
 
 const ROAD_65_PROJECT_ID = "06500000-0000-0000-0000-000000000000";
-const ROAD_806_PROJECT_ID_CANONICAL = "80600000-0000-0000-0000-000000000000";
-const ROAD_806_PROJECT_NAME = "כביש 806 צלמון שלב א׳";
-const ROAD_65_PROJECT_NAME = "ביצוע מפרץ בדיקה דברת בכביש 65";
 
 const isRoad65Value = (value: unknown) => {
   const text = String(value ?? "");
@@ -239,7 +236,7 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
-  "80600000-0000-0000-0000-000000000806": "80600000-0000-0000-0000-000000000000",
+  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
@@ -266,53 +263,6 @@ const normalizeStoredProjectId = (value: unknown) => {
 
 const normalizeProjectIdValue = (value: unknown) =>
   normalizeStoredProjectId(value);
-
-const canonicalProjectNameForId = (projectId: unknown) => {
-  const normalized = normalizeStoredProjectId(projectId);
-  if (normalized === ROAD_806_PROJECT_ID_CANONICAL) return ROAD_806_PROJECT_NAME;
-  if (normalized === ROAD_65_PROJECT_ID) return ROAD_65_PROJECT_NAME;
-  return "";
-};
-
-const projectNameConflictsWithCanonicalId = (
-  projectId: unknown,
-  projectName: unknown,
-) => {
-  const normalized = normalizeStoredProjectId(projectId);
-  if (normalized === ROAD_806_PROJECT_ID_CANONICAL)
-    return isRoad65Value(projectName);
-  if (normalized === ROAD_65_PROJECT_ID)
-    return isRoad806Value(projectName);
-  return false;
-};
-
-const sanitizeProjectForCanonicalId = <T extends { id?: unknown; name?: unknown; description?: unknown }>(
-  project: T,
-): T => {
-  const canonicalName = canonicalProjectNameForId(project.id);
-  if (!canonicalName)
-    return project;
-  return {
-    ...project,
-    name: canonicalName,
-    description: projectNameConflictsWithCanonicalId(project.id, project.description)
-      ? ""
-      : project.description,
-  };
-};
-
-const sanitizeLegendForProjectId = (
-  projectId: unknown,
-  legend: ProjectLegend,
-  fallbackProjectName = "",
-): ProjectLegend => {
-  const canonicalName = canonicalProjectNameForId(projectId);
-  if (!canonicalName) return legend;
-  return {
-    ...legend,
-    projectName: canonicalName || fallbackProjectName || String(legend.projectName ?? "").trim(),
-  };
-};
 
 const extractProjectCodeCandidates = (...values: unknown[]) => {
   const codes = new Set<string>();
@@ -372,10 +322,7 @@ const migrateProjectLegendMap = (
   Object.entries(value as Record<string, unknown>).forEach(([key, legend]) => {
     const normalizedKey = normalizeStoredProjectId(key);
     if (!normalizedKey) return;
-    result[normalizedKey] = sanitizeLegendForProjectId(
-      normalizedKey,
-      normalizeProjectLegend(legend),
-    );
+    result[normalizedKey] = normalizeProjectLegend(legend);
   });
   return result;
 };
@@ -405,7 +352,7 @@ const getDefaultProjectList = (): Project[] => {
       ? defaultProjects
       : FALLBACK_PROJECTS;
   return source.map((project, index) => ({
-    ...sanitizeProjectForCanonicalId(project),
+    ...project,
     id: normalizeStoredProjectId(project.id),
     isActive: index === 0 ? true : Boolean(project.isActive),
   }));
@@ -414,18 +361,16 @@ const getDefaultProjectList = (): Project[] => {
 const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
   const mapped = (rows ?? [])
     .filter((row) => row && typeof row === "object")
-    .map((row) =>
-      sanitizeProjectForCanonicalId({
-        id: normalizeStoredProjectId(row.id ?? crypto.randomUUID()),
-        name: String(row.name ?? "").trim(),
-        description: String(row.description ?? ""),
-        manager: String(row.manager ?? ""),
-        isActive: Boolean(row.is_active ?? row.isActive),
-        createdAt: row.created_at
-          ? new Date(row.created_at).toLocaleString("he-IL")
-          : String(row.createdAt ?? ""),
-      }),
-    )
+    .map((row) => ({
+      id: normalizeStoredProjectId(row.id ?? crypto.randomUUID()),
+      name: String(row.name ?? "").trim(),
+      description: String(row.description ?? ""),
+      manager: String(row.manager ?? ""),
+      isActive: Boolean(row.is_active ?? row.isActive),
+      createdAt: row.created_at
+        ? new Date(row.created_at).toLocaleString("he-IL")
+        : String(row.createdAt ?? ""),
+    }))
     .filter((project) => project.id && project.name);
 
   const merged = Array.from(
@@ -454,7 +399,7 @@ const normalizeProjectRows = (rows: any[] | null | undefined): Project[] => {
 
   const source = merged.length ? merged : getDefaultProjectList();
   return source.map((project, index) => ({
-    ...sanitizeProjectForCanonicalId(project),
+    ...project,
     isActive: source.some((item) => item.isActive)
       ? Boolean(project.isActive)
       : index === 0,
@@ -2017,7 +1962,7 @@ const supervisionReportRowToRecord = (row: any): SupervisionReportRecord | null 
     notes: row?.notes,
     attachments: row?.attachments,
     savedAt: row?.saved_at
-      ? new Date(row.saved_at).toLocaleDateString("he-IL")
+      ? new Date(row.saved_at).toLocaleString("he-IL")
       : "",
   });
 
@@ -2196,20 +2141,17 @@ const rowToProjectLegend = (
   if (!projectId) return null;
   return {
     projectId,
-    legend: sanitizeLegendForProjectId(
-      projectId,
-      normalizeProjectLegend({
-        projectName: row.project_name ?? row.projectName ?? "",
-        projectManagement: row.project_management ?? row.projectManagement ?? "",
-        contractor: row.contractor ?? "",
-        qualityAssurance: row.quality_assurance ?? row.qualityAssurance ?? "",
-        qualityControl: row.quality_control ?? row.qualityControl ?? "",
-        workManager: row.work_manager ?? row.workManager ?? "",
-        surveyor: row.surveyor ?? "",
-        supervisor: row.supervisor ?? "",
-        extraFactors: row.extra_factors ?? row.extraFactors ?? [],
-      }),
-    ),
+    legend: normalizeProjectLegend({
+      projectName: row.project_name ?? row.projectName ?? "",
+      projectManagement: row.project_management ?? row.projectManagement ?? "",
+      contractor: row.contractor ?? "",
+      qualityAssurance: row.quality_assurance ?? row.qualityAssurance ?? "",
+      qualityControl: row.quality_control ?? row.qualityControl ?? "",
+      workManager: row.work_manager ?? row.workManager ?? "",
+      surveyor: row.surveyor ?? "",
+      supervisor: row.supervisor ?? "",
+      extraFactors: row.extra_factors ?? row.extraFactors ?? [],
+    }),
   };
 };
 
@@ -2329,67 +2271,6 @@ const normalizeAccessValue = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-const accessProjectIds = (access: Pick<ProjectAccess, "code" | "projectIds">) => {
-  const ids = Array.isArray(access.projectIds)
-    ? access.projectIds.map(normalizeStoredProjectId).filter(Boolean)
-    : [];
-  const codeId = normalizeStoredProjectId(access.code);
-  if (codeId && codeId.includes("-")) ids.push(codeId);
-  return Array.from(new Set(ids));
-};
-
-const accessDedupeKey = (access: ProjectAccess) => {
-  const username = normalizeAccessValue(access.username);
-  const code = normalizeAccessValue(access.code);
-  const aliases = (access.aliases ?? [])
-    .map(normalizeAccessValue)
-    .filter(Boolean);
-  const projectIds = accessProjectIds(access);
-
-  if (access.role === "admin") return `admin:${username || aliases[0] || code}`;
-  if (username) return `user:${username}`;
-  if (aliases.length) return `alias:${aliases[0]}`;
-  if (projectIds.length && code) return `project-code:${projectIds.join(",")}:${code}`;
-  if (code) return `code:${code}`;
-  return `project:${projectIds.join(",") || normalizeAccessValue(access.projectName)}`;
-};
-
-const mergeProjectAccess = (
-  existing: ProjectAccess,
-  item: ProjectAccess,
-): ProjectAccess => {
-  const projectIds = Array.from(
-    new Set([...accessProjectIds(existing), ...accessProjectIds(item)]),
-  );
-  const role: ProjectAccess["role"] =
-    existing.role === "admin" || item.role === "admin"
-      ? "admin"
-      : existing.role === "readonly" || item.role === "readonly"
-        ? "readonly"
-        : "readwrite";
-
-  return {
-    ...existing,
-    ...item,
-    username: item.username || existing.username,
-    password: item.password || existing.password,
-    displayName: item.displayName || existing.displayName,
-    role,
-    code: item.code || existing.code,
-    aliases: Array.from(
-      new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
-    ),
-    projectName:
-      role === "admin"
-        ? null
-        : item.projectName || existing.projectName || null,
-    projectIds: projectIds.length ? projectIds : undefined,
-    signatureDataUrl: item.signatureDataUrl || existing.signatureDataUrl || "",
-    signatureFileName:
-      item.signatureFileName || existing.signatureFileName || "",
-  };
-};
-
 const accessLoginMatches = (access: ProjectAccess, value: string) => {
   const normalized = normalizeAccessValue(value);
   const aliases = Array.isArray(access.aliases) ? access.aliases : [];
@@ -2433,15 +2314,6 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
               .map((alias: unknown) => String(alias ?? "").trim())
               .filter(Boolean)
           : undefined,
-        projectIds: Array.isArray(item.projectIds ?? item.project_ids)
-          ? (item.projectIds ?? item.project_ids)
-              .map(normalizeStoredProjectId)
-              .filter(Boolean)
-          : item.projectId || item.project_id
-            ? [normalizeStoredProjectId(item.projectId ?? item.project_id)].filter(Boolean)
-            : item.code && normalizeStoredProjectId(item.code).includes("-")
-              ? [normalizeStoredProjectId(item.code)].filter(Boolean)
-              : undefined,
         projectName:
           normalizeAccessRole(item.role) === "admin"
             ? null
@@ -2454,13 +2326,27 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   const unique = Array.from(
     normalized
       .reduce((map, item) => {
-        const key = accessDedupeKey(item);
+        const key = [
+          normalizeAccessValue(item.role),
+          normalizeAccessValue(item.username),
+          normalizeAccessValue(item.code),
+        ].join("|");
         const existing = map.get(key);
         if (!existing) {
           map.set(key, item);
           return map;
         }
-        map.set(key, mergeProjectAccess(existing, item));
+        map.set(key, {
+          ...existing,
+          ...item,
+          aliases: Array.from(
+            new Set([...(existing.aliases ?? []), ...(item.aliases ?? [])]),
+          ),
+          signatureDataUrl:
+            item.signatureDataUrl || existing.signatureDataUrl || "",
+          signatureFileName:
+            item.signatureFileName || existing.signatureFileName || "",
+        });
         return map;
       }, new Map<string, ProjectAccess>())
       .values(),
@@ -2479,13 +2365,6 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   ).trim(),
   role: normalizeAccessRole(row?.role),
   code: row?.code ? String(row.code).trim() : undefined,
-  projectIds: Array.isArray(row?.project_ids ?? row?.projectIds)
-    ? (row.project_ids ?? row.projectIds).map(normalizeStoredProjectId).filter(Boolean)
-    : row?.project_id
-      ? [normalizeStoredProjectId(row.project_id)].filter(Boolean)
-      : row?.code && normalizeStoredProjectId(row.code).includes("-")
-        ? [normalizeStoredProjectId(row.code)].filter(Boolean)
-        : undefined,
   projectName:
     normalizeAccessRole(row?.role) === "admin"
       ? null
@@ -2510,7 +2389,6 @@ type StoredAuthSession = {
   username?: string;
   code?: string;
   role?: ProjectAccess["role"];
-  projectIds?: string[];
   authProvider?: ProjectAccess["authProvider"];
   expiresAt?: number;
 };
@@ -2555,7 +2433,6 @@ const writeAuthSession = (access: ProjectAccess) => {
     username: access.username,
     code: access.code,
     role: access.role,
-    projectIds: access.projectIds,
     authProvider: access.authProvider,
     expiresAt: Date.now() + AUTH_SESSION_TIMEOUT_MS,
   };
@@ -8634,59 +8511,6 @@ function useNarrowScreen(maxWidth = 720) {
   return isNarrow;
 }
 
-const firstFolderRecordValue = (...values: unknown[]) =>
-  values.map((value) => String(value ?? "").trim()).find(Boolean) || "";
-
-const folderRecordDetails = (record: any) => (record && typeof record.details === "object" ? record.details : {});
-
-const folderRecordFromSection = (record: any) => {
-  const details = folderRecordDetails(record);
-  return firstFolderRecordValue(
-    record?.fromSection,
-    record?.stationSection,
-    record?.fromChainage,
-    record?.fromStation,
-    record?.from_section,
-    record?.station_section,
-    details.fromSection,
-    details.stationSection,
-    details.from_section,
-    details.station_section,
-  );
-};
-
-const folderRecordToSection = (record: any) => {
-  const details = folderRecordDetails(record);
-  return firstFolderRecordValue(
-    record?.toSection,
-    record?.toStationSection,
-    record?.toChainage,
-    record?.toStation,
-    record?.to_section,
-    record?.to_station_section,
-    details.toSection,
-    details.toStationSection,
-    details.to_section,
-    details.to_station_section,
-  );
-};
-
-const folderRecordOffsetSide = (record: any) => {
-  const details = folderRecordDetails(record);
-  return firstFolderRecordValue(
-    record?.offset,
-    record?.side,
-    record?.roadSide,
-    record?.offsetSide,
-    record?.road_side,
-    details.offset,
-    details.side,
-    details.roadSide,
-    details.offsetSide,
-    details.road_side,
-  );
-};
-
 function FolderRecordsTable({
   title,
   description,
@@ -8695,8 +8519,6 @@ function FolderRecordsTable({
   onOpen,
   onDelete,
   onNew,
-  onSendSelectedEmail,
-  sendSelectedLabel = "שלח מסומנים במייל",
 }: {
   title: string;
   description?: string;
@@ -8705,61 +8527,11 @@ function FolderRecordsTable({
   onOpen?: (id: string) => void;
   onDelete?: (id: string) => void;
   onNew?: () => void;
-  onSendSelectedEmail?: (records: any[]) => void | Promise<void>;
-  sendSelectedLabel?: string;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
-  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
-  const canSelectRecords = Boolean(onSendSelectedEmail);
-  const visibleRecordIds = safeRecords.map((record, index) => String(record?.id ?? index));
-  const selectedRecords = safeRecords.filter((record, index) =>
-    selectedRecordIds.includes(String(record?.id ?? index)),
-  );
-  const allVisibleSelected = Boolean(
-    canSelectRecords &&
-      visibleRecordIds.length &&
-      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
-  );
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
-  const existingColumnLabels = new Set(columns.map((column) => String(column.label).trim()));
-  const locationColumns: FolderColumn[] = [
-    { label: "מחתך", value: (record) => folderRecordFromSection(record) || "-" },
-    { label: "עד חתך", value: (record) => folderRecordToSection(record) || "-" },
-    { label: "היסט/צד", value: (record) => folderRecordOffsetSide(record) || "-" },
-  ].filter((column) => {
-    if (column.label === "היסט/צד") {
-      return !["היסט/צד", "היסט", "הסט", "צד"].some((label) => existingColumnLabels.has(label));
-    }
-    return !existingColumnLabels.has(column.label);
-  });
-  const locationInsertIndex = columns.findIndex((column) => String(column.label).includes("מיקום"));
-  const displayColumns =
-    locationInsertIndex >= 0
-      ? [...columns.slice(0, locationInsertIndex + 1), ...locationColumns, ...columns.slice(locationInsertIndex + 1)]
-      : [...columns, ...locationColumns];
-
-  useEffect(() => {
-    setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
-  }, [visibleRecordIds.join("|")]);
-
-  const toggleRecordSelection = (id: string, checked: boolean) => {
-    setSelectedRecordIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id)));
-  };
-
-  const toggleAllVisibleRecords = (checked: boolean) => {
-    setSelectedRecordIds((prev) =>
-      checked
-        ? Array.from(new Set([...prev, ...visibleRecordIds]))
-        : prev.filter((id) => !visibleRecordIds.includes(id)),
-    );
-  };
-
-  const sendSelectedRecords = async () => {
-    if (!onSendSelectedEmail || !selectedRecords.length) return;
-    await onSendSelectedEmail(selectedRecords);
-  };
 
   return (
     <section
@@ -8790,23 +8562,11 @@ function FolderRecordsTable({
             <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>{description}</div>
           ) : null}
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {onSendSelectedEmail ? (
-            <button
-              type="button"
-              style={selectedRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
-              onClick={sendSelectedRecords}
-              disabled={!selectedRecords.length}
-            >
-              {sendSelectedLabel} ({selectedRecords.length})
-            </button>
-          ) : null}
-          {onNew ? (
-            <button type="button" style={styles.primaryBtn} onClick={onNew}>
-              חדש
-            </button>
-          ) : null}
-        </div>
+        {onNew ? (
+          <button type="button" style={styles.primaryBtn} onClick={onNew}>
+            חדש
+          </button>
+        ) : null}
       </div>
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
@@ -8825,18 +8585,7 @@ function FolderRecordsTable({
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950, color: "#0f172a" }}>
-                      {canSelectRecords ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedRecordIds.includes(id)}
-                          onChange={(event) => toggleRecordSelection(id, event.target.checked)}
-                          style={{ width: 18, height: 18 }}
-                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
-                        />
-                      ) : null}
-                      #{serialFor(record, index)}
-                    </span>
+                    <span style={{ fontWeight: 950, color: "#0f172a" }}>#{serialFor(record, index)}</span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
                         <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
@@ -8851,7 +8600,7 @@ function FolderRecordsTable({
                     </div>
                   </div>
                   <div style={{ display: "grid", gap: 8 }}>
-                    {displayColumns.map((column) => (
+                    {columns.map((column) => (
                       <div
                         key={column.label}
                         style={{
@@ -8889,19 +8638,8 @@ function FolderRecordsTable({
         >
           <thead>
             <tr style={{ background: "#eef2f7" }}>
-              {canSelectRecords ? (
-                <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center", width: 54 }}>
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={(event) => toggleAllVisibleRecords(event.target.checked)}
-                    aria-label="בחר את כל הרשומות"
-                    style={{ width: 18, height: 18 }}
-                  />
-                </th>
-              ) : null}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
-              {displayColumns.map((column) => (
+              {columns.map((column) => (
                 <th
                   key={column.label}
                   style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}
@@ -8918,21 +8656,10 @@ function FolderRecordsTable({
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
-                    {canSelectRecords ? (
-                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedRecordIds.includes(id)}
-                          onChange={(event) => toggleRecordSelection(id, event.target.checked)}
-                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
-                          style={{ width: 18, height: 18 }}
-                        />
-                      </td>
-                    ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
                       {serialFor(record, index)}
                     </td>
-                    {displayColumns.map((column) => (
+                    {columns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
                         {column.value(record, index) || "-"}
                       </td>
@@ -8956,7 +8683,7 @@ function FolderRecordsTable({
               })
             ) : (
               <tr>
-                <td colSpan={displayColumns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={columns.length + 2} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
@@ -11861,33 +11588,6 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["תיאור החומר", "סוג החומר"], firstText(valueAfterExactLabel(["סוג החומר"]), material));
   setMetric(["מקור החומר", "מקור"], firstText(valueAfterExactLabel(["מקור החומר"]), source));
   setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], firstText(valueAfterExactLabel(["קטע נבדק"]), samplePlace));
-
-  const isSoilSurveyTable =
-    /\bA-\d-[A-Za-z0-9]\(\d+\)/.test(text) &&
-    rawLines.some((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4")) &&
-    /(?:LL|PL|PI|AASHTO)/i.test(text);
-  const isPercentValue = (value: unknown) => {
-    const numeric = Number(String(value ?? "").replace(",", "."));
-    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100;
-  };
-  const firstSoilSurveyRow = () => {
-    for (const line of rawLines) {
-      const match = line.match(
-        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
-      );
-      if (!match) continue;
-      const nums = match[1].trim().split(/\s+/).map((value) => value.replace(",", "."));
-      if (nums.length < 8) continue;
-      const pi = nums.pop() ?? "";
-      const pl = nums.pop() ?? "";
-      const ll = nums.pop() ?? "";
-      const gs = nums.pop() ?? "";
-      const sieves = nums.filter(isPercentValue);
-      if (sieves.length < 5) continue;
-      return { sieves, gs, ll, pl, pi, aashto: match[3].trim(), unified: match[2].trim().toUpperCase() };
-    }
-    return null;
-  };
 
   const setSieveValues = (values: string[]) => {
     const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
@@ -14877,8 +14577,6 @@ export default function Page() {
     field: keyof ProjectAccess,
     value: string,
   ) => {
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    const activeProjectName = currentProject?.name ?? "";
     setDraftAccessUsers((prevUsers) =>
       prevUsers.map((user, userIndex) => {
         if (userIndex !== index) return user;
@@ -14888,13 +14586,8 @@ export default function Page() {
         } as ProjectAccess;
         if (field === "role") updated.role = normalizeAccessRole(value);
         if (field === "role" && updated.role === "admin") updated.projectName = null;
-        if (updated.role !== "admin") {
-          if (!updated.projectName) updated.projectName = activeProjectName;
-          if ((!updated.projectIds || updated.projectIds.length === 0) && activeProjectId) {
-            updated.projectIds = [activeProjectId];
-          }
-          if (!updated.code && activeProjectId) updated.code = activeProjectId;
-        }
+        if (field === "role" && updated.role !== "admin" && !updated.projectName)
+          updated.projectName = projects[0]?.name ?? "";
         return updated;
       }),
     );
@@ -14921,18 +14614,16 @@ export default function Page() {
   };
 
   const addAccessUser = () => {
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    const activeProjectName = currentProject?.name ?? "";
+    const nextNumber = draftAccessUsers.length + 1;
     setDraftAccessUsers((prevUsers) => [
       ...prevUsers,
       {
         username: `user${prevUsers.length + 1}`,
         password: "1234",
         displayName: `משתמש ${prevUsers.length + 1}`,
-        role: "readonly",
-        code: activeProjectId || `project-user-${prevUsers.length + 1}`,
-        projectIds: activeProjectId ? [activeProjectId] : undefined,
-        projectName: activeProjectName,
+        role: "readwrite",
+        code: `new-project-${nextNumber}`,
+        projectName: "",
         signatureDataUrl: "",
         signatureFileName: "",
       },
@@ -15486,6 +15177,13 @@ export default function Page() {
           return missing.length ? [...missing, ...prev] : prev;
         });
 
+        if (
+          candidateProjectId !== normalizedProjectId &&
+          !isAdminAccess(projectAccess)
+        ) {
+          setCurrentProjectId(candidateProjectId);
+          writeLocalCurrentProjectId(candidateProjectId);
+        }
         return;
       }
     })();
@@ -15789,13 +15487,9 @@ export default function Page() {
   const savedCurrentProjectLegend = useMemo(
     () =>
       currentProject
-        ? sanitizeLegendForProjectId(
-            currentProject.id,
-            normalizeProjectLegend(
-              projectLegends[normalizeStoredProjectId(currentProject.id)] ??
-                projectLegends[currentProject.id],
-              currentProject.name,
-            ),
+        ? normalizeProjectLegend(
+            projectLegends[normalizeStoredProjectId(currentProject.id)] ??
+              projectLegends[currentProject.id],
             currentProject.name,
           )
         : normalizeProjectLegend(null, ""),
@@ -15804,17 +15498,13 @@ export default function Page() {
   const currentProjectLegend = useMemo(
     () =>
       currentProject && (editingProjectLegend || projectLegendDirty)
-        ? sanitizeLegendForProjectId(
-            currentProject.id,
-            normalizeProjectLegend(
-              draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-                draftProjectLegends[
-                  normalizeStoredProjectId(currentProject.id)
-                ] ??
-                draftProjectLegends[currentProject.id] ??
-                savedCurrentProjectLegend,
-              currentProject.name,
-            ),
+        ? normalizeProjectLegend(
+            draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
+              draftProjectLegends[
+                normalizeStoredProjectId(currentProject.id)
+              ] ??
+              draftProjectLegends[currentProject.id] ??
+              savedCurrentProjectLegend,
             currentProject.name,
           )
         : savedCurrentProjectLegend,
@@ -17325,7 +17015,8 @@ export default function Page() {
         }));
       });
 
-      const persistGlobalActive = options.persistGlobalActive ?? false;
+      const persistGlobalActive =
+        options.persistGlobalActive ?? isAdminAccess(projectAccess);
       if (persistGlobalActive && cloudEnabled && supabase) {
         try {
           await supabase
@@ -20868,10 +20559,6 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
-  const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi" | "preliminaryRecords">("form");
-  const [emailCustomMessage, setEmailCustomMessage] = useState("");
-  const [pendingRfiEmailRecord, setPendingRfiEmailRecord] = useState<RfiRecord | null>(null);
-  const [pendingPreliminaryEmailRecords, setPendingPreliminaryEmailRecords] = useState<any[]>([]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -20909,7 +20596,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return false;
   };
 
-  const sendEmailToRecipients = async (recipientEmails: string[], customMessage = "") => {
+  const sendEmailToRecipients = async (recipientEmails: string[]) => {
     if (!ensureQualityControllerEmailSender()) return;
     try {
       const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
@@ -20928,11 +20615,6 @@ ${invalidRecipients.join("\n")}`);
       const exportChecklistNo = getExportChecklistNo();
       const title = recordTitleForExport();
       const html = exportHtml(exportChecklistNo);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
 
       const mergedPdfBlob = await buildMergedPdfBlob(title, html);
       const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
@@ -20950,8 +20632,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: normalizedRecipient,
           subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div></div>`,
-          text: `${messagePlain}מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
+          html: `<div dir="rtl">מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div>`,
+          text: `מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -20973,96 +20655,9 @@ ${invalidRecipients.join("\n")}`);
     }
   };
 
-  const sendPreliminaryRecordsEmailToRecipients = async (
-    recordsToSend: any[],
-    recipientEmails: string[],
-    customMessage = "",
-  ) => {
-    if (!ensureQualityControllerEmailSender()) return;
-    const records = recordsToSend.filter(Boolean);
-    if (!records.length) {
-      alert("יש לסמן לפחות רשומה אחת לשליחה");
-      return;
-    }
-    const recipients = normalizeEmailList(recipientEmails.join(","));
-    if (!recipients.length) return;
-    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
-    if (invalidRecipients.length) {
-      alert(`כתובות המייל הבאות אינן תקינות:\n${invalidRecipients.join("\n")}`);
-      return;
-    }
-    try {
-      const uniqueRecipients = Array.from(new Set(recipients));
-      const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
-      const body = records
-        .map((record, index) => {
-          const recordTitle = record?.title || labelForPreliminary(record?.subtype || preliminaryTab);
-          return `<section style="${index ? "page-break-before:always;" : ""}"><h2>${index + 1}. ${safeText(recordTitle)}</h2>${preliminaryRecordArchiveBody(record)}</section>`;
-        })
-        .join("");
-      const html = archivePrintableHtml(sectionTitle, body);
-      const appendices = uniqueEmailAttachments(records.flatMap((record) => archiveRecordPdfAppendices(record)));
-      const pdfBlob = await buildMergedPdfBlob(sectionTitle, html, appendices);
-      const pdfDataUrl = await blobToDataUrl(pdfBlob);
-      const attachments = uniqueEmailAttachments([
-        dataUrlToEmailAttachment(`${sectionTitle} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
-      ]);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
-      const response = await fetch("/api/send-checklist-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: uniqueRecipients.join(", "),
-          subject: `${sectionTitle} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${safeText(projectName)}.</div></div>`,
-          text: `${messagePlain}מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${projectName}.`,
-          attachments,
-          projectId: currentProject?.id || projectName || "806",
-          ...currentEmailSender,
-        }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
-      }
-      alert(`המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} רשומות מסומנות.`);
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
-    }
-  };
-
-  const sendPreliminaryRecordsEmail = async (recordsToSend: any[]) => {
-    if (!recordsToSend.length) {
-      alert("יש לסמן לפחות רשומה אחת לשליחה");
-      return;
-    }
-    if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("preliminaryRecords");
-      setPendingRfiEmailRecord(null);
-      setPendingPreliminaryEmailRecords(recordsToSend);
-      setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const rawRecipients = normalizeEmailList(recipientInput);
-    if (!rawRecipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendPreliminaryRecordsEmailToRecipients(recordsToSend, rawRecipients, message);
-  };
-
   const sendCurrentFormEmail = async () => {
     if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("form");
-      setPendingRfiEmailRecord(null);
-      setPendingPreliminaryEmailRecords([]);
       setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
       setEmailRecipientDialogOpen(true);
       return;
     }
@@ -21070,8 +20665,7 @@ ${invalidRecipients.join("\n")}`);
     const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const rawRecipients = normalizeEmailList(recipientInput);
     if (!rawRecipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendEmailToRecipients(rawRecipients, message);
+    await sendEmailToRecipients(rawRecipients);
   };
 
   const confirmSelectedEmailRecipients = async () => {
@@ -21082,24 +20676,8 @@ ${invalidRecipients.join("\n")}`);
       alert("יש לסמן לפחות משתמש אחד בריבוע הבחירה");
       return;
     }
-    const mode = emailRecipientDialogMode;
-    const message = emailCustomMessage;
-    const rfiRecord = pendingRfiEmailRecord;
     setEmailRecipientDialogOpen(false);
-    if (mode === "rfi" && rfiRecord) {
-      await sendRfiEmailToRecipients(rfiRecord, recipientEmails, message);
-      setPendingRfiEmailRecord(null);
-      setEmailCustomMessage("");
-      return;
-    }
-    if (mode === "preliminaryRecords") {
-      await sendPreliminaryRecordsEmailToRecipients(pendingPreliminaryEmailRecords, recipientEmails, message);
-      setPendingPreliminaryEmailRecords([]);
-      setEmailCustomMessage("");
-      return;
-    }
-    await sendEmailToRecipients(recipientEmails, message);
-    setEmailCustomMessage("");
+    await sendEmailToRecipients(recipientEmails);
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -21701,13 +21279,9 @@ ${invalidRecipients.join("\n")}`);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const sendRfiEmailToRecipients = async (
-    record: RfiRecord,
-    recipientEmails: string[],
-    customMessage = "",
-  ) => {
+  const sendRfiEmail = async (record: RfiRecord) => {
     if (!ensureQualityControllerEmailSender()) return;
-    const recipientInput = recipientEmails.join(",");
+    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const recipients = normalizeEmailList(recipientInput);
     if (!recipients.length) return;
     const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
@@ -21722,19 +21296,14 @@ ${invalidRecipients.join("\n")}`);
       const attachments = uniqueEmailAttachments([
         dataUrlToEmailAttachment(`${rfiExportTitle(record)} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
       ]);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
       const response = await fetch("/api/send-checklist-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: Array.from(new Set(recipients)).join(", "),
           subject: `${rfiExportTitle(record)} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div></div>`,
-          text: `${messagePlain}מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
+          html: `<div dir="rtl">מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div>`,
+          text: `מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -21749,24 +21318,6 @@ ${invalidRecipients.join("\n")}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
-  };
-
-  const sendRfiEmail = async (record: RfiRecord) => {
-    if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("rfi");
-      setPendingRfiEmailRecord(record);
-      setPendingPreliminaryEmailRecords([]);
-      setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-
-    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const recipients = normalizeEmailList(recipientInput);
-    if (!recipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendRfiEmailToRecipients(record, recipients, message);
   };
 
   const showExportButtons = [
@@ -21839,135 +21390,116 @@ ${invalidRecipients.join("\n")}`);
   }
 
   if (showProjectPicker && accessibleProjects.length > 1) {
-    const pickerAccentGold = "#d9a441";
-    const pickerNavy = "#0f1b2d";
     return (
-      <div dir="rtl" style={{ minHeight: "100vh", background: "#f7f7f5", padding: 24 }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "grid", gap: 18 }}>
-          <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 12,
-                background: pickerAccentGold,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 700,
-                fontSize: 18,
-                color: pickerNavy,
-                margin: "0 auto 12px",
-              }}
-            >
-              YK
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: pickerNavy }}>בחירת פרויקט לעבודה</div>
-            <div style={{ marginTop: 4, fontSize: 13, color: "#6b6f76" }}>
-              שלום {projectAccess.displayName || projectAccess.username}, בחר את הפרויקט שברצונך לפתוח
-            </div>
-          </div>
-
-          <div
+      <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
+        <div
+          style={{
+            maxWidth: 1180,
+            margin: "0 auto",
+            display: "grid",
+            gap: 18,
+          }}
+        >
+          <section
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 12,
+              background: "#0f172a",
+              color: "#fff",
+              borderRadius: 18,
+              padding: "26px 28px",
+              boxShadow: "0 18px 55px rgba(15, 23, 42, 0.22)",
             }}
           >
+            <div style={{ fontSize: 28, fontWeight: 950 }}>בחירת פרויקט לעבודה</div>
+            <div style={{ marginTop: 8, color: "#cbd5e1", fontWeight: 800 }}>
+              שלום {projectAccess.displayName || projectAccess.username}, בחר את הפרויקט שברצונך לפתוח.
+            </div>
+          </section>
+
+          <section
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 18,
+              overflow: "hidden",
+              boxShadow: "0 12px 35px rgba(15, 23, 42, 0.08)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 160px",
+                gap: 12,
+                padding: "14px 18px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "#f1f5f9",
+                color: "#334155",
+                fontWeight: 950,
+              }}
+            >
+              <div>שם הפרויקט</div>
+              <div style={{ textAlign: "center" }}>פעולה</div>
+            </div>
             {accessibleProjects.map((project) => {
               const isSelected =
                 normalizeStoredProjectId(project.id) ===
                 normalizeStoredProjectId(currentProjectId);
-              const initial = (project.name || "?").trim().charAt(0);
               return (
                 <div
                   key={project.id}
                   style={{
-                    background: "#fff",
-                    border: isSelected ? `2px solid ${pickerAccentGold}` : "1px solid #e5e5e1",
-                    borderRadius: 12,
-                    padding: "18px 20px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 160px",
+                    gap: 12,
+                    alignItems: "center",
+                    padding: "18px",
+                    borderBottom: "1px solid #e2e8f0",
+                    background: isSelected ? "#f0fdf4" : "#fff",
                   }}
                 >
-                  {isSelected ? (
-                    <span
-                      style={{
-                        display: "inline-block",
-                        background: "#fdf3e2",
-                        color: "#8a5a10",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "2px 10px",
-                        borderRadius: 6,
-                        marginBottom: 8,
-                      }}
-                    >
-                      נכנסת לאחרונה
-                    </span>
-                  ) : null}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
-                        background: "#eaf1fb",
-                        color: "#185fa5",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 700,
-                        fontSize: 16,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {initial}
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 950, color: "#0f172a" }}>
+                      {project.name}
                     </div>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: pickerNavy }}>{project.name}</div>
-                      {project.description || project.manager ? (
-                        <div style={{ marginTop: 2, fontSize: 12, color: "#8a8d94" }}>
-                          {[project.description, project.manager].filter(Boolean).join(" · ")}
-                        </div>
-                      ) : null}
-                    </div>
+                    {project.description || project.manager ? (
+                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 750 }}>
+                        {[project.description, project.manager].filter(Boolean).join(" · ")}
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      void setActiveProject(project.id).then(() => setShowProjectPicker(false));
+                      void setActiveProject(project.id, {
+                        persistGlobalActive: isAdminAccess(projectAccess),
+                      }).then(() => setShowProjectPicker(false));
                     }}
                     style={{
-                      width: "100%",
                       border: 0,
-                      borderRadius: 8,
-                      background: pickerNavy,
+                      borderRadius: 10,
+                      background: "#16a34a",
                       color: "#fff",
-                      padding: "10px 12px",
-                      fontWeight: 700,
-                      fontSize: 13,
+                      padding: "11px 12px",
+                      fontWeight: 950,
                       cursor: "pointer",
                     }}
                   >
-                    כניסה לפרויקט ↗
+                    כניסה לפרויקט
                   </button>
                 </div>
               );
             })}
-          </div>
+          </section>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={logoutProject}
               style={{
-                border: "1px solid #d6d6d1",
+                border: "1px solid #cbd5e1",
                 background: "#fff",
-                borderRadius: 8,
+                borderRadius: 10,
                 padding: "10px 14px",
-                fontWeight: 700,
-                fontSize: 13,
+                fontWeight: 900,
                 cursor: "pointer",
               }}
             >
@@ -21978,12 +21510,11 @@ ${invalidRecipients.join("\n")}`);
                 type="button"
                 onClick={() => setShowProjectPicker(false)}
                 style={{
-                  border: "1px solid #d6d6d1",
+                  border: "1px solid #cbd5e1",
                   background: "#fff",
-                  borderRadius: 8,
+                  borderRadius: 10,
                   padding: "10px 14px",
-                  fontWeight: 700,
-                  fontSize: 13,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -22029,26 +21560,6 @@ ${invalidRecipients.join("\n")}`);
             <div style={{ color: "#64748b", marginBottom: 14 }}>
               סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
             </div>
-            <label style={{ display: "block", marginBottom: 14 }}>
-              <span style={{ display: "block", fontWeight: 900, marginBottom: 6 }}>
-                הודעה שתופיע בגוף המייל
-              </span>
-              <textarea
-                value={emailCustomMessage}
-                onChange={(event) => setEmailCustomMessage(event.target.value)}
-                placeholder="לדוגמה: מצורפים מסמכים לבדיקה/התייחסות."
-                rows={4}
-                style={{
-                  width: "100%",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 12,
-                  padding: 12,
-                  font: "inherit",
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                }}
-              />
-            </label>
             <div style={{ display: "grid", gap: 8 }}>
               {emailRecipientOptions.map((user) => {
                 const checked = selectedEmailRecipientIds.includes(user.id);
@@ -22279,14 +21790,12 @@ ${invalidRecipients.join("\n")}`);
           type="button"
           style={{
             ...styles.navBtn,
-            background: "#fff",
-            color: "#0f172a",
+            background: section === "projectStructure" ? "#0f172a" : "#fff",
+            color: section === "projectStructure" ? "#fff" : "#0f172a",
           }}
-          onClick={() => {
-            window.location.href = "/engineering-templates";
-          }}
+          onClick={() => setSection("projectStructure")}
         >
-          🏗️ ספריית תבניות / עץ פרויקט חדש
+          עץ פרויקט
         </button>
         <button
           type="button"
@@ -22355,7 +21864,23 @@ ${invalidRecipients.join("\n")}`);
               onChange={setActiveStructureNodeId}
             />
           )}
-          {false && section === "projectStructure" && null}
+          {section === "projectStructure" && (
+            <ProjectStructureSection
+              nodes={currentProjectStructureNodes}
+              plans={currentProjectPlans}
+              form={projectStructureForm}
+              editingId={editingProjectStructureNodeId}
+              canWrite={canWriteAccess(projectAccess)}
+              onChange={(patch) =>
+                setProjectStructureForm((prev) => ({ ...prev, ...patch }))
+              }
+              onSave={saveProjectStructureNode}
+              onEdit={editProjectStructureNode}
+              onDelete={deleteProjectStructureNode}
+              onReset={resetProjectStructureForm}
+              onGenerateFromPlans={generateProjectStructureFromPlans}
+            />
+          )}
           {section === "projectDetails" && currentProject && (
             <ProjectLegendPanel
               legend={currentProjectLegend}
@@ -22863,8 +22388,6 @@ ${invalidRecipients.join("\n")}`);
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
-                onSendSelectedEmail={sendPreliminaryRecordsEmail}
-                sendSelectedLabel="שלח מסומנים במייל"
               />
             <PreliminarySection
               guardedBody={guardedBody}
