@@ -2434,7 +2434,6 @@ const cleanEarthworksMaterial = (value: unknown): string => {
 const earthworksRowHasCertificateEvidence = (row: Row): boolean =>
   [
     earthworksFieldColumns[16],
-    earthworksFieldColumns[17],
     earthworksFieldColumns[19],
     earthworksFieldColumns[26],
     earthworksFieldColumns[27],
@@ -2684,6 +2683,7 @@ const normalizeEarthworksThickness = (value: unknown): string => {
 
 const inferEarthworksWorkType = (rawWorkType: unknown, sources: any[]): string => {
   const raw = cleanText(rawWorkType);
+  if (raw && includesAny(raw, earthworksWorkTypeKeywords)) return raw;
   const text = `${raw} ${earthworksAllText(sources)}`;
   if (includesAny(text, ["הידוק מבוקר", "מד גרעיני", "גרעיני"])) return "הידוק מבוקר";
   if (includesAny(text, ["מעברי מכבש", "מעביר מכבש", "תחום החפירה", "חפירה"])) return "חפירה";
@@ -3092,11 +3092,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
         isEarthworksLabCertificateAttachment(attachment, item) || isEarthworksMeasurementAttachment(attachment, item)
       ).filter(rememberAttachment);
 
-      if (!earthworksAttachments.length) {
-        const fallbackRow = earthworksRowFromSources([checklist, item], {}, rows.length + 1, checklistIndex);
-        if (earthworksRowHasCertificateEvidence(fallbackRow)) rows.push(fallbackRow);
-        return;
-      }
+      if (!earthworksAttachments.length) return;
 
       const mergeEarthworksRows = (base: Row, next: Row): Row => {
         const merged: Row = { ...base };
@@ -3365,11 +3361,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
         checklistRows.push(row);
       });
 
-      if (!attachments.length) {
-        const row = earthworksRowFromSources([checklist, item], {}, rawRows.length + checklistRows.length + measurementRows.length + 1, checklistIndex);
-        const outputRow = subbaseFieldRowFromEarthworks(row, reference);
-        if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
-      }
+      if (!attachments.length) return;
     });
 
     const checklistAttachments = directRecordAttachments(checklist)
@@ -3388,12 +3380,6 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
       }
       checklistRows.push(row);
     });
-
-    if (!checklistRows.length && !measurementRows.length) {
-      const row = earthworksRowFromSources([checklist], {}, rawRows.length + 1, checklistIndex);
-      const outputRow = subbaseFieldRowFromEarthworks(row, reference);
-      if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
-    }
 
     const measurementRow = measurementRows.reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
     const labRows = checklistRows.length ? checklistRows : measurementRows;
@@ -3746,6 +3732,24 @@ const definitions: ConcentrationDefinition[] = [
     buildRows: ({ savedRfis }) => savedRfis.map(rfiRow),
   },
 ];
+
+const deferredPreviewConcentrationIds = new Set<ConcentrationId>([
+  "nonconformances",
+  "suppliers",
+  "contractors",
+  "asphalt",
+  "concrete",
+  "piles",
+  "supervision",
+  "materials",
+  "trial-sections",
+  "density",
+  "subbase-a",
+  "selected-material",
+  "earthworks-material-results",
+  "earthworks",
+  "rfi",
+]);
 
 const xmlEscape = (value: unknown): string =>
   cleanText(value)
@@ -5291,6 +5295,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
   const rowsById = useMemo(() => {
     const result: Record<string, Row[]> = {};
     definitions.forEach((definition) => {
+      if (deferredPreviewConcentrationIds.has(definition.id)) return;
       try {
         result[definition.id] = normalizeConcentrationRows(definition, definition.buildRows(ctx));
       } catch (error) {
@@ -5300,6 +5305,14 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     });
     return result;
   }, [ctx]);
+
+  const buildRowsForDefinition = (definition: ConcentrationDefinition, selectedMix = ""): Row[] => {
+    const rows =
+      definition.id === "asphalt"
+        ? buildAsphaltConcentrationRows(ctx, selectedMix)
+        : definition.buildRows(ctx);
+    return normalizeConcentrationRows(definition, rows);
+  };
 
   const visibleDefinitions = useMemo(() => {
     const q = normalize(search);
@@ -5331,14 +5344,16 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     setBusyId(definition.id);
     try {
       let selectedMix = "";
-      let rows = rowsById[definition.id] ?? [];
+      let rows: Row[] = [];
       let fileName = definition.fileName;
       if (definition.id === "asphalt") {
         selectedMix = await pickAsphaltMix();
         if (!selectedMix) return;
         selectedMix = normalizeAsphaltMix(selectedMix) || selectedMix;
-        rows = buildAsphaltConcentrationRows(ctx, selectedMix);
+        rows = buildRowsForDefinition(definition, selectedMix);
         fileName = `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`;
+      } else {
+        rows = buildRowsForDefinition(definition);
       }
       const blob = await buildWorkbookBlob(definition, rows, meta, selectedMix);
       downloadBlob(blob, fileName);
@@ -5370,10 +5385,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
       const zip = new JSZip();
       for (const definition of selectedDefinitions) {
         const selectedMix = definition.id === "asphalt" ? asphaltMix : "";
-        const rows =
-          definition.id === "asphalt"
-            ? buildAsphaltConcentrationRows(ctx, selectedMix)
-            : rowsById[definition.id] ?? [];
+        const rows = buildRowsForDefinition(definition, selectedMix);
         const fileName =
           definition.id === "asphalt"
             ? `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`
@@ -5486,10 +5498,12 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
         {visibleDefinitions.map((definition) => {
-          const rows = rowsById[definition.id] ?? [];
           const isOpen = openId === definition.id;
+          const isDeferredPreview = deferredPreviewConcentrationIds.has(definition.id);
+          const rows = isDeferredPreview && isOpen ? buildRowsForDefinition(definition) : rowsById[definition.id] ?? [];
           const isTemplateConcentration = definition.id === "earthworks-material-results";
           const isSelected = selectedIds.includes(definition.id);
+          const hasRowsOrDeferred = rows.length || isTemplateConcentration || isDeferredPreview;
           return (
             <div
               key={definition.id}
@@ -5510,11 +5524,11 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                   />
                   <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
                 </div>
-                <span style={{ borderRadius: 999, background: rows.length || isTemplateConcentration ? "#dcfce7" : "#f1f5f9", color: rows.length || isTemplateConcentration ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
+                <span style={{ borderRadius: 999, background: hasRowsOrDeferred ? "#dcfce7" : "#f1f5f9", color: hasRowsOrDeferred ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isDeferredPreview ? "נבדק בהורדה" : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
               </div>
 
-              <div style={{ marginTop: 12, color: rows.length ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
+              <div style={{ marginTop: 12, color: rows.length || isDeferredPreview ? "#166534" : "#64748b", fontWeight: 800 }}>
+                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isDeferredPreview && !isOpen ? "הריכוז יחושב בזמן פתיחה או הורדה כדי לשמור על מהירות המסך." : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
               </div>
 
               <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
