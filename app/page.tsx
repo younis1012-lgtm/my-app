@@ -2788,6 +2788,11 @@ const selectInitialProjectIdForAccess = (
   ) || null;
 };
 
+const requiresExplicitProjectSelection = (
+  sourceProjects: Project[],
+  access: ProjectAccess | null,
+) => getAccessibleProjectsForAccess(sourceProjects, access).length > 1;
+
 const normalizeHebrewProjectName = (value: unknown) =>
   String(value ?? "")
     .replace(/[׳`’']/g, "")
@@ -14460,7 +14465,7 @@ export default function Page() {
     useState<PreliminaryTab>("suppliers");
   const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(
-    readLocalCurrentProjectId() ?? getDefaultProjectList()[0]?.id ?? null,
+    readLocalCurrentProjectId(),
   );
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
@@ -14704,14 +14709,20 @@ export default function Page() {
         storedSession || hasSupabaseSession ? await loadSupabaseAuthAccess() : null;
       if (cancelled) return;
       if (supabaseAuthUser) {
-        const selectedProjectId = selectInitialProjectIdForAccess(
-          projects.length ? projects : getDefaultProjectList(),
-          supabaseAuthUser,
-          readLocalCurrentProjectId(),
-        );
-        if (selectedProjectId) {
-          setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId);
+        const projectList = projects.length ? projects : getDefaultProjectList();
+        if (!requiresExplicitProjectSelection(projectList, supabaseAuthUser)) {
+          const selectedProjectId = selectInitialProjectIdForAccess(
+            projectList,
+            supabaseAuthUser,
+            readLocalCurrentProjectId(),
+          );
+          if (selectedProjectId) {
+            setCurrentProjectId(selectedProjectId);
+            writeLocalCurrentProjectId(selectedProjectId);
+          }
+        } else {
+          setCurrentProjectId(null);
+          writeLocalCurrentProjectId(null);
         }
         setProjectAccess(supabaseAuthUser);
         setShowProjectPicker(true);
@@ -14730,14 +14741,20 @@ export default function Page() {
       // רענון דף בתוך הטווח לא מנתק את המשתמש.
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
-        const selectedProjectId = selectInitialProjectIdForAccess(
-          projects.length ? projects : getDefaultProjectList(),
-          storedUser,
-          readLocalCurrentProjectId(),
-        );
-        if (selectedProjectId) {
-          setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId);
+        const projectList = projects.length ? projects : getDefaultProjectList();
+        if (!requiresExplicitProjectSelection(projectList, storedUser)) {
+          const selectedProjectId = selectInitialProjectIdForAccess(
+            projectList,
+            storedUser,
+            readLocalCurrentProjectId(),
+          );
+          if (selectedProjectId) {
+            setCurrentProjectId(selectedProjectId);
+            writeLocalCurrentProjectId(selectedProjectId);
+          }
+        } else {
+          setCurrentProjectId(null);
+          writeLocalCurrentProjectId(null);
         }
         setProjectAccess(storedUser);
         setShowProjectPicker(true);
@@ -14857,14 +14874,20 @@ export default function Page() {
       try {
         const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
         if (authAccess) {
-          const selectedProjectId = selectInitialProjectIdForAccess(
-            projects.length ? projects : getDefaultProjectList(),
-            authAccess,
-            readLocalCurrentProjectId(),
-          );
-          if (selectedProjectId) {
-            setCurrentProjectId(selectedProjectId);
-            writeLocalCurrentProjectId(selectedProjectId);
+          const projectList = projects.length ? projects : getDefaultProjectList();
+          if (!requiresExplicitProjectSelection(projectList, authAccess)) {
+            const selectedProjectId = selectInitialProjectIdForAccess(
+              projectList,
+              authAccess,
+              readLocalCurrentProjectId(),
+            );
+            if (selectedProjectId) {
+              setCurrentProjectId(selectedProjectId);
+              writeLocalCurrentProjectId(selectedProjectId);
+            }
+          } else {
+            setCurrentProjectId(null);
+            writeLocalCurrentProjectId(null);
           }
           setLoginError("");
           setProjectAccess(authAccess);
@@ -14891,14 +14914,20 @@ export default function Page() {
       return;
     }
     setLoginError("");
-    const selectedProjectId = selectInitialProjectIdForAccess(
-      projects.length ? projects : getDefaultProjectList(),
-      access,
-      readLocalCurrentProjectId(),
-    );
-    if (selectedProjectId) {
-      setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId);
+    const projectList = projects.length ? projects : getDefaultProjectList();
+    if (!requiresExplicitProjectSelection(projectList, access)) {
+      const selectedProjectId = selectInitialProjectIdForAccess(
+        projectList,
+        access,
+        readLocalCurrentProjectId(),
+      );
+      if (selectedProjectId) {
+        setCurrentProjectId(selectedProjectId);
+        writeLocalCurrentProjectId(selectedProjectId);
+      }
+    } else {
+      setCurrentProjectId(null);
+      writeLocalCurrentProjectId(null);
     }
     setProjectAccess(access);
     setShowProjectPicker(true);
@@ -15779,6 +15808,7 @@ export default function Page() {
   // תיקון בחירת פרויקט פעיל: מנהל יכול לשמור בחירה, משתמש רגיל ננעל לפרויקט המורשה.
   useEffect(() => {
     if (!loaded || !projectAccess) return;
+    if (showProjectPicker && accessibleProjects.length > 1) return;
 
     const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
     if (!sourceProjects.length) return;
@@ -15819,7 +15849,7 @@ export default function Page() {
       writeLocalCurrentProjectId(nextProjectId);
       return nextProjectId;
     });
-  }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId]);
+  }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId, showProjectPicker]);
 
   useEffect(() => {
     if (!loaded || !projectAccess || !showProjectPicker) return;
@@ -22179,23 +22209,6 @@ ${invalidRecipients.join("\n")}`);
             >
               יציאה
             </button>
-            {currentProjectId ? (
-              <button
-                type="button"
-                onClick={() => setShowProjectPicker(false)}
-                style={{
-                  border: "1px solid #d6d6d1",
-                  background: "#fff",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                המשך בפרויקט הנוכחי
-              </button>
-            ) : null}
           </div>
         </div>
       </div>
