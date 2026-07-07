@@ -2744,6 +2744,50 @@ const projectMatchesAccess = (
   return false;
 };
 
+const getAccessibleProjectsForAccess = (
+  sourceProjects: Project[],
+  access: ProjectAccess | null,
+) => {
+  if (!access) return [];
+  const projects = sourceProjects.length ? sourceProjects : getDefaultProjectList();
+  const filtered = projects.filter((project) => projectMatchesAccess(project, access));
+  if (filtered.length) return filtered;
+  if (isAdminAccess(access)) return projects;
+  if (isSelfServiceProjectCreator(access)) return [];
+
+  const code =
+    String(access.code ?? access.username ?? "project").trim() || "project";
+  const fallbackName =
+    String(access.projectName ?? "").trim() || "פרויקט " + code;
+  return [
+    {
+      id: normalizeStoredProjectId("project-" + code),
+      name: fallbackName,
+      description: "פרויקט עבודה לפי הרשאת משתמש " + code,
+      manager: "",
+      isActive: true,
+      createdAt: "ברירת מחדל",
+    } as Project,
+  ];
+};
+
+const selectInitialProjectIdForAccess = (
+  sourceProjects: Project[],
+  access: ProjectAccess | null,
+  preferredProjectId?: string | null,
+) => {
+  const accessible = getAccessibleProjectsForAccess(sourceProjects, access);
+  if (!accessible.length) return null;
+  const preferred = normalizeStoredProjectId(preferredProjectId);
+  const preferredProject = preferred
+    ? accessible.find((project) => normalizeStoredProjectId(project.id) === preferred)
+    : null;
+  const activeProject = accessible.find((project) => project.isActive);
+  return normalizeStoredProjectId(
+    preferredProject?.id ?? activeProject?.id ?? accessible[0]?.id ?? "",
+  ) || null;
+};
+
 const normalizeHebrewProjectName = (value: unknown) =>
   String(value ?? "")
     .replace(/[׳`’']/g, "")
@@ -4579,6 +4623,38 @@ async function selectTable(table: string, orderColumn?: string) {
       return empty;
     return result;
   }
+  return ordered;
+}
+
+async function selectProjectTable(
+  table: string,
+  orderColumn: string | undefined,
+  projectIds: string[],
+) {
+  const scopedProjectIds = Array.from(new Set(projectIds.map(normalizeStoredProjectId).filter(Boolean)));
+  if (!scopedProjectIds.length) return selectTable(table, orderColumn);
+
+  const empty = { data: [], error: null } as any;
+  const buildQuery = () => supabase!.from(table).select("*").in("project_id", scopedProjectIds);
+  const baseQuery = buildQuery();
+  if (!orderColumn) {
+    const result = await baseQuery;
+    if (result.error && isMissingRelationError(result.error) && isOptionalCloudTable(table))
+      return empty;
+    if (result.error && isMissingColumnError(result.error, "project_id"))
+      return selectTable(table, orderColumn);
+    return result;
+  }
+
+  const ordered = await buildQuery().order(orderColumn, { ascending: false });
+  if (!ordered.error) return ordered;
+  if (isMissingRelationError(ordered.error) && isOptionalCloudTable(table))
+    return empty;
+  if (
+    isMissingColumnError(ordered.error, orderColumn) ||
+    isMissingColumnError(ordered.error, "project_id")
+  )
+    return selectTable(table, orderColumn);
   return ordered;
 }
 
@@ -14606,15 +14682,32 @@ export default function Page() {
       setDraftAccessUsers(users);
 
       const storedSession = readStoredAuthSession();
-      const supabaseAuthUser = storedSession ? await loadSupabaseAuthAccess() : null;
+      const supabaseSession =
+        isSupabaseConfigured && supabase
+          ? await supabase.auth.getSession().catch(() => null)
+          : null;
+      const hasSupabaseSession = Boolean(
+        supabaseSession && "data" in supabaseSession && supabaseSession.data.session,
+      );
+      const supabaseAuthUser =
+        storedSession || hasSupabaseSession ? await loadSupabaseAuthAccess() : null;
       if (cancelled) return;
       if (supabaseAuthUser) {
+        const selectedProjectId = selectInitialProjectIdForAccess(
+          projects.length ? projects : getDefaultProjectList(),
+          supabaseAuthUser,
+          readLocalCurrentProjectId(),
+        );
+        if (selectedProjectId) {
+          setCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId);
+        }
         setProjectAccess(supabaseAuthUser);
         setShowProjectPicker(
           (supabaseAuthUser.projectIds?.length ?? 0) > 1 &&
-            !normalizeStoredProjectId(readLocalCurrentProjectId()),
+            !selectedProjectId,
         );
-        refreshAuthSession();
+        writeAuthSession(supabaseAuthUser);
         setLoginPassword("");
         setLoginError("");
         if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
@@ -14629,10 +14722,19 @@ export default function Page() {
       // רענון דף בתוך הטווח לא מנתק את המשתמש.
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
+        const selectedProjectId = selectInitialProjectIdForAccess(
+          projects.length ? projects : getDefaultProjectList(),
+          storedUser,
+          readLocalCurrentProjectId(),
+        );
+        if (selectedProjectId) {
+          setCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId);
+        }
         setProjectAccess(storedUser);
         setShowProjectPicker(
           (storedUser.projectIds?.length ?? 0) > 1 &&
-            !normalizeStoredProjectId(readLocalCurrentProjectId()),
+            !selectedProjectId,
         );
         refreshAuthSession();
         setLoginPassword("");
@@ -14750,9 +14852,20 @@ export default function Page() {
       try {
         const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
         if (authAccess) {
+          const selectedProjectId = selectInitialProjectIdForAccess(
+            projects.length ? projects : getDefaultProjectList(),
+            authAccess,
+            readLocalCurrentProjectId(),
+          );
+          if (selectedProjectId) {
+            setCurrentProjectId(selectedProjectId);
+            writeLocalCurrentProjectId(selectedProjectId);
+          }
           setLoginError("");
           setProjectAccess(authAccess);
-          setShowProjectPicker((authAccess.projectIds?.length ?? 0) > 1);
+          setShowProjectPicker(
+            (authAccess.projectIds?.length ?? 0) > 1 && !selectedProjectId,
+          );
           writeAuthSession(authAccess);
           setSection("home");
           return;
@@ -14775,8 +14888,17 @@ export default function Page() {
       return;
     }
     setLoginError("");
+    const selectedProjectId = selectInitialProjectIdForAccess(
+      projects.length ? projects : getDefaultProjectList(),
+      access,
+      readLocalCurrentProjectId(),
+    );
+    if (selectedProjectId) {
+      setCurrentProjectId(selectedProjectId);
+      writeLocalCurrentProjectId(selectedProjectId);
+    }
     setProjectAccess(access);
-    setShowProjectPicker((access.projectIds?.length ?? 0) > 1);
+    setShowProjectPicker((access.projectIds?.length ?? 0) > 1 && !selectedProjectId);
     writeAuthSession(access);
     setSection("home");
   };
@@ -15334,6 +15456,10 @@ export default function Page() {
 
   useEffect(() => {
     const loadAll = async () => {
+      if (!authReady || !projectAccess) {
+        setLoaded(false);
+        return;
+      }
       if (!cloudEnabled) {
         loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
         setLoaded(true);
@@ -15341,6 +15467,19 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
+        const scopedProjectIds = isAdminAccess(projectAccess)
+          ? []
+          : Array.from(
+              new Set(
+                [
+                  currentProjectId,
+                  ...(projectAccess.projectIds ?? []),
+                  projectAccess.code,
+                ]
+                  .map(normalizeStoredProjectId)
+                  .filter(Boolean),
+              ),
+            );
         const [
           projectsRes,
           checklistsRes,
@@ -15354,15 +15493,15 @@ export default function Page() {
           plansRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
-          selectTable("checklists", "saved_at"),
-          selectTable(NONCONFORMANCE_TABLE, "saved_at"),
-          selectTable("trial_sections", "saved_at"),
-          selectTable("preliminary_records", "saved_at"),
-          selectTable("rfi_records", "created_at"),
-          selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-          selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-          selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
-          selectTable(PLANS_TABLE, "saved_at"),
+          selectProjectTable("checklists", "saved_at", scopedProjectIds),
+          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
         ]);
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
@@ -15401,7 +15540,7 @@ export default function Page() {
       }
     };
     void loadAll();
-  }, [cloudEnabled]);
+  }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
 
   useEffect(() => {
     if (!loaded || typeof window === "undefined") return;
@@ -15505,6 +15644,19 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
+    const scopedProjectIds = isAdminAccess(projectAccess)
+      ? []
+      : Array.from(
+          new Set(
+            [
+              currentProjectId,
+              ...(projectAccess?.projectIds ?? []),
+              projectAccess?.code,
+            ]
+              .map(normalizeStoredProjectId)
+              .filter(Boolean),
+          ),
+        );
     const [
       projectsRes,
       checklistsRes,
@@ -15518,15 +15670,15 @@ export default function Page() {
       plansRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
-      selectTable("checklists", "saved_at"),
-      selectTable(NONCONFORMANCE_TABLE, "saved_at"),
-      selectTable("trial_sections", "saved_at"),
-      selectTable("preliminary_records", "saved_at"),
-      selectTable("rfi_records", "created_at"),
-      selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-      selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-      selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
-      selectTable(PLANS_TABLE, "saved_at"),
+      selectProjectTable("checklists", "saved_at", scopedProjectIds),
+      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
@@ -15665,6 +15817,19 @@ export default function Page() {
       return nextProjectId;
     });
   }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId]);
+
+  useEffect(() => {
+    if (!loaded || !projectAccess || !showProjectPicker) return;
+    const selectedId = normalizeStoredProjectId(currentProjectId);
+    const hasValidSelection =
+      selectedId &&
+      accessibleProjects.some(
+        (project) => normalizeStoredProjectId(project.id) === selectedId,
+      );
+    if (accessibleProjects.length <= 1 || hasValidSelection) {
+      setShowProjectPicker(false);
+    }
+  }, [loaded, projectAccess, showProjectPicker, accessibleProjects, currentProjectId]);
 
   const currentProject = useMemo(
     () => {
