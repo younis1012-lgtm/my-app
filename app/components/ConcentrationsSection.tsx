@@ -2059,18 +2059,16 @@ const isEarthworksChecklist = (record: any): boolean => {
 const isSubbaseFieldChecklist = (record: any): boolean => {
   const kindText = earthworksChecklistKindText(record);
   const text = `${kindText} ${recordText(record)}`;
-  // אם רשימת התיוג עצמה מזוהה (לפי קטגוריה/תבנית/כותרת) כרשימת עבודות עפר
-  // (קרקע יסוד/שתית/חפירה/מילוי) ולא מזכירה גם "מצע/מצעים" - לא נאפשר לה
-  // "לדלוף" לריכוז המצעים, גם אם יש בה מונחי בדיקת שדה גנריים (צפיפות/רטיבות/
-  // מד גרעיני/הידוק) שמשותפים לשני סוגי הבדיקות.
+  // רשימת תיוג שמזוהה (לפי הקטגוריה/כותרת/תבנית שלה עצמה) כרשימת עבודות עפר טהורה
+  // (קרקע יסוד/שתית/חפירה/מילוי) ולא מזכירה שם גם "מצע/מצעים" - לא תיכנס לריכוז
+  // המצעים, גם אם יש בה מונחי בדיקת שדה גנריים (צפיפות/רטיבות/מד גרעיני/הידוק)
+  // שמשותפים לשני סוגי הבדיקות. זה מונע ערבוב של קרקע יסוד/שתית בריכוז המצעים.
   if (includesAny(kindText, earthworksIncludeKeywords) && !includesAny(kindText, subbaseFieldKeywords)) {
     return false;
   }
-  // חובה אזכור מפורש של "מצע/מצעים" - מונחי בדיקת שדה גנריים בלבד (subbaseFieldStrongKeywords)
-  // אינם מספיקים, כי הם משותפים גם לבדיקות שדה של עבודות עפר.
-  if (!includesAny(text, subbaseFieldKeywords)) return false;
   if (includesAny(text, subbaseCharacterizationKeywords) && !includesAny(text, subbaseFieldStrongKeywords)) return false;
-  return true;
+  return includesAny(text, subbaseFieldStrongKeywords) ||
+    (includesAny(text, subbaseFieldKeywords) && !includesAny(text, subbaseCharacterizationKeywords));
 };
 
 const subbaseFieldItemText = (checklist: any, item: any, attachment?: any): string =>
