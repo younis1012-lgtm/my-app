@@ -3702,7 +3702,18 @@ const normalizeChecklistAttachments = (
               ? item.concreteResults
               : undefined,
         }))
-        .filter((item) => item.dataUrl)
+        .filter(
+          (item) =>
+            item.dataUrl ||
+            item.name ||
+            item.certificateNo ||
+            Object.keys(item.results ?? {}).length > 0 ||
+            Object.keys(item.labResults ?? {}).length > 0 ||
+            Object.keys(item.densityResults ?? {}).length > 0 ||
+            item.referenceResults.length > 0 ||
+            item.asphaltBatches.length > 0 ||
+            Boolean(item.concreteResults),
+        )
     : [];
 
 const textIncludesAny = (text: string, keywords: string[]) =>

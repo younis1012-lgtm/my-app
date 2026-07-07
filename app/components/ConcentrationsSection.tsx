@@ -5524,11 +5524,11 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                   />
                   <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
                 </div>
-                <span style={{ borderRadius: 999, background: hasRowsOrDeferred ? "#dcfce7" : "#f1f5f9", color: hasRowsOrDeferred ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isDeferredPreview ? "נבדק בהורדה" : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
+                <span style={{ borderRadius: 999, background: hasRowsOrDeferred ? "#dcfce7" : "#f1f5f9", color: hasRowsOrDeferred ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isDeferredPreview ? "מהתעודות השמורות" : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
               </div>
 
               <div style={{ marginTop: 12, color: rows.length || isDeferredPreview ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isDeferredPreview && !isOpen ? "הריכוז יחושב בזמן פתיחה או הורדה כדי לשמור על מהירות המסך." : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
+                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isDeferredPreview && !isOpen ? "הריכוז ייבנה אוטומטית מהתעודות שכבר שמורות בתוך רשימות התיוג בזמן פתיחה או הורדה." : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
               </div>
 
               <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
