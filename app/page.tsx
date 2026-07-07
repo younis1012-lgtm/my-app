@@ -14703,7 +14703,7 @@ export default function Page() {
           writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(supabaseAuthUser);
-        setShowProjectPicker((supabaseAuthUser.projectIds?.length ?? 0) > 1);
+        setShowProjectPicker(true);
         writeAuthSession(supabaseAuthUser);
         setLoginPassword("");
         setLoginError("");
@@ -14729,7 +14729,7 @@ export default function Page() {
           writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(storedUser);
-        setShowProjectPicker((storedUser.projectIds?.length ?? 0) > 1);
+        setShowProjectPicker(true);
         refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
@@ -14857,7 +14857,7 @@ export default function Page() {
           }
           setLoginError("");
           setProjectAccess(authAccess);
-          setShowProjectPicker((authAccess.projectIds?.length ?? 0) > 1);
+          setShowProjectPicker(true);
           writeAuthSession(authAccess);
           setSection("home");
           return;
@@ -14890,7 +14890,7 @@ export default function Page() {
       writeLocalCurrentProjectId(selectedProjectId);
     }
     setProjectAccess(access);
-    setShowProjectPicker((access.projectIds?.length ?? 0) > 1);
+    setShowProjectPicker(true);
     writeAuthSession(access);
     setSection("home");
   };
@@ -15812,7 +15812,7 @@ export default function Page() {
 
   useEffect(() => {
     if (!loaded || !projectAccess || !showProjectPicker) return;
-    if (accessibleProjects.length <= 1) {
+    if (accessibleProjects.length < 1) {
       setShowProjectPicker(false);
     }
   }, [loaded, projectAccess, showProjectPicker, accessibleProjects.length]);
@@ -22033,7 +22033,7 @@ ${invalidRecipients.join("\n")}`);
     );
   }
 
-  if (showProjectPicker && accessibleProjects.length > 1) {
+  if (showProjectPicker && accessibleProjects.length > 0) {
     const pickerAccentGold = "#d9a441";
     const pickerNavy = "#0f1b2d";
     return (
