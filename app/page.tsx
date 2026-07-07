@@ -14703,10 +14703,7 @@ export default function Page() {
           writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(supabaseAuthUser);
-        setShowProjectPicker(
-          (supabaseAuthUser.projectIds?.length ?? 0) > 1 &&
-            !selectedProjectId,
-        );
+        setShowProjectPicker((supabaseAuthUser.projectIds?.length ?? 0) > 1);
         writeAuthSession(supabaseAuthUser);
         setLoginPassword("");
         setLoginError("");
@@ -14732,10 +14729,7 @@ export default function Page() {
           writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(storedUser);
-        setShowProjectPicker(
-          (storedUser.projectIds?.length ?? 0) > 1 &&
-            !selectedProjectId,
-        );
+        setShowProjectPicker((storedUser.projectIds?.length ?? 0) > 1);
         refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
@@ -14863,9 +14857,7 @@ export default function Page() {
           }
           setLoginError("");
           setProjectAccess(authAccess);
-          setShowProjectPicker(
-            (authAccess.projectIds?.length ?? 0) > 1 && !selectedProjectId,
-          );
+          setShowProjectPicker((authAccess.projectIds?.length ?? 0) > 1);
           writeAuthSession(authAccess);
           setSection("home");
           return;
@@ -14898,7 +14890,7 @@ export default function Page() {
       writeLocalCurrentProjectId(selectedProjectId);
     }
     setProjectAccess(access);
-    setShowProjectPicker((access.projectIds?.length ?? 0) > 1 && !selectedProjectId);
+    setShowProjectPicker((access.projectIds?.length ?? 0) > 1);
     writeAuthSession(access);
     setSection("home");
   };
@@ -15820,16 +15812,10 @@ export default function Page() {
 
   useEffect(() => {
     if (!loaded || !projectAccess || !showProjectPicker) return;
-    const selectedId = normalizeStoredProjectId(currentProjectId);
-    const hasValidSelection =
-      selectedId &&
-      accessibleProjects.some(
-        (project) => normalizeStoredProjectId(project.id) === selectedId,
-      );
-    if (accessibleProjects.length <= 1 || hasValidSelection) {
+    if (accessibleProjects.length <= 1) {
       setShowProjectPicker(false);
     }
-  }, [loaded, projectAccess, showProjectPicker, accessibleProjects, currentProjectId]);
+  }, [loaded, projectAccess, showProjectPicker, accessibleProjects.length]);
 
   const currentProject = useMemo(
     () => {
