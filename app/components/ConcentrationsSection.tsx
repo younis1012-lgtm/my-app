@@ -2057,10 +2057,20 @@ const isEarthworksChecklist = (record: any): boolean => {
 };
 
 const isSubbaseFieldChecklist = (record: any): boolean => {
-  const text = `${earthworksChecklistKindText(record)} ${recordText(record)}`;
+  const kindText = earthworksChecklistKindText(record);
+  const text = `${kindText} ${recordText(record)}`;
+  // אם רשימת התיוג עצמה מזוהה (לפי קטגוריה/תבנית/כותרת) כרשימת עבודות עפר
+  // (קרקע יסוד/שתית/חפירה/מילוי) ולא מזכירה גם "מצע/מצעים" - לא נאפשר לה
+  // "לדלוף" לריכוז המצעים, גם אם יש בה מונחי בדיקת שדה גנריים (צפיפות/רטיבות/
+  // מד גרעיני/הידוק) שמשותפים לשני סוגי הבדיקות.
+  if (includesAny(kindText, earthworksIncludeKeywords) && !includesAny(kindText, subbaseFieldKeywords)) {
+    return false;
+  }
+  // חובה אזכור מפורש של "מצע/מצעים" - מונחי בדיקת שדה גנריים בלבד (subbaseFieldStrongKeywords)
+  // אינם מספיקים, כי הם משותפים גם לבדיקות שדה של עבודות עפר.
+  if (!includesAny(text, subbaseFieldKeywords)) return false;
   if (includesAny(text, subbaseCharacterizationKeywords) && !includesAny(text, subbaseFieldStrongKeywords)) return false;
-  return includesAny(text, subbaseFieldStrongKeywords) ||
-    (includesAny(text, subbaseFieldKeywords) && !includesAny(text, subbaseCharacterizationKeywords));
+  return true;
 };
 
 const subbaseFieldItemText = (checklist: any, item: any, attachment?: any): string =>
@@ -2081,7 +2091,7 @@ const subbaseFieldItemText = (checklist: any, item: any, attachment?: any): stri
   ].map(cleanText).filter(Boolean).join(" ");
 
 const isSubbaseFieldItem = (checklist: any, item: any, attachment?: any): boolean =>
-  isSubbaseFieldChecklist(checklist) || includesAny(subbaseFieldItemText(checklist, item, attachment), subbaseFieldStrongKeywords);
+  isSubbaseFieldChecklist(checklist) || includesAny(subbaseFieldItemText(checklist, item, attachment), subbaseFieldKeywords);
 
 const earthworksStatus = (...values: unknown[]): string => {
   const text = firstText(...values);
@@ -3312,7 +3322,7 @@ const subbaseFieldRowFromEarthworks = (row: Row, reference: Row = {}): Row => ({
 });
 
 const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] => {
-  const rows: Row[] = [];
+  const rawRows: Row[] = [];
   const reference = subbaseReferenceSummary(processes);
 
   const orderedChecklists = [...checklists]
@@ -3349,7 +3359,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
         .filter(rememberAttachment);
 
       attachments.forEach((attachment: any) => {
-        const row = earthworksRowFromSources([checklist, item], attachment, rows.length + checklistRows.length + 1, checklistIndex);
+        const row = earthworksRowFromSources([checklist, item], attachment, rawRows.length + checklistRows.length + 1, checklistIndex);
         if (isEarthworksMeasurementAttachment(attachment, item)) {
           measurementRows.push(row);
           return;
@@ -3358,7 +3368,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
       });
 
       if (!attachments.length) {
-        const row = earthworksRowFromSources([checklist, item], {}, rows.length + checklistRows.length + measurementRows.length + 1, checklistIndex);
+        const row = earthworksRowFromSources([checklist, item], {}, rawRows.length + checklistRows.length + measurementRows.length + 1, checklistIndex);
         const outputRow = subbaseFieldRowFromEarthworks(row, reference);
         if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
       }
@@ -3373,7 +3383,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
       .filter(rememberAttachment);
 
     checklistAttachments.forEach((attachment: any) => {
-      const row = earthworksRowFromSources([checklist, {}], attachment, rows.length + checklistRows.length + 1, checklistIndex);
+      const row = earthworksRowFromSources([checklist, {}], attachment, rawRows.length + checklistRows.length + 1, checklistIndex);
       if (isEarthworksMeasurementAttachment(attachment, checklist)) {
         measurementRows.push(row);
         return;
@@ -3382,7 +3392,7 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
     });
 
     if (!checklistRows.length && !measurementRows.length) {
-      const row = earthworksRowFromSources([checklist], {}, rows.length + 1, checklistIndex);
+      const row = earthworksRowFromSources([checklist], {}, rawRows.length + 1, checklistIndex);
       const outputRow = subbaseFieldRowFromEarthworks(row, reference);
       if (hasSubbaseOutputData(outputRow)) checklistRows.push(row);
     }
@@ -3392,12 +3402,13 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
 
     labRows.forEach((row) => {
       const combinedRow = measurementRow ? mergeEarthworksRows(row, measurementRow) : row;
-      const outputRow = subbaseFieldRowFromEarthworks(combinedRow, reference);
-      if (hasSubbaseOutputData(outputRow)) rows.push(outputRow);
+      rawRows.push(combinedRow);
     });
   });
 
-  return rows
+  return dedupeEarthworksRows(rawRows)
+    .map((row) => subbaseFieldRowFromEarthworks(row, reference))
+    .filter((outputRow) => hasSubbaseOutputData(outputRow))
     .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
 };
