@@ -2690,6 +2690,21 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
 const isAdminAccess = (access: ProjectAccess | null) =>
   access?.role === "admin";
 
+const buildScopedProjectIdsForAccess = (
+  access: ProjectAccess | null,
+  currentProjectId?: string | null,
+) => {
+  if (!access || isAdminAccess(access)) return [];
+  return Array.from(
+    projectIdentityKeysFromValues(
+      currentProjectId,
+      access.code,
+      access.projectName,
+      ...(access.projectIds ?? []),
+    ),
+  );
+};
+
 const canWriteAccess = (access: ProjectAccess | null) =>
   access?.role === "admin" || access?.role === "readwrite";
 
@@ -3608,6 +3623,13 @@ const planRowToRecord = (row: any): PlanRecord | null =>
   });
 
 type ChecklistAttachmentKind = "lab" | "measurement" | "other";
+
+type DensityReviewState = {
+  fileName: string;
+  results: Record<string, any>;
+};
+
+type DensityReviewResolver = (results: Record<string, any> | null) => void;
 
 type ChecklistAttachment = StoredAttachment & {
   id: string;
@@ -14471,6 +14493,8 @@ export default function Page() {
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectManager, setNewProjectManager] = useState("");
   const [checklistForm, setChecklistForm] = useState(createDefaultChecklist());
+  const [densityReview, setDensityReview] = useState<DensityReviewState | null>(null);
+  const densityReviewResolverRef = useRef<DensityReviewResolver | null>(null);
   const [nonconformanceForm, setNonconformanceForm] = useState(
     createDefaultNonconformance(),
   );
@@ -15499,19 +15523,10 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        const scopedProjectIds = isAdminAccess(projectAccess)
-          ? []
-          : Array.from(
-              new Set(
-                [
-                  currentProjectId,
-                  ...(projectAccess.projectIds ?? []),
-                  projectAccess.code,
-                ]
-                  .map(normalizeStoredProjectId)
-                  .filter(Boolean),
-              ),
-            );
+        const scopedProjectIds = buildScopedProjectIdsForAccess(
+          projectAccess,
+          currentProjectId,
+        );
         const [
           projectsRes,
           checklistsRes,
@@ -15526,12 +15541,12 @@ export default function Page() {
         ] = await Promise.all([
           selectTable("projects", "created_at"),
           selectProjectTable("checklists", "saved_at", scopedProjectIds),
-          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+          selectTable(NONCONFORMANCE_TABLE, "saved_at"),
+          selectTable("trial_sections", "saved_at"),
+          selectTable("preliminary_records", "saved_at"),
           selectProjectTable("rfi_records", "created_at", scopedProjectIds),
           selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+          selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
           selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
           selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
         ]);
@@ -15628,16 +15643,10 @@ export default function Page() {
 
     let cancelled = false;
     const candidateProjectIds = Array.from(
-      new Set(
-        [
-          normalizedProjectId,
-          ...(projectAccess?.projectIds ?? []),
-          projectAccess?.code ? `project-${projectAccess.code}` : "",
-          projectAccess?.code,
-        ]
-          .map(normalizeStoredProjectId)
-          .filter(Boolean),
-      ),
+      new Set([
+        normalizedProjectId,
+        ...buildScopedProjectIdsForAccess(projectAccess, normalizedProjectId),
+      ]),
     );
 
     (async () => {
@@ -15676,19 +15685,10 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = isAdminAccess(projectAccess)
-      ? []
-      : Array.from(
-          new Set(
-            [
-              currentProjectId,
-              ...(projectAccess?.projectIds ?? []),
-              projectAccess?.code,
-            ]
-              .map(normalizeStoredProjectId)
-              .filter(Boolean),
-          ),
-        );
+    const scopedProjectIds = buildScopedProjectIdsForAccess(
+      projectAccess,
+      currentProjectId,
+    );
     const [
       projectsRes,
       checklistsRes,
@@ -15703,12 +15703,12 @@ export default function Page() {
     ] = await Promise.all([
       selectTable("projects", "created_at"),
       selectProjectTable("checklists", "saved_at", scopedProjectIds),
-      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+      selectTable(NONCONFORMANCE_TABLE, "saved_at"),
+      selectTable("trial_sections", "saved_at"),
+      selectTable("preliminary_records", "saved_at"),
       selectProjectTable("rfi_records", "created_at", scopedProjectIds),
       selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+      selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
       selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
       selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
     ]);
@@ -17699,6 +17699,206 @@ export default function Page() {
       return acc;
     }, {});
 
+  const requestDensityReview = (fileName: string, results: Record<string, any>) =>
+    new Promise<Record<string, any> | null>((resolve) => {
+      densityReviewResolverRef.current = resolve;
+      setDensityReview({
+        fileName,
+        results: {
+          ...results,
+          sampleRows: Array.isArray(results.sampleRows)
+            ? results.sampleRows
+            : Array.isArray(results.rows)
+              ? results.rows
+              : [],
+        },
+      });
+    });
+
+  const resolveDensityReview = (results: Record<string, any> | null) => {
+    densityReviewResolverRef.current?.(results);
+    densityReviewResolverRef.current = null;
+    setDensityReview(null);
+  };
+
+  const updateDensityReviewValue = (key: string, value: string) => {
+    setDensityReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            results: {
+              ...prev.results,
+              [key]: value,
+            },
+          }
+        : prev,
+    );
+  };
+
+  const updateDensityReviewRow = (rowIndex: number, key: string, value: string) => {
+    setDensityReview((prev) => {
+      if (!prev) return prev;
+      const sampleRows = Array.isArray(prev.results.sampleRows)
+        ? [...prev.results.sampleRows]
+        : [];
+      sampleRows[rowIndex] = {
+        ...(sampleRows[rowIndex] ?? {}),
+        [key]: value,
+      };
+      return {
+        ...prev,
+        results: {
+          ...prev.results,
+          sampleRows,
+          rows: sampleRows,
+        },
+      };
+    });
+  };
+
+  const addDensityReviewRow = () => {
+    setDensityReview((prev) => {
+      if (!prev) return prev;
+      const sampleRows = Array.isArray(prev.results.sampleRows)
+        ? [...prev.results.sampleRows]
+        : [];
+      sampleRows.push({
+        "מספר בדיקה": String(sampleRows.length + 1),
+        "מספר תעודת בדיקה": prev.results["מספר תעודת בדיקה"] ?? "",
+        "תאריך הבדיקה": prev.results["תאריך הבדיקה"] ?? "",
+        "מקום נטילה": prev.results["מקום נטילה"] ?? "",
+      });
+      return {
+        ...prev,
+        results: {
+          ...prev.results,
+          sampleRows,
+          rows: sampleRows,
+        },
+      };
+    });
+  };
+
+  const removeDensityReviewRow = (rowIndex: number) => {
+    setDensityReview((prev) => {
+      if (!prev) return prev;
+      const sampleRows = (Array.isArray(prev.results.sampleRows)
+        ? prev.results.sampleRows
+        : []
+      ).filter((_: any, index: number) => index !== rowIndex);
+      return {
+        ...prev,
+        results: {
+          ...prev.results,
+          sampleRows,
+          rows: sampleRows,
+        },
+      };
+    });
+  };
+
+  const firstDensityReviewValue = (source: any, aliases: string[]) => {
+    if (!source || typeof source !== "object") return "";
+    for (const alias of aliases) {
+      const value = String(source?.[alias] ?? "").trim();
+      if (value) return value;
+    }
+    return "";
+  };
+
+  const densityReviewAverage = (rows: any[], aliases: string[]) => {
+    const values = rows
+      .map((row) => Number(firstDensityReviewValue(row, aliases).replace(",", ".")))
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) return "";
+    return (values.reduce((sum, value) => sum + value, 0) / values.length)
+      .toFixed(1)
+      .replace(/\.0$/, "");
+  };
+
+  const normalizeApprovedDensityResults = (rawResults: Record<string, any>) => {
+    const sampleRows = Array.isArray(rawResults.sampleRows)
+      ? rawResults.sampleRows.filter((row: any) =>
+          row &&
+          typeof row === "object" &&
+          Object.values(row).some((value) => String(value ?? "").trim()),
+        )
+      : [];
+    const first = (aliases: string[]) =>
+      firstDensityReviewValue(rawResults, aliases) ||
+      firstDensityReviewValue(sampleRows[0], aliases);
+
+    const certificateNo = first([
+      "מס' תעודת בדיקה צפיפות/ רטיבות שדה",
+      "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה",
+      "מספר תעודת בדיקה צפיפות/ רטיבות שדה",
+      "מספר תעודת בדיקה",
+      "תעודת בדיקה",
+      "certificateNo",
+      "densityCertificateNo",
+    ]);
+    const testDate = first(["תאריך הבדיקה", "תאריך בדיקה", "testDate"]);
+    const compactionAverage =
+      first([
+        "צפיפות מחושבת",
+        "תוצאות בדיקה",
+        "דרגת הידוק",
+        "ממוצע",
+        "Xn",
+        "statisticalAverage",
+        "compactionAverage",
+      ]) ||
+      densityReviewAverage(sampleRows, ["דרגת הידוק", "compaction"]);
+    const moistureAverage =
+      first(["רטיבות ממוצעת", "רטיבות", "averageMoisture"]) ||
+      densityReviewAverage(sampleRows, ["רטיבות", "moisture"]);
+    const lowerLimit = first(["צפיפות סטטיסטיקה גבול תחתון", "גבול תחתון", "La", "statisticalLower", "lowerLimit"]);
+    const upperLimit = first(["צפיפות סטטיסטיקה גבול עליון", "גבול עליון", "La'", "statisticalUpper", "upperLimit"]);
+    const status = first(["מעמד תוצאות", "מעמד צפיפות/רטיבות", "סטטוס", "status"]) || "OK";
+
+    const normalizedRows = sampleRows.map((row, index) => ({
+      ...row,
+      "מספר בדיקה": firstDensityReviewValue(row, ["מספר בדיקה", "sampleNo", "testNo"]) || String(index + 1),
+      "מספר תעודת בדיקה": firstDensityReviewValue(row, ["מספר תעודת בדיקה", "certificateNo"]) || certificateNo,
+      "מס' תעודת בדיקה צפיפות/ רטיבות שדה": firstDensityReviewValue(row, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"]) || certificateNo,
+      "תאריך הבדיקה": firstDensityReviewValue(row, ["תאריך הבדיקה", "תאריך בדיקה", "testDate"]) || testDate,
+      "צפיפות מחושבת": firstDensityReviewValue(row, ["צפיפות מחושבת", "תוצאות בדיקה", "דרגת הידוק", "compaction"]),
+      "תוצאות בדיקה": firstDensityReviewValue(row, ["תוצאות בדיקה", "צפיפות מחושבת", "דרגת הידוק", "compaction"]),
+      "רטיבות ממוצעת": firstDensityReviewValue(row, ["רטיבות ממוצעת", "רטיבות", "moisture"]),
+      "מעמד תוצאות": firstDensityReviewValue(row, ["מעמד תוצאות", "סטטוס", "status"]) || status,
+    }));
+
+    return {
+      ...rawResults,
+      sampleRows: normalizedRows,
+      rows: normalizedRows,
+      "מספר תעודת בדיקה": certificateNo || rawResults["מספר תעודת בדיקה"],
+      "מס' תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo || rawResults["מס' תעודת בדיקה צפיפות/ רטיבות שדה"],
+      "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה": certificateNo || rawResults["מס׳ תעודת בדיקה צפיפות/ רטיבות שדה"],
+      "תאריך הבדיקה": testDate || rawResults["תאריך הבדיקה"],
+      "צפיפות מחושבת": compactionAverage || rawResults["צפיפות מחושבת"],
+      "תוצאות בדיקה": compactionAverage || rawResults["תוצאות בדיקה"],
+      "ממוצע": compactionAverage || rawResults["ממוצע"],
+      "צפיפות סטטיסטיקה ממוצע": compactionAverage || rawResults["צפיפות סטטיסטיקה ממוצע"],
+      "רטיבות ממוצעת": moistureAverage || rawResults["רטיבות ממוצעת"],
+      "צפיפות סטטיסטיקה גבול תחתון": lowerLimit || rawResults["צפיפות סטטיסטיקה גבול תחתון"],
+      "צפיפות סטטיסטיקה גבול עליון": upperLimit || rawResults["צפיפות סטטיסטיקה גבול עליון"],
+      "מעמד תוצאות": status,
+      "מעמד צפיפות/רטיבות": status,
+      ...(normalizedRows.length
+        ? {
+            "כמות נקודות בדיקה": String(normalizedRows.length),
+            "הידוק מבוקר (צפיפות מד גרעיני)": String(normalizedRows.length),
+          }
+        : {}),
+    };
+  };
+
+  const approveDensityReview = () => {
+    if (!densityReview) return;
+    resolveDensityReview(normalizeApprovedDensityResults(densityReview.results));
+  };
+
   const uploadChecklistItemAttachment = (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -17745,6 +17945,9 @@ export default function Page() {
           console.warn("Density certificate auto extraction failed", error);
           autoDensityResults = {};
         }
+        const reviewedDensityResults = await requestDensityReview(file.name, autoDensityResults);
+        if (!reviewedDensityResults) return;
+        autoDensityResults = reviewedDensityResults;
       }
       if (kind === "lab") {
         if (shouldExtractAsphalt) {
@@ -22074,6 +22277,31 @@ ${invalidRecipients.join("\n")}`);
     );
   }
 
+  if (!loaded) {
+    return (
+      <div
+        dir="rtl"
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "#f7f7f5",
+          color: "#0f1b2d",
+          fontWeight: 900,
+          padding: 32,
+          textAlign: "center",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 22, marginBottom: 8 }}>טוען פרויקטים והרשאות...</div>
+          <div style={{ color: "#64748b", fontSize: 14 }}>
+            המערכת בודקת את הפרויקטים הרשומים למשתמש לפני פתיחה.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (showProjectPicker && accessibleProjects.length > 0) {
     const pickerAccentGold = "#d9a441";
     const pickerNavy = "#0f1b2d";
@@ -22217,6 +22445,223 @@ ${invalidRecipients.join("\n")}`);
 
   return (
     <div style={styles.page} dir="rtl">
+      {densityReview && (() => {
+        const summaryFields = [
+          "מספר תעודת בדיקה",
+          "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה",
+          "תאריך הבדיקה",
+          "מחתך",
+          "עד חתך",
+          "צד",
+          "מקום נטילה",
+          "שכבה מס'",
+          "תאור החומר",
+          "מיון החומר",
+          "מקור החומר",
+          "מספר תעודת בדיקה אפיון - 100%",
+          "תאריך תעודת ייחוס",
+          "גבול תחתון",
+          "גבול עליון",
+          "ממוצע",
+          "רטיבות ממוצעת",
+          "מעמד תוצאות",
+        ];
+        const rowFields = [
+          "מספר בדיקה",
+          "תאריך הבדיקה",
+          "מקום נטילה",
+          "שכבה מס'",
+          "צפיפות רטובה",
+          "צפיפות מקס מעבדתית",
+          "+3/4",
+          "רטיבות",
+          "דרגת הידוק",
+          "מעמד תוצאות",
+        ];
+        const rows = Array.isArray(densityReview.results.sampleRows)
+          ? densityReview.results.sampleRows
+          : [];
+        const dialogInputStyle: CSSProperties = {
+          width: "100%",
+          border: "1px solid #d7dee8",
+          borderRadius: 6,
+          padding: "8px 10px",
+          minHeight: 36,
+          fontWeight: 700,
+          background: "#fff",
+        };
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 12000,
+              background: "rgba(15, 23, 42, 0.56)",
+              display: "grid",
+              placeItems: "center",
+              padding: 18,
+            }}
+          >
+            <div
+              style={{
+                width: "min(1180px, 97vw)",
+                maxHeight: "92vh",
+                overflow: "auto",
+                background: "#fff",
+                borderRadius: 8,
+                boxShadow: "0 24px 70px rgba(15, 23, 42, 0.32)",
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <div
+                style={{
+                  padding: "18px 20px",
+                  borderBottom: "1px solid #e2e8f0",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 14,
+                  alignItems: "flex-start",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 950 }}>
+                    בדיקת נתוני תעודת צפיפות לפני ריכוז
+                  </div>
+                  <div style={{ color: "#475569", marginTop: 4, fontWeight: 700 }}>
+                    {densityReview.fileName}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => resolveDensityReview(null)}
+                    style={styles.secondaryBtn}
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="button"
+                    onClick={approveDensityReview}
+                    style={styles.primaryBtn}
+                  >
+                    אישור ושמירה לריכוז
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ padding: 20, display: "grid", gap: 18 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {summaryFields.map((field) => (
+                    <label key={field} style={{ display: "grid", gap: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 900, color: "#334155" }}>
+                        {field}
+                      </span>
+                      <input
+                        value={String(densityReview.results[field] ?? "")}
+                        onChange={(event) => updateDensityReviewValue(field, event.target.value)}
+                        style={dialogInputStyle}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                      marginBottom: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ fontWeight: 950, fontSize: 18 }}>
+                      תוצאות בדיקת צפיפות
+                    </div>
+                    <button type="button" onClick={addDensityReviewRow} style={styles.secondaryBtn}>
+                      הוסף נקודת בדיקה
+                    </button>
+                  </div>
+                  <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+                      <thead>
+                        <tr style={{ background: "#f8fafc" }}>
+                          {rowFields.map((field) => (
+                            <th
+                              key={field}
+                              style={{
+                                borderBottom: "1px solid #e2e8f0",
+                                borderLeft: "1px solid #e2e8f0",
+                                padding: 10,
+                                textAlign: "right",
+                                fontSize: 12,
+                                fontWeight: 950,
+                                color: "#334155",
+                              }}
+                            >
+                              {field}
+                            </th>
+                          ))}
+                          <th style={{ width: 70, borderBottom: "1px solid #e2e8f0" }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(rows.length ? rows : [{}]).map((row: any, rowIndex: number) => (
+                          <tr key={rowIndex}>
+                            {rowFields.map((field) => (
+                              <td
+                                key={field}
+                                style={{
+                                  borderTop: "1px solid #eef2f7",
+                                  borderLeft: "1px solid #eef2f7",
+                                  padding: 8,
+                                }}
+                              >
+                                <input
+                                  value={String(row?.[field] ?? "")}
+                                  onChange={(event) =>
+                                    updateDensityReviewRow(rowIndex, field, event.target.value)
+                                  }
+                                  style={dialogInputStyle}
+                                />
+                              </td>
+                            ))}
+                            <td style={{ borderTop: "1px solid #eef2f7", padding: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => removeDensityReviewRow(rowIndex)}
+                                style={{
+                                  border: 0,
+                                  background: "transparent",
+                                  color: "#b91c1c",
+                                  fontWeight: 950,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                מחק
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {emailRecipientDialogOpen && (
         <div
           role="dialog"
