@@ -2101,6 +2101,8 @@ const earthworksStatus = (...values: unknown[]): string => {
 
 const earthworksChecklistNumber = (checklist: any, index: number): string => {
   const value = firstText(
+    checklist?.displayNumber,
+    checklist?.checklistDisplayNumber,
     checklist?.checklistNo,
     checklist?.checklistNumber,
     checklist?.number,
@@ -2855,9 +2857,37 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(certificateFieldSources, ["מספר רשימת מדידה", "מספר מדידה", "measurementNo", "surveyNo", "documentNo", "documentNumber"]),
     attachmentName(attachment),
   ) : "";
-  const densityResultValue = firstText(parsedDensity.density, exactFirstFromSources(certificateSources, ["צפיפות מחושבת", "תוצאות בדיקה", "תוצאה", "דרגת הידוק", "result", "resultValue", "density", "compaction", "compactionAverage"]));
+  const densityRowsForStats = [
+    resultsSource?.sampleRows,
+    resultsSource?.rows,
+    attachment?.labResults?.sampleRows,
+    attachment?.labResults?.rows,
+    attachment?.densityResults?.sampleRows,
+    attachment?.densityResults?.rows,
+    attachment?.results?.sampleRows,
+    attachment?.results?.rows,
+  ].find((value) => Array.isArray(value) && value.length) as any[] | undefined;
+  const densityAverageFromRows = (aliases: string[]) => {
+    if (!Array.isArray(densityRowsForStats)) return "";
+    const values = densityRowsForStats
+      .map((row) => Number(exactResultValue(row, aliases).replace(",", ".")))
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) return "";
+    return (values.reduce((sum, value) => sum + value, 0) / values.length)
+      .toFixed(1)
+      .replace(/\.0$/, "");
+  };
+  const densityResultValue = firstText(
+    parsedDensity.density,
+    exactFirstFromSources(certificateSources, ["צפיפות מחושבת", "תוצאות בדיקה", "תוצאה", "דרגת הידוק", "result", "resultValue", "density", "compaction", "compactionAverage"]),
+    densityAverageFromRows(["צפיפות מחושבת", "תוצאות בדיקה", "דרגת הידוק", "compaction", "compactionAverage"]),
+  );
   const densityLowerLimit = firstText(exactFirstFromSources(certificateSources, ["צפיפות סטטיסטיקה גבול תחתון", "גבול תחתון", "La", "la", "statisticalLower", "lowerLimit", "lowerDensity", "צפיפות גבול תחתון"]));
-  const densityAverage = firstText(exactFirstFromSources(certificateSources, ["צפיפות סטטיסטיקה ממוצע", "ממוצע", "Xn", "xn", "statisticalAverage", "average", "avg", "צפיפות ממוצע"]));
+  const densityAverage = firstText(
+    exactFirstFromSources(certificateSources, ["צפיפות סטטיסטיקה ממוצע", "ממוצע", "Xn", "xn", "statisticalAverage", "average", "avg", "צפיפות ממוצע"]),
+    densityAverageFromRows(["צפיפות סטטיסטיקה ממוצע", "ממוצע", "Xn", "xn", "דרגת הידוק", "compaction", "compactionAverage"]),
+    densityResultValue,
+  );
   const densityUpperLimit = firstText(exactFirstFromSources(certificateSources, ["צפיפות סטטיסטיקה גבול עליון", "גבול עליון", "La'", "laPrime", "statisticalUpper", "upperLimit", "upperDensity", "צפיפות גבול עליון"]));
   const hasDensityStatistics = Boolean(densityLowerLimit || densityAverage || densityResultValue);
   const hasRollerPassText = includesAny(
@@ -3085,11 +3115,11 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
     .filter((checklist: any) => isEarthworksChecklist(checklist) || isEarthworksRecord(checklist))
     .sort((a: any, b: any) => {
       const aNo = earthworksChecklistSortValue(
-        firstText(a?.checklistNo, a?.checklistNumber, a?.number),
+        earthworksChecklistNumber(a, 0),
         0
       );
       const bNo = earthworksChecklistSortValue(
-        firstText(b?.checklistNo, b?.checklistNumber, b?.number),
+        earthworksChecklistNumber(b, 0),
         0
       );
       return aNo - bNo;
@@ -3302,11 +3332,38 @@ const subbaseReferenceSummary = (processes: any[]): Row => {
   const record = processes.find(isMatzeaAProcess);
   if (!record) return {};
   const row = matzeaAProcessRow(record, 0);
+  const calculatedDensity = firstText(
+    row["צפיפות מעבדתית מקסימלית"],
+    metricValue(record, [
+      "צפיפות מחושבת",
+      "צפיפות מקסימלית מחושבת",
+      "100% מחושב",
+      "100% מעוקב",
+      "100% מעבדתי",
+      "צפיפות מעבדתית מקסימלית",
+      "צפיפות מקסימלית",
+      "maxDensity",
+      "calculatedDensity",
+      "calculatedMaxDensity",
+      "maximumDensity",
+    ]),
+    exactFirstFromSources([record, record?.details ?? {}, record?.material ?? {}], [
+      "צפיפות מחושבת",
+      "צפיפות מקסימלית מחושבת",
+      "100% מחושב",
+      "100% מעבדתי",
+      "maxDensity",
+      "calculatedDensity",
+      "calculatedMaxDensity",
+      "maximumDensity",
+    ]),
+  );
   return {
     'מספר תעודת בדיקה אפיון - 100%': firstText(row["מספר תעודה"], row["מס׳ תעודה"]),
     'תאור החומר ': firstText(metricValue(record, ["תיאור החומר", "תאור החומר", "סוג החומר"]), "מצע א׳"),
     'מיון החומר ': row["מיון AASHTO"],
     'מקור החומר': row["מקור החומר"],
+    'צפיפות מחושבת': calculatedDensity,
   };
 };
 
@@ -3339,7 +3396,7 @@ const subbaseFieldRowFromEarthworks = (row: Row, reference: Row = {}): Row => ({
   'מספר תעודת בדיקה אפיון - 100%': firstText(row['מספר תעודת בדיקה אפיון - 100%'], reference['מספר תעודת בדיקה אפיון - 100%']),
   'HWD': row['HWD'] ?? '',
   'מעמד HWD': normalizeSubbaseStatus(row['מעמד HWD']),
-  'צפיפות מחושבת': subbaseDensityResultValue(row),
+  'צפיפות מחושבת': firstText(subbaseDensityResultValue(row), reference['צפיפות מחושבת']),
   'צפיפות סטטיסטיקה גבול תחתון': row['צפיפות סטטיסטיקה גבול תחתון'] ?? '',
   'צפיפות סטטיסטיקה גבול עליון': row['צפיפות סטטיסטיקה גבול עליון'] ?? '',
   'צפיפות סטטיסטיקה ממוצע': row['צפיפות סטטיסטיקה ממוצע'] ?? '',
@@ -3357,8 +3414,8 @@ const buildSubbaseFieldRows = (checklists: any[], processes: any[] = []): Row[] 
   const orderedChecklists = [...checklists]
     .filter((checklist: any) => isSubbaseFieldChecklist(checklist))
     .sort((a: any, b: any) => {
-      const aNo = earthworksChecklistSortValue(firstText(a?.checklistNo, a?.checklistNumber, a?.number), 0);
-      const bNo = earthworksChecklistSortValue(firstText(b?.checklistNo, b?.checklistNumber, b?.number), 0);
+      const aNo = earthworksChecklistSortValue(earthworksChecklistNumber(a, 0), 0);
+      const bNo = earthworksChecklistSortValue(earthworksChecklistNumber(b, 0), 0);
       return aNo - bNo;
     });
 
@@ -5319,8 +5376,8 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
   const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
   const [asphaltMixPicker, setAsphaltMixPicker] = useState<{
-    selectedMix: string;
-    onSelect: (mix: string) => void;
+    selectedMixes: string[];
+    onSelect: (mixes: string[]) => void;
   } | null>(null);
   const soilSurveyInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -5371,8 +5428,8 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     );
 
   const pickAsphaltMix = () =>
-    new Promise<string>((resolve) => {
-      setAsphaltMixPicker({ selectedMix: "תא״צ 19", onSelect: resolve });
+    new Promise<string[]>((resolve) => {
+      setAsphaltMixPicker({ selectedMixes: ["תא״צ 19"], onSelect: resolve });
     });
 
   const exportOne = async (definition: ConcentrationDefinition) => {
@@ -5382,10 +5439,12 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
       let rows: Row[] = [];
       let fileName = definition.fileName;
       if (definition.id === "asphalt") {
-        selectedMix = await pickAsphaltMix();
-        if (!selectedMix) return;
-        selectedMix = normalizeAsphaltMix(selectedMix) || selectedMix;
-        rows = buildRowsForDefinition(definition, selectedMix);
+        const selectedMixes = (await pickAsphaltMix())
+          .map((mix) => normalizeAsphaltMix(mix) || mix)
+          .filter(Boolean);
+        if (!selectedMixes.length) return;
+        selectedMix = selectedMixes.join(" + ");
+        rows = selectedMixes.flatMap((mix) => buildRowsForDefinition(definition, mix));
         fileName = `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`;
       } else {
         rows = buildRowsForDefinition(definition);
@@ -5411,16 +5470,21 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
     setBulkDownloading(true);
     try {
       let asphaltMix = "";
+      let asphaltMixes: string[] = [];
       if (selectedDefinitions.some((definition) => definition.id === "asphalt")) {
-        asphaltMix = await pickAsphaltMix();
-        if (!asphaltMix) return;
-        asphaltMix = normalizeAsphaltMix(asphaltMix) || asphaltMix;
+        asphaltMixes = (await pickAsphaltMix())
+          .map((mix) => normalizeAsphaltMix(mix) || mix)
+          .filter(Boolean);
+        if (!asphaltMixes.length) return;
+        asphaltMix = asphaltMixes.join(" + ");
       }
 
       const zip = new JSZip();
       for (const definition of selectedDefinitions) {
         const selectedMix = definition.id === "asphalt" ? asphaltMix : "";
-        const rows = buildRowsForDefinition(definition, selectedMix);
+        const rows = definition.id === "asphalt"
+          ? asphaltMixes.flatMap((mix) => buildRowsForDefinition(definition, mix))
+          : buildRowsForDefinition(definition, selectedMix);
         const fileName =
           definition.id === "asphalt"
             ? `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`
@@ -5642,7 +5706,7 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
               בחירת סוג תערובת אספלט
             </h3>
             <p style={{ margin: "8px 0 16px", color: "#475569", fontWeight: 700 }}>
-              בחר את סוג התערובת להפקת הריכוז.
+              בחר סוג תערובת אחד או יותר להפקת הריכוז.
             </p>
             <div style={{ overflow: "hidden", border: "1px solid #cbd5e1", borderRadius: 12 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -5654,14 +5718,18 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                 </thead>
                 <tbody>
                   {ASPHALT_MIX_OPTIONS.map((mix) => (
-                    <tr key={mix} style={{ borderTop: "1px solid #e2e8f0", background: asphaltMixPicker.selectedMix === mix ? "#eff6ff" : "#fff" }}>
+                    <tr key={mix} style={{ borderTop: "1px solid #e2e8f0", background: asphaltMixPicker.selectedMixes.includes(mix) ? "#eff6ff" : "#fff" }}>
                       <td style={{ padding: 11, fontWeight: 800 }}>{mix}</td>
                       <td style={{ padding: 11, textAlign: "center" }}>
                         <input
-                          type="radio"
-                          name="asphalt-mix"
-                          checked={asphaltMixPicker.selectedMix === mix}
-                          onChange={() => setAsphaltMixPicker((current) => current ? { ...current, selectedMix: mix } : current)}
+                          type="checkbox"
+                          checked={asphaltMixPicker.selectedMixes.includes(mix)}
+                          onChange={() => setAsphaltMixPicker((current) => current ? {
+                            ...current,
+                            selectedMixes: current.selectedMixes.includes(mix)
+                              ? current.selectedMixes.filter((selected) => selected !== mix)
+                              : [...current.selectedMixes, mix],
+                          } : current)}
                           aria-label={`בחר ${mix}`}
                           style={{ width: 18, height: 18, accentColor: "#0f172a", cursor: "pointer" }}
                         />
@@ -5671,21 +5739,30 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
                 </tbody>
               </table>
             </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+              <button type="button" onClick={() => setAsphaltMixPicker((current) => current ? { ...current, selectedMixes: [...ASPHALT_MIX_OPTIONS] } : current)} style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontWeight: 800, background: "#fff", cursor: "pointer" }}>
+                בחר הכול
+              </button>
+              <button type="button" onClick={() => setAsphaltMixPicker((current) => current ? { ...current, selectedMixes: [] } : current)} style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontWeight: 800, background: "#fff", cursor: "pointer" }}>
+                נקה בחירה
+              </button>
+            </div>
             <div style={{ display: "flex", justifyContent: "flex-start", gap: 10, marginTop: 18 }}>
               <button
                 type="button"
                 onClick={() => {
-                  asphaltMixPicker.onSelect(asphaltMixPicker.selectedMix);
+                  asphaltMixPicker.onSelect(asphaltMixPicker.selectedMixes);
                   setAsphaltMixPicker(null);
                 }}
-                style={btnStyle}
+                disabled={!asphaltMixPicker.selectedMixes.length}
+                style={{ ...btnStyle, opacity: asphaltMixPicker.selectedMixes.length ? 1 : 0.5, cursor: asphaltMixPicker.selectedMixes.length ? "pointer" : "not-allowed" }}
               >
                 אישור
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  asphaltMixPicker.onSelect("");
+                  asphaltMixPicker.onSelect([]);
                   setAsphaltMixPicker(null);
                 }}
                 style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}
