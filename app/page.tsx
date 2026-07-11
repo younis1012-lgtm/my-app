@@ -4633,35 +4633,64 @@ async function selectTable(table: string, orderColumn?: string) {
     /relation .* does not exist|could not find the table/i.test(
       errorText(error),
     );
-  const baseQuery = supabase!.from(table).select("*");
-  if (!orderColumn) {
-    const result = await baseQuery;
-    if (
-      result.error &&
-      isMissingRelation(result.error) &&
-      isOptionalCloudTable(table)
-    )
+  const selectViaRest = async () => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey)
+      return { data: [], error: new Error("Supabase is not configured") } as any;
+    const query = new URLSearchParams({ select: "*" });
+    if (orderColumn) query.set("order", `${orderColumn}.desc`);
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+      {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`,
+        },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok)
+      return {
+        data: [],
+        error: new Error(`Supabase REST ${table}: ${response.status} ${await response.text()}`),
+      } as any;
+    return { data: await response.json(), error: null } as any;
+  };
+
+  try {
+    const baseQuery = supabase!.from(table).select("*");
+    if (!orderColumn) {
+      const result = await baseQuery;
+      if (
+        result.error &&
+        isMissingRelation(result.error) &&
+        isOptionalCloudTable(table)
+      )
+        return empty;
+      return result;
+    }
+    const ordered = await supabase!
+      .from(table)
+      .select("*")
+      .order(orderColumn, { ascending: false });
+    if (!ordered.error) return ordered;
+    if (isMissingRelation(ordered.error) && isOptionalCloudTable(table))
       return empty;
-    return result;
+    if (isMissingColumnError(ordered.error, orderColumn)) {
+      const result = await baseQuery;
+      if (
+        result.error &&
+        isMissingRelation(result.error) &&
+        isOptionalCloudTable(table)
+      )
+        return empty;
+      return result;
+    }
+    return ordered;
+  } catch {
+    return selectViaRest();
   }
-  const ordered = await supabase!
-    .from(table)
-    .select("*")
-    .order(orderColumn, { ascending: false });
-  if (!ordered.error) return ordered;
-  if (isMissingRelation(ordered.error) && isOptionalCloudTable(table))
-    return empty;
-  if (isMissingColumnError(ordered.error, orderColumn)) {
-    const result = await baseQuery;
-    if (
-      result.error &&
-      isMissingRelation(result.error) &&
-      isOptionalCloudTable(table)
-    )
-      return empty;
-    return result;
-  }
-  return ordered;
 }
 
 async function selectProjectTable(
@@ -15602,7 +15631,6 @@ export default function Page() {
           cloudRowsOrFallback(plansRes, savedPlans),
         );
       } catch (error) {
-        if (isSupabaseHeaderEncodingError(error)) setCloudEnabled(false);
         const beforeLocalFallback =
           savedChecklists.length ||
           savedNonconformances.length ||
