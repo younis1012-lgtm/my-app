@@ -15540,15 +15540,15 @@ export default function Page() {
           plansRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
-          selectProjectTable("checklists", "saved_at", scopedProjectIds),
+          selectTable("checklists", "saved_at"),
           selectTable(NONCONFORMANCE_TABLE, "saved_at"),
           selectTable("trial_sections", "saved_at"),
           selectTable("preliminary_records", "saved_at"),
-          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+          selectTable("rfi_records", "created_at"),
+          selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
           selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
+          selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
+          selectTable(PLANS_TABLE, "saved_at"),
         ]);
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
@@ -15702,15 +15702,15 @@ export default function Page() {
       plansRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
-      selectProjectTable("checklists", "saved_at", scopedProjectIds),
+      selectTable("checklists", "saved_at"),
       selectTable(NONCONFORMANCE_TABLE, "saved_at"),
       selectTable("trial_sections", "saved_at"),
       selectTable("preliminary_records", "saved_at"),
-      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+      selectTable("rfi_records", "created_at"),
+      selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
       selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
+      selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
+      selectTable(PLANS_TABLE, "saved_at"),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
