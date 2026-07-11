@@ -14648,6 +14648,7 @@ export default function Page() {
     string | null
   >(null);
   const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
+  const cloudLoadGenerationRef = useRef(0);
   const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
@@ -15445,7 +15446,11 @@ export default function Page() {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
     const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId());
+    const selectedProjectId = normalizeStoredProjectId(currentProjectId);
     const active =
+      (selectedProjectId
+        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
+        : undefined) ??
       (storedProjectId
         ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
         : undefined) ??
@@ -15573,6 +15578,8 @@ export default function Page() {
   };
 
   useEffect(() => {
+    const loadGeneration = ++cloudLoadGenerationRef.current;
+    let cancelled = false;
     const loadAll = async () => {
       if (!authReady || !projectAccess) {
         setLoaded(false);
@@ -15612,6 +15619,7 @@ export default function Page() {
           selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
           selectTable(PLANS_TABLE, "saved_at"),
         ]);
+        if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
           cloudRowsOrFallback(checklistsRes, savedChecklists),
@@ -15633,6 +15641,7 @@ export default function Page() {
           cloudRowsOrFallback(plansRes, savedPlans),
         );
       } catch (error) {
+        if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
         const beforeLocalFallback =
           savedChecklists.length ||
           savedNonconformances.length ||
@@ -15644,10 +15653,14 @@ export default function Page() {
         if (!beforeLocalFallback)
           loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
       } finally {
-        setLoaded(true);
+        if (!cancelled && loadGeneration === cloudLoadGenerationRef.current)
+          setLoaded(true);
       }
     };
     void loadAll();
+    return () => {
+      cancelled = true;
+    };
   }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
 
   useEffect(() => {
