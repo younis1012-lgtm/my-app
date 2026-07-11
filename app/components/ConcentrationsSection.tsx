@@ -1551,6 +1551,44 @@ const referenceDocNo = (record: any): string => {
   );
 };
 
+const preliminaryReferenceRecords = (preliminary: any[] = []): any[] =>
+  preliminary
+    .filter((record) => record?.subtype === "materials" && record?.material)
+    .flatMap((record) => {
+      const material = record.material ?? {};
+      const certificates = Array.isArray(material.certificates)
+        ? material.certificates
+        : material.certificates
+          ? [material.certificates]
+          : [];
+      const sources = certificates.length ? certificates : [{ certificateNo: material.certificateNo }];
+      return sources.map((certificate: any) => {
+        const attachments = Array.isArray(certificate?.attachments)
+          ? certificate.attachments
+          : certificate?.attachments
+            ? [certificate.attachments]
+            : [];
+        const referenceResults = attachments.flatMap((attachment: any) =>
+          referenceRowsFromValue(
+            attachment?.referenceResults ?? attachment?.results ?? attachment?.labResults ?? attachment?.densityResults,
+          ),
+        );
+        return {
+          ...record,
+          title: firstText(material.materialName, record.title),
+          workType: firstText(material.usage, material.materialName),
+          location: firstText(material.usage),
+          fromSection: firstText(material.source),
+          status: firstText(record.status, record.approval?.status),
+          notes: firstText(material.notes, certificate?.details, record.notes),
+          processNo: firstText(certificate?.certificateNo, material.certificateNo),
+          referenceNo: firstText(certificate?.certificateNo, material.certificateNo),
+          requiredDocuments: [certificate, ...attachments],
+          referenceResults,
+        };
+      });
+    });
+
 const isMatzeaAProcess = (record: any): boolean => {
   const text = recordText(record);
   const mentionsMatzeaA = includesAny(text, ["מצע א", "מצע א׳", "מצע א'", "מצע סוג א", "מצע סוג א׳", "מצע סוג א'", "24403"]);
@@ -1636,7 +1674,7 @@ const matzeaAChecklistRow = (row: Row, index: number): Row => ({
   "הערות": firstText(row["תוצאות/הערות"]),
 });
 
-const buildMatzeaAConcentrationRows = (checklists: any[], _processes: any[]): Row[] => {
+const buildMatzeaAConcentrationRows = (checklists: any[], _processes: any[], preliminary: any[] = []): Row[] => {
   // הערה: אין שילוב עוד של רשומות מתוך processes (בדיקות שדה/צפיפות) בריכוז האפיון.
   // רשומות אלה הן בדיקות שדה (לא בדיקות מעבדה/אפיון), ומכילות בתוכן טקסט חופשי
   // שמזכיר את מספר תעודת הייחוס (24403) ואת סיווג ה-AASHTO של מצע א' רק כמטא-דאטה,
@@ -1649,7 +1687,10 @@ const buildMatzeaAConcentrationRows = (checklists: any[], _processes: any[]): Ro
     "אפיון מצע א׳",
     ["A-2-4", "a-2-4", "נברר", "חומר נברר", "מילוי נברר", "אפיון נברר"],
   ).map((row, index) => matzeaAChecklistRow(row, index));
-  return checklist.map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+  const references = preliminaryReferenceRecords(preliminary)
+    .filter(isMatzeaAProcess)
+    .map((record, index) => matzeaAProcessRow(record, checklist.length + index));
+  return [...checklist, ...references].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
 const selectedMaterialColumns = matzeaAColumns;
@@ -1691,7 +1732,7 @@ const selectedMaterialProcessRow = (record: any, index: number): Row => ({
   "הערות": firstText(metricValue(record, ["מיון אחיד"]), metricValue(record, ["תפיחה חופשית"]), record?.notes, record?.description),
 });
 
-const buildSelectedMaterialConcentrationRows = (checklists: any[], _processes: any[], _preliminary: any[] = []): Row[] => {
+const buildSelectedMaterialConcentrationRows = (checklists: any[], _processes: any[], preliminary: any[] = []): Row[] => {
   // כמו בריכוז מצע א' - רשומות processes/preliminary הן בדיקות שדה, לא בדיקות אפיון,
   // וגרמו לאותה תופעת "סלט" (JSON גולמי בעמודת הערות). מקור הנתונים האמין הוא רק
   // רשימות תיוג עם תעודת מעבדה מצורפת בפועל.
@@ -1700,7 +1741,10 @@ const buildSelectedMaterialConcentrationRows = (checklists: any[], _processes: a
     ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-1-b", "A-2-4", "a-1-b", "a-2-4", "cbr", "גרדציה"],
     "אפיון נברר",
   ).map((row, index) => matzeaAChecklistRow(row, index));
-  return checklist.map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+  const references = preliminaryReferenceRecords(preliminary)
+    .filter(isSelectedMaterialProcess)
+    .map((record, index) => selectedMaterialProcessRow(record, checklist.length + index));
+  return [...checklist, ...references].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
 
@@ -2985,6 +3029,10 @@ const mergeEarthworksRows = (base: Row, next: Row): Row => {
 };
 
 const isGradingLineReferenceProcess = (process: any): boolean => {
+  if (
+    process?.subtype === "materials" &&
+    includesAny(recordText(process), ["מצע", "נברר", "עבודות עפר", "מילוי", "שתית", "קרקע יסוד"])
+  ) return true;
   if (Array.isArray(process?.sampleRows) && process.sampleRows.length) return true;
   const text = [
     process?.workType,
@@ -3785,7 +3833,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "אפיון מצע א׳ מתוך תעודות/רשימות תיוג רלוונטיות",
     sourceLabel: "בקרה מקדימה / תעודות ייחוס",
     columns: matzeaAColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => buildMatzeaAConcentrationRows(savedChecklists, savedControlProcesses),
+    buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildMatzeaAConcentrationRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
   {
     id: "selected-material",
@@ -3803,7 +3851,10 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז תוצאות תעודות ייחוס לעבודות עפר, שתית וקרקע יסוד מתוך בקרה מקדימה",
     sourceLabel: "בקרה מקדימה / תעודות ייחוס",
     columns: earthworksMaterialResultsColumns,
-    buildRows: ({ savedControlProcesses }) => buildEarthworksMaterialResultsRows(savedControlProcesses),
+    buildRows: ({ savedControlProcesses, savedPreliminary }) => buildEarthworksMaterialResultsRows([
+      ...savedControlProcesses,
+      ...preliminaryReferenceRecords(savedPreliminary),
+    ]),
   },
   {
     id: "earthworks",
