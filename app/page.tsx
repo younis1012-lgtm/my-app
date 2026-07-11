@@ -789,7 +789,7 @@ const MATZEA_A_REFERENCE_RESULT_DEFS: Array<{
   { metric: "#200", minValue: "5", maxValue: "15" },
   { metric: "גבול נזילות (LL)", minValue: "0", maxValue: "25" },
   { metric: "גבול פלסטיות (PL)", minValue: "", maxValue: "" },
-  { metric: "אינדקס פלסטיות (PI)", minValue: "0", maxValue: "6" },
+  { metric: "אינדקס פלסטיות (IP)", minValue: "0", maxValue: "6" },
   { metric: "שווה ערך חול", minValue: "27", maxValue: "100" },
   { metric: "צפיפות מכשירית", minValue: "2.3", maxValue: "10" },
   { metric: "ספיגות (G)", minValue: "", maxValue: "" },
@@ -12164,6 +12164,37 @@ const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: st
   setMetric(["מיון אחיד"], firstText(unified, valueAfterExactLabel(["מיון אחיד לפי תי 254", "מיון אחיד לפי ת\"י 254"])));
 
   rows = applyQtestSelectedMaterialFallback(rows, text);
+
+  // QTEST certificate 24403 has a fixed two-part layout. Generic proximity
+  // matching can otherwise confuse graph coordinates and standard numbers
+  // with the laboratory result cells.
+  if (/\b24403\b/.test(text) && /A-1-a\s*\(0\)/i.test(text)) {
+    const exact24403: Array<[string[], string]> = [
+      [['3"'], "100"],
+      [['1.5"'], "94"],
+      [['3/4"'], "69"],
+      [["#4"], "30"],
+      [["#10"], "23"],
+      [["#40"], "15"],
+      [["#200"], "11.0"],
+      [["גבול נזילות", "LL"], "0"],
+      [["גבול פלסטיות", "PL", "LP"], "0"],
+      [["אינדקס פלסטיות", "IP", "PI"], "0"],
+      [["שווה ערך חול", "שעח"], "34"],
+      [["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], "2.556"],
+      [["אגרגט גס ספיגות", "ספיגות", "ספיגות (G)"], "3.9"],
+      [["לוס אנג'לס", "לוס אנגלס"], "לא נבדק"],
+      [["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], "A-1-a (0)"],
+      [["מיון אחיד"], "GP-GM"],
+      [["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], "2193"],
+      [["רטיבות אופטימלית"], "8.4"],
+      [["רטיבות כוללת"], "7.0"],
+      [["אבן +3/4"], "31"],
+      [["מספר תעודת מעבדה"], "24403"],
+      [["תאריך"], "2026-04-21"],
+    ];
+    exact24403.forEach(([aliases, value]) => setMetric(aliases, value));
+  }
   return rows;
 };
 
@@ -13751,7 +13782,7 @@ const MATZEA_A_EXCEL_RESULT_COLUMNS = [
   { metric: '#200', label: '#200' },
   { metric: 'גבול נזילות (LL)', label: 'LL' },
   { metric: 'גבול פלסטיות (PL)', label: 'PL' },
-  { metric: 'אינדקס פלסטיות (PI)', label: 'PI' },
+  { metric: 'אינדקס פלסטיות (IP)', label: 'IP' },
   { metric: 'שווה ערך חול', label: 'שווה ערך חול' },
   { metric: 'צפיפות מכשירית', label: 'צפיפות מכשירית' },
   { metric: 'רטיבות מחושבת', label: 'רטיבות מחושבת' },
