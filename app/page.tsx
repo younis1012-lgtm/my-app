@@ -4668,6 +4668,7 @@ async function selectTable(table: string, orderColumn?: string) {
         isOptionalCloudTable(table)
       )
         return empty;
+      if (result.error) return selectViaRest();
       return result;
     }
     const ordered = await supabase!
@@ -4685,9 +4686,10 @@ async function selectTable(table: string, orderColumn?: string) {
         isOptionalCloudTable(table)
       )
         return empty;
+      if (result.error) return selectViaRest();
       return result;
     }
-    return ordered;
+    return selectViaRest();
   } catch {
     return selectViaRest();
   }
