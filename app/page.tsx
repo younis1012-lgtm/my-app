@@ -15592,10 +15592,7 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        const scopedProjectIds = buildScopedProjectIdsForAccess(
-          projectAccess,
-          currentProjectId,
-        );
+        const scopedProjectIds = [normalizeStoredProjectId(currentProjectId)].filter(Boolean);
         const [
           projectsRes,
           checklistsRes,
@@ -15609,15 +15606,15 @@ export default function Page() {
           plansRes,
         ] = await Promise.all([
           selectTable("projects", "created_at"),
-          selectTable("checklists", "saved_at"),
-          selectTable(NONCONFORMANCE_TABLE, "saved_at"),
-          selectTable("trial_sections", "saved_at"),
-          selectTable("preliminary_records", "saved_at"),
-          selectTable("rfi_records", "created_at"),
-          selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-          selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-          selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
-          selectTable(PLANS_TABLE, "saved_at"),
+          selectProjectTable("checklists", "saved_at", scopedProjectIds),
+          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
         ]);
         if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
         loadFromCloudResults(
@@ -15759,10 +15756,7 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = buildScopedProjectIdsForAccess(
-      projectAccess,
-      currentProjectId,
-    );
+    const scopedProjectIds = [normalizeStoredProjectId(currentProjectId)].filter(Boolean);
     const [
       projectsRes,
       checklistsRes,
@@ -15776,15 +15770,15 @@ export default function Page() {
       plansRes,
     ] = await Promise.all([
       selectTable("projects", "created_at"),
-      selectTable("checklists", "saved_at"),
-      selectTable(NONCONFORMANCE_TABLE, "saved_at"),
-      selectTable("trial_sections", "saved_at"),
-      selectTable("preliminary_records", "saved_at"),
-      selectTable("rfi_records", "created_at"),
-      selectTable(CONTROL_PROCESS_TABLE, "saved_at"),
-      selectTable(SUPERVISION_REPORTS_TABLE, "saved_at"),
-      selectTable(PROJECT_STRUCTURE_TABLE, "sort_order"),
-      selectTable(PLANS_TABLE, "saved_at"),
+      selectProjectTable("checklists", "saved_at", scopedProjectIds),
+      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
