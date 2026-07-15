@@ -20670,11 +20670,36 @@ export default function Page() {
       const allProjectChecklists = savedChecklists.filter((item) => checklistMatchesCurrentProject(item.projectId));
       const allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectTrialSections = savedTrialSections.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectPreliminary = savedPreliminary.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectPreliminary = savedPreliminary.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectRfis = savedRfis.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectControlProcesses = savedControlProcesses.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectSupervisionReports = savedSupervisionReports.filter((item) => recordMatchesCurrentProject(item.projectId));
       const allProjectPlans = currentProjectPlans;
+
+      // Archive generation must not depend on a possibly stale/partial screen state.
+      // Reload preliminary-control records for the active project immediately before export.
+      if (archiveSections.preliminary && cloudEnabled && supabase && currentProjectIdNormalized) {
+        const { data: preliminaryCloudRows, error: preliminaryCloudError } = await supabase
+          .from("preliminary_records")
+          .select("*")
+          .eq("project_id", currentProjectIdNormalized)
+          .order("saved_at", { ascending: false });
+        if (preliminaryCloudError) throw preliminaryCloudError;
+        allProjectPreliminary = (preliminaryCloudRows ?? []).map((row: any) => ({
+          id: row.id,
+          projectId: normalizeStoredProjectId(row.project_id),
+          subtype: row.subtype,
+          structureNodeId: row.structure_node_id ?? "",
+          title: row.title ?? "",
+          date: row.date ?? "",
+          status: row.status ?? "טיוטה",
+          supplier: row.supplier ?? undefined,
+          subcontractor: row.subcontractor ?? undefined,
+          material: row.material ?? undefined,
+          approval: normalizeApproval(row.approval),
+          savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+        })) as PreliminaryRecord[];
+      }
 
       const addText = (path: string, content: string) => {
         zip.file(uniqueZipPath(usedPaths, path), content);
@@ -20801,18 +20826,27 @@ export default function Page() {
         (record) => record.planNo || record.title || "תוכנית",
         (record) => planRecordArchiveBody(record),
       );
-      if (archiveSections.preliminary) await addCollection(
-        `${projectRoot}/בקרה מקדימה`,
-        allProjectPreliminary,
-        [
-          ["סוג", (record) => labelForPreliminary(record.subtype)],
-          ["כותרת", (record) => record.title],
-          ["תאריך", (record) => record.date],
-          ["סטטוס", (record) => record.status],
-        ],
-        (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
-        (record) => preliminaryRecordArchiveBody(record),
-      );
+      if (archiveSections.preliminary) {
+        const preliminaryGroups = new Map<string, PreliminaryRecord[]>();
+        allProjectPreliminary.forEach((record) => {
+          const label = labelForPreliminary(record.subtype);
+          preliminaryGroups.set(label, [...(preliminaryGroups.get(label) ?? []), record]);
+        });
+        for (const [label, records] of preliminaryGroups) {
+          await addCollection(
+            `${projectRoot}/בקרה מקדימה/${sanitizeZipSegment(label)}`,
+            records,
+            [
+              ["סוג", (record) => labelForPreliminary(record.subtype)],
+              ["כותרת", (record) => record.title],
+              ["תאריך", (record) => record.date],
+              ["סטטוס", (record) => record.status],
+            ],
+            (record, index) => record.title || `${label} ${index + 1}`,
+            (record) => preliminaryRecordArchiveBody(record),
+          );
+        }
+      }
       if (archiveSections.nonconformances) await addCollection(
         `${projectRoot}/אי התאמות`,
         allProjectNonconformances,
