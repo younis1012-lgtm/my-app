@@ -14653,6 +14653,17 @@ export default function Page() {
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
   const [savedPlans, setSavedPlans] = useState<PlanRecord[]>([]);
+  const [showArchiveSelection, setShowArchiveSelection] = useState(false);
+  const [archiveSections, setArchiveSections] = useState<Record<string, boolean>>({
+    checklists: true,
+    plans: true,
+    preliminary: true,
+    nonconformances: true,
+    rfi: true,
+    trialSections: true,
+    controlProcesses: true,
+    supervisionReports: true,
+  });
   const [planForm, setPlanForm] = useState(createDefaultPlanRecord());
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
 
@@ -20647,6 +20658,8 @@ export default function Page() {
 
   const downloadProjectArchive = async () => {
     if (!currentProject) return alert("יש לבחור פרויקט לפני הורדת החומר");
+    if (!Object.values(archiveSections).some(Boolean))
+      return alert("יש לבחור לפחות תיקייה אחת להורדה");
     try {
       setIsSaving(true);
       const JSZip = (await import("jszip")).default;
@@ -20719,7 +20732,7 @@ export default function Page() {
         },
       });
 
-      addCsv(
+      if (archiveSections.checklists) addCsv(
         `${projectRoot}/רשימות תיוג/סיכום כללי.csv`,
         allProjectChecklists,
         [
@@ -20732,7 +20745,7 @@ export default function Page() {
           ["סטטוס", (record) => getApprovalDisplayStatus(record)],
         ],
       );
-      for (const [index, record] of allProjectChecklists.entries()) {
+      if (archiveSections.checklists) for (const [index, record] of allProjectChecklists.entries()) {
         const templateKey = normalizeChecklistTemplateKey(record.templateKey);
         const folder = getChecklistTemplateFolder(templateKey);
         const templateLabel = checklistTemplateLabel(templateKey);
@@ -20774,7 +20787,7 @@ export default function Page() {
         await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
       }
 
-      await addCollection(
+      if (archiveSections.plans) await addCollection(
         `${projectRoot}/תוכניות`,
         allProjectPlans,
         [
@@ -20788,7 +20801,7 @@ export default function Page() {
         (record) => record.planNo || record.title || "תוכנית",
         (record) => planRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.preliminary) await addCollection(
         `${projectRoot}/בקרה מקדימה`,
         allProjectPreliminary,
         [
@@ -20800,7 +20813,7 @@ export default function Page() {
         (record) => `${labelForPreliminary(record.subtype)} - ${record.title || record.id}`,
         (record) => preliminaryRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.nonconformances) await addCollection(
         `${projectRoot}/אי התאמות`,
         allProjectNonconformances,
         [
@@ -20813,7 +20826,7 @@ export default function Page() {
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "אי התאמה"}`,
         (record) => nonconformanceRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.rfi) await addCollection(
         `${projectRoot}/RFI`,
         allProjectRfis,
         [
@@ -20826,7 +20839,7 @@ export default function Page() {
         (record, index) => `${record.rfiNumber || index + 1} - ${record.title || "RFI"}`,
         (record) => rfiRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.trialSections) await addCollection(
         `${projectRoot}/קטעי ניסוי`,
         allProjectTrialSections,
         [
@@ -20839,7 +20852,7 @@ export default function Page() {
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "קטע ניסוי"}`,
         (record) => trialSectionRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.controlProcesses) await addCollection(
         `${projectRoot}/תעודות יחס וריכוזים`,
         allProjectControlProcesses,
         [
@@ -20852,7 +20865,7 @@ export default function Page() {
         (record) => `${record.processNo || ""} ${record.title || "תהליך בקרה"}`,
         (record) => controlProcessRecordArchiveBody(record),
       );
-      await addCollection(
+      if (archiveSections.supervisionReports) await addCollection(
         `${projectRoot}/דוחות פיקוח עליון`,
         allProjectSupervisionReports,
         [
@@ -20875,6 +20888,7 @@ export default function Page() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+      setShowArchiveSelection(false);
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "הורדת חומר הפרויקט נכשלה");
@@ -23023,12 +23037,96 @@ ${invalidRecipients.join("\n")}`);
         <button
           type="button"
           style={styles.secondaryBtn}
-          onClick={downloadProjectArchive}
+          onClick={() => setShowArchiveSelection(true)}
           disabled={!currentProject || isSaving}
         >
           הורד חומר פרויקט
         </button>
       </div>
+
+      {showArchiveSelection && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            background: "rgba(15, 23, 42, 0.55)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+          onClick={() => setShowArchiveSelection(false)}
+        >
+          <div
+            dir="rtl"
+            style={{
+              width: "min(560px, 100%)",
+              maxHeight: "85vh",
+              overflow: "auto",
+              background: "#fff",
+              borderRadius: 18,
+              padding: 24,
+              boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 style={{ margin: "0 0 8px" }}>בחירת חומר להורדה</h2>
+            <p style={{ margin: "0 0 18px", color: "#64748b" }}>
+              סמן תיקייה אחת, מספר תיקיות או את כל חומר הפרויקט.
+            </p>
+            <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={Object.values(archiveSections).every(Boolean)}
+                onChange={(event) =>
+                  setArchiveSections((current) =>
+                    Object.fromEntries(Object.keys(current).map((key) => [key, event.target.checked])),
+                  )
+                }
+              />
+              בחר הכול
+            </label>
+            <div style={{ borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0", padding: "8px 0" }}>
+              {[
+                ["checklists", "רשימות תיוג"],
+                ["plans", "תוכניות"],
+                ["preliminary", "בקרה מקדימה"],
+                ["nonconformances", "אי־התאמות"],
+                ["rfi", "RFI"],
+                ["trialSections", "קטעי ניסוי"],
+                ["controlProcesses", "תעודות ייחוס וריכוזים"],
+                ["supervisionReports", "דוחות פיקוח עליון"],
+              ].map(([key, label]) => (
+                <label key={key} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 0" }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(archiveSections[key])}
+                    onChange={(event) =>
+                      setArchiveSections((current) => ({ ...current, [key]: event.target.checked }))
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                type="button"
+                style={styles.primaryBtn}
+                disabled={isSaving || !Object.values(archiveSections).some(Boolean)}
+                onClick={() => void downloadProjectArchive()}
+              >
+                {isSaving ? "מכין קובץ ZIP..." : "הורד את החומר שנבחר"}
+              </button>
+              <button type="button" style={styles.secondaryBtn} onClick={() => setShowArchiveSelection(false)}>
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={styles.layout}>
         <main style={styles.mainCard}>
