@@ -20667,24 +20667,68 @@ export default function Page() {
       const usedPaths = new Set<string>();
       const projectRoot = sanitizeZipSegment(`חומר פרויקט - ${projectName || currentProject.name}`);
       const now = nowLocal();
-      const allProjectChecklists = savedChecklists.filter((item) => checklistMatchesCurrentProject(item.projectId));
-      const allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectTrialSections = savedTrialSections.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectChecklists = savedChecklists.filter((item) => checklistMatchesCurrentProject(item.projectId));
+      let allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectTrialSections = savedTrialSections.filter((item) => recordMatchesCurrentProject(item.projectId));
       let allProjectPreliminary = savedPreliminary.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectRfis = savedRfis.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectControlProcesses = savedControlProcesses.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectSupervisionReports = savedSupervisionReports.filter((item) => recordMatchesCurrentProject(item.projectId));
-      const allProjectPlans = currentProjectPlans;
+      let allProjectRfis = savedRfis.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectControlProcesses = savedControlProcesses.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectSupervisionReports = savedSupervisionReports.filter((item) => recordMatchesCurrentProject(item.projectId));
+      let allProjectPlans = currentProjectPlans;
 
       // Archive generation must not depend on a possibly stale/partial screen state.
-      // Reload preliminary-control records for the active project immediately before export.
-      if (archiveSections.preliminary && cloudEnabled && supabase && currentProjectIdNormalized) {
-        const { data: preliminaryCloudRows, error: preliminaryCloudError } = await supabase
-          .from("preliminary_records")
-          .select("*")
-          .eq("project_id", currentProjectIdNormalized)
-          .order("saved_at", { ascending: false });
-        if (preliminaryCloudError) throw preliminaryCloudError;
+      // Reload every selected collection for the active project immediately before export.
+      if (cloudEnabled && supabase && currentProjectIdNormalized) {
+        const loadArchiveRows = async (enabled: boolean, table: string, orderColumn: string) => {
+          if (!enabled) return null;
+          const result = await supabase
+            .from(table)
+            .select("*")
+            .eq("project_id", currentProjectIdNormalized)
+            .order(orderColumn, { ascending: false });
+          if (result.error) throw result.error;
+          return result.data ?? [];
+        };
+        const [checklistCloudRows, nonconformanceCloudRows, trialCloudRows, preliminaryCloudRows, rfiCloudRows, controlCloudRows, supervisionCloudRows, planCloudRows] = await Promise.all([
+          loadArchiveRows(archiveSections.checklists, "checklists", "saved_at"),
+          loadArchiveRows(archiveSections.nonconformances, NONCONFORMANCE_TABLE, "saved_at"),
+          loadArchiveRows(archiveSections.trialSections, "trial_sections", "saved_at"),
+          loadArchiveRows(archiveSections.preliminary, "preliminary_records", "saved_at"),
+          loadArchiveRows(archiveSections.rfi, "rfi_records", "created_at"),
+          loadArchiveRows(archiveSections.controlProcesses, CONTROL_PROCESS_TABLE, "saved_at"),
+          loadArchiveRows(archiveSections.supervisionReports, SUPERVISION_REPORTS_TABLE, "saved_at"),
+          loadArchiveRows(archiveSections.plans, PLANS_TABLE, "saved_at"),
+        ]);
+        if (checklistCloudRows) allProjectChecklists = checklistCloudRows.map(checklistRowToRecord);
+        if (nonconformanceCloudRows) allProjectNonconformances = nonconformanceCloudRows.map((row: any) => ({
+          ...(row.details ?? {}),
+          id: row.id,
+          projectId: normalizeStoredProjectId(row.project_id),
+          structureNodeId: row.structure_node_id ?? row.details?.structureNodeId ?? "",
+          title: row.title ?? row.details?.title ?? "",
+          description: row.description ?? row.details?.description ?? "",
+          actionRequired: row.action_required ?? row.details?.actionRequired ?? "",
+          images: normalizeAttachments(row.images ?? row.details?.images),
+          approval: normalizeApproval(row.approval ?? row.details?.approval),
+          savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+        })) as NonconformanceRecord[];
+        if (trialCloudRows) allProjectTrialSections = trialCloudRows.map((row: any) => ({
+          ...(row.details ?? {}),
+          id: row.id,
+          projectId: normalizeStoredProjectId(row.project_id),
+          structureNodeId: row.structure_node_id ?? row.details?.structureNodeId ?? "",
+          title: row.title ?? row.details?.title ?? "",
+          location: row.location ?? row.details?.location ?? "",
+          date: row.date ?? row.details?.date ?? "",
+          spec: row.spec ?? row.details?.spec ?? "",
+          result: row.result ?? row.details?.result ?? "",
+          status: row.status ?? row.details?.status ?? "",
+          notes: row.notes ?? row.details?.notes ?? "",
+          images: normalizeAttachments(row.images ?? row.details?.images),
+          approval: normalizeApproval(row.approval ?? row.details?.approval),
+          savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+        })) as TrialSectionRecord[];
+        if (preliminaryCloudRows) {
         allProjectPreliminary = (preliminaryCloudRows ?? []).map((row: any) => ({
           id: row.id,
           projectId: normalizeStoredProjectId(row.project_id),
@@ -20699,6 +20743,11 @@ export default function Page() {
           approval: normalizeApproval(row.approval),
           savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
         })) as PreliminaryRecord[];
+        }
+        if (rfiCloudRows) allProjectRfis = rfiCloudRows.map(rfiRowToRecord);
+        if (controlCloudRows) allProjectControlProcesses = controlCloudRows.map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[];
+        if (supervisionCloudRows) allProjectSupervisionReports = supervisionCloudRows.map(supervisionReportRowToRecord).filter(Boolean) as SupervisionReportRecord[];
+        if (planCloudRows) allProjectPlans = planCloudRows.map(planRowToRecord).filter(Boolean) as PlanRecord[];
       }
 
       const addText = (path: string, content: string) => {
