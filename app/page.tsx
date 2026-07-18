@@ -14705,14 +14705,22 @@ export default function Page() {
     }
 
     try {
-      const storedRfis = window.localStorage.getItem(RFI_STORAGE_KEY);
-      const parsedRfis = storedRfis ? JSON.parse(storedRfis) : [];
-      setSavedRfis(
-        Array.isArray(parsedRfis)
-          ? (parsedRfis.map(normalizeRfiRecord).filter(Boolean) as RfiRecord[])
-          : [],
-      );
+      if (isSupabaseConfigured) {
+        window.localStorage.removeItem(RFI_STORAGE_KEY);
+        setSavedRfis([]);
+      } else {
+        const storedRfis = window.localStorage.getItem(RFI_STORAGE_KEY);
+        const parsedRfis = storedRfis ? JSON.parse(storedRfis) : [];
+        setSavedRfis(
+          Array.isArray(parsedRfis)
+            ? (parsedRfis.map(normalizeRfiRecord).filter(Boolean) as RfiRecord[])
+            : [],
+        );
+      }
     } catch {
+      try {
+        window.localStorage.removeItem(RFI_STORAGE_KEY);
+      } catch {}
       setSavedRfis([]);
     }
     try {
@@ -14893,8 +14901,23 @@ export default function Page() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
-  }, [savedRfis]);
+    // Cloud RFI records can contain large documents. Persisting them again in
+    // localStorage exhausts the browser quota and can crash the whole page.
+    if (cloudEnabled) {
+      try {
+        window.localStorage.removeItem(RFI_STORAGE_KEY);
+      } catch {}
+      return;
+    }
+    try {
+      window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
+    } catch (error) {
+      console.warn("RFI local cache is full; clearing it without affecting cloud data.", error);
+      try {
+        window.localStorage.removeItem(RFI_STORAGE_KEY);
+      } catch {}
+    }
+  }, [savedRfis, cloudEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -18931,7 +18954,7 @@ export default function Page() {
     const parsed = dataUrlToBytes(attachment.dataUrl);
     if (!parsed) return attachment;
     const safeName = String(attachment.name || "rfi-document")
-      .replace(/[^a-zA-Z0-9א-ת._-]/g, "_")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
       .slice(-140);
     const filePath = `rfi/${normalizeStoredProjectId(currentProjectId)}/${recordId}/${Date.now()}-${crypto.randomUUID()}-${safeName || "file"}`;
     const blob = new Blob([parsed.bytes], {
