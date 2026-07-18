@@ -15626,7 +15626,12 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
+        // Administrators switch between projects frequently. Load the cloud
+        // dataset once and isolate it client-side, instead of letting a stale
+        // project id produce an empty response that replaces every module.
+        const scopedProjectIds = isAdminAccess(projectAccess)
+          ? []
+          : projectCloudIdsForCanonicalId(currentProjectId);
         const [
           projectsRes,
           checklistsRes,
@@ -15798,7 +15803,9 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
+    const scopedProjectIds = isAdminAccess(projectAccess)
+      ? []
+      : projectCloudIdsForCanonicalId(currentProjectId);
     const [
       projectsRes,
       checklistsRes,
