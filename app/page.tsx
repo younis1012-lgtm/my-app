@@ -239,7 +239,10 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
-  "80600000-0000-0000-0000-000000000806": "80600000-0000-0000-0000-000000000000",
+  // This legacy id belongs to the Road 65 / Dovrat project.  It was created
+  // with an 806-shaped id, which previously made the UI select Road 806 and
+  // hide the Road 65 records after every cloud reload.
+  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
