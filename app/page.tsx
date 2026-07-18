@@ -2917,6 +2917,7 @@ type StoredAttachment = {
   type: string;
   dataUrl: string;
   uploadedAt: string;
+  storagePath?: string;
   results?: Record<string, string>;
   labResults?: Record<string, string>;
   densityResults?: Record<string, string>;
@@ -3226,6 +3227,7 @@ const normalizeAttachments = (value: unknown): StoredAttachment[] =>
           type: String(item.type ?? ""),
           dataUrl: String(item.dataUrl ?? ""),
           uploadedAt: String(item.uploadedAt ?? ""),
+          storagePath: String(item.storagePath ?? item.storage_path ?? "") || undefined,
           results: item.results ?? {},
           labResults: item.labResults ?? item.densityResults ?? item.results ?? {},
           densityResults: item.densityResults ?? item.labResults ?? item.results ?? {},
@@ -9851,49 +9853,6 @@ function RfiSection({
     };
     localReader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
     localReader.readAsDataURL(file);
-    return;
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
-        const filePath = `rfi/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-        const uploadResult = await supabase.storage
-          .from("rfi-documents")
-          .upload(filePath, file, {
-            upsert: false,
-            contentType: file.type || undefined,
-          });
-
-        if (uploadResult.error) throw uploadResult.error;
-
-        const { data } = supabase.storage
-          .from("rfi-documents")
-          .getPublicUrl(filePath);
-        appendAttachment({
-          name: file.name,
-          type: file.type,
-          dataUrl: data.publicUrl,
-          uploadedAt: nowLocal(),
-        });
-        return;
-      } catch (error) {
-        console.error("RFI document upload failed", error);
-        alert("העלאת הקובץ ל-Supabase נכשלה. הקובץ לא צורף.");
-        return;
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      appendAttachment({
-        name: file.name,
-        type: file.type,
-        dataUrl: String(reader.result ?? ""),
-        uploadedAt: nowLocal(),
-      });
-    };
-    reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
-    reader.readAsDataURL(file);
   };
   const removeRfiDocument = (indexToRemove: number) => {
     setRfiForm((prev: any) => ({
@@ -18962,6 +18921,46 @@ export default function Page() {
     if (result.error) throw result.error;
   };
 
+  const uploadInlineRfiDocumentToCloud = async (
+    attachment: StoredAttachment,
+    recordId: string,
+  ): Promise<StoredAttachment> => {
+    if (!cloudEnabled || !supabase || !String(attachment.dataUrl || "").startsWith("data:")) {
+      return attachment;
+    }
+    const parsed = dataUrlToBytes(attachment.dataUrl);
+    if (!parsed) return attachment;
+    const safeName = String(attachment.name || "rfi-document")
+      .replace(/[^a-zA-Z0-9א-ת._-]/g, "_")
+      .slice(-140);
+    const filePath = `rfi/${normalizeStoredProjectId(currentProjectId)}/${recordId}/${Date.now()}-${crypto.randomUUID()}-${safeName || "file"}`;
+    const blob = new Blob([parsed.bytes], {
+      type: attachment.type || parsed.mimeType || "application/octet-stream",
+    });
+    const uploadResult = await supabase.storage
+      .from("attachments")
+      .upload(filePath, blob, {
+        upsert: false,
+        contentType: attachment.type || parsed.mimeType || undefined,
+      });
+    if (uploadResult.error) {
+      if (isStorageBucketMissingError(uploadResult.error)) {
+        throw new Error("חסר bucket בשם attachments ב-Supabase Storage. לא ניתן לשמור מסמכי RFI.");
+      }
+      throw uploadResult.error;
+    }
+    const { data } = supabase.storage.from("attachments").getPublicUrl(filePath);
+    return { ...attachment, dataUrl: data.publicUrl, storagePath: filePath };
+  };
+
+  const prepareRfiDocumentsForCloud = async (record: RfiRecord): Promise<RfiRecord> => {
+    const documents: StoredAttachment[] = [];
+    for (const attachment of normalizeAttachments(record.documents)) {
+      documents.push(await uploadInlineRfiDocumentToCloud(attachment, record.id));
+    }
+    return { ...record, documents };
+  };
+
   const saveRfi = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור פניות RFI.");
@@ -19007,7 +19006,11 @@ export default function Page() {
 
     await withSaving(async () => {
       if (cloudEnabled) {
-        const payload = rfiRecordToRow({ ...record, updatedAt: actionIso });
+        const recordForSave = await prepareRfiDocumentsForCloud({
+          ...record,
+          updatedAt: actionIso,
+        });
+        const payload = rfiRecordToRow(recordForSave);
         await saveRfiPayload(
           payload,
           Boolean(editingRfiId),
