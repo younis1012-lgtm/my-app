@@ -22442,10 +22442,17 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     try {
-      const blob = await buildRfiMergedPdfBlob(record);
+      const formPdfBytes = await buildFormOnlyPdfBytes(
+        rfiExportHtml(record),
+        rfiExportTitle(record),
+      );
+      const blob = new Blob([formPdfBytes], { type: "application/pdf" });
       const pdfDataUrl = await blobToDataUrl(blob);
       const attachments = uniqueEmailAttachments([
-        dataUrlToEmailAttachment(`${rfiExportTitle(record)} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
+        dataUrlToEmailAttachment(`${rfiExportTitle(record)} - טופס.pdf`, pdfDataUrl, "application/pdf"),
+        ...normalizeAttachments(record.documents).map((document) =>
+          dataUrlToEmailAttachment(document.name, document.dataUrl, document.type),
+        ),
       ]);
       const messageText = customMessage.trim();
       const messageHtml = messageText
@@ -22458,8 +22465,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: Array.from(new Set(recipients)).join(", "),
           subject: `${rfiExportTitle(record)} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${safeText(projectName)}</div></div>`,
-          text: `${messagePlain}מצורף PDF מאוחד הכולל את בקשת ה-RFI ואת הקבצים המצורפים בפרויקט ${projectName}`,
+          html: `<div dir="rtl">${messageHtml}<div>מצורפים טופס ה-RFI וכל המסמכים הנלווים בפרויקט ${safeText(projectName)}</div></div>`,
+          text: `${messagePlain}מצורפים טופס ה-RFI וכל המסמכים הנלווים בפרויקט ${projectName}`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -22470,7 +22477,7 @@ ${invalidRecipients.join("\n")}`);
         alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
         return;
       }
-      alert("המייל נשלח בהצלחה עם PDF של ה-RFI והנספחים.");
+      alert("המייל נשלח בהצלחה עם טופס ה-RFI וכל הנספחים.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }

@@ -12,6 +12,7 @@ type EmailAttachment = {
   contentBase64?: string;
   data?: string;
   dataUrl?: string;
+  url?: string;
 };
 
 type EmailPayload = {
@@ -70,6 +71,14 @@ function normalizeAttachments(value: unknown) {
       const item = raw as EmailAttachment;
       const filename = item.filename || item.name || `attachment-${index + 1}.pdf`;
       const contentType = item.mimeType || item.contentType || "application/pdf";
+      const remoteUrl = String(item.url || "").trim();
+      if (/^https?:\/\//i.test(remoteUrl)) {
+        return {
+          filename,
+          path: remoteUrl,
+          contentType,
+        };
+      }
       const content = base64Only(item.contentBase64 || item.data || item.dataUrl);
       if (!content) return null;
 
