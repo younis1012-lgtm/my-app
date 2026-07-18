@@ -247,6 +247,26 @@ const PROJECT_ID_ALIASES: Record<string, string> = {
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
 
+const UUID_PROJECT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Cloud rows may still carry a historical project id. Query every UUID that
+// canonically belongs to the selected project, then normalize rows on read.
+// This keeps projects isolated without making old records temporarily vanish.
+const projectCloudIdsForCanonicalId = (value: unknown) => {
+  const normalized = normalizeStoredProjectId(value);
+  if (!normalized) return [];
+  return Array.from(
+    new Set([
+      normalized,
+      ...Object.entries(PROJECT_ID_ALIASES)
+        .filter(([, canonicalId]) => canonicalId === normalized)
+        .map(([legacyId]) => legacyId)
+        .filter((id) => UUID_PROJECT_ID_PATTERN.test(id)),
+    ]),
+  );
+};
+
 const projectCodeToUuid = (code: string) => {
   const digits = code.replace(/\D/g, "");
   if (!digits || digits.length > 8) return "";
@@ -15606,7 +15626,7 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        const scopedProjectIds = [normalizeStoredProjectId(currentProjectId)].filter(Boolean);
+        const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
         const [
           projectsRes,
           checklistsRes,
@@ -15724,34 +15744,41 @@ export default function Page() {
     const hasProjectChecklists = savedChecklists.some(
       (item) => normalizeStoredProjectId(item.projectId) === normalizedProjectId,
     );
-    if (hasProjectChecklists) return;
+    const hasProjectRfis = savedRfis.some(
+      (item) => normalizeStoredProjectId(item.projectId) === normalizedProjectId,
+    );
+    if (hasProjectChecklists && hasProjectRfis) return;
 
     let cancelled = false;
-    const candidateProjectIds = Array.from(
-      new Set([
-        normalizedProjectId,
-        ...buildScopedProjectIdsForAccess(projectAccess, normalizedProjectId),
-      ]),
-    );
+    const candidateProjectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
 
     (async () => {
-      for (const candidateProjectId of candidateProjectIds) {
-        const { data, error } = await supabase
-          .from("checklists")
-          .select("*")
-          .eq("project_id", candidateProjectId)
-          .order("saved_at", { ascending: false });
-        if (cancelled) return;
-        if (error || !data?.length) continue;
+      const [checklistsResult, rfiResult] = await Promise.all([
+        hasProjectChecklists
+          ? Promise.resolve({ data: [], error: null })
+          : selectProjectTable("checklists", "saved_at", candidateProjectIds),
+        hasProjectRfis
+          ? Promise.resolve({ data: [], error: null })
+          : selectProjectTable("rfi_records", "created_at", candidateProjectIds),
+      ]);
+      if (cancelled) return;
 
-        const restored = data.map(checklistRowToRecord);
+      if (!checklistsResult.error && checklistsResult.data?.length) {
+        const restored = checklistsResult.data.map(checklistRowToRecord);
         setSavedChecklists((prev) => {
           const existingIds = new Set(prev.map((item) => item.id));
           const missing = restored.filter((item) => !existingIds.has(item.id));
           return missing.length ? [...missing, ...prev] : prev;
         });
+      }
 
-        return;
+      if (!rfiResult.error && rfiResult.data?.length) {
+        const restored = rfiResult.data.map(rfiRowToRecord);
+        setSavedRfis((prev) => {
+          const existingIds = new Set(prev.map((item) => item.id));
+          const missing = restored.filter((item) => !existingIds.has(item.id));
+          return missing.length ? [...missing, ...prev] : prev;
+        });
       }
     })();
     return () => {
@@ -15762,6 +15789,7 @@ export default function Page() {
     cloudEnabled,
     currentProjectId,
     savedChecklists.length,
+    savedRfis.length,
     projectAccess?.code,
     projectAccess?.projectIds,
     projectAccess?.role,
@@ -15770,7 +15798,7 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = [normalizeStoredProjectId(currentProjectId)].filter(Boolean);
+    const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
     const [
       projectsRes,
       checklistsRes,
