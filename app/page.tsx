@@ -21280,6 +21280,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     document.body.appendChild(host);
 
     try {
+      const portrait = Boolean(host.querySelector(".portrait-export"));
+      const renderWidth = portrait ? 794 : 1123;
+      const renderHeight = portrait ? 1123 : 794;
+      host.style.width = `${renderWidth}px`;
+      host.style.minHeight = `${renderHeight}px`;
       host.querySelectorAll(".attachment-page").forEach((node) => node.remove());
       host.querySelectorAll("object,iframe").forEach((node) => node.remove());
       await waitForImagesToLoad(host);
@@ -21292,15 +21297,15 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         backgroundColor: "#ffffff",
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 1123,
-        windowHeight: Math.max(page.scrollHeight, 794),
+        windowWidth: renderWidth,
+        windowHeight: Math.max(page.scrollHeight, renderHeight),
       });
 
       if (!canvas.width || !canvas.height) throw new Error("יצירת צילום הטופס נכשלה");
 
-      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pageWidth = 297;
-      const pageHeight = 210;
+      const pdf = new jsPDF({ orientation: portrait ? "portrait" : "landscape", unit: "mm", format: "a4" });
+      const pageWidth = portrait ? 210 : 297;
+      const pageHeight = portrait ? 297 : 210;
       const margin = 6;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
@@ -21343,7 +21348,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           ctx.drawImage(canvas, 0, y, canvas.width, currentSliceHeight, 0, 0, canvas.width, currentSliceHeight);
           const imgData = sliceCanvas.toDataURL("image/jpeg", 0.95);
           const imgHeightMm = (currentSliceHeight * usableWidth) / canvas.width;
-          if (pageIndex > 0) pdf.addPage("a4", "landscape");
+          if (pageIndex > 0) pdf.addPage("a4", portrait ? "portrait" : "landscape");
           pdf.addImage(imgData, "JPEG", margin, margin, usableWidth, Math.min(imgHeightMm, usableHeight), undefined, "FAST");
           y += currentSliceHeight;
           pageIndex += 1;
@@ -22290,11 +22295,63 @@ ${invalidRecipients.join("\n")}`);
           .join("")
       : `<tr><td colspan="4">אין קבצים מצורפים</td></tr>`;
 
+    const row = (label: string, value: unknown, className = "") =>
+      `<tr class="${className}"><th>${safeText(label)}</th><td colspan="3">${valueOrBlank(value, className.includes("large") ? 92 : 26)}</td></tr>`;
+    const parties = currentProjectLegend;
+    const rfiStyles = `
+      .rfi-form-export{font-family:Arial,sans-serif;direction:rtl;color:#111827;padding:0 14px;font-size:11px;box-sizing:border-box}
+      .rfi-form-export .company-header{margin-bottom:6px}
+      .rfi-form-title{font-size:20px;font-weight:900;text-align:center;border:2px solid #111827;padding:7px;margin:0 0 6px;background:#f8fafc}
+      .rfi-form-export table{margin:0 0 6px;table-layout:fixed;page-break-inside:avoid}
+      .rfi-form-export th,.rfi-form-export td{border:1.5px solid #111827;padding:5px 7px;font-size:10.5px;line-height:1.35;vertical-align:middle}
+      .rfi-form-export th{width:19%;background:#f1f5f9;font-weight:900;text-align:right}
+      .rfi-form-export td{width:31%;font-weight:600;text-align:right;background:#fff}
+      .rfi-form-export .section-title{font-size:13px;font-weight:900;text-align:center;background:#e2e8f0;padding:5px}
+      .rfi-form-export .compact th,.rfi-form-export .compact td{padding:4px 6px}
+      .rfi-form-export .large td{min-height:92px;height:auto;vertical-align:top;white-space:pre-wrap;text-align:right;line-height:1.5;font-size:10px}
+      .rfi-form-export .response td{min-height:58px}
+      .rfi-form-export .attachments-title{font-size:12px;font-weight:900;text-align:right;margin:5px 0 3px}
+      .rfi-form-export .attachments th,.rfi-form-export .attachments td{text-align:center;padding:4px 5px;font-size:9.5px}
+      .rfi-form-export .company-footer{margin-top:4px}
+      @page{size:A4 portrait;margin:7mm}
+    `;
+
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(
       rfiExportTitle(record),
-    )}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(
-      rfiExportTitle(record),
-    )}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${baseRows(rfiExportRows(record))}<h2>קבצים מצורפים</h2><table><thead><tr><th>#</th><th>שם קובץ</th><th>סוג</th><th>תאריך צירוף</th></tr></thead><tbody>${docsRows}</tbody></table>${exportCompanyFooter()}</div></body></html>`;
+    )}</title><style>${exportStyles}${rfiStyles}</style></head><body><div class="export-page portrait-export rfi-form-export">${exportCompanyHeader()}
+      <div class="rfi-form-title">טופס בקשה למידע (RFI) - ${safeText(rfiExportTitle(record))}</div>
+      <table class="compact"><tbody>
+        <tr><th>שם הפרויקט</th><td>${valueOrBlank(projectName, 24)}</td><th>קבלן ראשי</th><td>${valueOrBlank(parties.contractor, 24)}</td></tr>
+        <tr><th>חברת ניהול</th><td>${valueOrBlank(parties.projectManager, 24)}</td><th>חברת בקרת איכות</th><td>${valueOrBlank(parties.qaCompany, 24)}</td></tr>
+        <tr><th>בקרת איכות</th><td>${valueOrBlank(parties.qualityControl, 24)}</td><th>מנהל עבודה / מודד</th><td>${valueOrBlank([parties.workManager, parties.surveyor].filter(Boolean).join(" / "), 24)}</td></tr>
+      </tbody></table>
+      <table class="compact"><tbody>
+        <tr><td class="section-title" colspan="4">פרטי מסמך ופרטי RFI</td></tr>
+        <tr><th>מספר RFI</th><td>${valueOrBlank(record.title, 24)}</td><th>מספר ייחוס</th><td>${valueOrBlank(record.referenceNo, 24)}</td></tr>
+        <tr><th>סטטוס</th><td>${valueOrBlank(record.status, 24)}</td><th>תאריך פתיחה</th><td>${valueOrBlank(record.openDate, 24)}</td></tr>
+        <tr><th>מס׳ תוכנית</th><td>${valueOrBlank(record.planNo, 24)}</td><th>גרסה / מהדורה</th><td>${valueOrBlank(record.revision, 24)}</td></tr>
+        <tr><th>שם תוכנית</th><td colspan="3">${valueOrBlank(record.planName, 24)}</td></tr>
+      </tbody></table>
+      <table><tbody>
+        <tr><td class="section-title" colspan="4">פרטי המבנה והבקשה</td></tr>
+        ${row("פרטי מבנה", record.buildingDetails || record.building)}
+        ${row("מבנה", record.building)}
+        ${row("מיקום", record.location)}
+        ${row("פעילות עבודה", record.workActivity)}
+        ${row("תוכניות רלוונטיות", record.relevantPlans)}
+        <tr><th>מחתך</th><td>${valueOrBlank(record.fromSection, 24)}</td><th>עד חתך</th><td>${valueOrBlank(record.toSection, 24)}</td></tr>
+        <tr><th>השפעה תקציבית</th><td>${valueOrBlank(record.budgetImpact, 24)}</td><th>השפעה על לוח זמנים</th><td>${valueOrBlank(record.scheduleImpact, 24)}</td></tr>
+        ${row("תיאור הבקשה", record.requestDescription, "large")}
+        ${row("תשובת RFI / התייחסות שהתקבלה", record.response, "large response")}
+      </tbody></table>
+      <table class="compact"><tbody>
+        <tr><td class="section-title" colspan="4">פרטי סגירת RFI</td></tr>
+        <tr><th>תאריך סגירה</th><td>${valueOrBlank(record.closeDate || record.closedAt, 24)}</td><th>נסגר על ידי</th><td>${valueOrBlank(record.closedBy, 24)}</td></tr>
+        <tr><th>נפתח על ידי</th><td>${valueOrBlank(record.createdBy, 24)}</td><th>עדכון אחרון</th><td>${valueOrBlank(record.updatedAt, 24)}</td></tr>
+      </tbody></table>
+      <div class="attachments-title">מסמכים נוספים / קבצים מצורפים</div>
+      <table class="attachments"><thead><tr><th>#</th><th>שם קובץ</th><th>סוג</th><th>תאריך צירוף</th></tr></thead><tbody>${docsRows}</tbody></table>
+      ${exportCompanyFooter()}</div></body></html>`;
   };
 
   const buildRfiMergedPdfBlob = (record: RfiRecord) =>
