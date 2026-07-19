@@ -1,7 +1,60 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../../lib/supabaseClient";
 import { ENGINEERING_TEMPLATES, type EngineeringTemplateNode } from "./TemplateData";
+
+const STORAGE_KEY = "yk-quality-stage4-multifile";
+const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
+const PROJECT_STRUCTURE_STORAGE_KEY = `${STORAGE_KEY}-project-structure`;
+const PROJECT_STRUCTURE_TABLE = "project_structure_nodes";
+
+type StoredProjectNode = {
+  id: string;
+  projectId: string;
+  parentId: string;
+  nodeType: "structure" | "element" | "activity";
+  name: string;
+  code: string;
+  fromChainage: string;
+  toChainage: string;
+  side: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const normalizeStoredNode = (value: any): StoredProjectNode | null => {
+  if (!value || typeof value !== "object" || !value.id) return null;
+  return {
+    id: String(value.id),
+    projectId: String(value.projectId ?? value.project_id ?? ""),
+    parentId: String(value.parentId ?? value.parent_id ?? ""),
+    nodeType: value.nodeType ?? value.node_type ?? "activity",
+    name: String(value.name ?? ""),
+    code: String(value.code ?? ""),
+    fromChainage: String(value.fromChainage ?? value.from_chainage ?? ""),
+    toChainage: String(value.toChainage ?? value.to_chainage ?? ""),
+    side: String(value.side ?? ""),
+    sortOrder: Number(value.sortOrder ?? value.sort_order ?? 0) || 0,
+    createdAt: String(value.createdAt ?? value.created_at ?? ""),
+    updatedAt: String(value.updatedAt ?? value.updated_at ?? ""),
+  };
+};
+
+const nodeToRow = (node: StoredProjectNode) => ({
+  id: node.id,
+  project_id: node.projectId,
+  parent_id: node.parentId || null,
+  node_type: node.nodeType,
+  name: node.name,
+  code: node.code || null,
+  from_chainage: node.fromChainage || null,
+  to_chainage: node.toChainage || null,
+  side: node.side || null,
+  sort_order: node.sortOrder,
+  updated_at: node.updatedAt,
+});
 
 const cardStyle = {
   border: "1px solid #e2e8f0",
@@ -41,13 +94,107 @@ function NodeTree({ nodes, depth = 0 }: { nodes: EngineeringTemplateNode[]; dept
 
 export function TemplateLibrary() {
   const [selectedIds, setSelectedIds] = useState<string[]>(["road-structure", "retaining-wall", "drainage-channel"]);
+  const [projectId, setProjectId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
   const selectedTemplates = useMemo(
     () => ENGINEERING_TEMPLATES.filter((template) => selectedIds.includes(template.id)),
     [selectedIds],
   );
 
+  useEffect(() => {
+    setProjectId(window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ?? "");
+  }, []);
+
   const toggleTemplate = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  const saveTreeToProject = async () => {
+    if (!projectId) {
+      setMessage("יש לחזור לדף הבית, לבחור פרויקט ולפתוח שוב את ספריית התבניות.");
+      return;
+    }
+    if (!selectedTemplates.length) {
+      setMessage("יש לבחור לפחות תבנית אחת.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      let localNodes: StoredProjectNode[] = [];
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(PROJECT_STRUCTURE_STORAGE_KEY) || "[]");
+        if (Array.isArray(parsed)) localNodes = parsed.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
+      } catch {}
+
+      let cloudNodes: StoredProjectNode[] = [];
+      if (supabase) {
+        const result = await supabase.from(PROJECT_STRUCTURE_TABLE).select("*").eq("project_id", projectId);
+        if (!result.error && Array.isArray(result.data)) {
+          cloudNodes = result.data.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
+        }
+      }
+
+      const allNodes = [...localNodes];
+      for (const cloudNode of cloudNodes) {
+        if (!allNodes.some((node) => node.id === cloudNode.id)) allNodes.push(cloudNode);
+      }
+      const projectNodes = allNodes.filter((node) => node.projectId === projectId);
+      const created: StoredProjectNode[] = [];
+      const now = new Date().toISOString();
+
+      const findOrCreate = (
+        name: string,
+        parentId: string,
+        nodeType: StoredProjectNode["nodeType"],
+        sortOrder: number,
+      ) => {
+        const existing = [...projectNodes, ...created].find(
+          (node) => node.parentId === parentId && node.name.trim() === name.trim(),
+        );
+        if (existing) return existing.id;
+        const node: StoredProjectNode = {
+          id: crypto.randomUUID(), projectId, parentId, nodeType, name,
+          code: "", fromChainage: "", toChainage: "", side: "", sortOrder,
+          createdAt: now, updatedAt: now,
+        };
+        created.push(node);
+        return node.id;
+      };
+
+      const addChildren = (nodes: EngineeringTemplateNode[], parentId: string, depth: number) => {
+        nodes.forEach((node, index) => {
+          const id = findOrCreate(node.name, parentId, depth === 0 ? "element" : "activity", index);
+          if (node.children?.length) addChildren(node.children, id, depth + 1);
+        });
+      };
+
+      selectedTemplates.forEach((template, index) => {
+        const rootId = findOrCreate(template.title, "", "structure", index);
+        addChildren(template.nodes, rootId, 0);
+      });
+
+      const merged = [...allNodes, ...created];
+      window.localStorage.setItem(PROJECT_STRUCTURE_STORAGE_KEY, JSON.stringify(merged));
+
+      let cloudWarning = false;
+      if (supabase && created.length) {
+        const result = await supabase.from(PROJECT_STRUCTURE_TABLE).upsert(created.map(nodeToRow), { onConflict: "id" });
+        cloudWarning = Boolean(result.error);
+      }
+
+      setMessage(
+        created.length
+          ? `נשמרו ${created.length} סעיפים בעץ הפרויקט.${cloudWarning ? " העץ נשמר בדפדפן, אך השמירה בענן נכשלה." : ""}`
+          : "כל הסעיפים שנבחרו כבר קיימים בעץ הפרויקט.",
+      );
+    } catch (error) {
+      setMessage(`שמירת העץ נכשלה: ${error instanceof Error ? error.message : "שגיאה לא צפויה"}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -116,10 +263,29 @@ export function TemplateLibrary() {
           <div>
             <h2 style={{ margin: 0, fontSize: 22 }}>עץ מוצע מהתבניות שנבחרו</h2>
             <div style={{ color: "#64748b", fontWeight: 750, marginTop: 4 }}>
-              נבחרו {selectedTemplates.length} תבניות. בשלב הבא נחבר את העץ הזה לשמירה בפרויקט וליצירת משימות אוטומטית.
+              נבחרו {selectedTemplates.length} תבניות. שמירת העץ תוסיף את הסעיפים לפרויקט הפעיל ותאפשר לשייך אליהם רשימות תיוג.
             </div>
           </div>
+          <button
+            type="button"
+            onClick={saveTreeToProject}
+            disabled={saving || !selectedTemplates.length}
+            style={{ border: 0, background: saving ? "#94a3b8" : "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 20px", fontWeight: 950, cursor: saving ? "wait" : "pointer", whiteSpace: "nowrap" }}
+          >
+            {saving ? "שומר..." : "שמור עץ בפרויקט"}
+          </button>
         </div>
+
+        {message ? (
+          <div role="status" style={{ marginBottom: 14, padding: "11px 14px", borderRadius: 12, background: message.includes("נכשל") || message.includes("יש ") ? "#fff7ed" : "#ecfdf5", color: "#0f172a", fontWeight: 800 }}>
+            {message}
+            {message.startsWith("נשמרו") || message.startsWith("כל הסעיפים") ? (
+              <button type="button" onClick={() => { window.location.href = "/"; }} style={{ marginInlineStart: 12, border: 0, background: "transparent", color: "#0369a1", fontWeight: 950, cursor: "pointer", textDecoration: "underline" }}>
+                חזרה לפרויקט
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 14 }}>
           {selectedTemplates.map((template) => (
