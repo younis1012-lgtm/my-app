@@ -4266,6 +4266,7 @@ const createDefaultTrialSection = (): Omit<
     fromTo: "",
     fromSection: "",
     toSection: "",
+    side: "",
     participants: "",
     equipment: "",
     toolsUsed: "",
@@ -19432,6 +19433,18 @@ export default function Page() {
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור קטעי ניסוי.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     const completedTrialSectionForm: any = enrichTrialSectionRecord(trialSectionForm as any);
+    if (!String(completedTrialSectionForm.title || "").trim()) {
+      const generatedTitle = [
+        "קטע ניסוי",
+        completedTrialSectionForm.elementName || completedTrialSectionForm.element,
+        completedTrialSectionForm.sectionNo
+          ? `מס׳ ${completedTrialSectionForm.sectionNo}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" - ");
+      completedTrialSectionForm.title = generatedTitle;
+    }
     if (!String(completedTrialSectionForm.title || "").trim()) return alert("יש להזין שם לקטע ניסוי");
     const id = editingTrialSectionId ?? crypto.randomUUID();
     const title =

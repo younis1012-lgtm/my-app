@@ -124,11 +124,14 @@ const trialFieldGroups = [
   {
     title: 'פרטי קטע הניסוי',
     fields: [
+      ['title', 'שם קטע ניסוי'],
       ['sectionNo', "קטע מס'"],
       ['proofForActivityType', 'הוכחת היכולת לפעולה מסוג'],
       ['elementName', 'שם האלמנט'],
       ['subElement', 'תת אלמנט'],
-      ['chainageSide', 'מחתך עד חתך/צד'],
+      ['fromSection', 'מחתך'],
+      ['toSection', 'עד חתך'],
+      ['side', 'צד'],
     ],
   },
   {
@@ -160,6 +163,9 @@ const getTrialValue = (form: any, key: string) => {
     correctiveAction: ['notes'],
     mainContractor: ['contractor'],
     signature: ['approvedBy'],
+    fromSection: ['fromChainage', 'fromStation'],
+    toSection: ['toChainage', 'toStation'],
+    side: ['roadSide'],
   };
   const direct = form?.[key];
   if (direct !== undefined && direct !== null && direct !== '') return direct;
@@ -178,6 +184,9 @@ const updateTrialField = (setTrialSectionForm: any, key: string, value: string) 
     correctiveAction: 'notes',
     mainContractor: 'contractor',
     signature: 'approvedBy',
+    fromSection: 'fromChainage',
+    toSection: 'toChainage',
+    side: 'roadSide',
   };
 
   setTrialSectionForm((prev: any) => ({
@@ -192,9 +201,11 @@ const buildTrialWordHtml = (form: any) => {
   const rows = [
     ['שם הפרויקט', value('projectName'), 'חברת ניהול', value('managementCompany')],
     ['קבלן ראשי', value('mainContractor'), 'חברת בקרת איכות', value('qualityControlCompany')],
-    ["קטע מס'", value('sectionNo'), 'הוכחת היכולת לפעולה מסוג', value('proofForActivityType')],
-    ['שם האלמנט', value('elementName'), 'תת אלמנט', value('subElement')],
-    ['מחתך עד חתך/צד', value('chainageSide'), 'תאריך ביצוע', value('executionDate')],
+    ['שם קטע ניסוי', value('title'), "קטע מס'", value('sectionNo')],
+    ['הוכחת היכולת לפעולה מסוג', value('proofForActivityType'), 'שם האלמנט', value('elementName')],
+    ['תת אלמנט', value('subElement'), 'מחתך', value('fromSection')],
+    ['עד חתך', value('toSection'), 'צד', value('side')],
+    ['תאריך ביצוע', value('executionDate'), '', ''],
   ];
 
   const bigRows = [
