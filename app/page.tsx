@@ -18976,6 +18976,22 @@ export default function Page() {
       approval: normalizeApproval(record.approval),
     });
   };
+  useEffect(() => {
+    if (!loaded || typeof window === "undefined" || !savedChecklists.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const checklistId = params.get("openChecklist");
+    if (!checklistId) return;
+    const record = savedChecklists.find((item) => item.id === checklistId);
+    if (!record) return;
+    loadChecklist(record);
+    params.delete("openChecklist");
+    const nextQuery = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`,
+    );
+  }, [loaded, savedChecklists]);
   const deleteChecklist = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק רשימות תיוג.");

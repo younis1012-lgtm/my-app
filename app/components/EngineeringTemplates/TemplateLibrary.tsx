@@ -24,6 +24,18 @@ type StoredProjectNode = {
   updatedAt: string;
 };
 
+type LinkedChecklist = {
+  id: string;
+  projectId: string;
+  structureNodeId: string;
+  checklistNo: number | null;
+  title: string;
+  category: string;
+  location: string;
+  date: string;
+  status: string;
+};
+
 const normalizeStoredNode = (value: any): StoredProjectNode | null => {
   if (!value || typeof value !== "object" || !value.id) return null;
   return {
@@ -63,13 +75,31 @@ const cardStyle = {
   boxShadow: "0 16px 35px rgba(15,23,42,0.06)",
 } as const;
 
-function NodeTree({ nodes, depth = 0 }: { nodes: EngineeringTemplateNode[]; depth?: number }) {
+function NodeTree({
+  nodes,
+  depth = 0,
+  parentPath = [],
+  checklistCount,
+  onOpen,
+}: {
+  nodes: EngineeringTemplateNode[];
+  depth?: number;
+  parentPath?: string[];
+  checklistCount: (path: string[]) => number;
+  onOpen: (path: string[]) => void;
+}) {
   return (
     <div style={{ display: "grid", gap: 7 }}>
-      {nodes.map((node, index) => (
+      {nodes.map((node, index) => {
+        const path = [...parentPath, node.name];
+        const count = checklistCount(path);
+        return (
         <div key={`${node.name}-${index}`}>
-          <div
+          <button
+            type="button"
+            onClick={() => onOpen(path)}
             style={{
+              width: "calc(100% - " + depth * 22 + "px)",
               display: "flex",
               alignItems: "center",
               gap: 8,
@@ -80,14 +110,27 @@ function NodeTree({ nodes, depth = 0 }: { nodes: EngineeringTemplateNode[]; dept
               border: depth === 0 ? "1px solid #e2e8f0" : "1px solid transparent",
               fontWeight: depth === 0 ? 950 : 800,
               color: "#0f172a",
+              cursor: "pointer",
+              textAlign: "right",
             }}
           >
             <span style={{ color: "#f59e0b", fontWeight: 950 }}>{depth === 0 ? "▣" : "├"}</span>
-            <span>{node.name}</span>
-          </div>
-          {node.children?.length ? <NodeTree nodes={node.children} depth={depth + 1} /> : null}
+            <span style={{ flex: 1 }}>{node.name}</span>
+            <span style={{ borderRadius: 999, background: count ? "#dbeafe" : "#f1f5f9", color: count ? "#1d4ed8" : "#64748b", padding: "2px 8px", fontSize: 12, fontWeight: 950 }}>
+              {count} רשימות
+            </span>
+          </button>
+          {node.children?.length ? (
+            <NodeTree
+              nodes={node.children}
+              depth={depth + 1}
+              parentPath={path}
+              checklistCount={checklistCount}
+              onOpen={onOpen}
+            />
+          ) : null}
         </div>
-      ))}
+      )})}
     </div>
   );
 }
@@ -97,14 +140,109 @@ export function TemplateLibrary() {
   const [projectId, setProjectId] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [projectNodes, setProjectNodes] = useState<StoredProjectNode[]>([]);
+  const [projectChecklists, setProjectChecklists] = useState<LinkedChecklist[]>([]);
+  const [openedPath, setOpenedPath] = useState<string[] | null>(null);
   const selectedTemplates = useMemo(
     () => ENGINEERING_TEMPLATES.filter((template) => selectedIds.includes(template.id)),
     [selectedIds],
   );
 
   useEffect(() => {
-    setProjectId(window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ?? "");
+    const activeProjectId = window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ?? "";
+    setProjectId(activeProjectId);
+    if (!activeProjectId) return;
+
+    const loadLinkedRecords = async () => {
+      let localNodes: StoredProjectNode[] = [];
+      let localChecklists: LinkedChecklist[] = [];
+      try {
+        const parsedNodes = JSON.parse(window.localStorage.getItem(PROJECT_STRUCTURE_STORAGE_KEY) || "[]");
+        if (Array.isArray(parsedNodes))
+          localNodes = parsedNodes.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
+        const persisted = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}");
+        if (Array.isArray(persisted?.savedChecklists)) {
+          localChecklists = persisted.savedChecklists.map((record: any) => ({
+            id: String(record.id),
+            projectId: String(record.projectId ?? ""),
+            structureNodeId: String(record.structureNodeId ?? record.details?.structureNodeId ?? ""),
+            checklistNo: Number(record.checklistNo) || null,
+            title: String(record.title ?? ""),
+            category: String(record.category ?? ""),
+            location: String(record.location ?? ""),
+            date: String(record.date ?? ""),
+            status: String(record.approval?.status ?? record.status ?? ""),
+          }));
+        }
+      } catch {}
+
+      if (supabase) {
+        const [nodesResult, checklistResult] = await Promise.all([
+          supabase.from(PROJECT_STRUCTURE_TABLE).select("*").eq("project_id", activeProjectId),
+          supabase.from("checklists").select("*").eq("project_id", activeProjectId),
+        ]);
+        if (!nodesResult.error && Array.isArray(nodesResult.data))
+          localNodes = nodesResult.data.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
+        if (!checklistResult.error && Array.isArray(checklistResult.data)) {
+          localChecklists = checklistResult.data.map((row: any) => {
+            const details = row.details && typeof row.details === "object" ? row.details : {};
+            return {
+              id: String(row.id),
+              projectId: String(row.project_id ?? ""),
+              structureNodeId: String(row.structure_node_id ?? details.structureNodeId ?? ""),
+              checklistNo: Number(row.checklist_no) || null,
+              title: String(row.title ?? ""),
+              category: String(row.category ?? ""),
+              location: String(row.location ?? ""),
+              date: String(row.date ?? ""),
+              status: String(row.approval?.status ?? row.status ?? ""),
+            };
+          });
+        }
+      }
+
+      setProjectNodes(localNodes.filter((node) => node.projectId === activeProjectId));
+      setProjectChecklists(localChecklists.filter((record) => record.projectId === activeProjectId));
+    };
+    void loadLinkedRecords();
   }, []);
+
+  const findNodeByPath = (path: string[]) => {
+    let parentId = "";
+    let matched: StoredProjectNode | undefined;
+    for (const name of path) {
+      matched = projectNodes.find(
+        (node) => node.parentId === parentId && node.name.trim() === name.trim(),
+      );
+      if (!matched) return undefined;
+      parentId = matched.id;
+    }
+    return matched;
+  };
+
+  const descendantIds = (nodeId: string) => {
+    const ids = new Set([nodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      projectNodes.forEach((node) => {
+        if (node.parentId && ids.has(node.parentId) && !ids.has(node.id)) {
+          ids.add(node.id);
+          changed = true;
+        }
+      });
+    }
+    return ids;
+  };
+
+  const linkedChecklistsForPath = (path: string[]) => {
+    const node = findNodeByPath(path);
+    if (!node) return [];
+    const ids = descendantIds(node.id);
+    return projectChecklists.filter((record) => ids.has(record.structureNodeId));
+  };
+
+  const openedChecklists = openedPath ? linkedChecklistsForPath(openedPath) : [];
 
   const toggleTemplate = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -297,11 +435,53 @@ export function TemplateLibrary() {
                   <div style={{ color: "#64748b", fontSize: 13, fontWeight: 750 }}>{template.description}</div>
                 </div>
               </div>
-              <NodeTree nodes={template.nodes} />
+              <NodeTree
+                nodes={template.nodes}
+                parentPath={[template.title]}
+                checklistCount={(path) => linkedChecklistsForPath(path).length}
+                onOpen={setOpenedPath}
+              />
             </article>
           ))}
         </div>
       </section>
+
+      {openedPath ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpenedPath(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.58)", padding: 24, display: "grid", placeItems: "center" }}
+        >
+          <section
+            onClick={(event) => event.stopPropagation()}
+            style={{ ...cardStyle, width: "min(920px, 96vw)", maxHeight: "85vh", overflow: "auto", padding: 20 }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+              <div>
+                <h2 style={{ margin: 0 }}>רשימות תיוג משויכות</h2>
+                <div style={{ color: "#64748b", marginTop: 5, fontWeight: 800 }}>{openedPath.join(" ← ")}</div>
+              </div>
+              <button type="button" onClick={() => setOpenedPath(null)} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 10, padding: "8px 12px", fontWeight: 900, cursor: "pointer" }}>סגור</button>
+            </div>
+            <div style={{ marginTop: 16, display: "grid", gap: 9 }}>
+              {openedChecklists.length ? openedChecklists.map((record) => (
+                <div key={record.id} style={{ border: "1px solid #dbe3ef", borderRadius: 12, padding: 12, display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}>
+                  <div>
+                    <strong>{record.checklistNo ? `רשימה ${record.checklistNo} · ` : ""}{record.title || "רשימת תיוג"}</strong>
+                    <div style={{ color: "#64748b", marginTop: 4 }}>{[record.category, record.location, record.date, record.status].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <button type="button" onClick={() => { window.location.href = `/?openChecklist=${encodeURIComponent(record.id)}`; }} style={{ border: 0, borderRadius: 10, background: "#0f172a", color: "#fff", padding: "9px 13px", fontWeight: 900, cursor: "pointer" }}>פתח רשימה</button>
+                </div>
+              )) : (
+                <div style={{ border: "1px dashed #94a3b8", borderRadius: 12, padding: 22, textAlign: "center", color: "#64748b", fontWeight: 800 }}>
+                  לא נמצאו רשימות תיוג ששויכו לענף זה או לתת־הענפים שלו.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
