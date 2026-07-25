@@ -5957,7 +5957,9 @@ function ChecklistsSection({
             />
           </label>
           <label>
-            <span style={labelStyle}>מס׳ שכבה</span>
+            <span style={labelStyle}>
+              {isConcreteChecklist ? "אלמנט" : "מס׳ שכבה"}
+            </span>
             <input
               value={checklistForm.location ?? ""}
               onChange={(event) => setField("location", event.target.value)}
@@ -6021,7 +6023,9 @@ function ChecklistsSection({
               />
             </label>
             <label>
-              <span style={labelStyle}>מס׳ שכבה</span>
+              <span style={labelStyle}>
+                {isConcreteChecklist ? "אלמנט" : "מס׳ שכבה"}
+              </span>
               <input
                 value={checklistForm.location ?? ""}
                 onChange={(event) => setField("location", event.target.value)}
@@ -6040,7 +6044,9 @@ function ChecklistsSection({
               </label>
             ) : null}
             <label>
-              <span style={labelStyle}>כביש / מבנה</span>
+              <span style={labelStyle}>
+                {isConcreteChecklist ? "תת אלמנט" : "כביש / מבנה"}
+              </span>
               <input
                 value={(checklistForm as any).roadStructure ?? ""}
                 onChange={(event) => setField("roadStructure", event.target.value)}
@@ -20418,6 +20424,13 @@ export default function Page() {
     const templateKey = normalizeChecklistTemplateKey(sourceRecord.templateKey);
     const template = checklistTemplates[templateKey] as any;
     const title = sourceRecord.title || template.title || "רשימת תיוג";
+    const isConcreteExport =
+      String(templateKey) === "siteConcrete" ||
+      /בטון\s*יצוק|יציקות?\s*באתר/.test(
+        `${sourceRecord.title ?? ""} ${sourceRecord.category ?? ""}`,
+      );
+    const elementHeader = isConcreteExport ? "אלמנט" : "מס׳ שכבה";
+    const subElementHeader = isConcreteExport ? "תת אלמנט" : "כביש / מבנה";
     const procedureNo = template.procedureNo || "";
     const edition = sourceRecord.revision || template.edition || CHECKLIST_DEFAULT_REVISION;
     const procedureDate = sourceRecord.revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
@@ -20486,13 +20499,13 @@ export default function Page() {
     return `<div class="checklist-export-title">${safeText(title)}</div>
     <table class="doc-header">
       <tbody>
-        <tr><td>מס׳ שכבה:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td>${elementHeader}:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
         <tr><td>${valueOrBlank(procedureNo, 20)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
       </tbody>
     </table>
     <table class="checklist-top-table source-meta">
       <tbody>
-        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>מס׳ שכבה</th><th>כביש / מבנה</th><th>מספר רשימת תיוג</th></tr>
+        <tr><th>שם הפרויקט</th><th>קבלן מבצע</th><th>${elementHeader}</th><th>${subElementHeader}</th><th>מספר רשימת תיוג</th></tr>
         <tr><td>${valueOrBlank(exportProjectName, 28)}</td><td>${valueOrBlank(exportContractor, 28)}</td><td>${valueOrBlank(layerNo, 24)}</td><td>${valueOrBlank(roadStructure, 22)}</td><td>${valueOrBlank(currentChecklistNo, 18)}</td></tr>
         <tr><th>מס׳ תוכנית ביצוע</th><th colspan="3">שם תוכנית ביצוע</th><th>מהדורת תוכנית</th></tr>
         <tr><td>${valueOrBlank(executionPlanNo, 24)}</td><td colspan="3">${valueOrBlank(executionPlanName, 58)}</td><td>${valueOrBlank(executionPlanRevision, 18)}</td></tr>
