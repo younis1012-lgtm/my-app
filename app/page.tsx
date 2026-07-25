@@ -28,6 +28,10 @@ import { FileDropZone } from "./components/FileDropZone";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
+import {
+  HoldPointsSection,
+  type HoldPointRecord,
+} from "./components/HoldPointsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
@@ -40,6 +44,8 @@ const CONTROL_QUALITY_COMPANY_NAME = 'קונטרולינג פריים בע"מ';
 const FIXED_EMAIL_RECIPIENT = "q.controling@gmail.com";
 const NONCONFORMANCE_TABLE = "NCR";
 const PLANS_TABLE = "plans";
+const HOLD_POINTS_TABLE = "hold_points";
+const HOLD_POINTS_STORAGE_KEY = `${STORAGE_KEY}-hold-points`;
 
 const ROAD_806_SURVEYOR_SIGNATURE_URL = "/signatures/road-806-surveyor.png";
 const ROAD_806_SURVEYOR_NAME = "באסל שקארה";
@@ -84,7 +90,8 @@ type AppSection =
   | "rfi"
   | "supervisionReports"
   | "controlProcesses"
-  | "checklistTracking";
+  | "checklistTracking"
+  | "holdPoints";
 
 
 type ProjectEmailUser = {
@@ -14623,6 +14630,7 @@ export default function Page() {
   const [savedControlProcesses, setSavedControlProcesses] = useState<
     ControlProcessRecord[]
   >([]);
+  const [savedHoldPoints, setSavedHoldPoints] = useState<HoldPointRecord[]>([]);
   const [controlProcessForm, setControlProcessForm] = useState(
     createDefaultControlProcess(),
   );
@@ -14754,6 +14762,13 @@ export default function Page() {
       );
     } catch {
       setSavedControlProcesses([]);
+    }
+    try {
+      const storedHoldPoints = window.localStorage.getItem(HOLD_POINTS_STORAGE_KEY);
+      const parsedHoldPoints = storedHoldPoints ? JSON.parse(storedHoldPoints) : [];
+      setSavedHoldPoints(Array.isArray(parsedHoldPoints) ? parsedHoldPoints : []);
+    } catch {
+      setSavedHoldPoints([]);
     }
   }, []);
 
@@ -14934,6 +14949,58 @@ export default function Page() {
       JSON.stringify(savedControlProcesses),
     );
   }, [savedControlProcesses]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(HOLD_POINTS_STORAGE_KEY, JSON.stringify(savedHoldPoints));
+    } catch (error) {
+      console.warn("Hold points local cache is full; documents may need to be reduced.", error);
+    }
+  }, [savedHoldPoints]);
+
+  useEffect(() => {
+    if (!authReady || !projectAccess || !cloudEnabled || !supabase || !currentProjectId) return;
+    let cancelled = false;
+    const projectIds = projectCloudIdsForCanonicalId(currentProjectId);
+    void supabase
+      .from(HOLD_POINTS_TABLE)
+      .select("*")
+      .in("project_id", projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
+      .order("serial_no", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled || error || !Array.isArray(data)) return;
+        const cloudRecords = data.map((row: any) => {
+          const details = row.details && typeof row.details === "object" ? row.details : {};
+          return {
+            ...details,
+            id: row.id,
+            projectId: normalizeStoredProjectId(row.project_id),
+            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
+            referenceNo: row.reference_no ?? details.referenceNo ?? "",
+            name: row.name ?? details.name ?? "",
+            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
+            element: row.element ?? details.element ?? "",
+            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
+            checklistIds: details.checklistIds ?? [],
+            nonconformanceIds: details.nonconformanceIds ?? [],
+            trialSectionIds: details.trialSectionIds ?? [],
+            documents: details.documents ?? [],
+            createdAt: row.created_at ?? details.createdAt ?? "",
+            updatedAt: row.updated_at ?? details.updatedAt ?? "",
+          } as HoldPointRecord;
+        });
+        setSavedHoldPoints((current) => {
+          const otherProjects = current.filter(
+            (item) => normalizeStoredProjectId(item.projectId) !== normalizeStoredProjectId(currentProjectId),
+          );
+          return [...cloudRecords, ...otherProjects];
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, projectAccess, cloudEnabled, currentProjectId]);
 
 
   useEffect(() => {
@@ -17011,6 +17078,18 @@ export default function Page() {
       activeProjectAcceptsLegacyRecords,
       currentProjectIdentitySignature,
       normalizedSearchTerm,
+    ],
+  );
+  const projectHoldPoints = useMemo(
+    () =>
+      savedHoldPoints.filter((item) =>
+        recordMatchesCurrentProject(item.projectId),
+      ),
+    [
+      savedHoldPoints,
+      currentProjectIdNormalized,
+      activeProjectAcceptsLegacyRecords,
+      currentProjectIdentitySignature,
     ],
   );
   const projectPreliminary = useMemo(() => {
@@ -19892,6 +19971,68 @@ export default function Page() {
     if (editingPlanId === id) resetPlanForm();
   };
 
+  const saveHoldPoint = async (record: HoldPointRecord) => {
+    if (!canWriteAccess(projectAccess))
+      return alert("למשתמש הנוכחי אין הרשאה לשמור נקודות עצירה.");
+    await withSaving(async () => {
+      if (cloudEnabled && supabase) {
+        const details = {
+          checklistIds: record.checklistIds,
+          nonconformanceIds: record.nonconformanceIds,
+          trialSectionIds: record.trialSectionIds,
+          documents: record.documents,
+          qcCompany: record.qcCompany,
+          qaCompany: record.qaCompany,
+          notes: record.notes,
+          createdBy: record.createdBy,
+          releasedAt: record.releasedAt,
+        };
+        const result = await supabase.from(HOLD_POINTS_TABLE).upsert(
+          {
+            id: record.id,
+            project_id: normalizeStoredProjectId(record.projectId),
+            serial_no: record.serialNo,
+            reference_no: record.referenceNo,
+            name: record.name,
+            structure_node_id: record.structureNodeId || null,
+            element: record.element,
+            status: record.status,
+            details,
+            created_at: record.createdAt || new Date().toISOString(),
+            updated_at: record.updatedAt || new Date().toISOString(),
+          },
+          { onConflict: "id" },
+        );
+        if (result.error && !shouldIgnoreCloudError(result.error)) {
+          const message = String(result.error.message || "");
+          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
+            throw result.error;
+        }
+      }
+      setSavedHoldPoints((current) =>
+        current.some((item) => item.id === record.id)
+          ? current.map((item) => (item.id === record.id ? record : item))
+          : [record, ...current],
+      );
+    });
+  };
+
+  const deleteHoldPoint = async (id: string) => {
+    if (!canWriteAccess(projectAccess))
+      return alert("למשתמש הנוכחי אין הרשאה למחוק נקודות עצירה.");
+    await withSaving(async () => {
+      if (cloudEnabled && supabase) {
+        const result = await supabase.from(HOLD_POINTS_TABLE).delete().eq("id", id);
+        if (result.error && !shouldIgnoreCloudError(result.error)) {
+          const message = String(result.error.message || "");
+          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
+            throw result.error;
+        }
+      }
+      setSavedHoldPoints((current) => current.filter((item) => item.id !== id));
+    });
+  };
+
   const homeModules = [
     {
       key: "projectDetails",
@@ -19931,6 +20072,13 @@ export default function Page() {
       icon: "📑",
       description: "טבלת מעקב, סינון וייצוא של כל הרשימות",
       count: projectChecklists.length,
+    },
+    {
+      key: "holdPoints",
+      title: "נקודות עצירה",
+      icon: "⛔",
+      description: "יצירה, שיוך ומעקב עד לשחרור",
+      count: projectHoldPoints.length,
     },
     {
       key: "nonconformances",
@@ -22526,6 +22674,7 @@ ${invalidRecipients.join("\n")}`);
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
         ["checklistTracking", "מעקב רשימות תיוג"],
+        ["holdPoints", "נקודות עצירה"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
@@ -22542,6 +22691,7 @@ ${invalidRecipients.join("\n")}`);
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
         ["checklistTracking", "מעקב רשימות תיוג"],
+        ["holdPoints", "נקודות עצירה"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
         ["preliminary", "בקרה מקדימה"],
@@ -23672,6 +23822,20 @@ ${invalidRecipients.join("\n")}`);
             <ChecklistTrackingSection
               records={projectChecklists}
               onOpen={(record) => loadChecklist(record)}
+            />
+          )}
+          {section === "holdPoints" && currentProjectId && (
+            <HoldPointsSection
+              records={projectHoldPoints}
+              checklists={projectChecklists as any[]}
+              nonconformances={projectNonconformances as any[]}
+              trialSections={projectTrialSections as any[]}
+              structureNodes={currentProjectStructureNodes}
+              currentUserName={projectAccess.displayName || projectAccess.username}
+              canWrite={canWriteAccess(projectAccess)}
+              onSave={saveHoldPoint}
+              onDelete={deleteHoldPoint}
+              projectId={normalizeStoredProjectId(currentProjectId)}
             />
           )}
           {section === "checklists" && (
