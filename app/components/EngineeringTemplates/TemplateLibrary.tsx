@@ -248,6 +248,12 @@ export function TemplateLibrary() {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
+  const returnToProjectHome = () => {
+    const params = new URLSearchParams({ returnToProject: "1" });
+    if (projectId) params.set("projectId", projectId);
+    window.location.href = `/?${params.toString()}`;
+  };
+
   const saveTreeToProject = async () => {
     if (!projectId) {
       setMessage("יש לחזור לדף הבית, לבחור פרויקט ולפתוח שוב את ספריית התבניות.");
@@ -359,10 +365,10 @@ export function TemplateLibrary() {
           </div>
           <button
             type="button"
-            onClick={() => { window.location.href = "/"; }}
+            onClick={returnToProjectHome}
             style={{ border: "1px solid #475569", background: "#fff", color: "#0f172a", borderRadius: 12, padding: "10px 16px", fontWeight: 950, cursor: "pointer" }}
           >
-            חזרה לדף הבית
+            חזרה לדף הבית של הפרויקט
           </button>
         </div>
       </section>
@@ -418,8 +424,8 @@ export function TemplateLibrary() {
           <div role="status" style={{ marginBottom: 14, padding: "11px 14px", borderRadius: 12, background: message.includes("נכשל") || message.includes("יש ") ? "#fff7ed" : "#ecfdf5", color: "#0f172a", fontWeight: 800 }}>
             {message}
             {message.startsWith("נשמרו") || message.startsWith("כל הסעיפים") ? (
-              <button type="button" onClick={() => { window.location.href = "/"; }} style={{ marginInlineStart: 12, border: 0, background: "transparent", color: "#0369a1", fontWeight: 950, cursor: "pointer", textDecoration: "underline" }}>
-                חזרה לפרויקט
+              <button type="button" onClick={returnToProjectHome} style={{ marginInlineStart: 12, border: 0, background: "transparent", color: "#0369a1", fontWeight: 950, cursor: "pointer", textDecoration: "underline" }}>
+                חזרה לדף הבית של הפרויקט
               </button>
             ) : null}
           </div>

@@ -14777,6 +14777,12 @@ export default function Page() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const projectCodeFromLink = params.get("project");
+    const returnToProjectHome = params.get("returnToProject") === "1";
+    const requestedProjectId = normalizeStoredProjectId(params.get("projectId"));
+    if (returnToProjectHome && requestedProjectId) {
+      setCurrentProjectId(requestedProjectId);
+      writeLocalCurrentProjectId(requestedProjectId);
+    }
     let cancelled = false;
 
     const loadUsers = async () => {
@@ -14829,7 +14835,7 @@ export default function Page() {
           writeLocalCurrentProjectId(null);
         }
         setProjectAccess(supabaseAuthUser);
-        setShowProjectPicker(true);
+        setShowProjectPicker(!returnToProjectHome);
         writeAuthSession(supabaseAuthUser);
         setLoginPassword("");
         setLoginError("");
@@ -14861,7 +14867,7 @@ export default function Page() {
           writeLocalCurrentProjectId(null);
         }
         setProjectAccess(storedUser);
-        setShowProjectPicker(true);
+        setShowProjectPicker(!returnToProjectHome);
         refreshAuthSession();
         setLoginPassword("");
         setLoginError("");
