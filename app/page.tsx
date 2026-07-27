@@ -4000,6 +4000,7 @@ const createDefaultChecklist = (
   notes: "",
   projectNameDisplay: "",
   roadStructure: "",
+  areaSquareMeters: "",
   stationSection: "",
   toStationSection: "",
   offset: "",
@@ -5608,8 +5609,8 @@ function ChecklistsSection({
     String(checklistForm.templateKey) === "dryMethodPiles" ||
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
   const isEarthworksChecklistForm =
-    ["baseCourseSpreading", "controlledCompaction", "standardCompaction"].includes(String(checklistForm.templateKey)) ||
-    /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים/.test(
+    ["excavation", "baseCourseSpreading", "controlledCompaction", "standardCompaction", "asphaltSite", "asphaltWorks"].includes(String(checklistForm.templateKey)) ||
+    /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים|אספלט/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
   const pileDetails = ((checklistForm as any).pileDetails ?? {}) as Record<string, any>;
@@ -5967,15 +5968,29 @@ function ChecklistsSection({
             />
           </label>
           {isEarthworksChecklistForm ? (
-            <label>
-              <span style={labelStyle}>עובי שכבה</span>
-              <input
-                value={(checklistForm as any).layerThickness ?? ""}
-                onChange={(event) => setField("layerThickness", event.target.value)}
-                style={inputStyle}
-                placeholder="לדוגמה: 20 ס״מ"
-              />
-            </label>
+            <>
+              <label>
+                <span style={labelStyle}>עובי שכבה</span>
+                <input
+                  value={(checklistForm as any).layerThickness ?? ""}
+                  onChange={(event) => setField("layerThickness", event.target.value)}
+                  style={inputStyle}
+                  placeholder="לדוגמה: 20 ס״מ"
+                />
+              </label>
+              <label>
+                <span style={labelStyle}>שטח מ״ר</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={(checklistForm as any).areaSquareMeters ?? ""}
+                  onChange={(event) => setField("areaSquareMeters", event.target.value)}
+                  style={inputStyle}
+                  placeholder="לדוגמה: 350"
+                />
+              </label>
+            </>
           ) : null}
           <label>
             <span style={labelStyle}>קבלן</span>
@@ -6033,15 +6048,29 @@ function ChecklistsSection({
               />
             </label>
             {isEarthworksChecklistForm ? (
-              <label>
-                <span style={labelStyle}>עובי שכבה</span>
-                <input
-                  value={(checklistForm as any).layerThickness ?? ""}
-                  onChange={(event) => setField("layerThickness", event.target.value)}
-                  style={inputStyle}
-                  placeholder="לדוגמה: 20 ס״מ"
-                />
-              </label>
+              <>
+                <label>
+                  <span style={labelStyle}>עובי שכבה</span>
+                  <input
+                    value={(checklistForm as any).layerThickness ?? ""}
+                    onChange={(event) => setField("layerThickness", event.target.value)}
+                    style={inputStyle}
+                    placeholder="לדוגמה: 20 ס״מ"
+                  />
+                </label>
+                <label>
+                  <span style={labelStyle}>שטח מ״ר</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={(checklistForm as any).areaSquareMeters ?? ""}
+                    onChange={(event) => setField("areaSquareMeters", event.target.value)}
+                    style={inputStyle}
+                    placeholder="לדוגמה: 350"
+                  />
+                </label>
+              </>
             ) : null}
             <label>
               <span style={labelStyle}>
@@ -15529,6 +15558,7 @@ export default function Page() {
       projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
       roadStructure: details.roadStructure ?? details.road_structure ?? "",
       layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
+      areaSquareMeters: details.areaSquareMeters ?? details.area_square_meters ?? details.area ?? "",
       stationSection: details.stationSection ?? details.station_section ?? "",
       toStationSection: details.toStationSection ?? details.to_station_section ?? "",
       offset: details.offset ?? "",
@@ -18943,6 +18973,7 @@ export default function Page() {
       projectNameDisplay: String((checklistForm as any).projectNameDisplay || currentProjectDefaults.projectName || ""),
       roadStructure: String((checklistForm as any).roadStructure ?? ""),
       layerThickness: String((checklistForm as any).layerThickness ?? ""),
+      areaSquareMeters: String((checklistForm as any).areaSquareMeters ?? ""),
       stationSection: String((checklistForm as any).stationSection ?? ""),
       toStationSection: String((checklistForm as any).toStationSection ?? ""),
       offset: String((checklistForm as any).offset ?? ""),

@@ -37,7 +37,7 @@ export type ChecklistItem = {
   results?: any;
 };
 
-export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; layerThickness?: string; selectedPlanId?: string; executionPlanNo?: string; executionPlanName?: string; executionPlanRevision?: string; };
+export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; layerThickness?: string; areaSquareMeters?: string; selectedPlanId?: string; executionPlanNo?: string; executionPlanName?: string; executionPlanRevision?: string; };
 export type StoredAttachment = { name: string; type: string; dataUrl: string; uploadedAt: string; results?: any; labResults?: any; densityResults?: any; certificateNo?: string; densityExtractionSummary?: string; };
 export type RFIStatus = 'טיוטה' | 'פתוח' | 'נשלח למתכנן' | 'התקבלה התייחסות מתכנן' | 'סגור';
 export type RFIRecord = {

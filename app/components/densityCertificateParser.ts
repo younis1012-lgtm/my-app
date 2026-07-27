@@ -823,7 +823,6 @@ export const parseEarthworksDensityText = (
   if (material) {
     results["תאור החומר"] = material;
   }
-
   const workType = pickTextNearLabel(text, [
     "הפריט הנבדק",
   ]);

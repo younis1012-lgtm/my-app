@@ -2767,6 +2767,37 @@ const inferEarthworksWorkType = (rawWorkType: unknown, sources: any[]): string =
   return "";
 };
 
+const earthworksWorkTypeFromChecklist = (checklist: any): string => {
+  const templateKey = cleanText(checklist?.templateKey);
+  const text = `${templateKey} ${cleanText(checklist?.title)} ${cleanText(checklist?.category)} ${cleanText(checklist?.workType)}`;
+  if (templateKey === "excavation" || includesAny(text, ["חפירה"])) return "חפירה";
+  if (templateKey === "baseCourseSpreading" || includesAny(text, ["פיזור מצעים", "עבודות מצע", "מצע א", "מצעים"])) return "מצע";
+  if (templateKey === "asphaltSite" || templateKey === "asphaltWorks" || includesAny(text, ["אספלט"])) return "אספלט";
+  if (includesAny(text, ["קרקע יסוד", "שתית"])) return "קרקע יסוד";
+  if (
+    templateKey === "controlledCompaction" ||
+    templateKey === "standardCompaction" ||
+    includesAny(text, ["מילוי", "הידוק מבוקר", "הידוק רגיל"])
+  ) return "מילוי";
+  return "";
+};
+
+const normalizeEarthworksMaterialDescription = (
+  rawMaterial: unknown,
+  checklist: any,
+  sources: any[],
+): string => {
+  const raw = cleanText(rawMaterial);
+  const text = `${raw} ${earthworksAllText(sources)} ${cleanText(checklist?.title)} ${cleanText(checklist?.category)}`;
+  if (includesAny(text, ["חומר נברר", "מילוי נברר", "נברר"])) return "חומר נברר";
+  if (includesAny(text, ["קרקע יסוד"])) return "קרקע יסוד";
+  if (includesAny(text, ["שתית"])) return "שתית";
+  if (cleanText(checklist?.templateKey) === "controlledCompaction" && !includesAny(raw, ["מצע", "אספלט"])) {
+    return "חומר נברר";
+  }
+  return raw;
+};
+
 const earthworksRowFromSources = (sources: any[], attachment: any, serial: number, checklistIndex = 0): Row => {
   const checklist = sources[0] ?? {};
   const item = sources[1] ?? {};
@@ -2797,7 +2828,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     includesAny(itemSource?.description, earthworksWorkTypeKeywords) ? cleanText(itemSource?.description) : "",
     includesAny(checklistSource?.title, earthworksWorkTypeKeywords) ? cleanText(checklistSource?.title) : "",
   );
-  const workType = inferEarthworksWorkType(rawWorkType, [resultsSource, attachment, itemSource, checklistSource]);
+  const workType = firstText(
+    earthworksWorkTypeFromChecklist(checklistSource),
+    inferEarthworksWorkType(rawWorkType, [resultsSource, attachment, itemSource, checklistSource]),
+  );
   const certificate = firstText(parsedDensity.certificateNo, attachmentOrMetricCertificate(certificateSources, attachment));
 
   const status = normalizeEarthworksStatus(
@@ -2866,10 +2900,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     parsedLocation.layer,
     exactFirstFromSources(certificateFieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
   );
-  const exactMaterial = firstText(
-    cleanEarthworksMaterial(exactFirstFromSources(certificateFieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
-    cleanEarthworksMaterial(exactFirstFromSources(checklistFieldSources, ["תאור החומר", "תיאור החומר", "שכבת המבנה", "חומר", "materialDescription", "structureLayer", "material"])),
-  );
+  const exactMaterial = normalizeEarthworksMaterialDescription(firstText(
+    cleanEarthworksMaterial(exactFirstFromSources(certificateFieldSources, ["שכבת המבנה", "structureLayer"])),
+    cleanEarthworksMaterial(exactFirstFromSources(certificateFieldSources, ["תאור החומר", "תיאור החומר", "חומר", "materialDescription", "material"])),
+    cleanEarthworksMaterial(exactFirstFromSources(checklistFieldSources, ["שכבת המבנה", "תאור החומר", "תיאור החומר", "חומר", "materialDescription", "structureLayer", "material"])),
+  ), checklistSource, [resultsSource, attachment, itemSource]);
   const exactAashto = normalizeEarthworksAashto(
     exactFirstFromSources(certificateFieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]),
   );
@@ -2984,7 +3019,12 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'עד חתך': firstText(exactTo, checklistSource?.toSection, checklistSource?.to_chainage, checklistSource?.toStationSection),
     'צד': exactSide,
     'מקום נטילה': exactLocation,
-    'שטח ': firstText(earthworksDirectValue(fieldSources, ["שטח", "area", "מ\"ר", "מטר מרובע"])),
+    'שטח ': firstText(
+      checklistSource?.areaSquareMeters,
+      checklistSource?.area_square_meters,
+      earthworksDirectValue(checklistFieldSources, ["שטח מ\"ר", "שטח מ״ר", "שטח", "areaSquareMeters", "area_square_meters", "area"]),
+      earthworksDirectValue(certificateFieldSources, ["שטח מ\"ר", "שטח מ״ר", "שטח", "areaSquareMeters", "area"]),
+    ),
     "שכבה מס'": exactLayer,
     'עובי השכבה': layerThickness,
     'סוג העבודה ': workType,
