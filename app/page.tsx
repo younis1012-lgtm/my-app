@@ -18162,6 +18162,38 @@ export default function Page() {
           console.warn("Density certificate auto extraction failed", error);
           autoDensityResults = {};
         }
+        const checklistLayerNo = firstText(
+          (checklistForm as any).layerNo,
+          (checklistForm as any).layerNumber,
+          (checklistForm as any).layer,
+          /^\d+(?:[.,]\d+)?$/.test(String(checklistForm.location ?? "").trim())
+            ? checklistForm.location
+            : "",
+        );
+        if (checklistLayerNo) {
+          const scannedRows = Array.isArray(autoDensityResults.sampleRows)
+            ? autoDensityResults.sampleRows
+            : Array.isArray(autoDensityResults.rows)
+              ? autoDensityResults.rows
+              : [];
+          const synchronizedRows = scannedRows.map((row: any) => ({
+            ...row,
+            "שכבה מס'": checklistLayerNo,
+            "שכבה מס׳": checklistLayerNo,
+            "קוד השכבה": checklistLayerNo,
+            layerNo: checklistLayerNo,
+          }));
+          autoDensityResults = {
+            ...autoDensityResults,
+            "שכבה מס'": checklistLayerNo,
+            "שכבה מס׳": checklistLayerNo,
+            "קוד השכבה": checklistLayerNo,
+            layerNo: checklistLayerNo,
+            ...(synchronizedRows.length
+              ? { sampleRows: synchronizedRows, rows: synchronizedRows }
+              : {}),
+          };
+        }
         const reviewedDensityResults = await requestDensityReview(file.name, autoDensityResults);
         if (!reviewedDensityResults) return;
         autoDensityResults = reviewedDensityResults;

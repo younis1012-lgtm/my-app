@@ -2843,11 +2843,12 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     parsedLocation.location,
   );
   const exactLayer = firstText(
-    exactFirstFromSources(checklistFieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
     checklistSource?.layerNo,
     checklistSource?.layerNumber,
     checklistSource?.layer,
     numericLike(checklistSource?.location),
+    exactFirstFromSources([checklistSource], ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
+    exactFirstFromSources([itemSource], ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
     parsedLocation.layer,
     exactFirstFromSources(certificateFieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
   );

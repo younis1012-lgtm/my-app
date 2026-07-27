@@ -1122,7 +1122,7 @@ Extract fields exactly as printed:
 - testDate: תאריך הבדיקה.
 - contractor: שם המזמין/קבלן.
 - siteName: שם האתר.
-- layerNo/layerCode: קוד השכבה or שכבה מספר.
+- layerNo/layerCode: read only the value printed next to the document-level label "שכבה מס׳", "שכבה מספר" or "קוד השכבה". Do not use the sample/test row number, certificate number, point count, road number, or a nearby density value as the layer.
 - structureLayer: שכבת המבנה, e.g. מילוי נברר, קרקע יסוד, שתית, מצע א׳, מצעים.
 - materialDescription: תאור מדגם / תיאור החומר.
 - materialSource: מקור החומר.
@@ -1146,6 +1146,7 @@ Extract fields exactly as printed:
 
 Extract every result row in sampleRows[] from the field density table:
 sampleNo, testNo, layerNo, wetDensity, maxLabDensity, oversizePercent, moisture, compaction, location.
+Identify the table columns by their printed headers before reading values. In particular, sampleNo/testNo and layerNo are different columns. Copy layerNo from the row's "שכבה מס׳" column; if the row has no separate layer value, use the document-level layerNo. Never infer layerNo from the sequential sample number.
 For מצע/מצעים certificates, still extract the density/moisture/compaction rows exactly the same way and keep materialDescription/structureLayer as מצע/מצע א׳ when printed.
 Do not confuse dates, project numbers, or certificate numbers with table values.
 If a value is not clearly visible, return an empty string. Do not invent values.`;
