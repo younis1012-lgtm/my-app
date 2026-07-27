@@ -2878,11 +2878,12 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(certificateFieldSources, ["צד", "offset", "side", "roadSide", "lane"]),
   );
   const exactRoadStructure = firstText(
-    exactFirstFromSources(checklistFieldSources, ["כביש/מבנה", "כביש\\מבנה", "כביש / מבנה", "roadStructure", "כביש", "מבנה", "road", "structure"]),
     checklistSource?.roadStructure,
     checklistSource?.road,
     checklistSource?.structure,
     checklistSource?.building,
+    exactFirstFromSources([checklistSource], ["כביש/מבנה", "כביש\\מבנה", "כביש / מבנה", "roadStructure", "כביש", "מבנה", "road", "structure"]),
+    exactFirstFromSources([itemSource], ["כביש/מבנה", "כביש\\מבנה", "כביש / מבנה", "roadStructure", "כביש", "מבנה", "road", "structure"]),
   );
   const exactLocation = firstText(
     exactRoadStructure,
@@ -3324,7 +3325,10 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
           rows.push(earthworksRowFromSources([checklist, item], attachment, rows.length + 1, checklistIndex));
         });
       } else {
-        const combinedRow = expandedAttachments
+        const rowAttachments = hasStoredEarthworksLabData(item)
+          ? [...expandedAttachments, {}]
+          : expandedAttachments;
+        const combinedRow = rowAttachments
           .map((attachment: any) => earthworksRowFromSources([checklist, item], attachment, rows.length + 1, checklistIndex))
           .reduce((base: Row | null, next: Row) => (base ? mergeEarthworksRows(base, next) : next), null as Row | null);
 
