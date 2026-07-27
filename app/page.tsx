@@ -8375,12 +8375,32 @@ function hasChecklistApprovalEvidence(record: any) {
 
 function normalizeApprovalDisplayStatus(status?: unknown) {
   const value = String(status ?? "").trim().toLowerCase();
-  if (normalizeApprovalStatusValue(value) === "approved") return "מאושר";
+  if (isApprovedStatusValue(value)) return "מאושר";
   return "בטיפול";
+}
+
+function isApprovedStatusValue(status: unknown) {
+  const value = String(status ?? "").trim().toLowerCase();
+  if (!value) return false;
+  if (normalizeApprovalStatusValue(value) === "approved") return true;
+  return [
+    "מאושר",
+    "מאושרת",
+    "אושר",
+    "אושרה",
+    "הושלם",
+    "הושלמה",
+    "נחתם",
+    "נחתמה",
+    "approved",
+    "completed",
+    "signed",
+  ].some((approvedText) => value.includes(approvedText));
 }
 
 function getApprovalStatusCandidates(record: any) {
   return [
+    typeof record?.approval === "string" ? record.approval : undefined,
     record?.approval?.status,
     record?.status,
     record?.result,
@@ -8398,7 +8418,13 @@ function getApprovalStatusCandidates(record: any) {
 
 function getApprovalDisplayStatus(record: any) {
   const statusCandidates = getApprovalStatusCandidates(record);
-  if (statusCandidates.some((status) => normalizeApprovalStatusValue(status) === "approved")) return "מאושר";
+  if (statusCandidates.some(isApprovedStatusValue)) return "מאושר";
+  if (
+    record?.approved === true ||
+    record?.isApproved === true ||
+    record?.approval?.approved === true ||
+    record?.approval?.isApproved === true
+  ) return "מאושר";
   if (hasCompletedApprovalSignatures(record)) return "מאושר";
   if (hasChecklistApprovalEvidence(record)) return "מאושר";
   const derivedChecklistStatus = getChecklistDerivedApprovalStatus(record);

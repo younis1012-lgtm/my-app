@@ -2829,8 +2829,15 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     parsedLocation.side,
     exactFirstFromSources(certificateFieldSources, ["צד", "offset", "side", "roadSide", "lane"]),
   );
-  const exactLocation = firstText(
+  const exactRoadStructure = firstText(
     exactFirstFromSources(checklistFieldSources, ["כביש/מבנה", "כביש\\מבנה", "כביש / מבנה", "roadStructure", "כביש", "מבנה", "road", "structure"]),
+    checklistSource?.roadStructure,
+    checklistSource?.road,
+    checklistSource?.structure,
+    checklistSource?.building,
+  );
+  const exactLocation = firstText(
+    exactRoadStructure,
     exactFirstFromSources(checklistFieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"]),
     usefulEarthworksLocation(exactFirstFromSources(certificateFieldSources, ["מקום נטילה", "מקום הדגימה", "מקום דיגום", "מקום נטילת מדגם", "samplingLocation"])),
     parsedLocation.location,
@@ -2957,7 +2964,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
       exactDate,
       earthworksDirectDate([itemSource, attachment, checklistSource], ["תאריך הבדיקה", "תאריך ביצוע", "executionDate", "testDate", "date"], itemSource?.executionDate, checklistSource?.date, checklistSource?.savedAt),
     ),
-    'כביש\\ציר \\רמפה': firstText(earthworksDirectValue(fieldSources, ["כביש", "ציר", "רמפה", "roadStructure", "road", "roadNo", "roadNumber", "axis"]), checklistSource?.road, checklistSource?.axis),
+    'כביש\\ציר \\רמפה': firstText(exactRoadStructure, earthworksDirectValue(fieldSources, ["כביש", "ציר", "רמפה", "roadStructure", "road", "roadNo", "roadNumber", "axis"]), checklistSource?.axis),
     'מחתך': firstText(exactFrom, checklistSource?.fromSection, checklistSource?.from_chainage, checklistSource?.stationSection),
     'עד חתך': firstText(exactTo, checklistSource?.toSection, checklistSource?.to_chainage, checklistSource?.toStationSection),
     'צד': exactSide,
