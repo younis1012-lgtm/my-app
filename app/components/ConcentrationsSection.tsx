@@ -2166,6 +2166,20 @@ const itemAttachments = (item: any): any[] => [
   ...(Array.isArray(item?.files) ? item.files : []),
 ].filter(isRealAttachment);
 
+const hasStoredEarthworksLabData = (item: any): boolean => {
+  const storedResults = [
+    item?.labResults,
+    item?.densityResults,
+    item?.results,
+  ].find((value) => value && typeof value === "object" && Object.keys(value).length);
+  return Boolean(
+    storedResults ||
+    cleanText(item?.certificateNo) ||
+    cleanText(item?.certificateNumber) ||
+    cleanText(item?.documentNo),
+  );
+};
+
 const directRecordAttachments = (record: any): any[] => [
   ...(Array.isArray(record?.attachments) ? record.attachments : []),
   ...(Array.isArray(record?.certificates) ? record.certificates : []),
@@ -2773,7 +2787,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const certificateFieldSources = [resultsSource, attachment].filter(Boolean);
   const checklistFieldSources = [itemSource, checklistSource].filter(Boolean);
   const fieldSources = [resultsSource, itemSource, checklistSource].filter(Boolean);
-  const certificateSources = [resultsSource, attachment].filter(Boolean);
+  const certificateSources = [resultsSource, attachment, itemSource].filter(Boolean);
   const parsedDensity = parsedDensityFromSources([resultsSource, attachment]);
   const parsedLocation = earthworksParsedLocation([resultsSource, attachment, itemSource, checklistSource]);
 
@@ -3213,7 +3227,19 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
         isEarthworksLabCertificateAttachment(attachment, item) || isEarthworksMeasurementAttachment(attachment, item)
       ).filter(rememberAttachment);
 
-      if (!earthworksAttachments.length) return;
+      if (!earthworksAttachments.length) {
+        if (hasStoredEarthworksLabData(item)) {
+          rows.push(
+            earthworksRowFromSources(
+              [checklist, item],
+              {},
+              rows.length + 1,
+              checklistIndex,
+            ),
+          );
+        }
+        return;
+      }
 
       const mergeEarthworksRows = (base: Row, next: Row): Row => {
         const merged: Row = { ...base };
