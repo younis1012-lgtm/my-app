@@ -1733,19 +1733,33 @@ const selectedMaterialProcessRow = (record: any, index: number): Row => ({
   "הערות": firstText(metricValue(record, ["מיון אחיד"]), metricValue(record, ["תפיחה חופשית"]), record?.notes, record?.description),
 });
 
-const buildSelectedMaterialConcentrationRows = (checklists: any[], _processes: any[], preliminary: any[] = []): Row[] => {
-  // כמו בריכוז מצע א' - רשומות processes/preliminary הן בדיקות שדה, לא בדיקות אפיון,
-  // וגרמו לאותה תופעת "סלט" (JSON גולמי בעמודת הערות). מקור הנתונים האמין הוא רק
-  // רשימות תיוג עם תעודת מעבדה מצורפת בפועל.
-  const checklist = checklistRows(
-    checklists,
-    ["נברר", "חומר נברר", "מילוי נברר", "אפיון נברר", "A-1-b", "A-2-4", "a-1-b", "a-2-4", "cbr", "גרדציה"],
-    "אפיון נברר",
-  ).map((row, index) => matzeaAChecklistRow(row, index));
-  const references = preliminaryReferenceRecords(preliminary)
+const selectedMaterialReferenceIsApproved = (record: any): boolean => {
+  const status = normalize(firstText(record?.status, record?.approval?.status));
+  if (includesAny(status, ["לא מאושר", "נדחה", "טיוטה", "rejected", "declined", "draft"])) return false;
+  return includesAny(status, ["מאושר", "אושר", "approved"]);
+};
+
+const buildSelectedMaterialConcentrationRows = (_checklists: any[], processes: any[], preliminary: any[] = []): Row[] => {
+  // ריכוז אפיון נברר שייך לבקרה המקדימה בלבד. תעודות צפיפות/רטיבות שדה
+  // המצורפות לרשימות תיוג מוצגות בריכוז בדיקות השדה ואסור שייכנסו לכאן.
+  // תהליך תעודת הייחוס הוא המקור העשיר והמועדף; אישור החומר הוא גיבוי למקרים
+  // שבהם התעודה קיימת רק ברשומת הבקרה המקדימה.
+  const approvedProcesses = processes
     .filter(isSelectedMaterialProcess)
-    .map((record, index) => selectedMaterialProcessRow(record, checklist.length + index));
-  return [...checklist, ...references].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+    .filter(selectedMaterialReferenceIsApproved);
+  const approvedPreliminary = preliminaryReferenceRecords(preliminary)
+    .filter(isSelectedMaterialProcess)
+    .filter(selectedMaterialReferenceIsApproved);
+  const uniqueReferences = new Map<string, any>();
+  [...approvedProcesses, ...approvedPreliminary].forEach((record) => {
+    const certificateKey = normalizedCertificateKey(referenceDocNo(record));
+    const fallbackKey = normalize(firstText(record?.id, record?.processNo, record?.title, record?.workType));
+    const key = certificateKey || fallbackKey;
+    if (key && !uniqueReferences.has(key)) uniqueReferences.set(key, record);
+  });
+  return [...uniqueReferences.values()]
+    .map((record, index) => selectedMaterialProcessRow(record, index))
+    .map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
 
@@ -4094,8 +4108,8 @@ const definitions: ConcentrationDefinition[] = [
     id: "selected-material",
     title: "ריכוז אפיון נברר",
     fileName: "ריכוז אפיון נברר.xlsx",
-    description: "אפיון חומר נברר מתוך תעודות/רשימות תיוג רלוונטיות",
-    sourceLabel: "רשימות תיוג / תעודות",
+    description: "אפיון חומר נברר מאושר מתוך בקרה מקדימה / תעודות ייחוס בלבד",
+    sourceLabel: "בקרה מקדימה / תעודות ייחוס מאושרות",
     columns: selectedMaterialColumns,
     buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildSelectedMaterialConcentrationRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
