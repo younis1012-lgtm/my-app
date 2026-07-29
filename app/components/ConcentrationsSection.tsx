@@ -3316,7 +3316,84 @@ const earthworksRowFromGradingLineProcess = (process: any, serial: number): Row 
   };
 };
 
-const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row[] => {
+const preliminaryRecordIsApproved = (record: any): boolean => {
+  const status = firstText(record?.status, record?.approval?.status);
+  return includesAny(status, ["מאושר", "approved"]);
+};
+
+const materialMatchTokens = (value: unknown): string[] =>
+  normalize(value)
+    .split(/\s+/)
+    .map((token) => token.replace(/^[והלבמכשת]+/, ""))
+    .filter((token) => token.length >= 3);
+
+const sharedMaterialTokenCount = (left: unknown, right: unknown): number => {
+  const leftTokens = new Set(materialMatchTokens(left));
+  return [...new Set(materialMatchTokens(right))]
+    .filter((token) => leftTokens.has(token))
+    .length;
+};
+
+const normalizedCertificateKey = (value: unknown): string =>
+  cleanText(value).replace(/[^\dA-Za-zא-ת]/g, "").toLowerCase();
+
+const approvedMaterialSourceForRow = (row: Row, preliminary: any[]): string => {
+  const materialDescription = cleanText(row[earthworksFieldColumns[13]]);
+  const workType = cleanText(row[earthworksFieldColumns[12]]);
+  const referenceCertificate = normalizedCertificateKey(row[earthworksFieldColumns[26]]);
+  const rowText = `${materialDescription} ${workType}`;
+
+  const candidates = preliminary
+    .filter(preliminaryRecordIsApproved)
+    .flatMap((record: any) => {
+      if (record?.subtype === "materials" && record?.material) {
+        const material = record.material;
+        const source = firstText(material?.source, material?.supplierName);
+        if (!source) return [];
+        const certificateKeys = [
+          material?.certificateNo,
+          ...(Array.isArray(material?.certificates)
+            ? material.certificates.map((certificate: any) => certificate?.certificateNo)
+            : []),
+        ].map(normalizedCertificateKey).filter(Boolean);
+        let score = 0;
+        if (referenceCertificate && certificateKeys.includes(referenceCertificate)) score += 100;
+        score += sharedMaterialTokenCount(rowText, material?.materialName) * 25;
+        score += sharedMaterialTokenCount(rowText, material?.usage) * 15;
+        return [{ source, score }];
+      }
+
+      if (record?.subtype === "suppliers" && record?.supplier) {
+        const supplier = record.supplier;
+        const source = firstText(supplier?.supplierName);
+        if (!source) return [];
+        const score = sharedMaterialTokenCount(rowText, supplier?.suppliedMaterial) * 15;
+        return [{ source, score }];
+      }
+      return [];
+    })
+    .filter((candidate: any) => candidate.score > 0)
+    .sort((a: any, b: any) => b.score - a.score);
+
+  const bestScore = candidates[0]?.score ?? 0;
+  if (bestScore < 15) return "";
+  const bestSources = [...new Set(
+    candidates
+      .filter((candidate: any) => candidate.score === bestScore)
+      .map((candidate: any) => candidate.source),
+  )];
+  return bestSources.length === 1 ? bestSources[0] : "";
+};
+
+const applyApprovedMaterialSources = (rows: Row[], preliminary: any[]): Row[] =>
+  rows.map((row) => {
+    const approvedSource = approvedMaterialSourceForRow(row, preliminary);
+    return approvedSource
+      ? { ...row, [earthworksFieldColumns[15]]: approvedSource }
+      : row;
+  });
+
+const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], preliminary: any[] = []): Row[] => {
   const rows: Row[] = [];
 
   const orderedChecklists = [...checklists]
@@ -3459,7 +3536,10 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = []): Row
   const completeRows = enrichEarthworksRowsByReferenceCertificate(rows);
 
   return ensureUniqueEarthworksChecklistNumbers(
-    dedupeEarthworksRows(completeRows.filter(earthworksRowHasCertificateEvidence)),
+    applyApprovedMaterialSources(
+      dedupeEarthworksRows(completeRows.filter(earthworksRowHasCertificateEvidence)),
+      preliminary,
+    ),
   )
     .sort(compareEarthworksRowsByDateLayer)
     .map((row, index) => ({ ...row, "מס' סדורי": index + 1 }));
@@ -4038,7 +4118,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז בדיקות צפיפות/רטיבות שדה לעבודות עפר בלבד: חפירה, קרקע יסוד, מילוי והידוק רגיל/מבוקר. לא כולל מצע א׳.",
     sourceLabel: "רשימות תיוג / עבודות עפר",
     columns: earthworksFieldColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses),
+    buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
   {
     id: "rfi",
