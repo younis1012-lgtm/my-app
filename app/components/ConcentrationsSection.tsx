@@ -399,7 +399,11 @@ const certificateNumberFromAttachment = (attachment: any): string => {
     ])
   );
   const text = cleanText(direct);
-  if (text && !looksLikeUuid(text) && !["כן", "לא", "מאושר"].includes(text)) return text;
+  if (
+    text &&
+    !looksLikeUuid(text) &&
+    !["0", "-", "--", "---", "----", "כן", "לא", "מאושר"].includes(text)
+  ) return text;
 
   const name = attachmentName(attachment);
   const match = name.match(/(?:^|[^0-9])(\d{3,})(?:[^0-9]|$)/);
@@ -2158,19 +2162,19 @@ const earthworksStatus = (...values: unknown[]): string => {
   return text;
 };
 
-const earthworksChecklistNumber = (checklist: any, index: number): string => {
+const earthworksChecklistNumber = (checklist: any, _index: number): string => {
   const value = firstText(
-    checklist?.displayNumber,
-    checklist?.checklistDisplayNumber,
     checklist?.checklistNo,
     checklist?.checklistNumber,
+    checklist?.displayNumber,
+    checklist?.checklistDisplayNumber,
     checklist?.number,
     checklist?.serialNo,
     checklist?.formNo,
     checklist?.reportNo,
     valueByKeyOrLabel(checklist, ["מספר רשימה", "מס רשימה", "מספר רשימת תיוג", "מספר טופס", "checklistNo", "checklistNumber"]),
   );
-  if (!value || looksLikeUuid(value)) return String(index + 1);
+  if (!value || looksLikeUuid(value)) return "";
   return value;
 };
 
@@ -2574,7 +2578,6 @@ const dedupeEarthworksRows = (rows: Row[]): Row[] => {
 
 const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
   const checklistColumn = earthworksFieldColumns[2];
-  const used = new Set<number>();
   const maxExisting = rows.reduce((max, row) => {
     const value = earthworksChecklistSortValue(row[checklistColumn], Number.NaN);
     return Number.isFinite(value) ? Math.max(max, value) : max;
@@ -2583,12 +2586,9 @@ const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
 
   return rows.map((row) => {
     const raw = earthworksChecklistSortValue(row[checklistColumn], Number.NaN);
-    if (Number.isFinite(raw) && raw > 0 && !used.has(raw)) {
-      used.add(raw);
-      return row;
-    }
-    while (used.has(next)) next += 1;
-    used.add(next);
+    // מספר רשימת תיוג הוא מזהה מקור, ולכן מותר שיופיע ביותר משורה אחת
+    // כאשר לאותה רשימה צורפו כמה תעודות או כמה נקודות בדיקה.
+    if (Number.isFinite(raw) && raw > 0) return row;
     const updated = { ...row, [checklistColumn]: next };
     next += 1;
     return updated;
@@ -3006,11 +3006,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     checklistSource?.layerNo,
     checklistSource?.layerNumber,
     checklistSource?.layer,
-    numericLike(checklistSource?.location),
     exactFirstFromSources([checklistSource], ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
     exactFirstFromSources([itemSource], ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
     parsedLocation.layer,
     exactFirstFromSources(certificateFieldSources, ["שכבה מס׳", "שכבה מס'", "שכבה מס", "מספר שכבה", "קוד השכבה", "שכבה", "layer", "layerNo", "layerCode", "layerNumber"]),
+    numericLike(checklistSource?.location),
   );
   const exactMaterial = normalizeEarthworksMaterialDescription(firstText(
     cleanEarthworksMaterial(exactFirstFromSources(certificateFieldSources, ["שכבת המבנה", "structureLayer"])),
@@ -3021,7 +3021,10 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     exactFirstFromSources(certificateFieldSources, ["מיון החומר", "מיון", "מיון AASHTO", "AASHTO", "aashto", "classification", "סיווג AASHTO"]),
   );
   const hasDensityPayload = Boolean(exactFirstFromSources(certificateSources, ["צפיפות מחושבת", "תוצאות בדיקה", "דרגת הידוק", "רטיבות ממוצעת", "צפיפות מקס מעבדתית", "צפיפות מעבדתית מקסימלית", "כמות נקודות בדיקה", "ממוצע", "גבול תחתון", "גבול עליון", "צפיפות סטטיסטיקה ממוצע", "צפיפות סטטיסטיקה גבול תחתון", "צפיפות סטטיסטיקה גבול עליון"]));
-  const exactDensityCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "מספר תעודת בדיקה", "תעודת בדיקה", "certificateNo", "certificateNumber", "densityCertificateNo"]);
+  const exactDensityCert = certificateNumberFromAttachment({
+    name: attachmentName(attachment),
+    certificateNo: exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "מספר תעודת בדיקה", "תעודת בדיקה", "certificateNo", "certificateNumber", "densityCertificateNo"]),
+  });
   const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
   const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
   const densityCertificate = (isDensityMoisture || hasDensityPayload) && kind !== "characterization" ? firstText(exactDensityCert, certificate) : "";
