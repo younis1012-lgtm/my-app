@@ -24239,6 +24239,7 @@ ${invalidRecipients.join("\n")}`);
           {section === "concentrations" && (
             <>
               <ConcentrationsSection
+                currentProjectId={currentProjectIdNormalized}
                 savedChecklists={projectChecklists}
                 savedNonconformances={projectNonconformances}
                 savedTrialSections={projectTrialSections}

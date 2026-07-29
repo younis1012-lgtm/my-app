@@ -17,6 +17,7 @@ type ProjectConcentrationMeta = {
 };
 
 type Props = {
+  currentProjectId?: string;
   savedChecklists?: any[];
   savedNonconformances?: any[];
   savedTrialSections?: any[];
@@ -2180,6 +2181,14 @@ const hasStoredEarthworksLabData = (item: any): boolean => {
   );
 };
 
+const scopeProjectRecords = (records: any[], projectId: string): any[] => {
+  const expectedProjectId = cleanText(projectId).toLowerCase();
+  if (!expectedProjectId) return [];
+  return records.filter((record) =>
+    cleanText(record?.projectId ?? record?.project_id).toLowerCase() === expectedProjectId
+  );
+};
+
 const directRecordAttachments = (record: any): any[] => [
   ...(Array.isArray(record?.attachments) ? record.attachments : []),
   ...(Array.isArray(record?.certificates) ? record.certificates : []),
@@ -2305,8 +2314,49 @@ const expandEarthworksAttachmentRows = (attachment: any): any[] => {
 const isEarthworksMeasurementAttachment = (attachment: any, item: any): boolean => {
   if (!isRealAttachment(attachment)) return false;
   const text = earthworksAttachmentMetaText(attachment);
+  const hasParsedLabData = [
+    attachment?.labResults,
+    attachment?.densityResults,
+    attachment?.results,
+  ].some((value) => value && typeof value === "object" && Object.keys(value).length > 0);
+  const hasExplicitCertificateNo = Boolean(firstText(
+    attachment?.certificateNo,
+    attachment?.certificateNumber,
+    attachment?.documentNo,
+    attachment?.documentNumber,
+  ));
+  const itemText = [item?.description, item?.title, item?.label]
+    .map(cleanText)
+    .filter(Boolean)
+    .join(" ");
+  const itemIsLabTest = includesAny(itemText, [
+    "בדיקה",
+    "בדיקות",
+    "תעודת מעבדה",
+    "מעבדה",
+    "הידוק",
+    "צפיפות",
+    "רטיבות",
+    "מכבש",
+    "חפירה",
+  ]);
+  const hasStoredLabContext = itemIsLabTest && hasStoredEarthworksLabData(item);
+  const explicitDocumentText = [
+    attachmentName(attachment),
+    attachment?.documentType,
+    attachment?.docType,
+    attachment?.certificateType,
+    attachment?.category,
+    attachment?.title,
+    attachment?.label,
+    attachment?.description,
+  ].map(cleanText).filter(Boolean).join(" ");
+  const hasExplicitSurveyText = includesAny(explicitDocumentText, ["רשימת מדידה", "מדידה", "measurement", "survey"]);
   // לא משתמשים בתיאור סעיף רשימת התיוג לזיהוי מדידה, כי סעיף כמו
   // "בדיקת עומק ומפלסי חפירה" גרם לסיווג שגוי של תעודות מעבדה כמדידה.
+  // Older records can contain a lab certificate incorrectly saved as kind="measurement".
+  // Parsed/certificate evidence from a lab-test checklist takes precedence over that stale kind.
+  if (!hasExplicitSurveyText && (hasParsedLabData || hasExplicitCertificateNo || hasStoredLabContext)) return false;
   return attachment?.kind === "measurement" || includesAny(text, ["רשימת מדידה", "מדידה", "measurement", "survey"]);
 };
 
@@ -2319,12 +2369,12 @@ const isEarthworksLabCertificateAttachment = (attachment: any, item: any): boole
   if (isEarthworksMeasurementAttachment(attachment, item)) return false;
   if (includesAny(text, earthworksNonLabAttachmentKeywords)) return false;
 
-  const hasParsedLabData = Boolean(
-    attachment?.labResults ||
-    attachment?.densityResults ||
-    attachment?.results?.labResults ||
-    attachment?.results?.densityResults
-  );
+  const hasParsedLabData = [
+    attachment?.labResults,
+    attachment?.densityResults,
+    attachment?.results?.labResults,
+    attachment?.results?.densityResults,
+  ].some((value) => value && typeof value === "object" && Object.keys(value).length > 0);
   const hasExplicitCertificateNo = Boolean(
     attachment?.certificateNo ||
     attachment?.certificateNumber ||
@@ -2844,7 +2894,11 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
 
   // סוג המסמך נקבע לפי הקובץ ותוצאות ה-PDF בלבד, לא לפי כותרת/תיאור סעיף הרשימה.
   // כך רשימות מדידה לא "צובעות" תעודות מעבדה מצורפות כמדידה.
-  const kind = normalizeEarthworksDocKind([resultsSource, attachment]);
+  const attachmentForKind =
+    attachment?.kind === "measurement" && !isEarthworksMeasurementAttachment(attachment, itemSource)
+      ? { ...attachment, kind: "lab" }
+      : attachment;
+  const kind = normalizeEarthworksDocKind([resultsSource, attachmentForKind]);
   const isRegularCompaction =
     kind === "regular" ||
     includesAny(workType, ["חפירה", "הידוק רגיל", "מילוי רגיל"]) ||
@@ -5497,7 +5551,7 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey }: Props) {
+export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
@@ -5511,7 +5565,16 @@ export function ConcentrationsSection({ savedChecklists = [], savedNonconformanc
   const soilSurveyInputRef = useRef<HTMLInputElement | null>(null);
 
   const meta = useMemo(() => buildProjectMeta(currentProjectName, projectMeta), [currentProjectName, projectMeta]);
-  const ctx: BuildContext = useMemo(() => ({ savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, projectMeta: meta }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, meta]);
+  const ctx: BuildContext = useMemo(() => ({
+    savedChecklists: scopeProjectRecords(savedChecklists, currentProjectId),
+    savedNonconformances: scopeProjectRecords(savedNonconformances, currentProjectId),
+    savedTrialSections: scopeProjectRecords(savedTrialSections, currentProjectId),
+    savedPreliminary: scopeProjectRecords(savedPreliminary, currentProjectId),
+    savedRfis: scopeProjectRecords(savedRfis, currentProjectId),
+    savedControlProcesses: scopeProjectRecords(savedControlProcesses, currentProjectId),
+    savedSupervisionReports: scopeProjectRecords(savedSupervisionReports, currentProjectId),
+    projectMeta: meta,
+  }), [savedChecklists, savedNonconformances, savedTrialSections, savedPreliminary, savedRfis, savedControlProcesses, savedSupervisionReports, currentProjectId, meta]);
 
   const rowsById = useMemo(() => {
     const result: Record<string, Row[]> = {};
