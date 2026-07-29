@@ -2179,10 +2179,10 @@ const earthworksStatus = (...values: unknown[]): string => {
 
 const earthworksChecklistNumber = (checklist: any, _index: number): string => {
   const value = firstText(
-    checklist?.checklistNo,
-    checklist?.checklistNumber,
     checklist?.displayNumber,
     checklist?.checklistDisplayNumber,
+    checklist?.checklistNo,
+    checklist?.checklistNumber,
     checklist?.number,
     checklist?.serialNo,
     checklist?.formNo,
@@ -3444,6 +3444,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], prel
     });
 
   orderedChecklists.forEach((checklist: any, checklistIndex: number) => {
+    const checklistRowStart = rows.length;
     const items = Array.isArray(checklist?.items) ? checklist.items : [];
     const usedAttachmentKeys = new Set<string>();
     const rememberAttachment = (attachment: any) => {
@@ -3564,13 +3565,26 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], prel
         if (combinedRow) rows.push(combinedRow);
       }
     }
+
+    // Every relevant source checklist must be represented in the concentration,
+    // even before a laboratory certificate or measurement sheet is attached.
+    if (rows.length === checklistRowStart) {
+      rows.push(
+        earthworksRowFromSources(
+          [checklist, {}],
+          {},
+          rows.length + 1,
+          checklistIndex,
+        ),
+      );
+    }
   });
 
   const completeRows = enrichEarthworksRowsByReferenceCertificate(rows);
 
   return ensureUniqueEarthworksChecklistNumbers(
     applyApprovedMaterialSources(
-      dedupeEarthworksRows(completeRows.filter(earthworksRowHasCertificateEvidence)),
+      dedupeEarthworksRows(completeRows),
       preliminary,
     ),
   )
