@@ -849,17 +849,17 @@ const SELECTED_MATERIAL_REFERENCE_RESULT_DEFS: Array<{
   { metric: "מהות העבודה", minValue: "", maxValue: "" },
   { metric: "תיאור החומר", minValue: "", maxValue: "" },
   { metric: "מיון AASHTO", minValue: "", maxValue: "" },
-  { metric: '3"', minValue: "100", maxValue: "100" },
-  { metric: '1.5"', minValue: "80", maxValue: "100" },
+  { metric: '3"', minValue: "50", maxValue: "100" },
+  { metric: '1.5"', minValue: "", maxValue: "" },
   { metric: '1"', minValue: "", maxValue: "", allowedDeviation: "±5" },
-  { metric: '3/4"', minValue: "60", maxValue: "85", allowedDeviation: "±5" },
-  { metric: "#4", minValue: "30", maxValue: "55", allowedDeviation: "±5" },
-  { metric: "#10", minValue: "20", maxValue: "40", allowedDeviation: "±4" },
+  { metric: '3/4"', minValue: "50", maxValue: "100", allowedDeviation: "±5" },
+  { metric: "#4", minValue: "25", maxValue: "80", allowedDeviation: "±5" },
+  { metric: "#10", minValue: "", maxValue: "", allowedDeviation: "±4" },
   { metric: "#40", minValue: "", maxValue: "", allowedDeviation: "±3" },
-  { metric: "#200", minValue: "18", maxValue: "25", allowedDeviation: "±1.5" },
-  { metric: "LL", minValue: "0", maxValue: "25" },
+  { metric: "#200", minValue: "0", maxValue: "25", allowedDeviation: "±1.5" },
+  { metric: "LL", minValue: "0", maxValue: "35" },
   { metric: "PL", minValue: "", maxValue: "" },
-  { metric: "IP", minValue: "0", maxValue: "6" },
+  { metric: "IP", minValue: "0", maxValue: "10" },
   { metric: "שווה ערך חול", minValue: "", maxValue: "" },
   { metric: "אגרגט גס צפיפות ממשית", minValue: "", maxValue: "" },
   { metric: "אגרגט גס ספיגות", minValue: "", maxValue: "" },
@@ -1481,7 +1481,7 @@ const mergeReferenceResultsWithTemplate = (
           ...fixed,
           id: existing.id || fixed.id,
           resultValue: existing.resultValue ?? "",
-          qualityStatus: existing.qualityStatus ?? "",
+          qualityStatus: "",
           allowedDeviation: existing.allowedDeviation || fixed.allowedDeviation,
         })
       : fixed;
@@ -12583,7 +12583,10 @@ function ControlProcessesSection({
   const setField = (key: string, value: string) =>
     setForm((prev: any) => ({ ...prev, [key]: value }));
   const selectedMaterial = String(form.workType ?? "");
-  const showGradingLineForm = isGradingLineReferenceRecord(form);
+  const showGradingLineForm =
+    isGradingLineReferenceRecord(form) &&
+    !isSelectedMaterialReference(selectedMaterial) &&
+    !isMatzeaAReference(selectedMaterial);
   const showAsphaltForm = isAsphaltReference(selectedMaterial);
   const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
   const referenceResults = isAsphaltReference(selectedMaterial)
@@ -12608,6 +12611,8 @@ function ControlProcessesSection({
     isAsphaltReference(selectedMaterial);
   const referenceResultsTitle = isAsphaltReference(selectedMaterial)
     ? "תוצאות JMF מפורטות - אספלט"
+    : isSelectedMaterialReference(selectedMaterial)
+      ? "תוצאות תעודת ייחוס - מילוי נברר"
     : showGradingLineForm
       ? "תוצאות תעודת קו דירוג"
       : "תוצאות הזמנה מפורטות - מצע א׳";
@@ -12747,8 +12752,12 @@ function ControlProcessesSection({
               ...row,
               resultValue: String(parsed.resultValue ?? "").trim(),
               // MIN/MAX שנקראו מהתעודה קודמים לערכי ברירת מחדל של התבנית.
-              minValue: String(parsed.minValue ?? "").trim() || row.minValue,
-              maxValue: String(parsed.maxValue ?? "").trim() || row.maxValue,
+              minValue: isSelectedMaterialReference(prev.workType)
+                ? row.minValue
+                : String(parsed.minValue ?? "").trim() || row.minValue,
+              maxValue: isSelectedMaterialReference(prev.workType)
+                ? row.maxValue
+                : String(parsed.maxValue ?? "").trim() || row.maxValue,
               allowedDeviation:
                 String(parsed.allowedDeviation ?? "").trim() || row.allowedDeviation,
             });
@@ -12858,7 +12867,9 @@ function ControlProcessesSection({
       ...prev,
       referenceResults: (isAsphaltReference(prev.workType)
         ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, prev.referenceResults, true)
-        : isGradingLineReferenceRecord(prev)
+        : isGradingLineReferenceRecord(prev) &&
+          !isSelectedMaterialReference(prev.workType) &&
+          !isMatzeaAReference(prev.workType)
           ? ensureReferenceResultsForMaterial(
               "קו דירוג",
               prev.referenceResults,
@@ -18451,7 +18462,10 @@ export default function Page() {
     const id = editingControlProcessId ?? crypto.randomUUID();
     const nextStatus: ControlProcessStatus =
       controlProcessForm.status === "נעול" ? "נעול" : controlProcessForm.status;
-    const saveAsGradingLine = isGradingLineReferenceRecord(controlProcessForm);
+    const saveAsGradingLine =
+      isGradingLineReferenceRecord(controlProcessForm) &&
+      !isSelectedMaterialReference(controlProcessForm.workType) &&
+      !isMatzeaAReference(controlProcessForm.workType);
     let syncedReferenceResults = isAsphaltReference(controlProcessForm.workType)
       ? buildAsphaltRowsForMix(
           controlProcessForm.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(controlProcessForm.referenceResults)) || getDefaultAsphaltMixTemplate().label,
@@ -18898,7 +18912,11 @@ export default function Page() {
       nonconformanceIds: record.nonconformanceIds,
       requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
       referenceResults: ensureReferenceResultsForMaterial(
-        isGradingLineReferenceRecord(record) ? "קו דירוג" : record.workType,
+        isGradingLineReferenceRecord(record) &&
+        !isSelectedMaterialReference(record.workType) &&
+        !isMatzeaAReference(record.workType)
+          ? "קו דירוג"
+          : record.workType,
         record.referenceResults,
       ),
       auditTrail: record.auditTrail,
