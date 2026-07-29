@@ -2505,14 +2505,57 @@ const earthworksDuplicateRowKey = (row: Row): string => {
 };
 
 const dedupeEarthworksRows = (rows: Row[]): Row[] => {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
+  const mergedRows: Row[] = [];
+  const rowIndexByKey = new Map<string, number>();
+  const multiValueColumns = new Set([
+    "מס' תעודת בדיקההידוק רגיל",
+    "מעברי מכבש",
+    "מעמד הידוק רגיל",
+    "מס' תעודת בדיקה צפיפות/ רטיבות שדה",
+    "הידוק מבוקר (צפיפות מד גרעיני)",
+    "מעמד צפיפות/רטיבות",
+    " מנת בדיקה (חרוט חול / שלבי)",
+    "מעמד מנת בדיקה",
+    "מדידה",
+    "מעמד מדידה",
+    "מספר תעודת בדיקה אפיון - 100%",
+    "HWD",
+    "מעמד HWD",
+    "תוצאות בדיקה",
+    "צפיפות סטטיסטיקה גבול תחתון",
+    "צפיפות סטטיסטיקה גבול עליון",
+    "צפיפות סטטיסטיקה ממוצע",
+    "מעמד תוצאות",
+  ].map(normalizeFieldKey));
+
+  rows.forEach((row) => {
     const key = earthworksDuplicateRowKey(row);
-    if (!key) return true;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    if (!key || !rowIndexByKey.has(key)) {
+      if (key) rowIndexByKey.set(key, mergedRows.length);
+      mergedRows.push({ ...row });
+      return;
+    }
+
+    const targetIndex = rowIndexByKey.get(key)!;
+    const merged = { ...mergedRows[targetIndex] };
+    earthworksFieldColumns.forEach((column) => {
+      const current = cleanText(merged[column]);
+      const incoming = cleanText(row[column]);
+      if (!incoming) return;
+      if (!current) {
+        merged[column] = row[column];
+        return;
+      }
+      if (
+        current !== incoming &&
+        multiValueColumns.has(normalizeFieldKey(column))
+      ) {
+        merged[column] = uniqueJoin([current, incoming]);
+      }
+    });
+    mergedRows[targetIndex] = merged;
   });
+  return mergedRows;
 };
 
 const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
