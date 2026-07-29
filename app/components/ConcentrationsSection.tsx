@@ -2119,6 +2119,21 @@ const isEarthworksChecklist = (record: any): boolean => {
   return includesAny(recordAllText, earthworksIncludeKeywords) || includesAny(recordAllText, earthworksWorkTypeKeywords);
 };
 
+const isEarthworksFieldSourceChecklist = (record: any): boolean => {
+  const kindText = earthworksChecklistKindText(record);
+  return includesAny(kindText, [
+    "רשימת תיוג לעבודות חפירה",
+    "רשימת תיוג חפירה",
+    "חפירה",
+    "רשימת תיוג לעבודות הידוק רגיל",
+    "רשימת תיוג הידוק רגיל",
+    "הידוק רגיל",
+    "רשימת תיוג לעבודות הידוק מבוקר",
+    "רשימת תיוג הידוק מבוקר",
+    "הידוק מבוקר",
+  ]);
+};
+
 const isSubbaseFieldChecklist = (record: any): boolean => {
   const kindText = earthworksChecklistKindText(record);
   const text = `${kindText} ${recordText(record)}`;
@@ -2615,6 +2630,7 @@ const earthworksRowHasCertificateEvidence = (row: Row): boolean =>
   [
     earthworksFieldColumns[16],
     earthworksFieldColumns[19],
+    earthworksFieldColumns[24],
     earthworksFieldColumns[26],
     earthworksFieldColumns[27],
   ].some((column) => cleanText(row[column]));
@@ -3414,7 +3430,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], prel
   const rows: Row[] = [];
 
   const orderedChecklists = [...checklists]
-    .filter((checklist: any) => isEarthworksChecklist(checklist) || isEarthworksRecord(checklist))
+    .filter((checklist: any) => isEarthworksFieldSourceChecklist(checklist))
     .sort((a: any, b: any) => {
       const aNo = earthworksChecklistSortValue(
         earthworksChecklistNumber(a, 0),
@@ -3450,7 +3466,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], prel
       if (
         !includesAny(itemText, earthworksIncludeKeywords) &&
         !includesAny(itemText, earthworksWorkTypeKeywords) &&
-        !isEarthworksChecklist(checklist)
+        !isEarthworksFieldSourceChecklist(checklist)
       ) {
         return;
       }
@@ -4132,8 +4148,8 @@ const definitions: ConcentrationDefinition[] = [
     id: "earthworks",
     title: "בדיקות שדה - עבודות עפר",
     fileName: "בדיקות שדה - עבודות עפר.xlsx",
-    description: "ריכוז בדיקות צפיפות/רטיבות שדה לעבודות עפר בלבד: חפירה, קרקע יסוד, מילוי והידוק רגיל/מבוקר. לא כולל מצע א׳.",
-    sourceLabel: "רשימות תיוג / עבודות עפר",
+    description: "ריכוז מתעודות מעבדה ורשימות מדידה שצורפו לרשימות תיוג חפירה, הידוק רגיל והידוק מבוקר בלבד.",
+    sourceLabel: "רשימות תיוג חפירה / הידוק רגיל / הידוק מבוקר",
     columns: earthworksFieldColumns,
     buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
