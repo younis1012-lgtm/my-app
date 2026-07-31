@@ -2663,6 +2663,61 @@ const ensureUniqueEarthworksChecklistNumbers = (rows: Row[]): Row[] => {
   });
 };
 
+const sanitizeEarthworksCertificateColumns = (rows: Row[]): Row[] =>
+  rows.map((row) => {
+    const updated = { ...row };
+    const regularColumn = earthworksFieldColumns[16];
+    const densityColumn = earthworksFieldColumns[19];
+    const referenceColumn = earthworksFieldColumns[26];
+    let regularCertificate = cleanText(updated[regularColumn]);
+    const densityCertificate = cleanText(updated[densityColumn]);
+    const referenceCertificate = cleanText(updated[referenceColumn]);
+    const certificateKey = (value: unknown) => cleanText(value).replace(/\D/g, "");
+
+    // If legacy OCR placed the same certificate in both test columns, density
+    // wins only when the dedicated density column is populated.
+    if (
+      regularCertificate &&
+      densityCertificate &&
+      certificateKey(regularCertificate) === certificateKey(densityCertificate)
+    ) {
+      updated[regularColumn] = "";
+      regularCertificate = "";
+    }
+
+    // Roller-pass values belong to a regular-compaction certificate. A pass
+    // count mentioned inside a density report is supporting text, not a second
+    // test result.
+    if (!regularCertificate) {
+      updated[earthworksFieldColumns[17]] = "";
+      updated[earthworksFieldColumns[18]] = "";
+    }
+
+    if (!densityCertificate) {
+      updated[earthworksFieldColumns[20]] = "";
+      updated[earthworksFieldColumns[21]] = "";
+      updated[earthworksFieldColumns[29]] = "";
+      updated[earthworksFieldColumns[30]] = "";
+      updated[earthworksFieldColumns[31]] = "";
+      updated[earthworksFieldColumns[32]] = "";
+      updated[earthworksFieldColumns[33]] = "";
+    }
+
+    // A field-density or roller-pass certificate cannot simultaneously be its
+    // own 100% reference/proctor certificate.
+    if (
+      referenceCertificate &&
+      [regularCertificate, densityCertificate]
+        .map(certificateKey)
+        .filter(Boolean)
+        .includes(certificateKey(referenceCertificate))
+    ) {
+      updated[referenceColumn] = "";
+    }
+
+    return updated;
+  });
+
 const cleanEarthworksMaterial = (value: unknown): string => {
   const text = cleanText(value);
   if (!text) return "";
@@ -2839,7 +2894,6 @@ const normalizeEarthworksDocKind = (sources: any[]): EarthworksTestKind => {
     "ממוצע",
     "גבול תחתון",
     "גבול עליון",
-    "מספר תעודת בדיקה",
     "כמות נקודות בדיקה",
     "צפיפות סטטיסטיקה ממוצע",
     "צפיפות סטטיסטיקה גבול תחתון",
@@ -3092,12 +3146,41 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const hasDensityPayload = Boolean(exactFirstFromSources(certificateSources, ["צפיפות מחושבת", "תוצאות בדיקה", "דרגת הידוק", "רטיבות ממוצעת", "צפיפות מקס מעבדתית", "צפיפות מעבדתית מקסימלית", "כמות נקודות בדיקה", "ממוצע", "גבול תחתון", "גבול עליון", "צפיפות סטטיסטיקה ממוצע", "צפיפות סטטיסטיקה גבול תחתון", "צפיפות סטטיסטיקה גבול עליון"]));
   const exactDensityCert = certificateNumberFromAttachment({
     name: attachmentName(attachment),
-    certificateNo: exactFirstFromSources(certificateSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "מספר תעודת בדיקה", "תעודת בדיקה", "certificateNo", "certificateNumber", "densityCertificateNo"]),
+    certificateNo: exactFirstFromSources(certificateFieldSources, ["מס' תעודת בדיקה צפיפות/ רטיבות שדה", "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת בדיקה צפיפות/ רטיבות שדה", "מספר תעודת צפיפות", "מספר תעודת בדיקת צפיפות", "densityCertificateNo"]),
   });
-  const exactRegularCert = exactFirstFromSources(certificateSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]);
-  const exactReferenceCert = exactFirstFromSources(fieldSources, ["מספר תעודת בדיקה אפיון - 100%", "מספר תעודת ייחוס", "מספר תעודת ייחוס-100%", "מספר תעודת ייחוס 100%", "תעודת ייחוס", "מדוח מספר", "מדו״ח מספר", "referenceCertificate", "referenceCertificateNo", "proctorCertificate"]);
+  const exactRegularCert = certificateNumberFromAttachment({
+    certificateNo: exactFirstFromSources(certificateFieldSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]),
+  });
+  // A 100% characterization/reference number is accepted only from an
+  // explicitly named reference/proctor field on this certificate. Generic
+  // report or certificate numbers must never leak into this column.
+  const exactReferenceCert = certificateNumberFromAttachment({
+    certificateNo: exactFirstFromSources(certificateFieldSources, [
+      "מספר תעודת בדיקה אפיון - 100%",
+      "מספר תעודת ייחוס",
+      "מספר תעודת ייחוס-100%",
+      "מספר תעודת ייחוס 100%",
+      "תעודת ייחוס",
+      "referenceCertificate",
+      "referenceCertificateNo",
+      "proctorCertificate",
+    ]),
+  });
   const densityCertificate = (isDensityMoisture || hasDensityPayload) && kind !== "characterization" ? firstText(exactDensityCert, certificate) : "";
   const regularCertificate = isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd ? firstText(exactRegularCert, certificate) : "";
+  const candidateReferenceCertificate = firstText(
+    exactReferenceCert,
+    kind === "characterization" ? certificate : "",
+  );
+  const candidateReferenceKey = cleanText(candidateReferenceCertificate).replace(/\D/g, "");
+  const referenceCertificate =
+    candidateReferenceCertificate &&
+    ![densityCertificate, regularCertificate]
+      .map((value) => cleanText(value).replace(/\D/g, ""))
+      .filter(Boolean)
+      .includes(candidateReferenceKey)
+      ? candidateReferenceCertificate
+      : "";
   const densitySampleCount = firstText(
     ...[
       resultsSource?.sampleRows,
@@ -3191,7 +3274,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const isRollerPassOnlyRow = Boolean(
     hasRegularCompactionEvidence &&
       !densityCertificate &&
-      !exactReferenceCert &&
+      !referenceCertificate &&
       !hasDensityPayload &&
       kind !== "characterization" &&
       kind !== "survey" &&
@@ -3233,7 +3316,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     'מעמד מנת בדיקה': kind === "sand" ? status : "",
     'מדידה': surveyDocument,
     'מעמד מדידה': surveyDocument ? firstText(status, "OK") : "",
-    'מספר תעודת בדיקה אפיון - 100%': firstText(exactReferenceCert, kind === "characterization" ? certificate : ""),
+    'מספר תעודת בדיקה אפיון - 100%': referenceCertificate,
     'HWD': isHwd ? firstText(certificate, attachmentName(attachment)) : "",
     'מעמד HWD': isHwd ? firstText(status, "OK") : "",
     'תוצאות בדיקה': densityCertificate ? densityResultValue : "",
@@ -3645,7 +3728,7 @@ const buildEarthworksFieldRows = (checklists: any[], processes: any[] = [], prel
 
   return ensureUniqueEarthworksChecklistNumbers(
     applyApprovedMaterialSources(
-      dedupeEarthworksRows(completeRows),
+      sanitizeEarthworksCertificateColumns(dedupeEarthworksRows(completeRows)),
       preliminary,
     ),
   )
