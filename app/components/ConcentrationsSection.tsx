@@ -334,6 +334,8 @@ const normalizeConcentrationStatus = (value: unknown): string => {
       "מתאים",
       "מאושר",
       "עבר",
+      "עובר",
+      "עוברת",
       "approved",
       "passed",
       "pass",
@@ -2224,7 +2226,7 @@ const earthworksStatus = (...values: unknown[]): string => {
   const text = firstText(...values);
   if (!text) return "";
   if (includesAny(text, ["לא תקין", "נכשל", "NC", "נדחה", "פסול"])) return "NC";
-  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר"])) return "OK";
+  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר", "עובר", "עוברת"])) return "OK";
   return text;
 };
 
@@ -2523,7 +2525,7 @@ const normalizeEarthworksStatus = (value: unknown): string => {
   const text = cleanText(value);
   if (!text || includesAny(text, ["לא נבדק", "not tested", "לא בוצע"])) return "";
   if (includesAny(text, ["לא תקין", "נכשל", "NC", "נדחה", "פסול"])) return "NC";
-  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר"])) return "OK";
+  if (includesAny(text, ["תקין", "מאושר", "OK", "עבר", "עובר", "עוברת"])) return "OK";
   return text;
 };
 
@@ -3177,7 +3179,15 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     `${workType} ${itemSource?.description ?? ""} ${itemSource?.title ?? ""} ${checklistSource?.title ?? ""}`,
     ["מעברי מכבש", "מעביר מכבש", "מכבש", "roller", "passes"],
   );
-  const hasRegularCompactionEvidence = Boolean(regularCertificate || rollerPasses || hasRollerPassText);
+  // A density/moisture certificate may mention how many roller passes were
+  // performed. That supporting datum must not turn the density certificate
+  // into a second, regular-compaction certificate in the concentration.
+  const hasRegularCompactionEvidence = Boolean(
+    !densityCertificate &&
+    !hasDensityPayload &&
+    !isDensityMoisture &&
+    (regularCertificate || rollerPasses || hasRollerPassText),
+  );
   const isRollerPassOnlyRow = Boolean(
     hasRegularCompactionEvidence &&
       !densityCertificate &&
