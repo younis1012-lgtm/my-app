@@ -304,11 +304,62 @@ const isConcentrationSerialColumn = (column: string, index: number) => {
   return false;
 };
 
+const isConcentrationStatusColumn = (column: string) =>
+  normalize(column).includes(normalize("מעמד"));
+
+const normalizeConcentrationStatus = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+
+  // Negative expressions must be checked first because strings such as
+  // "לא מתאים" also contain the positive word "מתאים".
+  if (
+    includesAny(text, [
+      "NC",
+      "לא תקין",
+      "לא מתאים",
+      "נכשל",
+      "נדחה",
+      "פסול",
+      "rejected",
+      "failed",
+      "fail",
+    ])
+  ) return "NC";
+
+  if (
+    includesAny(text, [
+      "OK",
+      "תקין",
+      "מתאים",
+      "מאושר",
+      "עבר",
+      "approved",
+      "passed",
+      "pass",
+      "compliant",
+    ])
+  ) return "OK";
+
+  // A concentration status column is deliberately restricted to OK / NC.
+  return "";
+};
+
 const normalizeConcentrationRows = (
   definition: { columns: string[]; id?: string },
   rows: Row[],
 ): Row[] => {
   if (!rows.length) return rows;
+  const statusColumns = definition.columns.filter(isConcentrationStatusColumn);
+  const normalizedRows = statusColumns.length
+    ? rows.map((row) => {
+        const normalizedRow = { ...row };
+        statusColumns.forEach((column) => {
+          normalizedRow[column] = normalizeConcentrationStatus(row[column]);
+        });
+        return normalizedRow;
+      })
+    : rows;
   const serialColumn = definition.columns.find(isConcentrationSerialColumn);
   const dateColumns = concentrationDateColumnPriority
     .map((label) =>
@@ -320,9 +371,9 @@ const normalizeConcentrationRows = (
     )
     .filter(Boolean) as string[];
 
-  if (!dateColumns.length && !serialColumn) return rows;
+  if (!dateColumns.length && !serialColumn) return normalizedRows;
 
-  const sorted = rows
+  const sorted = normalizedRows
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
       const aTime =
