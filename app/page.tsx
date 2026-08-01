@@ -5517,14 +5517,39 @@ function ChecklistsSection({
   const availableStructureNodes = sortProjectStructureNodes(
     projectStructureNodes,
   );
+  const executionPlanOptionLabel = (plan: ProjectPlan) =>
+    `${plan.planNo}${plan.title ? ` - ${plan.title}` : ""}`;
+  const selectedExecutionPlan = availableProjectPlans.find(
+    (item) => item.id === (checklistForm as any).selectedPlanId,
+  );
+  const executionPlanSearchValue = selectedExecutionPlan
+    ? executionPlanOptionLabel(selectedExecutionPlan)
+    : ((checklistForm as any).executionPlanSearch ?? "");
   const selectExecutionPlan = (planId: string) => {
     const plan = availableProjectPlans.find((item) => item.id === planId);
     setChecklistForm((prev: any) => ({
       ...prev,
       selectedPlanId: planId,
+      executionPlanSearch: plan ? executionPlanOptionLabel(plan) : "",
       executionPlanNo: plan ? plan.planNo : "",
       executionPlanName: plan ? plan.title : "",
       executionPlanRevision: plan ? plan.revision : "",
+    }));
+  };
+  const searchExecutionPlan = (searchText: string) => {
+    const normalizedSearch = searchText.trim().toLocaleLowerCase("he");
+    const plan = availableProjectPlans.find((item) => {
+      const label = executionPlanOptionLabel(item).trim().toLocaleLowerCase("he");
+      return label === normalizedSearch;
+    });
+    if (plan) {
+      selectExecutionPlan(plan.id);
+      return;
+    }
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: "",
+      executionPlanSearch: searchText,
     }));
   };
   const setExecutionPlanNo = (planNo: string) => {
@@ -6084,19 +6109,21 @@ function ChecklistsSection({
             </label>
             <label>
               <span style={labelStyle}>בחירת תוכנית ביצוע</span>
-              <select
-                value={(checklistForm as any).selectedPlanId ?? ""}
-                onChange={(event) => selectExecutionPlan(event.target.value)}
+              <input
+                type="search"
+                list="execution-plan-smart-search-options"
+                value={executionPlanSearchValue}
+                onChange={(event) => searchExecutionPlan(event.target.value)}
                 style={inputStyle}
-              >
-                <option value="">בחר מתוך תיקיית תוכניות</option>
+                placeholder="הקלד מספר או שם תוכנית לחיפוש"
+                autoComplete="off"
+              />
+              <datalist id="execution-plan-smart-search-options">
+                <option value="" />
                 {availableProjectPlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.planNo}
-                    {plan.title ? ` - ${plan.title}` : ""}
-                  </option>
+                  <option key={plan.id} value={executionPlanOptionLabel(plan)} />
                 ))}
-              </select>
+              </datalist>
             </label>
             <label>
               <span style={labelStyle}>מס׳ תוכנית ביצוע</span>
