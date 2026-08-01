@@ -18442,7 +18442,16 @@ export default function Page() {
         ),
       }));
 
-      if (kind === "lab" && !shouldExtractConcrete) {
+      if (kind === "lab" && shouldExtractAsphalt) {
+        window.setTimeout(() => {
+          const asphaltValuesCount = Object.keys(autoAsphaltResults).length;
+          alert(
+            autoAsphaltBatches.length || autoAsphaltRows.length || asphaltValuesCount
+              ? `נקלטו תוצאות בדיקות תערובת אספלט מהתעודה${asphaltSummary ? `:\n${asphaltSummary}` : "."}\n\nיש ללחוץ שמירה כדי לשמור את הנתונים.`
+              : "התעודה צורפה כתעודת בדיקות תערובת אספלט, אך לא זוהו בה תוצאות אוטומטית. ניתן לשמור את הקובץ ולבדוק או להשלים את הנתונים ידנית."
+          );
+        }, 0);
+      } else if (kind === "lab" && !shouldExtractConcrete) {
         window.setTimeout(() => {
           alert(
             Object.keys(autoDensityResults).length
