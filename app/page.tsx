@@ -2885,6 +2885,12 @@ const responsibleRoleMatchesUser = (
   const includesAny = (values: string[]) =>
     values.some((value) => userText.includes(normalizeAccessValue(value)));
 
+  if (responsibleText.includes("חשמל")) {
+    return (
+      includesAny(["חשמל", "חשמלאי", "electrical", "electricity"]) &&
+      includesAny(["בקר איכות", "בקרת איכות", "quality", "qc"])
+    );
+  }
   if (responsibleText.includes("בקר") || responsibleText.includes("איכות"))
     return includesAny(["בקר איכות", "בקרת איכות", "מנהל בקרת איכות", "quality", "qc"]);
   if (responsibleText.includes("מנהל עבודה"))
@@ -5006,6 +5012,7 @@ function ChecklistAttachmentsPanel({
 const RESPONSIBLE_ROLE_OPTIONS = [
   "",
   "בקרת איכות",
+  "בקר איכות חשמל",
   "מנהל עבודה",
   "מודד",
   "הבטחת איכות",
