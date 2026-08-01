@@ -3151,6 +3151,57 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
   const exactRegularCert = certificateNumberFromAttachment({
     certificateNo: exactFirstFromSources(certificateFieldSources, ["מס' תעודת בדיקההידוק רגיל", "מס׳ תעודת בדיקההידוק רגיל", "מספר תעודת בדיקה הידוק רגיל"]),
   });
+  const attachmentEvidenceSources = [
+    attachment?.results,
+    attachment?.labResults,
+    attachment?.densityResults,
+    attachment,
+  ].filter(Boolean);
+  const explicitRollerPasses = firstText(
+    exactFirstFromSources(attachmentEvidenceSources, ["מעברי מכבש", "כמות מעברי מכבש", "rollerPasses", "passes"]),
+    exactFirstFromSources(fieldSources, ["מעברי מכבש", "כמות מעברי מכבש", "rollerPasses", "passes"]),
+  );
+  const rawDensityPointCount = exactFirstFromSources(attachmentEvidenceSources, [
+    "כמות נקודות בדיקה",
+    "מספר נקודות בדיקה",
+    "נקודות בדיקה",
+    "מספר בדיקות באתר",
+    "testPoints",
+    "testPointCount",
+    "points",
+  ]);
+  const parsedDensityRows = [
+    resultsSource?.sampleRows,
+    resultsSource?.rows,
+    attachment?.labResults?.sampleRows,
+    attachment?.labResults?.rows,
+    attachment?.densityResults?.sampleRows,
+    attachment?.densityResults?.rows,
+    attachment?.results?.sampleRows,
+    attachment?.results?.rows,
+  ].find((value) => Array.isArray(value) && value.length) as any[] | undefined;
+  const positiveDensityPointCount = Number(numericLike(rawDensityPointCount)) > 0;
+  const hasMeasuredDensityValues = Boolean(exactFirstFromSources(attachmentEvidenceSources, [
+    "צפיפות מחושבת",
+    "דרגת הידוק",
+    "רטיבות ממוצעת",
+    "צפיפות סטטיסטיקה ממוצע",
+    "צפיפות סטטיסטיקה גבול תחתון",
+    "צפיפות סטטיסטיקה גבול עליון",
+    "statisticalAverage",
+    "statisticalLower",
+    "statisticalUpper",
+    "compactionAverage",
+  ]));
+  const hasActualDensityMeasurements = Boolean(
+    parsedDensityRows?.length || positiveDensityPointCount || hasMeasuredDensityValues
+  );
+  // OCR sometimes labels a roller-pass report as a density certificate. Eight
+  // roller passes with no measured density points/results is a regular
+  // compaction certificate, regardless of those generated OCR aliases.
+  const isRollerPassCertificate = Boolean(
+    Number(numericLike(explicitRollerPasses)) >= 8 && !hasActualDensityMeasurements
+  );
   // A 100% characterization/reference number is accepted only from an
   // explicitly named reference/proctor field on this certificate. Generic
   // report or certificate numbers must never leak into this column.
@@ -3166,8 +3217,16 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
       "proctorCertificate",
     ]),
   });
-  const densityCertificate = (isDensityMoisture || hasDensityPayload) && kind !== "characterization" ? firstText(exactDensityCert, certificate) : "";
-  const regularCertificate = isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd ? firstText(exactRegularCert, certificate) : "";
+  const densityCertificate =
+    !isRollerPassCertificate &&
+    (isDensityMoisture || hasDensityPayload) &&
+    kind !== "characterization"
+      ? firstText(exactDensityCert, certificate)
+      : "";
+  const regularCertificate =
+    isRollerPassCertificate || (isRegularCompaction && !isDensityMoisture && !isSurvey && !isHwd)
+      ? firstText(exactRegularCert, certificate)
+      : "";
   const candidateReferenceCertificate = firstText(
     exactReferenceCert,
     kind === "characterization" ? certificate : "",
@@ -3218,6 +3277,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     earthworksDirectValue(certificateFieldSources, ["עובי השכבה", "עובי שכבה", "layerThickness", "layerThicknessCm", "thickness", "thicknessCm"]),
   ));
   const rollerPasses = firstText(
+    explicitRollerPasses,
     earthworksDirectValue(fieldSources, ["מעברי מכבש", "כמות מעברי מכבש", "rollerPasses", "passes"]),
     numericLike(earthworksDirectValue(fieldSources, ["מעברים"])),
   );
