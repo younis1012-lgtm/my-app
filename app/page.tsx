@@ -3669,6 +3669,14 @@ type DensityReviewState = {
 
 type DensityReviewResolver = (results: Record<string, any> | null) => void;
 
+type AsphaltReviewState = {
+  fileName: string;
+  mixType: string;
+  batches: AsphaltBatchResult[];
+};
+
+type AsphaltReviewResolver = (value: AsphaltReviewState | null) => void;
+
 type ChecklistAttachment = StoredAttachment & {
   id: string;
   kind: ChecklistAttachmentKind;
@@ -14653,6 +14661,8 @@ export default function Page() {
   const [checklistForm, setChecklistForm] = useState(createDefaultChecklist());
   const [densityReview, setDensityReview] = useState<DensityReviewState | null>(null);
   const densityReviewResolverRef = useRef<DensityReviewResolver | null>(null);
+  const [asphaltReview, setAsphaltReview] = useState<AsphaltReviewState | null>(null);
+  const asphaltReviewResolverRef = useRef<AsphaltReviewResolver | null>(null);
   const [nonconformanceForm, setNonconformanceForm] = useState(
     createDefaultNonconformance(),
   );
@@ -18191,6 +18201,78 @@ export default function Page() {
     resolveDensityReview(normalizeApprovedDensityResults(densityReview.results));
   };
 
+  const requestAsphaltReview = (
+    fileName: string,
+    mixType: string,
+    batches: AsphaltBatchResult[],
+    fallbackRows: ReferenceResultRow[],
+  ) =>
+    new Promise<AsphaltReviewState | null>((resolve) => {
+      asphaltReviewResolverRef.current = resolve;
+      const templateRows = fallbackRows.length
+        ? fallbackRows
+        : buildAsphaltRowsForMix(mixType || getDefaultAsphaltMixTemplate().label, [], false);
+      const reviewBatches = batches.length
+        ? batches.map((batch) => ({
+            ...batch,
+            asphaltMixType: batch.asphaltMixType || mixType,
+            referenceResults: (batch.referenceResults.length
+              ? batch.referenceResults
+              : templateRows
+            ).map((row) => applyReferenceQualityStatus(row)),
+          }))
+        : [{
+            batchNo: "1",
+            asphaltMixType: mixType,
+            testDate: "",
+            referenceResults: templateRows.map((row) => applyReferenceQualityStatus(row)),
+          }];
+      setAsphaltReview({ fileName, mixType, batches: reviewBatches });
+    });
+
+  const resolveAsphaltReview = (value: AsphaltReviewState | null) => {
+    asphaltReviewResolverRef.current?.(value);
+    asphaltReviewResolverRef.current = null;
+    setAsphaltReview(null);
+  };
+
+  const updateAsphaltReviewBatch = (
+    batchIndex: number,
+    patch: Partial<AsphaltBatchResult>,
+  ) => {
+    setAsphaltReview((prev) => prev ? {
+      ...prev,
+      batches: prev.batches.map((batch, index) =>
+        index === batchIndex ? { ...batch, ...patch } : batch
+      ),
+    } : prev);
+  };
+
+  const updateAsphaltReviewResult = (
+    batchIndex: number,
+    rowIndex: number,
+    patch: Partial<ReferenceResultRow>,
+  ) => {
+    setAsphaltReview((prev) => prev ? {
+      ...prev,
+      batches: prev.batches.map((batch, index) => index === batchIndex ? {
+        ...batch,
+        referenceResults: batch.referenceResults.map((row, resultIndex) =>
+          resultIndex === rowIndex
+            ? (patch.qualityStatus !== undefined
+                ? { ...row, ...patch }
+                : applyReferenceQualityStatus({ ...row, ...patch }))
+            : row
+        ),
+      } : batch),
+    } : prev);
+  };
+
+  const approveAsphaltReview = () => {
+    if (!asphaltReview) return;
+    resolveAsphaltReview(asphaltReview);
+  };
+
   const uploadChecklistItemAttachment = (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -18332,6 +18414,27 @@ export default function Page() {
             autoAsphaltBatches = [];
           }
         }
+      }
+
+      if (shouldExtractAsphalt) {
+        const reviewedAsphalt = await requestAsphaltReview(
+          file.name,
+          asphaltMixType || getDefaultAsphaltMixTemplate().label,
+          autoAsphaltBatches,
+          autoAsphaltRows,
+        );
+        if (!reviewedAsphalt) return;
+        asphaltMixType = reviewedAsphalt.mixType;
+        autoAsphaltBatches = reviewedAsphalt.batches.map((batch) => ({
+          ...batch,
+          asphaltMixType: batch.asphaltMixType || reviewedAsphalt.mixType,
+          referenceResults: batch.referenceResults.map(applyReferenceQualityStatus),
+        }));
+        autoAsphaltRows = autoAsphaltBatches[0]?.referenceResults ?? [];
+        autoAsphaltResults = referenceResultsToChecklistMap(autoAsphaltRows);
+        asphaltSummary = autoAsphaltBatches
+          .map((batch) => `מנה ${batch.batchNo || "-"}`)
+          .join(" | ");
       }
 
       const concreteLabResults = autoConcreteResults
@@ -23086,6 +23189,167 @@ ${invalidRecipients.join("\n")}`);
 
   return (
     <div style={styles.page} dir="rtl">
+      {asphaltReview && (() => {
+        const reviewInputStyle: CSSProperties = {
+          width: "100%",
+          minWidth: 110,
+          minHeight: 38,
+          border: "1px solid #d7dee8",
+          borderRadius: 6,
+          padding: "8px 10px",
+          fontWeight: 700,
+          background: "#fff",
+        };
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="בדיקת תוצאות תעודת אספלט"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 12100,
+              background: "rgba(15, 23, 42, 0.58)",
+              display: "grid",
+              placeItems: "center",
+              padding: 18,
+            }}
+          >
+            <div style={{
+              width: "min(1380px, 98vw)",
+              maxHeight: "94vh",
+              overflow: "auto",
+              background: "#fff",
+              borderRadius: 10,
+              boxShadow: "0 24px 70px rgba(15, 23, 42, 0.34)",
+              border: "1px solid #e2e8f0",
+            }}>
+              <div style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 2,
+                padding: "18px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "#fff",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 14,
+                flexWrap: "wrap",
+              }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 950 }}>
+                    בדיקת תוצאות תעודת תערובת אספלט לפני אישור
+                  </div>
+                  <div style={{ color: "#475569", marginTop: 4, fontWeight: 700 }}>
+                    {asphaltReview.fileName} · נמצאו {asphaltReview.batches.length} מנות/דגימות
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => resolveAsphaltReview(null)} style={styles.secondaryBtn}>
+                    ביטול
+                  </button>
+                  <button type="button" onClick={approveAsphaltReview} style={styles.primaryBtn}>
+                    אישור וקליטה לרשימת התיוג
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ padding: 20, display: "grid", gap: 18 }}>
+                <label style={{ display: "grid", gap: 6, maxWidth: 420 }}>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: "#334155" }}>סוג תערובת</span>
+                  <input
+                    value={asphaltReview.mixType}
+                    onChange={(event) => setAsphaltReview((prev) => prev ? {
+                      ...prev,
+                      mixType: event.target.value,
+                      batches: prev.batches.map((batch) => ({
+                        ...batch,
+                        asphaltMixType: event.target.value,
+                      })),
+                    } : prev)}
+                    style={reviewInputStyle}
+                  />
+                </label>
+
+                {asphaltReview.batches.map((batch, batchIndex) => (
+                  <section key={`${batch.batchNo}-${batchIndex}`} style={{
+                    border: "1px solid #dbe3ee",
+                    borderRadius: 10,
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      padding: 14,
+                      background: "#f8fafc",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                      gap: 10,
+                    }}>
+                      {([
+                        ["מספר מנה", "batchNo"],
+                        ["מספר דגימה", "sampleNo"],
+                        ["תאריך בדיקה", "testDate"],
+                        ["סוג תערובת", "asphaltMixType"],
+                      ] as const).map(([label, field]) => (
+                        <label key={field} style={{ display: "grid", gap: 5 }}>
+                          <span style={{ fontSize: 12, fontWeight: 900, color: "#475569" }}>{label}</span>
+                          <input
+                            value={String(batch[field] ?? "")}
+                            onChange={(event) => updateAsphaltReviewBatch(batchIndex, { [field]: event.target.value })}
+                            style={reviewInputStyle}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                        <thead>
+                          <tr style={{ background: "#eef3f8" }}>
+                            {[
+                              "מדד תוצאה",
+                              "ערך תוצאה",
+                              "ערך מינימלי",
+                              "ערך מקסימלי",
+                              "סטטוס איכות",
+                            ].map((heading) => (
+                              <th key={heading} style={{ padding: 10, border: "1px solid #dbe3ee", fontSize: 13 }}>
+                                {heading}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batch.referenceResults.map((row, rowIndex) => (
+                            <tr key={row.id || `${row.metric}-${rowIndex}`}>
+                              <td style={{ padding: 7, border: "1px solid #e2e8f0", fontWeight: 800 }}>{row.metric}</td>
+                              <td style={{ padding: 7, border: "1px solid #e2e8f0" }}>
+                                <input value={row.resultValue} onChange={(event) => updateAsphaltReviewResult(batchIndex, rowIndex, { resultValue: event.target.value })} style={reviewInputStyle} />
+                              </td>
+                              <td style={{ padding: 7, border: "1px solid #e2e8f0" }}>
+                                <input value={row.minValue} onChange={(event) => updateAsphaltReviewResult(batchIndex, rowIndex, { minValue: event.target.value })} style={reviewInputStyle} />
+                              </td>
+                              <td style={{ padding: 7, border: "1px solid #e2e8f0" }}>
+                                <input value={row.maxValue} onChange={(event) => updateAsphaltReviewResult(batchIndex, rowIndex, { maxValue: event.target.value })} style={reviewInputStyle} />
+                              </td>
+                              <td style={{ padding: 7, border: "1px solid #e2e8f0" }}>
+                                <select value={row.qualityStatus} onChange={(event) => updateAsphaltReviewResult(batchIndex, rowIndex, { qualityStatus: event.target.value })} style={reviewInputStyle}>
+                                  <option value="">—</option>
+                                  <option value="OK">OK</option>
+                                  <option value="NC">NC</option>
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {densityReview && (() => {
         const summaryFields = [
           "מספר תעודת בדיקה",
