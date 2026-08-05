@@ -5185,6 +5185,7 @@ type InlineChecklistSectionProps = {
   projectPlans: PlanRecord[];
   projectStructureNodes: ProjectStructureNode[];
   resolveResponsibleNameForProject: (responsible: unknown) => string;
+  responsibleUsers: ProjectEmailUser[];
   onUploadAttachment: (
     itemId: string,
     kind: ChecklistAttachmentKind,
@@ -5500,6 +5501,7 @@ function ChecklistsSection({
   projectPlans,
   projectStructureNodes,
   resolveResponsibleNameForProject,
+  responsibleUsers,
   onUploadAttachment,
   onRemoveAttachment,
   savedSignatureForSigner,
@@ -6622,6 +6624,9 @@ function ChecklistsSection({
                     resolveResponsibleNameForProject(item.responsible) ||
                     item.inspector ||
                     "";
+                  const matchingResponsibleUsers = responsibleUsers.filter((user) =>
+                    responsibleRoleMatchesUser(item.responsible, user),
+                  );
                   const signatureValue = normalizeProcessSignature(
                     (item as any).signature,
                     item.responsible || "גורם אחראי",
@@ -6706,15 +6711,32 @@ function ChecklistsSection({
                         </select>
                       </td>
                       <td style={cellStyle}>
-                        <input
-                          value={autoName}
-                          readOnly
-                          title={autoName}
-                          style={{
-                            ...compactInputStyle,
-                            background: "#f1f5f9",
-                          }}
-                        />
+                        {matchingResponsibleUsers.length ? (
+                          <select
+                            value={item.inspector || autoName}
+                            onChange={(event) =>
+                              updateChecklistItem(item.id, "inspector", event.target.value)
+                            }
+                            title={item.inspector || autoName}
+                            style={compactInputStyle}
+                          >
+                            <option value="">בחר שם</option>
+                            {matchingResponsibleUsers.map((user) => {
+                              const name = String(user.name || user.email || "").trim();
+                              return name ? <option key={user.id} value={name}>{name}</option> : null;
+                            })}
+                          </select>
+                        ) : (
+                          <input
+                            value={autoName}
+                            readOnly
+                            title={autoName}
+                            style={{
+                              ...compactInputStyle,
+                              background: "#f1f5f9",
+                            }}
+                          />
+                        )}
                       </td>
                       <td style={cellStyle}>
                         {isImageSignature ? (
@@ -16383,7 +16405,22 @@ export default function Page() {
 
   const qualityControlApproverName = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
+    const accessIdentities = [
+      projectAccess?.email,
+      projectAccess?.username,
+      projectAccess?.displayName,
+    ]
+      .map((value) => normalizeAccessValue(value))
+      .filter(Boolean);
+    const loggedInQualityUser = activeUsers.find((user) => {
+      if (!isQualityControlProjectUser(user)) return false;
+      const userIdentities = [user.email, user.name]
+        .map((value) => normalizeAccessValue(value))
+        .filter(Boolean);
+      return userIdentities.some((identity) => accessIdentities.includes(identity));
+    });
     const qualityUser =
+      loggedInQualityUser ??
       activeUsers.find(isQualityControlProjectUser) ??
       activeUsers.find((user) => String(user.name ?? "").trim());
     return (
@@ -16391,14 +16428,27 @@ export default function Page() {
       String(qualityUser?.email ?? "").trim() ||
       currentProjectDefaults.qualityControl
     );
-  }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl]);
+  }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl, projectAccess]);
 
   const resolveResponsibleNameForCurrentProject = useMemo(
     () => (responsible: unknown) => {
       const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
-      const matchedUser = activeUsers.find((user) =>
+      const matchingUsers = activeUsers.filter((user) =>
         responsibleRoleMatchesUser(responsible, user),
       );
+      const accessIdentities = [
+        projectAccess?.email,
+        projectAccess?.username,
+        projectAccess?.displayName,
+      ]
+        .map((value) => normalizeAccessValue(value))
+        .filter(Boolean);
+      const matchedUser = matchingUsers.find((user) =>
+        [user.email, user.name]
+          .map((value) => normalizeAccessValue(value))
+          .filter(Boolean)
+          .some((identity) => accessIdentities.includes(identity)),
+      ) ?? matchingUsers[0];
       const userName =
         String(matchedUser?.name ?? "").trim() ||
         String(matchedUser?.email ?? "").trim();
@@ -16423,6 +16473,7 @@ export default function Page() {
       currentProjectDefaults.qualityAssurance,
       currentProjectDefaults.projectManagement,
       currentProject?.name,
+      projectAccess,
     ],
   );
 
@@ -24459,6 +24510,7 @@ ${invalidRecipients.join("\n")}`);
                 projectPlans={currentProjectPlans}
                 projectStructureNodes={currentProjectStructureNodes}
                 resolveResponsibleNameForProject={resolveResponsibleNameForCurrentProject}
+                responsibleUsers={currentProjectEmailUsers.filter((user) => user.active !== false)}
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
                 savedSignatureForSigner={savedSignatureForSigner}
