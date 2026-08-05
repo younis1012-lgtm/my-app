@@ -2886,10 +2886,15 @@ const responsibleRoleMatchesUser = (
     values.some((value) => userText.includes(normalizeAccessValue(value)));
 
   if (responsibleText.includes("חשמל")) {
-    return (
-      includesAny(["חשמל", "חשמלאי", "electrical", "electricity"]) &&
-      includesAny(["בקר איכות", "בקרת איכות", "quality", "qc"])
-    );
+    return includesAny([
+      "בקר חשמל",
+      "בקר איכות חשמל",
+      "בקרת איכות חשמל",
+      "בקרת חשמל",
+      "electrical inspector",
+      "electrical quality",
+      "electrical qc",
+    ]);
   }
   if (responsibleText.includes("בקר") || responsibleText.includes("איכות"))
     return includesAny(["בקר איכות", "בקרת איכות", "מנהל בקרת איכות", "quality", "qc"]);
@@ -2919,6 +2924,10 @@ const isQualityControlProjectUser = (
     "quality control",
     "quality controller",
     "qc",
+    "בקר חשמל",
+    "בקר איכות חשמל",
+    "בקרת איכות חשמל",
+    "electrical inspector",
   ].some((value) => userText.includes(normalizeAccessValue(value)));
 };
 
@@ -6627,6 +6636,14 @@ function ChecklistsSection({
                   const matchingResponsibleUsers = responsibleUsers.filter((user) =>
                     responsibleRoleMatchesUser(item.responsible, user),
                   );
+                  const matchingResponsibleNames = matchingResponsibleUsers
+                    .map((user) => String(user.name || user.email || "").trim())
+                    .filter(Boolean);
+                  const selectedResponsibleName = matchingResponsibleNames.includes(
+                    String(item.inspector || "").trim(),
+                  )
+                    ? String(item.inspector || "").trim()
+                    : autoName;
                   const signatureValue = normalizeProcessSignature(
                     (item as any).signature,
                     item.responsible || "גורם אחראי",
@@ -6713,11 +6730,11 @@ function ChecklistsSection({
                       <td style={cellStyle}>
                         {matchingResponsibleUsers.length ? (
                           <select
-                            value={item.inspector || autoName}
+                            value={selectedResponsibleName}
                             onChange={(event) =>
                               updateChecklistItem(item.id, "inspector", event.target.value)
                             }
-                            title={item.inspector || autoName}
+                            title={selectedResponsibleName}
                             style={compactInputStyle}
                           >
                             <option value="">בחר שם</option>
