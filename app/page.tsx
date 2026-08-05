@@ -4015,6 +4015,7 @@ const createDefaultChecklist = (
   projectNameDisplay: "",
   roadStructure: "",
   areaSquareMeters: "",
+  castingVolumeCubicMeters: "",
   stationSection: "",
   toStationSection: "",
   offset: "",
@@ -6032,6 +6033,20 @@ function ChecklistsSection({
               </label>
             </>
           ) : null}
+          {isConcreteChecklist ? (
+            <label>
+              <span style={labelStyle}>נפח היציקה מ״ק</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={(checklistForm as any).castingVolumeCubicMeters ?? ""}
+                onChange={(event) => setField("castingVolumeCubicMeters", event.target.value)}
+                style={inputStyle}
+                placeholder="לדוגמה: 25"
+              />
+            </label>
+          ) : null}
           <label>
             <span style={labelStyle}>קבלן</span>
             <input
@@ -6111,6 +6126,20 @@ function ChecklistsSection({
                   />
                 </label>
               </>
+            ) : null}
+            {isConcreteChecklist ? (
+              <label>
+                <span style={labelStyle}>נפח היציקה מ״ק</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={(checklistForm as any).castingVolumeCubicMeters ?? ""}
+                  onChange={(event) => setField("castingVolumeCubicMeters", event.target.value)}
+                  style={inputStyle}
+                  placeholder="לדוגמה: 25"
+                />
+              </label>
             ) : null}
             <label>
               <span style={labelStyle}>
@@ -15614,6 +15643,7 @@ export default function Page() {
       roadStructure: details.roadStructure ?? details.road_structure ?? "",
       layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
       areaSquareMeters: details.areaSquareMeters ?? details.area_square_meters ?? details.area ?? "",
+      castingVolumeCubicMeters: details.castingVolumeCubicMeters ?? details.casting_volume_cubic_meters ?? details.castingVolume ?? "",
       stationSection: details.stationSection ?? details.station_section ?? "",
       toStationSection: details.toStationSection ?? details.to_station_section ?? "",
       offset: details.offset ?? "",
@@ -19138,6 +19168,7 @@ export default function Page() {
       roadStructure: String((checklistForm as any).roadStructure ?? ""),
       layerThickness: String((checklistForm as any).layerThickness ?? ""),
       areaSquareMeters: String((checklistForm as any).areaSquareMeters ?? ""),
+      castingVolumeCubicMeters: String((checklistForm as any).castingVolumeCubicMeters ?? ""),
       stationSection: String((checklistForm as any).stationSection ?? ""),
       toStationSection: String((checklistForm as any).toStationSection ?? ""),
       offset: String((checklistForm as any).offset ?? ""),
