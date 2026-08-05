@@ -3965,6 +3965,7 @@ const emptyChecklistItem = (id: string): ChecklistItem => ({
   responsible: "",
   status: "לא נבדק",
   notes: "",
+  remarks: "",
   inspector: "",
   executionDate: "",
   results: {},
@@ -3983,6 +3984,7 @@ const normalizeChecklistItems = (
             responsible: item?.responsible ?? "",
             status: item?.status ?? "לא נבדק",
             notes: item?.notes ?? "",
+            remarks: item?.remarks ?? item?.comment ?? "",
             inspector: item?.inspector ?? "",
             executionDate: item?.executionDate ?? "",
             results: item?.results ?? {},
@@ -6497,7 +6499,7 @@ function ChecklistsSection({
             </h3>
             <div style={{ color: "#64748b", marginTop: 4 }}>
               כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם,
-              חתימה, תאריך ותעודת מעבדה / הערות. ניתן לשמור, לעדכן, לצרף
+              חתימה, תאריך, תעודת מעבדה והערות. ניתן לשמור, לעדכן, לצרף
               מסמך מול מודד ולצרף מסמכי בדיקה/מעבדה לפי תיאור התהליך.
             </div>
           </div>
@@ -6587,7 +6589,18 @@ function ChecklistsSection({
                     fontWeight: 950,
                   }}
                 >
-                  תעודת מעבדה / הערות
+                  תעודת מעבדה / מסמך
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #94a3b8",
+                    padding: 8,
+                    width: "14%",
+                    background: "#f8fafc",
+                    fontWeight: 950,
+                  }}
+                >
+                  הערות
                 </th>
                 <th
                   style={{
@@ -6935,7 +6948,7 @@ function ChecklistsSection({
                               event.target.value,
                             )
                           }
-                          placeholder="תעודת מעבדה / הערות"
+                          placeholder="מספר תעודה / מסמך"
                           style={compactInputStyle}
                         />
                         {attachmentKinds.length ? (
@@ -7018,6 +7031,24 @@ function ChecklistsSection({
                             פתח תוצאות חוזק בטון
                           </button>
                         ) : null}
+                      </td>
+                      <td style={cellStyle}>
+                        <textarea
+                          value={(item as any).remarks ?? ""}
+                          onChange={(event) =>
+                            updateChecklistItem(
+                              item.id,
+                              "remarks" as keyof ChecklistItem,
+                              event.target.value,
+                            )
+                          }
+                          placeholder="הקלד הערה"
+                          style={{
+                            ...compactInputStyle,
+                            minHeight: 70,
+                            resize: "vertical",
+                          }}
+                        />
                       </td>
                       <td style={{ ...cellStyle, textAlign: "center" }}>
                         <div
@@ -20831,7 +20862,7 @@ export default function Page() {
       return sig.signedAt || item.executionDate || "";
     };
 
-    const itemLabOrNotes = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
+    const itemLabDocument = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
       const attachments = normalizeChecklistAttachments((item as any).attachments);
       const attachmentNames = attachments.map((attachment) => attachment.name).filter(Boolean).join(" / ");
       return attachmentNames || item.notes || "";
@@ -20844,9 +20875,10 @@ export default function Page() {
           <td>${valueOrBlank(itemSignerName(item), 28)}</td>
           <td>${itemSignature(item)}</td>
           <td>${valueOrBlank(itemDate(item), 22)}</td>
-          <td>${valueOrBlank(itemLabOrNotes(item), 38)}</td>
+          <td>${valueOrBlank(itemLabDocument(item), 32)}</td>
+          <td>${valueOrBlank((item as any).remarks, 38)}</td>
         </tr>`).join("")
-      : `<tr><td colspan="6">לא מולאו סעיפי בקרה</td></tr>`;
+      : `<tr><td colspan="7">לא מולאו סעיפי בקרה</td></tr>`;
 
     return `<div class="checklist-export-title">${safeText(title)}</div>
     <table class="doc-header">
@@ -20867,8 +20899,8 @@ export default function Page() {
     </table>
     <table class="check-table">
       <thead>
-        <tr><th colspan="6" class="wide-label">תאור פעילות הבקרה &nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
-        <tr><th style="width:34%">תיאור פעולת הבקרה</th><th style="width:14%">באחריות</th><th style="width:14%">שם</th><th style="width:12%">חתימה</th><th style="width:11%">תאריך</th><th style="width:15%">תעודת מעבדה / הערות</th></tr>
+        <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה &nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
+        <tr><th style="width:28%">תיאור פעולת הבקרה</th><th style="width:12%">באחריות</th><th style="width:12%">שם</th><th style="width:10%">חתימה</th><th style="width:9%">תאריך</th><th style="width:14%">תעודת מעבדה / מסמך</th><th style="width:15%">הערות</th></tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
     </table>
@@ -21447,7 +21479,8 @@ export default function Page() {
             ["שם", (item) => item.inspector],
             ["חתימה", (item) => item.signature?.name || item.signature?.signedBy || ""],
             ["תאריך", (item) => item.executionDate],
-            ["הערות", (item) => item.notes],
+            ["תעודת מעבדה / מסמך", (item) => item.notes],
+            ["הערות", (item) => (item as any).remarks],
           ],
         );
         await addRecordPdfToZip(

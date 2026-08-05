@@ -30,6 +30,7 @@ export type ChecklistItem = {
   responsible: string;
   status: string;
   notes: string;
+  remarks?: string;
   inspector: string;
   executionDate: string;
   attachments?: ChecklistAttachment[];
