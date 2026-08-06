@@ -12,6 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "android/**",
+    "ios/**",
+    "project_tree_to_templates_final_package/**",
+    "replace_project_tree_with_templates_js_package/**",
+    "app/clean_concentrations_templates/**",
+    "**/*.backup*.tsx",
+    "app/page_with_visible_template_button.tsx",
+    "app/next.config.ts",
+    "page.tsx",
+    "public/page.tsx",
   ]),
 ]);
 

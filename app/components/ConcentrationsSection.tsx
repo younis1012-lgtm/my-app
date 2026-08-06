@@ -59,6 +59,16 @@ type ConcentrationDefinition = {
 
 type Row = Record<string, string | number | boolean | null | undefined>;
 
+type ReferenceResultRow = {
+  id: string;
+  metric: string;
+  resultValue: string;
+  qualityStatus: string;
+  minValue: string;
+  maxValue: string;
+  allowedDeviation?: string;
+};
+
 const ASPHALT_MIX_OPTIONS = ["תא״צ 19", "תא״צ 25", "תא״צ 12.5", "תא״צ 9.5", "SMA"] as const;
 
 type BuildContext = {
@@ -1157,6 +1167,7 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
     if (!isConcreteChecklist) return;
 
     const items = Array.isArray(checklist?.items) ? checklist.items : [];
+    const checklistRowStart = rows.length;
     items.forEach((item: any) => {
       const attachments = (Array.isArray(item?.attachments) ? item.attachments : [])
         .filter(isRealAttachment);
@@ -1231,6 +1242,61 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
         });
       });
     });
+
+    // A concrete checklist represents a pour even before its lab certificate
+    // arrives. Keep one base row visible and enrich it later when results are
+    // attached, instead of hiding the checklist completely.
+    if (rows.length === checklistRowStart) {
+      const representativeItem =
+        items.find((item: any) => cleanText(item?.executionDate)) ??
+        items.find((item: any) => cleanText(item?.notes)) ??
+        items[0] ??
+        {};
+      rows.push({
+        'ביצוע ע"י QC/QA': /QA|הבטחת איכות/i.test(
+          firstText(representativeItem?.responsible, checklist?.qualityRole),
+        )
+          ? "QA"
+          : "QC",
+        "מס׳ סדורי": rows.length + 1,
+        "תאריך יציקה": dateText(
+          representativeItem?.executionDate ?? checklist?.date,
+        ),
+        "מבנה": firstText(
+          checklist?.roadStructure,
+          checklist?.structure,
+          checklist?.location,
+        ),
+        "אלמנט": firstText(
+          checklist?.element,
+          representativeItem?.element,
+          representativeItem?.description,
+        ),
+        "מקום נטילה": firstText(
+          representativeItem?.sampleLocation,
+          checklist?.sampleLocation,
+          "אתר",
+        ),
+        "מחתך": firstText(checklist?.stationSection, checklist?.fromSection),
+        "עד חתך": firstText(checklist?.toStationSection, checklist?.toSection),
+        "צד": firstText(checklist?.side, checklist?.offset),
+        "תעודה מס׳": "",
+        "מקור בטון": firstText(checklist?.concreteSource),
+        "סוג בטון": normalizeConcreteTypeForConcentration(checklist?.concreteType),
+        'כמות בטון ביציקה (מ"ק)': firstText(checklist?.concreteQuantity),
+        "סומך - דרישה": firstText(checklist?.slumpRequirement),
+        "סומך - תוצאה": firstText(checklist?.slumpResult),
+        "סוג אשפרה": firstText(checklist?.curingType),
+        "חוזק לחיצה - 7 ימים": "",
+        "חוזק לחיצה - 28 ימים": "",
+        "מעמד הבטון": "",
+        "גלילים - תאריך נטילה": "",
+        "גלילים - מס׳ תעודה": "",
+        "גלילים - חוזק הבטון": "",
+        "גלילים - מעמד הבטון": "",
+        "הערות": firstText(representativeItem?.notes, checklist?.notes),
+      });
+    }
   });
   return rows;
 };
@@ -4946,7 +5012,9 @@ const nonconformanceStatusSummary = (rows: Row[]) => {
   const reportMonth = now.getMonth();
   const reportYear = now.getFullYear();
   const ownerRows = (owner: "QA" | "QC") => rows.filter((row) => nonconformanceOwner(row) === owner);
-  const isClosedRow = (row: Row) => includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]) || cleanText(row["תאריך  סגירה"]);
+  const isClosedRow = (row: Row): boolean =>
+    includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]) ||
+    Boolean(cleanText(row["תאריך  סגירה"]));
   const isOpenedThisMonth = (row: Row) => {
     const date = parseConcentrationDate(row["תאריך פתיחת"] ?? row["תאריך פתיחה"]);
     return Boolean(date && date.getMonth() === reportMonth && date.getFullYear() === reportYear);

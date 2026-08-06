@@ -2303,6 +2303,7 @@ type ProjectAccess = {
   authUserId?: string;
   email?: string;
   authProvider?: "legacy" | "supabase";
+  occupationalWriteAccess?: boolean;
   signatureDataUrl?: string;
   signatureFileName?: string;
 };
@@ -2736,7 +2737,9 @@ const buildScopedProjectIdsForAccess = (
 };
 
 const canWriteAccess = (access: ProjectAccess | null) =>
-  access?.role === "admin" || access?.role === "readwrite";
+  access?.role === "admin" ||
+  access?.role === "readwrite" ||
+  access?.occupationalWriteAccess === true;
 
 const isSelfServiceProjectCreator = (access: ProjectAccess | null) =>
   Boolean(
@@ -4760,7 +4763,17 @@ async function selectProjectTable(
   orderColumn: string | undefined,
   projectIds: string[],
 ) {
-  const scopedProjectIds = Array.from(new Set(projectIds.map(normalizeStoredProjectId).filter(Boolean)));
+  // Keep legacy cloud ids intact here. projectCloudIdsForCanonicalId deliberately
+  // returns both the canonical id and historical aliases; normalizing this list
+  // again collapses the aliases and makes existing records disappear after a
+  // refresh (notably Road 65 records stored under its former 806-shaped id).
+  const scopedProjectIds = Array.from(
+    new Set(
+      projectIds
+        .map((projectId) => String(projectId ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
   if (!scopedProjectIds.length) return selectTable(table, orderColumn);
 
   const empty = { data: [], error: null } as any;
@@ -8431,6 +8444,18 @@ function getRecordTitle(record: any) {
 
 function getRecordDate(record: any) {
   return record?.date || record?.executionDate || record?.savedAt || record?.createdAt || "";
+}
+
+function getChecklistExecutionDate(record: any) {
+  const itemExecutionDates = normalizeChecklistItems(record?.items)
+    .map((item: any) => normalizeDateValue(item?.executionDate || item?.date))
+    .filter(Boolean)
+    .sort();
+  const executionDate =
+    normalizeDateValue(record?.date || record?.executionDate) ||
+    itemExecutionDates[0] ||
+    "";
+  return formatTrackingDate(executionDate);
 }
 
 function getRecordStatus(record: any) {
@@ -16303,6 +16328,28 @@ export default function Page() {
       ),
     [projectEmailUsers, currentProject],
   );
+
+  useEffect(() => {
+    if (!projectAccess) return;
+    const loginIdentities = [
+      projectAccess.email,
+      projectAccess.username,
+      ...(projectAccess.aliases ?? []),
+    ]
+      .filter(isEmailAddress)
+      .map(normalizeAccessValue);
+    const occupationalWriteAccess = currentProjectEmailUsers.some(
+      (user) =>
+        user.active !== false &&
+        loginIdentities.includes(normalizeAccessValue(user.email)) &&
+        isQualityControlProjectUser(user),
+    );
+    setProjectAccess((current) => {
+      if (!current || current.occupationalWriteAccess === occupationalWriteAccess)
+        return current;
+      return { ...current, occupationalWriteAccess };
+    });
+  }, [currentProjectEmailUsers, projectAccess]);
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
     if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
@@ -24533,7 +24580,7 @@ ${invalidRecipients.join("\n")}`);
                   { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
                   { label: "מס׳ שכבה", value: (record) => getChecklistDisplayLayer(record) },
                   { label: "מיקום", value: (record) => getChecklistDisplayLocation(record) },
-                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "תאריך ביצוע", value: (record) => getChecklistExecutionDate(record) },
                   { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
