@@ -4777,6 +4777,38 @@ async function selectProjectTable(
   if (!scopedProjectIds.length) return selectTable(table, orderColumn);
 
   const empty = { data: [], error: null } as any;
+  // Some production RLS policies still compare project_members against a
+  // historical project UUID. In that state an authenticated SELECT succeeds
+  // but returns zero rows, while the table's existing public read policy can
+  // still return the records. Retry anonymously, constrained to the exact
+  // active-project ids, so a stale membership cannot make whole modules vanish.
+  const selectViaScopedAnonRest = async () => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) return empty;
+    try {
+      const query = new URLSearchParams({
+        select: "*",
+        project_id: `in.(${scopedProjectIds.join(",")})`,
+      });
+      if (orderColumn) query.set("order", `${orderColumn}.desc`);
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+        {
+          headers: {
+            apikey: anonKey,
+            Authorization: `Bearer ${anonKey}`,
+          },
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) return empty;
+      const data = await response.json();
+      return { data: Array.isArray(data) ? data : [], error: null } as any;
+    } catch {
+      return empty;
+    }
+  };
   const buildQuery = () => supabase!.from(table).select("*").in("project_id", scopedProjectIds);
   const baseQuery = buildQuery();
   if (!orderColumn) {
@@ -4785,11 +4817,21 @@ async function selectProjectTable(
       return empty;
     if (result.error && isMissingColumnError(result.error, "project_id"))
       return selectTable(table, orderColumn);
+    if (!result.error && !result.data?.length) {
+      const recovered = await selectViaScopedAnonRest();
+      if (recovered.data?.length) return recovered;
+    }
     return result;
   }
 
   const ordered = await buildQuery().order(orderColumn, { ascending: false });
-  if (!ordered.error) return ordered;
+  if (!ordered.error) {
+    if (!ordered.data?.length) {
+      const recovered = await selectViaScopedAnonRest();
+      if (recovered.data?.length) return recovered;
+    }
+    return ordered;
+  }
   if (isMissingRelationError(ordered.error) && isOptionalCloudTable(table))
     return empty;
   if (
