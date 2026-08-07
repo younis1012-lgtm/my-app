@@ -246,10 +246,9 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
-  // Historical Road 806 rows and memberships use this UUID. Keep them under
-  // Road 806; mapping it to Road 65 makes the header show 806 while every
-  // project-scoped module is queried and filtered as 65, so records vanish.
-  "80600000-0000-0000-0000-000000000806": "80600000-0000-0000-0000-000000000000",
+  // This historical UUID is a duplicate project row for Road 65 / Dovrat.
+  // Production also has a separate canonical Road 806 row ending in 000000.
+  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
@@ -15965,12 +15964,10 @@ export default function Page() {
       }
       try {
         const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        // Administrators switch between projects frequently. Load the cloud
-        // dataset once and isolate it client-side, instead of letting a stale
-        // project id produce an empty response that replaces every module.
-        const scopedProjectIds = isAdminAccess(projectAccess)
-          ? []
-          : projectCloudIdsForCanonicalId(currentProjectId);
+        // Always scope cloud reads to the selected project, including admins.
+        // Unscoped authenticated reads are filtered inconsistently by the
+        // production RLS policies and can replace whole modules with [].
+        const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
         const [
           projectsRes,
           checklistsRes,
@@ -16142,9 +16139,7 @@ export default function Page() {
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = isAdminAccess(projectAccess)
-      ? []
-      : projectCloudIdsForCanonicalId(currentProjectId);
+    const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
     const [
       projectsRes,
       checklistsRes,
