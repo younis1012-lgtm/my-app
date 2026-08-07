@@ -246,10 +246,10 @@ const PROJECT_PROFILES: ProjectProfile[] = [
 ];
 
 const PROJECT_ID_ALIASES: Record<string, string> = {
-  // This legacy id belongs to the Road 65 / Dovrat project.  It was created
-  // with an 806-shaped id, which previously made the UI select Road 806 and
-  // hide the Road 65 records after every cloud reload.
-  "80600000-0000-0000-0000-000000000806": "06500000-0000-0000-0000-000000000000",
+  // Historical Road 806 rows and memberships use this UUID. Keep them under
+  // Road 806; mapping it to Road 65 makes the header show 806 while every
+  // project-scoped module is queried and filtered as 65, so records vanish.
+  "80600000-0000-0000-0000-000000000806": "80600000-0000-0000-0000-000000000000",
   "project-806": "80600000-0000-0000-0000-000000000000",
   "project-909": "90900000-0000-0000-0000-000000000000",
 };
@@ -4766,7 +4766,7 @@ async function selectProjectTable(
   // Keep legacy cloud ids intact here. projectCloudIdsForCanonicalId deliberately
   // returns both the canonical id and historical aliases; normalizing this list
   // again collapses the aliases and makes existing records disappear after a
-  // refresh (notably Road 65 records stored under its former 806-shaped id).
+  // refresh.
   const scopedProjectIds = Array.from(
     new Set(
       projectIds
