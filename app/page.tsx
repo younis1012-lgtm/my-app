@@ -2642,6 +2642,7 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     return null;
   }
 
+  const email = String(user.email ?? "").trim();
   const rows = Array.isArray(data) ? data : [];
   const memberships = rows
     .map((row: any) => ({
@@ -2651,15 +2652,47 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     }))
     .filter((row) => row.projectId);
 
-  if (!memberships.length) return null;
+  // project_members contains older, incomplete assignments for some users.
+  // Project personnel are also assigned in project_email_users; include those
+  // active assignments so a QC user can actually open every project shown in
+  // the project picker (notably Road 806 for q.controling@gmail.com).
+  let personnelMemberships: Array<{ projectId: string; role: ProjectAccess["role"]; projectName: string }> = [];
+  if (email) {
+    const { data: personnelRows, error: personnelError } = await supabase
+      .from(PROJECT_EMAIL_USERS_TABLE)
+      .select("project_id, role, active")
+      .ilike("email", email)
+      .eq("active", true);
+    if (!personnelError) {
+      personnelMemberships = (Array.isArray(personnelRows) ? personnelRows : [])
+        .map((row: any) => ({
+          projectId: normalizeStoredProjectId(row?.project_id),
+          role: isQualityControlProjectUser({
+            name: "",
+            role: String(row?.role ?? ""),
+            company: "",
+            active: row?.active !== false,
+          })
+            ? ("readwrite" as const)
+            : ("readonly" as const),
+          projectName: "",
+        }))
+        .filter((row) => row.projectId);
+    }
+  }
 
-  const role: ProjectAccess["role"] = memberships.some((item) => item.role === "admin")
+  const allMemberships = [...memberships, ...personnelMemberships].filter(
+    (membership, index, source) =>
+      source.findIndex((item) => item.projectId === membership.projectId) === index,
+  );
+  if (!allMemberships.length) return null;
+
+  const role: ProjectAccess["role"] = allMemberships.some((item) => item.role === "admin")
     ? "admin"
-    : memberships.some((item) => item.role === "readwrite")
+    : allMemberships.some((item) => item.role === "readwrite")
       ? "readwrite"
       : "readonly";
-  const email = String(user.email ?? "").trim();
-  const firstProject = memberships[0];
+  const firstProject = allMemberships[0];
 
   return {
     username: email || user.id,
@@ -2672,7 +2705,7 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     code: role === "admin" ? "admin" : firstProject?.projectId,
     aliases: email ? [email] : [],
     projectName: role === "admin" ? null : firstProject?.projectName || null,
-    projectIds: memberships.map((item) => item.projectId),
+    projectIds: allMemberships.map((item) => item.projectId),
     authUserId: user.id,
     email,
     authProvider: "supabase",
