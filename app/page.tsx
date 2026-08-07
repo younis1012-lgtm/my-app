@@ -15133,19 +15133,14 @@ export default function Page() {
       if (cancelled) return;
       if (supabaseAuthUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
-        if (!requiresExplicitProjectSelection(projectList, supabaseAuthUser)) {
-          const selectedProjectId = selectInitialProjectIdForAccess(
-            projectList,
-            supabaseAuthUser,
-            readLocalCurrentProjectId(),
-          );
-          if (selectedProjectId) {
-            setCurrentProjectId(selectedProjectId);
-            writeLocalCurrentProjectId(selectedProjectId);
-          }
-        } else {
-          setCurrentProjectId(null);
-          writeLocalCurrentProjectId(null);
+        const selectedProjectId = selectInitialProjectIdForAccess(
+          projectList,
+          supabaseAuthUser,
+          readLocalCurrentProjectId(),
+        );
+        if (selectedProjectId) {
+          setCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(supabaseAuthUser);
         setShowProjectPicker(!returnToProjectHome);
@@ -15165,19 +15160,14 @@ export default function Page() {
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
-        if (!requiresExplicitProjectSelection(projectList, storedUser)) {
-          const selectedProjectId = selectInitialProjectIdForAccess(
-            projectList,
-            storedUser,
-            readLocalCurrentProjectId(),
-          );
-          if (selectedProjectId) {
-            setCurrentProjectId(selectedProjectId);
-            writeLocalCurrentProjectId(selectedProjectId);
-          }
-        } else {
-          setCurrentProjectId(null);
-          writeLocalCurrentProjectId(null);
+        const selectedProjectId = selectInitialProjectIdForAccess(
+          projectList,
+          storedUser,
+          readLocalCurrentProjectId(),
+        );
+        if (selectedProjectId) {
+          setCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId);
         }
         setProjectAccess(storedUser);
         setShowProjectPicker(!returnToProjectHome);
@@ -15365,19 +15355,14 @@ export default function Page() {
         const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
         if (authAccess) {
           const projectList = projects.length ? projects : getDefaultProjectList();
-          if (!requiresExplicitProjectSelection(projectList, authAccess)) {
-            const selectedProjectId = selectInitialProjectIdForAccess(
-              projectList,
-              authAccess,
-              readLocalCurrentProjectId(),
-            );
-            if (selectedProjectId) {
-              setCurrentProjectId(selectedProjectId);
-              writeLocalCurrentProjectId(selectedProjectId);
-            }
-          } else {
-            setCurrentProjectId(null);
-            writeLocalCurrentProjectId(null);
+          const selectedProjectId = selectInitialProjectIdForAccess(
+            projectList,
+            authAccess,
+            readLocalCurrentProjectId(),
+          );
+          if (selectedProjectId) {
+            setCurrentProjectId(selectedProjectId);
+            writeLocalCurrentProjectId(selectedProjectId);
           }
           setLoginError("");
           setProjectAccess(authAccess);
@@ -15405,19 +15390,14 @@ export default function Page() {
     }
     setLoginError("");
     const projectList = projects.length ? projects : getDefaultProjectList();
-    if (!requiresExplicitProjectSelection(projectList, access)) {
-      const selectedProjectId = selectInitialProjectIdForAccess(
-        projectList,
-        access,
-        readLocalCurrentProjectId(),
-      );
-      if (selectedProjectId) {
-        setCurrentProjectId(selectedProjectId);
-        writeLocalCurrentProjectId(selectedProjectId);
-      }
-    } else {
-      setCurrentProjectId(null);
-      writeLocalCurrentProjectId(null);
+    const selectedProjectId = selectInitialProjectIdForAccess(
+      projectList,
+      access,
+      readLocalCurrentProjectId(),
+    );
+    if (selectedProjectId) {
+      setCurrentProjectId(selectedProjectId);
+      writeLocalCurrentProjectId(selectedProjectId);
     }
     setProjectAccess(access);
     setShowProjectPicker(true);
