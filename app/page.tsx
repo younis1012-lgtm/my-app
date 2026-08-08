@@ -6099,7 +6099,7 @@ function ChecklistsSection({
           </label>
           <label>
             <span style={labelStyle}>
-              {isConcreteChecklist ? "אלמנט" : "מס׳ שכבה"}
+              {isConcreteChecklist ? "מבנה/אלמנט" : "מס׳ שכבה"}
             </span>
             <input
               value={checklistForm.location ?? ""}
@@ -6193,7 +6193,7 @@ function ChecklistsSection({
             </label>
             <label>
               <span style={labelStyle}>
-                {isConcreteChecklist ? "אלמנט" : "מס׳ שכבה"}
+                {isConcreteChecklist ? "מבנה/אלמנט" : "מס׳ שכבה"}
               </span>
               <input
                 value={checklistForm.location ?? ""}
@@ -20910,7 +20910,7 @@ export default function Page() {
       /בטון\s*יצוק|יציקות?\s*באתר/.test(
         `${sourceRecord.title ?? ""} ${sourceRecord.category ?? ""}`,
       );
-    const elementHeader = isConcreteExport ? "אלמנט" : "מס׳ שכבה";
+    const elementHeader = isConcreteExport ? "מבנה/אלמנט" : "מס׳ שכבה";
     const subElementHeader = isConcreteExport ? "תת אלמנט" : "כביש / מבנה";
     const procedureNo = template.procedureNo || "";
     const edition = sourceRecord.revision || template.edition || CHECKLIST_DEFAULT_REVISION;
