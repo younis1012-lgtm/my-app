@@ -17218,6 +17218,8 @@ export default function Page() {
     [projectChecklists, selectedChecklistTemplateKey],
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
+  const selectedChecklistIsConcrete =
+    normalizeChecklistTemplateKey(selectedChecklistTemplateKey) === "siteConcrete";
   const selectedChecklistFolder =
     getChecklistTemplateFolder(normalizeChecklistTemplateKey(selectedChecklistTemplateKey));
 
@@ -24627,8 +24629,14 @@ ${invalidRecipients.join("\n")}`);
                   { label: "מספר", value: (record, index) => getChecklistDisplayNumber(record, index) },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "קטגוריה", value: (record) => record.category || checklistTemplateLabel(record.templateKey) },
-                  { label: "מס׳ שכבה", value: (record) => getChecklistDisplayLayer(record) },
-                  { label: "מיקום", value: (record) => getChecklistDisplayLocation(record) },
+                  {
+                    label: selectedChecklistIsConcrete ? "מבנה/אלמנט" : "מס׳ שכבה",
+                    value: (record) => getChecklistDisplayLayer(record),
+                  },
+                  {
+                    label: selectedChecklistIsConcrete ? "תת אלמנט" : "מיקום",
+                    value: (record) => getChecklistDisplayLocation(record),
+                  },
                   { label: "תאריך ביצוע", value: (record) => getChecklistExecutionDate(record) },
                   { label: "סטטוס", value: (record) => getApprovalDisplayStatus(record) },
                 ]}

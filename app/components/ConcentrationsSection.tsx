@@ -990,7 +990,7 @@ const concreteOutputColumns = [
   "מס׳ סדורי",
   "תאריך יציקה",
   "מבנה",
-  "אלמנט",
+  "תת אלמנט",
   "מקום נטילה",
   "מחתך",
   "עד חתך",
@@ -1188,8 +1188,8 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
 
       sources.forEach((attachment: any) => {
         const result = {
-          ...(attachment?.concreteResults ?? {}),
           ...(item?.concreteResults ?? {}),
+          ...(attachment?.concreteResults ?? {}),
         };
         const concreteType = normalizeConcreteTypeForConcentration(
           result.concreteType,
@@ -1201,19 +1201,28 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             : "QC",
           "מס׳ סדורי": rows.length + 1,
           "תאריך יציקה": dateText(
-            checklist?.date ??
-              item?.executionDate ??
+            item?.executionDate ??
+              checklist?.date ??
               result.castDate ??
               result.testDate ??
               attachment?.uploadedAt,
           ),
           "מבנה": firstText(
             result.structure,
-            checklist?.roadStructure,
-            checklist?.structure,
+            result.element,
             checklist?.location,
+            checklist?.element,
+            checklist?.structure,
           ),
-          "אלמנט": firstText(result.element, item?.description),
+          "תת אלמנט": firstText(
+            result.subElement,
+            result.sub_element,
+            checklist?.roadStructure,
+            checklist?.subElement,
+            checklist?.sub_element,
+            item?.subElement,
+            item?.sub_element,
+          ),
           "מקום נטילה": firstText(result.sampleLocation, "אתר"),
           "מחתך": firstText(result.fromSection, checklist?.stationSection, checklist?.fromSection),
           "עד חתך": firstText(result.toSection, checklist?.toStationSection, checklist?.toSection),
@@ -1224,7 +1233,12 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
           ),
           "מקור בטון": firstText(result.concreteSource, checklist?.concreteSource),
           "סוג בטון": concreteType,
-          'כמות בטון ביציקה (מ"ק)': firstText(result.quantity, checklist?.concreteQuantity),
+          'כמות בטון ביציקה (מ"ק)': firstText(
+            result.quantity,
+            result.castingVolumeCubicMeters,
+            checklist?.castingVolumeCubicMeters,
+            checklist?.concreteQuantity,
+          ),
           "סומך - דרישה": firstText(result.slumpRequirement),
           "סומך - תוצאה": firstText(result.slumpResult),
           "סוג אשפרה": firstText(result.curingType),
@@ -1260,17 +1274,19 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
           : "QC",
         "מס׳ סדורי": rows.length + 1,
         "תאריך יציקה": dateText(
-          checklist?.date ?? representativeItem?.executionDate,
+          representativeItem?.executionDate ?? checklist?.date,
         ),
         "מבנה": firstText(
-          checklist?.roadStructure,
-          checklist?.structure,
           checklist?.location,
-        ),
-        "אלמנט": firstText(
           checklist?.element,
-          representativeItem?.element,
-          representativeItem?.description,
+          checklist?.structure,
+        ),
+        "תת אלמנט": firstText(
+          checklist?.roadStructure,
+          checklist?.subElement,
+          checklist?.sub_element,
+          representativeItem?.subElement,
+          representativeItem?.sub_element,
         ),
         "מקום נטילה": firstText(
           representativeItem?.sampleLocation,
@@ -1283,7 +1299,10 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
         "תעודה מס׳": "",
         "מקור בטון": firstText(checklist?.concreteSource),
         "סוג בטון": normalizeConcreteTypeForConcentration(checklist?.concreteType),
-        'כמות בטון ביציקה (מ"ק)': firstText(checklist?.concreteQuantity),
+        'כמות בטון ביציקה (מ"ק)': firstText(
+          checklist?.castingVolumeCubicMeters,
+          checklist?.concreteQuantity,
+        ),
         "סומך - דרישה": firstText(checklist?.slumpRequirement),
         "סומך - תוצאה": firstText(checklist?.slumpResult),
         "סוג אשפרה": firstText(checklist?.curingType),
@@ -5498,7 +5517,7 @@ const buildConcreteWorksheetXml = (
       "מס׳ סדורי",
       "תאריך יציקה",
       "מבנה",
-      "אלמנט",
+      "תת אלמנט",
       "מקום נטילה",
       "מיקום",
       "",
