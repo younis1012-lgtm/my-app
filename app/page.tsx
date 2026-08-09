@@ -9174,7 +9174,9 @@ function FolderRecordsTable({
   onDelete,
   onNew,
   onSendSelectedEmail,
+  onDownloadSelectedPdf,
   sendSelectedLabel = "שלח מסומנים במייל",
+  downloadSelectedLabel = "הורד מסומנים כ-PDF",
 }: {
   title: string;
   description?: string;
@@ -9184,12 +9186,14 @@ function FolderRecordsTable({
   onDelete?: (id: string) => void;
   onNew?: () => void;
   onSendSelectedEmail?: (records: any[]) => void | Promise<void>;
+  onDownloadSelectedPdf?: (records: any[]) => void | Promise<void>;
   sendSelectedLabel?: string;
+  downloadSelectedLabel?: string;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
-  const canSelectRecords = Boolean(onSendSelectedEmail);
+  const canSelectRecords = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
   const visibleRecordIds = safeRecords.map((record, index) => String(record?.id ?? index));
   const selectedRecords = safeRecords.filter((record, index) =>
     selectedRecordIds.includes(String(record?.id ?? index)),
@@ -9239,6 +9243,11 @@ function FolderRecordsTable({
     await onSendSelectedEmail(selectedRecords);
   };
 
+  const downloadSelectedRecords = async () => {
+    if (!onDownloadSelectedPdf || !selectedRecords.length) return;
+    await onDownloadSelectedPdf(selectedRecords);
+  };
+
   return (
     <section
       style={{
@@ -9269,6 +9278,16 @@ function FolderRecordsTable({
           ) : null}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {onDownloadSelectedPdf ? (
+            <button
+              type="button"
+              style={selectedRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              onClick={downloadSelectedRecords}
+              disabled={!selectedRecords.length}
+            >
+              {downloadSelectedLabel} ({selectedRecords.length})
+            </button>
+          ) : null}
           {onSendSelectedEmail ? (
             <button
               type="button"
@@ -22407,6 +22426,28 @@ ${invalidRecipients.join("\n")}`);
     await sendPreliminaryRecordsEmailToRecipients(recordsToSend, rawRecipients, message);
   };
 
+  const downloadPreliminaryRecordsPdf = async (recordsToDownload: any[]) => {
+    const records = recordsToDownload.filter(Boolean);
+    if (!records.length) {
+      alert("יש לסמן לפחות רשומה אחת להורדה");
+      return;
+    }
+    try {
+      const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
+      const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
+      const url = URL.createObjectURL(mergedResult.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${sectionTitle} - כולל נספחים.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "יצירת ה-PDF נכשלה");
+    }
+  };
+
   const sendCurrentFormEmail = async () => {
     if (emailRecipientOptions.length) {
       setEmailRecipientDialogMode("form");
@@ -24222,7 +24263,7 @@ ${invalidRecipients.join("\n")}`);
 
       <div style={styles.layout}>
         <main style={styles.mainCard}>
-          {showExportButtons && !guardedBody && (
+          {showExportButtons && section !== "preliminary" && !guardedBody && (
             <div
               style={{
                 ...styles.buttonRow,
@@ -24807,7 +24848,9 @@ ${invalidRecipients.join("\n")}`);
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
                 onSendSelectedEmail={sendPreliminaryRecordsEmail}
+                onDownloadSelectedPdf={downloadPreliminaryRecordsPdf}
                 sendSelectedLabel="שלח מסומנים במייל"
+                downloadSelectedLabel="הורד מסומנים כ-PDF"
               />
             <PreliminarySection
               guardedBody={guardedBody}
