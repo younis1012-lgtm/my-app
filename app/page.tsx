@@ -22205,6 +22205,42 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const archivePrintableHtml = (title: string, body: string) =>
     `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>${exportStyles}</style></head><body><div class="export-page">${exportCompanyHeader()}<h1>${safeText(title)}</h1><div class="meta">פרויקט: ${safeText(projectName)}</div>${body}${exportCompanyFooter()}</div></body></html>`;
 
+  const buildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
+    const { PDFDocument } = await loadPdfTools();
+    const mergedPdf = await PDFDocument.create();
+    const failedAppendices: string[] = [];
+    let appendedAppendixCount = 0;
+
+    for (const record of records) {
+      const recordTitle = record?.title || labelForPreliminary(record?.subtype || preliminaryTab);
+      const recordHtml = archivePrintableHtml(recordTitle, preliminaryRecordArchiveBody(record));
+      const recordPdfBytes = await buildFormOnlyPdfBytes(recordHtml, recordTitle);
+      const recordPdf = await PDFDocument.load(recordPdfBytes);
+      const recordPages = await mergedPdf.copyPages(recordPdf, recordPdf.getPageIndices());
+      recordPages.forEach((page: any) => mergedPdf.addPage(page));
+
+      for (const attachment of archiveRecordPdfAppendices(record)) {
+        if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
+        else failedAppendices.push(attachment.filename || "קובץ מצורף");
+      }
+    }
+
+    if (failedAppendices.length) {
+      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
+    }
+    if (mergedPdf.getPageCount() < records.length) {
+      throw new Error("יצירת הקובץ המרוכז נכשלה: לא נוצר עמוד נפרד לכל אישור. המייל לא נשלח.");
+    }
+
+    const mergedBytes = await mergedPdf.save();
+    return {
+      blob: new Blob([mergedBytes], { type: "application/pdf" }),
+      appendixCount: appendedAppendixCount,
+      pageCount: mergedPdf.getPageCount(),
+      title: sectionTitle,
+    };
+  };
+
   const addRecordPdfToZip = async (
     zip: any,
     usedPaths: Set<string>,
@@ -23294,7 +23330,7 @@ ${invalidRecipients.join("\n")}`);
       />
     );
 
-  const buildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
+  const unreachableBuildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
     const { PDFDocument } = await loadPdfTools();
     const mergedPdf = await PDFDocument.create();
     const failedAppendices: string[] = [];
