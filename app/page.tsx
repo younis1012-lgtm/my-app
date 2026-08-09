@@ -22067,7 +22067,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }
   };
 
-  const appendAttachmentToPdf = async (targetPdf: any, attachment: OutgoingEmailAttachment) => {
+  const appendAttachmentToPdf = async (targetPdf: any, attachment: OutgoingEmailAttachment): Promise<boolean> => {
     const { PDFDocument } = await loadPdfTools();
     const src = String(attachment.contentBase64 || attachment.url || "").trim();
     const declaredMimeType = String(attachment.mimeType || "").toLowerCase();
@@ -22099,10 +22099,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         };
       } catch (error) {
         console.warn("Attachment fetch failed", attachment.filename, error);
-        return;
+        return false;
       }
     }
-    if (!bytesInfo) return;
+    if (!bytesInfo) return false;
 
     const bytes = bytesInfo.bytes;
     const detectedMime =
@@ -22115,7 +22115,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         const sourcePdf = await PDFDocument.load(bytes);
         const copiedPages = await targetPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
         copiedPages.forEach((page: any) => targetPdf.addPage(page));
-        return;
+        return true;
       } catch (error) {
         console.warn("PDF merge failed", attachment.filename, error);
       }
@@ -22140,11 +22140,12 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           width,
           height,
         });
-        return;
+        return true;
       } catch (error) {
         console.warn("Image embed failed", attachment.filename, error);
       }
     }
+    return false;
   };
 
   const buildMergedPdfBlob = async (title: string, html: string, appendicesOverride?: OutgoingEmailAttachment[]) => {
@@ -22156,8 +22157,14 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     formPages.forEach((page: any) => mergedPdf.addPage(page));
 
     const appendices = appendicesOverride ?? collectCurrentFormPdfAppendices();
+    const failedAppendices: string[] = [];
     for (const attachment of appendices) {
-      await appendAttachmentToPdf(mergedPdf, attachment);
+      if (!(await appendAttachmentToPdf(mergedPdf, attachment))) {
+        failedAppendices.push(attachment.filename || "קובץ מצורף");
+      }
+    }
+    if (failedAppendices.length) {
+      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
     }
 
     const mergedBytes = await mergedPdf.save();
@@ -22282,7 +22289,8 @@ ${invalidRecipients.join("\n")}`);
         : "";
       const messagePlain = messageText ? `${messageText}\n\n` : "";
 
-      const mergedPdfBlob = await buildMergedPdfBlob(title, html);
+      const formAppendices = collectCurrentFormPdfAppendices();
+      const mergedPdfBlob = await buildMergedPdfBlob(title, html, formAppendices);
       const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
       const formPdfAttachment = dataUrlToEmailAttachment(
         `${title} - כולל נספחים.pdf`,
@@ -22312,9 +22320,10 @@ ${invalidRecipients.join("\n")}`);
       }
 
       alert(
-        `המייל נשלח בהצלחה אל ${normalizedRecipient}` +
-          `
-צורף PDF אחד מאוחד הכולל את הטופס והנספחים.`,
+        `המייל נשלח בהצלחה אל ${normalizedRecipient}. צורף PDF הכולל את הטופס` +
+          (formAppendices.length
+            ? ` ואת ${formAppendices.length} הנספחים שנבדקו בפועל.`
+            : ". לא נמצאו נספחים מצורפים בטופס זה."),
       );
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
@@ -22342,16 +22351,8 @@ ${invalidRecipients.join("\n")}`);
     try {
       const uniqueRecipients = Array.from(new Set(recipients));
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
-      const body = records
-        .map((record, index) => {
-          const recordTitle = record?.title || labelForPreliminary(record?.subtype || preliminaryTab);
-          return `<section style="${index ? "page-break-before:always;" : ""}"><h2>${index + 1}. ${safeText(recordTitle)}</h2>${preliminaryRecordArchiveBody(record)}</section>`;
-        })
-        .join("");
-      const html = archivePrintableHtml(sectionTitle, body);
-      const appendices = uniqueEmailAttachments(records.flatMap((record) => archiveRecordPdfAppendices(record)));
-      const pdfBlob = await buildMergedPdfBlob(sectionTitle, html, appendices);
-      const pdfDataUrl = await blobToDataUrl(pdfBlob);
+      const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
+      const pdfDataUrl = await blobToDataUrl(mergedResult.blob);
       const attachments = uniqueEmailAttachments([
         dataUrlToEmailAttachment(`${sectionTitle} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
       ]);
@@ -22377,7 +22378,9 @@ ${invalidRecipients.join("\n")}`);
         const result = await response.json().catch(() => ({}));
         throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
       }
-      alert(`המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} רשומות מסומנות.`);
+      alert(
+        `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} אישורים מסומנים, ${mergedResult.pageCount} עמודי PDF ו-${mergedResult.appendixCount} מסמכים מצורפים.`,
+      );
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
@@ -23249,6 +23252,42 @@ ${invalidRecipients.join("\n")}`);
         onSubmit={handleProjectLogin}
       />
     );
+
+  const buildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
+    const { PDFDocument } = await loadPdfTools();
+    const mergedPdf = await PDFDocument.create();
+    const failedAppendices: string[] = [];
+    let appendedAppendixCount = 0;
+
+    for (const record of records) {
+      const recordTitle = record?.title || labelForPreliminary(record?.subtype || preliminaryTab);
+      const recordHtml = archivePrintableHtml(recordTitle, preliminaryRecordArchiveBody(record));
+      const recordPdfBytes = await buildFormOnlyPdfBytes(recordHtml, recordTitle);
+      const recordPdf = await PDFDocument.load(recordPdfBytes);
+      const recordPages = await mergedPdf.copyPages(recordPdf, recordPdf.getPageIndices());
+      recordPages.forEach((page: any) => mergedPdf.addPage(page));
+
+      for (const attachment of archiveRecordPdfAppendices(record)) {
+        if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
+        else failedAppendices.push(attachment.filename || "קובץ מצורף");
+      }
+    }
+
+    if (failedAppendices.length) {
+      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
+    }
+    if (mergedPdf.getPageCount() < records.length) {
+      throw new Error("יצירת הקובץ המרוכז נכשלה: לא נוצר עמוד נפרד לכל אישור. המייל לא נשלח.");
+    }
+
+    const mergedBytes = await mergedPdf.save();
+    return {
+      blob: new Blob([mergedBytes], { type: "application/pdf" }),
+      appendixCount: appendedAppendixCount,
+      pageCount: mergedPdf.getPageCount(),
+      title: sectionTitle,
+    };
+  };
   }
 
   if (!loaded) {
