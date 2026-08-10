@@ -22276,6 +22276,32 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       reader.readAsDataURL(blob);
     });
 
+  const pdfBlobToEmailAttachment = async (
+    filename: string,
+    blob: Blob,
+  ): Promise<OutgoingEmailAttachment> => {
+    if (cloudEnabled && supabase) {
+      const safeName = filename.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_").slice(-140) || "grouped-export.pdf";
+      const projectSegment = sanitizeZipSegment(String(currentProject?.id || projectName || "project"));
+      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+      const uploadResult = await supabase.storage
+        .from("attachments")
+        .upload(storagePath, blob, {
+          upsert: false,
+          contentType: "application/pdf",
+        });
+      if (uploadResult.error) throw uploadResult.error;
+      const { data } = supabase.storage.from("attachments").getPublicUrl(storagePath);
+      if (!data.publicUrl) throw new Error("לא התקבלה כתובת לקובץ ה-PDF הקבוצתי");
+      return { filename, mimeType: "application/pdf", url: data.publicUrl };
+    }
+
+    const dataUrl = await blobToDataUrl(blob);
+    const attachment = dataUrlToEmailAttachment(filename, dataUrl, "application/pdf");
+    if (!attachment) throw new Error("הכנת קובץ ה-PDF לשליחה נכשלה");
+    return attachment;
+  };
+
   const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
   const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
   const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi" | "preliminaryRecords">("form");
@@ -22407,10 +22433,9 @@ ${invalidRecipients.join("\n")}`);
       const uniqueRecipients = Array.from(new Set(recipients));
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
       const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
-      const pdfDataUrl = await blobToDataUrl(mergedResult.blob);
-      const attachments = uniqueEmailAttachments([
-        dataUrlToEmailAttachment(`${sectionTitle} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
-      ]);
+      const groupedPdfFilename = `${sectionTitle} - כולל נספחים.pdf`;
+      const groupedPdfAttachment = await pdfBlobToEmailAttachment(groupedPdfFilename, mergedResult.blob);
+      const attachments = uniqueEmailAttachments([groupedPdfAttachment]);
       const messageText = customMessage.trim();
       const messageHtml = messageText
         ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
@@ -22430,8 +22455,14 @@ ${invalidRecipients.join("\n")}`);
         }),
       });
       if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
+        const responseText = await response.text();
+        let result: any = {};
+        try { result = responseText ? JSON.parse(responseText) : {}; } catch {}
+        throw new Error(
+          result?.error ||
+          result?.details?.error_description ||
+          `שליחת המייל נכשלה (HTTP ${response.status}${responseText ? `: ${responseText.slice(0, 180)}` : ""})`,
+        );
       }
       alert(
         `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} אישורים מסומנים, ${mergedResult.pageCount} עמודי PDF ו-${mergedResult.appendixCount} מסמכים מצורפים.`,
