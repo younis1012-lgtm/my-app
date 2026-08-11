@@ -21840,13 +21840,32 @@ export default function Page() {
     return null;
   };
 
+  const outgoingEmailAttachmentIdentity = (attachment: OutgoingEmailAttachment) => {
+    const normalizedUrl = (() => {
+        const rawUrl = String(attachment.url || "").trim();
+        if (!rawUrl) return "";
+        try {
+          const parsed = new URL(rawUrl);
+          return `${parsed.origin}${decodeURIComponent(parsed.pathname)}`.toLowerCase();
+        } catch {
+          return rawUrl.split(/[?#]/)[0].toLowerCase();
+        }
+    })();
+    const inlineContent = String(attachment.contentBase64 || "").replace(/\s/g, "");
+    return normalizedUrl
+      ? `url:${normalizedUrl}`
+      : inlineContent
+        ? `data:${attachment.mimeType || ""}:${inlineContent}`
+        : `name:${attachment.filename.toLowerCase()}`;
+  };
+
   const uniqueEmailAttachments = (
     attachments: Array<OutgoingEmailAttachment | null | undefined>,
   ) => {
     const seen = new Set<string>();
     return attachments.filter((attachment): attachment is OutgoingEmailAttachment => {
       if (!attachment) return false;
-      const key = `${attachment.filename}|${attachment.contentBase64 || attachment.url || ""}`;
+      const key = outgoingEmailAttachmentIdentity(attachment);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -22233,6 +22252,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const { PDFDocument } = await loadPdfTools();
     const mergedPdf = await PDFDocument.create();
     const failedAppendices: string[] = [];
+    const appendedAttachmentIdentities = new Set<string>();
     let appendedAppendixCount = 0;
 
     for (const record of records) {
@@ -22244,6 +22264,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       recordPages.forEach((page: any) => mergedPdf.addPage(page));
 
       for (const attachment of archiveRecordPdfAppendices(record)) {
+        const identity = outgoingEmailAttachmentIdentity(attachment);
+        if (appendedAttachmentIdentities.has(identity)) continue;
+        appendedAttachmentIdentities.add(identity);
         if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
         else failedAppendices.push(attachment.filename || "קובץ מצורף");
       }
