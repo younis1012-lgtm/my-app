@@ -22305,9 +22305,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     blob: Blob,
   ): Promise<OutgoingEmailAttachment> => {
     if (cloudEnabled && supabase) {
-      const safeName = filename.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_").slice(-140) || "grouped-export.pdf";
-      const projectSegment = sanitizeZipSegment(String(currentProject?.id || projectName || "project"));
-      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+      const rawProjectSegment = String(currentProject?.id || "project");
+      const projectSegment = rawProjectSegment.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "project";
+      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-grouped-preliminary.pdf`;
       const uploadResult = await supabase.storage
         .from("attachments")
         .upload(storagePath, blob, {
