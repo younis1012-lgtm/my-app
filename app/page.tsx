@@ -21859,6 +21859,33 @@ export default function Page() {
         : `name:${attachment.filename.toLowerCase()}`;
   };
 
+  const outgoingEmailAttachmentContentIdentity = async (
+    attachment: OutgoingEmailAttachment,
+  ) => {
+    try {
+      let bytes: Uint8Array;
+      const inlineContent = String(attachment.contentBase64 || "").replace(/\s/g, "");
+      if (inlineContent) {
+        const binary = atob(inlineContent);
+        bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      } else if (attachment.url) {
+        const response = await fetch(attachment.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } else {
+        return outgoingEmailAttachmentIdentity(attachment);
+      }
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hash = Array.from(new Uint8Array(digest))
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("");
+      return `sha256:${hash}`;
+    } catch (error) {
+      console.warn("Attachment fingerprint failed", attachment.filename, error);
+      return outgoingEmailAttachmentIdentity(attachment);
+    }
+  };
+
   const uniqueEmailAttachments = (
     attachments: Array<OutgoingEmailAttachment | null | undefined>,
   ) => {
@@ -22264,7 +22291,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       recordPages.forEach((page: any) => mergedPdf.addPage(page));
 
       for (const attachment of archiveRecordPdfAppendices(record)) {
-        const identity = outgoingEmailAttachmentIdentity(attachment);
+        const identity = await outgoingEmailAttachmentContentIdentity(attachment);
         if (appendedAttachmentIdentities.has(identity)) continue;
         appendedAttachmentIdentities.add(identity);
         if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
