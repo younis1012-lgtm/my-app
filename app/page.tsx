@@ -2681,10 +2681,30 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     }
   }
 
-  const allMemberships = [...memberships, ...personnelMemberships].filter(
-    (membership, index, source) =>
-      source.findIndex((item) => item.projectId === membership.projectId) === index,
-  );
+  const membershipRoleRank: Record<ProjectAccess["role"], number> = {
+    readonly: 0,
+    readwrite: 1,
+    admin: 2,
+  };
+  const membershipsByProject = new Map<string, (typeof memberships)[number]>();
+  [...memberships, ...personnelMemberships].forEach((membership) => {
+    const existing = membershipsByProject.get(membership.projectId);
+    if (
+      !existing ||
+      membershipRoleRank[membership.role] > membershipRoleRank[existing.role]
+    ) {
+      membershipsByProject.set(membership.projectId, {
+        ...membership,
+        projectName: membership.projectName || existing?.projectName || "",
+      });
+    } else if (!existing.projectName && membership.projectName) {
+      membershipsByProject.set(membership.projectId, {
+        ...existing,
+        projectName: membership.projectName,
+      });
+    }
+  });
+  const allMemberships = Array.from(membershipsByProject.values());
   if (!allMemberships.length) return null;
 
   const role: ProjectAccess["role"] = allMemberships.some((item) => item.role === "admin")
@@ -2952,7 +2972,11 @@ const isQualityControlProjectUser = (
   const userText = normalizeAccessValue(
     `${user.role ?? ""} ${user.company ?? ""} ${user.name ?? ""}`,
   );
-  return [
+  const isOccupationalController =
+    userText.includes(normalizeAccessValue("בקר")) &&
+    ["איכות", "חשמל", "גינון", "תנועה", "תשתיות", "תקשורת", "תאורה"]
+      .some((value) => userText.includes(normalizeAccessValue(value)));
+  return isOccupationalController || [
     "\u05d1\u05e7\u05e8 \u05d0\u05d9\u05db\u05d5\u05ea",
     "\u05d1\u05e7\u05e8\u05ea \u05d0\u05d9\u05db\u05d5\u05ea",
     "\u05de\u05e0\u05d4\u05dc \u05d1\u05e7\u05e8\u05ea \u05d0\u05d9\u05db\u05d5\u05ea",
