@@ -4143,6 +4143,7 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
     description: "יציקות, כלונסאות, אבני שפה, מסלעות ועבודות JK",
     templateKeys: [
       "siteConcrete",
+      "stoneFacingGravityWall",
       "dryMethodPiles",
       "castCurbstone",
       "curbstones",
@@ -5765,7 +5766,7 @@ function ChecklistsSection({
   const [concreteReviewItemId, setConcreteReviewItemId] = useState<string | null>(null);
   const isRoad806Checklist = isRoad806Value(projectName) || isRoad806Value(checklistForm.projectNameDisplay) || isRoad806Value(checklistForm.projectName) || isRoad806Value(checklistForm.location);
   const isConcreteChecklist =
-    String(checklistForm.templateKey) === "siteConcrete" ||
+    ["siteConcrete", "stoneFacingGravityWall"].includes(String(checklistForm.templateKey)) ||
     /בטון\s*יצוק|יציקות?\s*באתר/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
@@ -17262,7 +17263,9 @@ export default function Page() {
   );
   const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
   const selectedChecklistIsConcrete =
-    normalizeChecklistTemplateKey(selectedChecklistTemplateKey) === "siteConcrete";
+    ["siteConcrete", "stoneFacingGravityWall"].includes(
+      normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
+    );
   const selectedChecklistFolder =
     getChecklistTemplateFolder(normalizeChecklistTemplateKey(selectedChecklistTemplateKey));
 
@@ -18563,7 +18566,7 @@ export default function Page() {
       const shouldExtractAsphalt = kind === "lab" && isAsphaltReference(attachmentContext);
       const shouldExtractConcrete =
         kind === "lab" &&
-        (String(checklistForm.templateKey) === "siteConcrete" ||
+        (["siteConcrete", "stoneFacingGravityWall"].includes(String(checklistForm.templateKey)) ||
           /בטון\s*יצוק|יציקות?\s*באתר|חוזק\s*בטון|קוביות?\s*בטון/.test(
             attachmentContext,
           ));
@@ -20949,7 +20952,7 @@ export default function Page() {
     const template = checklistTemplates[templateKey] as any;
     const title = sourceRecord.title || template.title || "רשימת תיוג";
     const isConcreteExport =
-      String(templateKey) === "siteConcrete" ||
+      ["siteConcrete", "stoneFacingGravityWall"].includes(String(templateKey)) ||
       /בטון\s*יצוק|יציקות?\s*באתר/.test(
         `${sourceRecord.title ?? ""} ${sourceRecord.category ?? ""}`,
       );

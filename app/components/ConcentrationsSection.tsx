@@ -1162,7 +1162,7 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
   savedChecklists.forEach((checklist) => {
     const checklistText = recordText(checklist);
     const isConcreteChecklist =
-      String(checklist?.templateKey ?? "") === "siteConcrete" ||
+      ["siteConcrete", "stoneFacingGravityWall"].includes(String(checklist?.templateKey ?? "")) ||
       includesAny(checklistText, ["בטון יצוק", "יציקה", "חוזק בטון", "קוביות בטון"]);
     if (!isConcreteChecklist) return;
 

@@ -1,6 +1,6 @@
 export type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary' | 'rfi' | 'supervisionReports';
 export type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
-export type ChecklistTemplateKey = 'general' | 'paintWorks' | 'milling' | 'rockWall' | 'excavation' | 'channelPaving' | 'baseCourseSpreading' | 'curbstones' | 'asphaltSite' | 'castCurbstone' | 'catsEyes' | 'siteConcrete' | 'dryMethodPiles' | 'jkWorks' | 'controlledCompaction' | 'standardCompaction' | 'guardrails' | 'signage' | 'waterSystems' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping' | 'electricalControlCells' | 'electricalCrossingPipesCables' | 'electricalLightingPole';
+export type ChecklistTemplateKey = 'general' | 'paintWorks' | 'milling' | 'rockWall' | 'excavation' | 'channelPaving' | 'baseCourseSpreading' | 'curbstones' | 'asphaltSite' | 'castCurbstone' | 'catsEyes' | 'siteConcrete' | 'stoneFacingGravityWall' | 'dryMethodPiles' | 'jkWorks' | 'controlledCompaction' | 'standardCompaction' | 'guardrails' | 'signage' | 'waterSystems' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping' | 'electricalControlCells' | 'electricalCrossingPipesCables' | 'electricalLightingPole';
 export type ChecklistStatus = 'לא נבדק' | 'תקין' | 'לא תקין' | 'לא רלוונטי';
 export type RecordStatus = 'טיוטה' | 'מאושר' | 'לא מאושר';
 export type NonconformanceStatus = 'פתוח' | 'בטיפול' | 'נסגר';
