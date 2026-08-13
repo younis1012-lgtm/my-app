@@ -22357,7 +22357,12 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     if (cloudEnabled && supabase) {
       const rawProjectSegment = String(currentProject?.id || "project");
       const projectSegment = rawProjectSegment.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "project";
-      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-grouped-preliminary.pdf`;
+      const storageFilename = String(filename || "document.pdf")
+        .replace(/\.pdf$/i, "")
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .replace(/_+/g, "_")
+        .slice(0, 80) || "document";
+      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-${storageFilename}.pdf`;
       const uploadResult = await supabase.storage
         .from("attachments")
         .upload(storagePath, blob, {
@@ -22446,11 +22451,9 @@ ${invalidRecipients.join("\n")}`);
 
       const formAppendices = collectCurrentFormPdfAppendices();
       const mergedPdfBlob = await buildMergedPdfBlob(title, html, formAppendices);
-      const pdfDataUrl = await blobToDataUrl(mergedPdfBlob);
-      const formPdfAttachment = dataUrlToEmailAttachment(
+      const formPdfAttachment = await pdfBlobToEmailAttachment(
         `${title} - כולל נספחים.pdf`,
-        pdfDataUrl,
-        "application/pdf",
+        mergedPdfBlob,
       );
 
       const attachments = uniqueEmailAttachments([formPdfAttachment]);
