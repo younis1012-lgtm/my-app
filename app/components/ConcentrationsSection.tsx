@@ -45,6 +45,7 @@ type ConcentrationId =
   | "selected-material"
   | "earthworks-material-results"
   | "earthworks"
+  | "layer-tracking"
   | "rfi";
 
 type ConcentrationDefinition = {
@@ -4457,6 +4458,16 @@ const definitions: ConcentrationDefinition[] = [
     buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
   {
+    id: "layer-tracking",
+    title: "מעקב שכבות – עבודות מילוי",
+    fileName: "מעקב שכבות.xlsx",
+    description: "חתך אורכי של שכבות הביצוע לפי חתכים, רשימות תיוג, מדידות ותעודות מעבדה",
+    sourceLabel: "רשימות תיוג עבודות עפר / מדידות / תעודות מעבדה",
+    columns: earthworksFieldColumns,
+    buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) =>
+      buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
+  },
+  {
     id: "rfi",
     title: "RFI",
     fileName: "RFI.xlsx",
@@ -4482,6 +4493,7 @@ const deferredPreviewConcentrationIds = new Set<ConcentrationId>([
   "selected-material",
   "earthworks-material-results",
   "earthworks",
+  "layer-tracking",
   "rfi",
 ]);
 
@@ -5931,6 +5943,83 @@ const buildPileWorksheetXml = (
 </worksheet>`;
 };
 
+const layerTrackingNumber = (value: unknown): number | null => {
+  const parsed = Number(cleanText(value).replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const layerTrackingDisplay = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  const date = new Date(text);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text) && Number.isFinite(date.getTime())) return new Intl.DateTimeFormat("he-IL").format(date);
+  return text;
+};
+
+const buildLayerTrackingWorksheetXml = (definition: ConcentrationDefinition, rows: Row[], meta: Required<ProjectConcentrationMeta>) => {
+  const fromValues = rows.map((row) => layerTrackingNumber(row[earthworksFieldColumns[5]])).filter((value): value is number => value !== null);
+  const toValues = rows.map((row) => layerTrackingNumber(row[earthworksFieldColumns[6]])).filter((value): value is number => value !== null);
+  const allChainages = [...fromValues, ...toValues];
+  const rawMin = allChainages.length ? Math.min(...allChainages) : 0;
+  const rawMax = allChainages.length ? Math.max(...allChainages) : 20;
+  const span = Math.max(20, rawMax - rawMin);
+  const step = span > 3000 ? 200 : span > 1200 ? 100 : span > 600 ? 50 : 20;
+  const minChainage = Math.floor(rawMin / step) * step;
+  const maxChainage = Math.max(minChainage + step, Math.ceil(rawMax / step) * step);
+  const chainages: number[] = [];
+  for (let value = minChainage; value <= maxChainage && chainages.length < 36; value += step) chainages.push(value);
+  const widthCount = chainages.length + 2;
+  const lastColumn = colName(widthCount);
+  const sheetRows: string[] = [];
+  let r = 1;
+
+  sheetRows.push(rowXml(r++, [definition.title, ...Array.from({ length: widthCount - 1 }, () => "")], 1, 28));
+  sheetRows.push(rowXml(r++, [
+    `פרויקט: ${meta.projectName || "-"}`, `קבלן: ${meta.contractor || "-"}`, `בקרת איכות: ${meta.qualityControl || "-"}`,
+    ...Array.from({ length: Math.max(0, widthCount - 3) }, () => ""),
+  ], 2, 24));
+  sheetRows.push(rowXml(r++, ["המעקב נבנה אוטומטית מנתוני הפרויקט בלבד. גבהים מתוכננים יושלמו מנתוני תכנון/מדידה כאשר צורפו למערכת.", ...Array.from({ length: widthCount - 1 }, () => "")], 4, 24));
+  sheetRows.push(emptyRowXml(r++, 10));
+  sheetRows.push(rowXml(r++, ["", "חתכים", ...chainages], 3, 30));
+
+  const sortedRows = [...rows].sort(earthworksRowComparator);
+  if (!sortedRows.length) {
+    sheetRows.push(rowXml(r++, ["", "אין עדיין שכבות מילוי שנקלטו בפרויקט הנוכחי", ...Array.from({ length: chainages.length }, () => "")], 4, 28));
+  } else {
+    sortedRows.forEach((row, index) => {
+      const from = layerTrackingNumber(row[earthworksFieldColumns[5]]) ?? minChainage;
+      const to = layerTrackingNumber(row[earthworksFieldColumns[6]]) ?? from;
+      const startCandidate = chainages.findIndex((chainage) => chainage >= Math.min(from, to));
+      const endCandidate = chainages.findIndex((chainage) => chainage >= Math.max(from, to));
+      const start = startCandidate < 0 ? 0 : startCandidate;
+      const end = endCandidate < 0 ? chainages.length - 1 : Math.max(start, endCandidate);
+      const layer = cleanText(row[earthworksFieldColumns[10]]) || String(index + 1);
+      const workType = firstText(row[earthworksFieldColumns[12]], row[earthworksFieldColumns[13]], "עבודות מילוי");
+      const checklistNo = cleanText(row[earthworksFieldColumns[2]]);
+      const date = layerTrackingDisplay(row[earthworksFieldColumns[3]]);
+      const certificate = firstText(row[earthworksFieldColumns[19]], row[earthworksFieldColumns[16]], row[earthworksFieldColumns[24]]);
+      const status = firstText(row[earthworksFieldColumns[33]], row[earthworksFieldColumns[21]], row[earthworksFieldColumns[18]]);
+      const detailCells = Array.from({ length: chainages.length }, () => "");
+      if (detailCells.length) {
+        detailCells[start] = date ? `תאריך ${date}` : "";
+        detailCells[Math.floor((start + end) / 2)] = checklistNo ? `ר.ת ${checklistNo}` : "";
+        detailCells[end] = certificate ? `תעודה ${certificate}` : status;
+      }
+      sheetRows.push(rowXml(r++, ["", `שכבה ${layer} – ${workType}`, ...detailCells], index % 2 ? 2 : 6, 26));
+    });
+  }
+  sheetRows.push(emptyRowXml(r++, 10));
+  sheetRows.push(rowXml(r++, ["", "מקרא", "ר.ת = רשימת תיוג", "תעודה = תעודת צפיפות/רטיבות או מעברי מכבש", ...Array.from({ length: Math.max(0, widthCount - 4) }, () => "")], 2, 24));
+
+  const cols = [`<col min="1" max="1" width="4" customWidth="1"/>`, `<col min="2" max="2" width="31" customWidth="1"/>`, ...chainages.map((_, index) => `<col min="${index + 3}" max="${index + 3}" width="13" customWidth="1"/>`)].join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" rightToLeft="1"><pane ySplit="5" xSplit="2" topLeftCell="C6" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+  <cols>${cols}</cols><sheetData>${sheetRows.join("")}</sheetData>
+  <mergeCells count="2"><mergeCell ref="A1:${lastColumn}1"/><mergeCell ref="A3:${lastColumn}3"/></mergeCells>
+</worksheet>`;
+};
+
 const buildWorksheetXml = (
   definition: ConcentrationDefinition,
   rows: Row[],
@@ -5946,6 +6035,7 @@ const buildWorksheetXml = (
   if (definition.id === "concrete") return buildConcreteWorksheetXml(definition, rows, meta);
   if (definition.id === "piles") return buildPileWorksheetXml(definition, rows, meta);
   if (definition.id === "earthworks") return buildEarthworksWorksheetXml(definition, rows, meta);
+  if (definition.id === "layer-tracking") return buildLayerTrackingWorksheetXml(definition, rows, meta);
   return buildStandardWorksheetXml(definition, rows, meta);
 };
 
