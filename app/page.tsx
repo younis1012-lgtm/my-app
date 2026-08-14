@@ -4904,6 +4904,10 @@ async function selectProjectTable(
       const recovered = await selectViaScopedAnonRest();
       if (recovered.data?.length) return recovered;
     }
+    if (result.error) {
+      const recovered = await selectViaScopedAnonRest();
+      if (recovered.data?.length) return recovered;
+    }
     return result;
   }
 
@@ -4922,6 +4926,10 @@ async function selectProjectTable(
     isMissingColumnError(ordered.error, "project_id")
   )
     return selectTable(table, orderColumn);
+  if (ordered.error) {
+    const recovered = await selectViaScopedAnonRest();
+    if (recovered.data?.length) return recovered;
+  }
   return ordered;
 }
 
