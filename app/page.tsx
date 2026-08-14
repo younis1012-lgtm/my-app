@@ -23552,6 +23552,9 @@ ${invalidRecipients.join("\n")}`);
   if (showProjectPicker && accessibleProjects.length > 0) {
     const pickerAccentGold = "#d9a441";
     const pickerNavy = "#0f1b2d";
+    const lastVisitedProjectId = normalizeStoredProjectId(
+      projectAccess.lastProjectId || readLocalCurrentProjectId(projectAccess),
+    );
     return (
       <div dir="rtl" style={{ minHeight: "100vh", background: "#f7f7f5", padding: 24 }}>
         <div style={{ maxWidth: 900, margin: "0 auto", display: "grid", gap: 18 }}>
@@ -23589,7 +23592,7 @@ ${invalidRecipients.join("\n")}`);
             {accessibleProjects.map((project) => {
               const isSelected =
                 normalizeStoredProjectId(project.id) ===
-                normalizeStoredProjectId(currentProjectId);
+                lastVisitedProjectId;
               const initial = (project.name || "?").trim().charAt(0);
               return (
                 <div
