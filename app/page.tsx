@@ -20887,6 +20887,7 @@ export default function Page() {
     th,td{border:1px solid #111827;padding:3px 5px;vertical-align:middle;text-align:center;word-break:break-word;overflow-wrap:anywhere;white-space:normal;line-height:1.35}
     th{background:#f8fafc;font-weight:800}
     .base-rows th{width:18%;font-weight:800}.base-rows td{width:32%;font-weight:600}.base-rows .full-value{text-align:center}
+    .base-rows td{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;vertical-align:top;line-height:1.5}.base-rows .full-value{text-align:right}.base-rows .blank-cell{white-space:normal}
     .meta{display:none}.blank-cell{min-height:18px}.header-title{font-size:17px;font-weight:900}.small{font-size:10px}.empty{background:#fff}
     .doc-header td{height:28px}.source-meta td{height:28px}.check-table td{height:34px}.check-table th{height:30px;background:#f8fafc}
     .wide-label{font-weight:800}.no-border{border:0!important}.signature td{height:20px}
