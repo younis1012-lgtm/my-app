@@ -2302,6 +2302,7 @@ type ProjectAccess = {
   authUserId?: string;
   email?: string;
   authProvider?: "legacy" | "supabase";
+  lastProjectId?: string;
   occupationalWriteAccess?: boolean;
   signatureDataUrl?: string;
   signatureFileName?: string;
@@ -2729,6 +2730,7 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     authUserId: user.id,
     email,
     authProvider: "supabase",
+    lastProjectId: normalizeStoredProjectId(user.user_metadata?.last_project_id),
   };
 };
 
@@ -2878,7 +2880,9 @@ const selectInitialProjectIdForAccess = (
 ) => {
   const accessible = getAccessibleProjectsForAccess(sourceProjects, access);
   if (!accessible.length) return null;
-  const preferred = normalizeStoredProjectId(preferredProjectId);
+  const preferred = normalizeStoredProjectId(
+    preferredProjectId || access?.lastProjectId,
+  );
   const preferredProject = preferred
     ? accessible.find((project) => normalizeStoredProjectId(project.id) === preferred)
     : null;
@@ -18117,6 +18121,19 @@ export default function Page() {
       const selectedId = normalizeStoredProjectId(selected.id);
       setCurrentProjectId(selectedId);
       writeLocalCurrentProjectId(selectedId, projectAccess);
+      if (projectAccess) {
+        const updatedAccess = { ...projectAccess, lastProjectId: selectedId };
+        setProjectAccess(updatedAccess);
+        writeAuthSession(updatedAccess);
+      }
+      if (projectAccess?.authProvider === "supabase" && supabase) {
+        const result = await supabase.auth.updateUser({
+          data: { last_project_id: selectedId },
+        });
+        if (result.error) {
+          console.warn("Failed to save the user's last project", result.error);
+        }
+      }
       setProjects((prev) => {
         const base = prev.length ? prev : allProjects;
         return base.map((project) => ({
