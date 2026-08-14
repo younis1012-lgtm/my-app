@@ -5982,7 +5982,7 @@ const buildLayerTrackingWorksheetXml = (definition: ConcentrationDefinition, row
   sheetRows.push(emptyRowXml(r++, 10));
   sheetRows.push(rowXml(r++, ["", "חתכים", ...chainages], 3, 30));
 
-  const sortedRows = [...rows].sort(earthworksRowComparator);
+  const sortedRows = [...rows].sort(compareEarthworksRowsByDateLayer);
   if (!sortedRows.length) {
     sheetRows.push(rowXml(r++, ["", "אין עדיין שכבות מילוי שנקלטו בפרויקט הנוכחי", ...Array.from({ length: chainages.length }, () => "")], 4, 28));
   } else {
