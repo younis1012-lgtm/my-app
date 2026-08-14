@@ -8595,9 +8595,13 @@ function getChecklistDerivedApprovalStatus(record: any) {
   const allApproved = relevantItems.every((item: any) => {
     const status = String(item?.status ?? "").trim().toLowerCase();
     const hasSignature = hasApprovalSignatureEvidence(item?.signature);
+    // חתימה תקפה מעידה שהפעולה נבדקה ואושרה. רק כשל מפורש גובר עליה;
+    // ערך ברירת־המחדל "לא נבדק" עלול להישאר ברשומות ישנות גם לאחר החתימה.
+    if (hasSignature && !["לא תקין", "נדחה", "נדחתה", "rejected"].includes(status))
+      return true;
     if (positiveStatuses.includes(status)) return true;
     if (negativeStatuses.includes(status)) return false;
-    return hasSignature;
+    return false;
   });
   return allApproved ? "approved" : null;
 }

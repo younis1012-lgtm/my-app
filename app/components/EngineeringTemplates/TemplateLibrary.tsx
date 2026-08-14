@@ -7,6 +7,7 @@ import { ENGINEERING_TEMPLATES, type EngineeringTemplateNode } from "./TemplateD
 const STORAGE_KEY = "yk-quality-stage4-multifile";
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
 const PROJECT_STRUCTURE_STORAGE_KEY = `${STORAGE_KEY}-project-structure`;
+const PLANS_STORAGE_KEY = `${STORAGE_KEY}-plans`;
 const PROJECT_STRUCTURE_TABLE = "project_structure_nodes";
 
 type StoredProjectNode = {
@@ -143,6 +144,7 @@ export function TemplateLibrary() {
   const [projectNodes, setProjectNodes] = useState<StoredProjectNode[]>([]);
   const [projectChecklists, setProjectChecklists] = useState<LinkedChecklist[]>([]);
   const [openedPath, setOpenedPath] = useState<string[] | null>(null);
+  const [detectedPlanTemplateIds, setDetectedPlanTemplateIds] = useState<string[]>([]);
   const selectedTemplates = useMemo(
     () => ENGINEERING_TEMPLATES.filter((template) => selectedIds.includes(template.id)),
     [selectedIds],
@@ -162,6 +164,7 @@ export function TemplateLibrary() {
     const loadLinkedRecords = async () => {
       let localNodes: StoredProjectNode[] = [];
       let localChecklists: LinkedChecklist[] = [];
+      let projectPlans: any[] = [];
       try {
         const parsedNodes = JSON.parse(window.localStorage.getItem(PROJECT_STRUCTURE_STORAGE_KEY) || "[]");
         if (Array.isArray(parsedNodes))
@@ -180,12 +183,18 @@ export function TemplateLibrary() {
             status: String(record.approval?.status ?? record.status ?? ""),
           }));
         }
+        const parsedPlans = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
+        if (Array.isArray(parsedPlans))
+          projectPlans = parsedPlans.filter(
+            (plan: any) => String(plan?.projectId ?? plan?.project_id ?? "") === activeProjectId,
+          );
       } catch {}
 
       if (supabase) {
-        const [nodesResult, checklistResult] = await Promise.all([
+        const [nodesResult, checklistResult, plansResult] = await Promise.all([
           supabase.from(PROJECT_STRUCTURE_TABLE).select("*").eq("project_id", activeProjectId),
           supabase.from("checklists").select("*").eq("project_id", activeProjectId),
+          supabase.from("plans").select("*").eq("project_id", activeProjectId),
         ]);
         if (!nodesResult.error && Array.isArray(nodesResult.data))
           localNodes = nodesResult.data.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
@@ -205,7 +214,26 @@ export function TemplateLibrary() {
             };
           });
         }
+        if (!plansResult.error && Array.isArray(plansResult.data)) projectPlans = plansResult.data;
       }
+
+      const detectedIds = new Set<string>();
+      projectPlans.forEach((plan: any) => {
+        const text = [
+          plan?.plan_no,
+          plan?.planNo,
+          plan?.title,
+          plan?.discipline,
+          plan?.notes,
+          plan?.details?.title,
+        ].filter(Boolean).join(" ");
+        if (/קיר\s*כובד|חזית\s*אבן\s*לקט|אבן\s*לקט/i.test(text))
+          detectedIds.add("stone-facing-gravity-wall");
+      });
+      const detected = Array.from(detectedIds);
+      setDetectedPlanTemplateIds(detected);
+      if (detected.length)
+        setSelectedIds((previous) => Array.from(new Set([...previous, ...detected])));
 
       setProjectNodes(localNodes.filter((node) => node.projectId === activeProjectId));
       setProjectChecklists(localChecklists.filter((record) => record.projectId === activeProjectId));
@@ -381,6 +409,11 @@ export function TemplateLibrary() {
 
       <section style={{ ...cardStyle, padding: 18, marginBottom: 18 }}>
         <h2 style={{ margin: "0 0 10px", fontSize: 22 }}>בחירת תבניות</h2>
+        {detectedPlanTemplateIds.length ? (
+          <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 12, background: "#ecfdf5", color: "#166534", fontWeight: 850 }}>
+            זוהתה תוכנית קיר כובד / חזית אבן לקט השמורה בפרויקט. התבנית המתאימה סומנה אוטומטית ותתווסף בלחיצה על „שמור עץ בפרויקט”.
+          </div>
+        ) : null}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
           {ENGINEERING_TEMPLATES.map((template) => {
             const selected = selectedIds.includes(template.id);

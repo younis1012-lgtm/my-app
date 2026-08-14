@@ -69,6 +69,23 @@ export const ENGINEERING_TEMPLATES: EngineeringTemplate[] = [
     ],
   },
   {
+    id: "stone-facing-gravity-wall",
+    icon: "🧱",
+    title: "קיר כובד – חזית אבן לקט",
+    description: "תבנית ייעודית לתוכנית קיר כובד בחזית אבן לקט, כולל בטון, ניקוז, אבן ומילוי גב הקיר.",
+    nodes: [
+      { name: "הכנת תשתית וחפירה" },
+      { name: "יסוד הקיר" },
+      { name: "מעטפת אבן לקט" },
+      { name: "תבניות בגב הקיר" },
+      { name: "יציקת גוף הקיר", children: [{ name: "נטילת דגימות בטון" }, { name: "אשפרת בטון" }] },
+      { name: "מערכת ניקוז", children: [{ name: "נקזים 4 אינץ׳" }, { name: "מסננת חצץ ובד גיאוטכני" }] },
+      { name: "מילוי בגב הקיר" },
+      { name: "מדידת עדות (As Made)" },
+      { name: "בדיקה ואישור סופי" },
+    ],
+  },
+  {
     id: "drainage-channel",
     icon: "🌊",
     title: "תעלת ניקוז",
