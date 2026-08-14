@@ -149,7 +149,13 @@ export function TemplateLibrary() {
   );
 
   useEffect(() => {
-    const activeProjectId = window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ?? "";
+    const params = new URLSearchParams(window.location.search);
+    const activeProjectId =
+      params.get("projectId")?.trim() ||
+      window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ||
+      "";
+    if (activeProjectId)
+      window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, activeProjectId);
     setProjectId(activeProjectId);
     if (!activeProjectId) return;
 
@@ -477,7 +483,7 @@ export function TemplateLibrary() {
                     <strong>{record.checklistNo ? `רשימה ${record.checklistNo} · ` : ""}{record.title || "רשימת תיוג"}</strong>
                     <div style={{ color: "#64748b", marginTop: 4 }}>{[record.category, record.location, record.date, record.status].filter(Boolean).join(" · ")}</div>
                   </div>
-                  <button type="button" onClick={() => { window.location.href = `/?openChecklist=${encodeURIComponent(record.id)}`; }} style={{ border: 0, borderRadius: 10, background: "#0f172a", color: "#fff", padding: "9px 13px", fontWeight: 900, cursor: "pointer" }}>פתח רשימה</button>
+                  <button type="button" onClick={() => { const params = new URLSearchParams({ openChecklist: record.id, returnToProject: "1", projectId }); window.location.href = `/?${params.toString()}`; }} style={{ border: 0, borderRadius: 10, background: "#0f172a", color: "#fff", padding: "9px 13px", fontWeight: 900, cursor: "pointer" }}>פתח רשימה</button>
                 </div>
               )) : (
                 <div style={{ border: "1px dashed #94a3b8", borderRadius: 12, padding: 22, textAlign: "center", color: "#64748b", fontWeight: 800 }}>

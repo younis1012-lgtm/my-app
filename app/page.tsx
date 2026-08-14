@@ -4730,21 +4730,38 @@ const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE ||
   table === SUPERVISION_REPORTS_TABLE ||
   table === PLANS_TABLE;
-const readLocalCurrentProjectId = () => {
-  if (typeof window === "undefined") return null;
-  const normalized = normalizeStoredProjectId(
-    window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY),
+const currentProjectStorageKeyForAccess = (access?: ProjectAccess | null) => {
+  const identity = normalizeAccessValue(
+    access?.authUserId || access?.email || access?.username || "",
   );
-  if (normalized)
-    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, normalized);
+  return identity
+    ? `${CURRENT_PROJECT_STORAGE_KEY}:${encodeURIComponent(identity)}`
+    : CURRENT_PROJECT_STORAGE_KEY;
+};
+const readLocalCurrentProjectId = (access?: ProjectAccess | null) => {
+  if (typeof window === "undefined") return null;
+  const scopedKey = currentProjectStorageKeyForAccess(access);
+  const normalized = normalizeStoredProjectId(
+    window.localStorage.getItem(scopedKey) ||
+      window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY),
+  );
+  if (normalized) window.localStorage.setItem(scopedKey, normalized);
   return normalized || null;
 };
-const writeLocalCurrentProjectId = (projectId: string | null) => {
+const writeLocalCurrentProjectId = (
+  projectId: string | null,
+  access?: ProjectAccess | null,
+) => {
   if (typeof window === "undefined") return;
   const normalized = normalizeStoredProjectId(projectId);
-  normalized
-    ? window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, normalized)
-    : window.localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
+  const scopedKey = currentProjectStorageKeyForAccess(access);
+  if (normalized) {
+    window.localStorage.setItem(scopedKey, normalized);
+    // נשמר גם המפתח הכללי לצורך דפים עצמאיים ישנים; הבחירה למשתמש נקראת מהמפתח התחום.
+    window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, normalized);
+  } else {
+    window.localStorage.removeItem(scopedKey);
+  }
 };
 
 async function selectTable(table: string, orderColumn?: string) {
@@ -15180,11 +15197,11 @@ export default function Page() {
         const selectedProjectId = selectInitialProjectIdForAccess(
           projectList,
           supabaseAuthUser,
-          readLocalCurrentProjectId(),
+          readLocalCurrentProjectId(supabaseAuthUser),
         );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId, supabaseAuthUser);
         }
         setProjectAccess(supabaseAuthUser);
         setShowProjectPicker(!returnToProjectHome);
@@ -15207,11 +15224,11 @@ export default function Page() {
         const selectedProjectId = selectInitialProjectIdForAccess(
           projectList,
           storedUser,
-          readLocalCurrentProjectId(),
+          readLocalCurrentProjectId(storedUser),
         );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId, storedUser);
         }
         setProjectAccess(storedUser);
         setShowProjectPicker(!returnToProjectHome);
@@ -15402,11 +15419,11 @@ export default function Page() {
           const selectedProjectId = selectInitialProjectIdForAccess(
             projectList,
             authAccess,
-            readLocalCurrentProjectId(),
+            readLocalCurrentProjectId(authAccess),
           );
           if (selectedProjectId) {
             setCurrentProjectId(selectedProjectId);
-            writeLocalCurrentProjectId(selectedProjectId);
+            writeLocalCurrentProjectId(selectedProjectId, authAccess);
           }
           setLoginError("");
           setProjectAccess(authAccess);
@@ -15437,11 +15454,11 @@ export default function Page() {
     const selectedProjectId = selectInitialProjectIdForAccess(
       projectList,
       access,
-      readLocalCurrentProjectId(),
+      readLocalCurrentProjectId(matched),
     );
     if (selectedProjectId) {
       setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId);
+      writeLocalCurrentProjectId(selectedProjectId, matched);
     }
     setProjectAccess(access);
     setShowProjectPicker(true);
@@ -15874,7 +15891,7 @@ export default function Page() {
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
-    const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId());
+    const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
     const selectedProjectId = normalizeStoredProjectId(currentProjectId);
     const active =
       (selectedProjectId
@@ -16098,7 +16115,7 @@ export default function Page() {
     // כאשר Supabase פעיל, הנתונים נשמרים בענן. אין צורך לשמור את כל הרשומות
     // גם ב-localStorage, כי תמונות/קבצים עלולים לעבור את מגבלת הדפדפן ולגרום לקריסת הדף.
     if (cloudEnabled) {
-      writeLocalCurrentProjectId(currentProjectId);
+      writeLocalCurrentProjectId(currentProjectId, projectAccess);
       return;
     }
 
@@ -16132,7 +16149,7 @@ export default function Page() {
     cloudEnabled,
   ]);
   useEffect(() => {
-    if (loaded) writeLocalCurrentProjectId(currentProjectId);
+    if (loaded) writeLocalCurrentProjectId(currentProjectId, projectAccess);
   }, [currentProjectId, loaded]);
 
   useEffect(() => {
@@ -16321,7 +16338,7 @@ export default function Page() {
     const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
     if (!sourceProjects.length) return;
 
-    const savedId = normalizeStoredProjectId(readLocalCurrentProjectId());
+    const savedId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
     const selectedId = normalizeStoredProjectId(currentProjectId);
 
     const selectedProject = selectedId
@@ -16354,7 +16371,7 @@ export default function Page() {
     setCurrentProjectId((prev) => {
       const normalizedPrev = normalizeStoredProjectId(prev);
       if (normalizedPrev === nextProjectId) return prev;
-      writeLocalCurrentProjectId(nextProjectId);
+      writeLocalCurrentProjectId(nextProjectId, projectAccess);
       return nextProjectId;
     });
   }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId, showProjectPicker]);
@@ -16505,7 +16522,7 @@ export default function Page() {
     const normalized = normalizeStoredProjectId(currentProjectId);
     if (normalized && currentProjectId !== normalized) {
       setCurrentProjectId(normalized);
-      writeLocalCurrentProjectId(normalized);
+      writeLocalCurrentProjectId(normalized, projectAccess);
     }
   }, [currentProjectId]);
   const savedCurrentProjectLegend = useMemo(
@@ -18012,7 +18029,7 @@ export default function Page() {
       }
 
       setCurrentProjectId(id);
-      writeLocalCurrentProjectId(id);
+      writeLocalCurrentProjectId(id, projectAccess);
       if (cloudEnabled) await refreshCloudData();
     });
     setNewProjectName("");
@@ -18087,7 +18104,7 @@ export default function Page() {
 
       const selectedId = normalizeStoredProjectId(selected.id);
       setCurrentProjectId(selectedId);
-      writeLocalCurrentProjectId(selectedId);
+      writeLocalCurrentProjectId(selectedId, projectAccess);
       setProjects((prev) => {
         const base = prev.length ? prev : allProjects;
         return base.map((project) => ({
@@ -24309,7 +24326,9 @@ ${invalidRecipients.join("\n")}`);
             color: "#0f172a",
           }}
           onClick={() => {
-            window.location.href = "/engineering-templates";
+            const params = new URLSearchParams();
+            if (currentProjectIdNormalized) params.set("projectId", currentProjectIdNormalized);
+            window.location.href = `/engineering-templates${params.size ? `?${params.toString()}` : ""}`;
           }}
         >
           🏗️ ספריית תבניות / עץ פרויקט חדש
