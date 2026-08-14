@@ -24964,6 +24964,9 @@ ${invalidRecipients.join("\n")}`);
                 description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות."
                 records={projectNonconformances as any[]}
                 columns={[
+                  { label: "אלמנט", value: (record) => record.element || record.details?.element },
+                  { label: "תת אלמנט", value: (record) => record.subElement || record.details?.subElement || record.details?.sub_element },
+                  { label: "תיאור אי התאמה", value: (record) => record.description || record.details?.description },
                   { label: "כותרת", value: (record) => getRecordTitle(record) },
                   { label: "מיקום", value: (record) => record.location },
                   { label: "תאריך", value: (record) => getRecordDate(record) },
