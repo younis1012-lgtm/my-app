@@ -4763,6 +4763,12 @@ const writeLocalCurrentProjectId = (
     window.localStorage.removeItem(scopedKey);
   }
 };
+const readRequestedProjectIdFromUrl = () => {
+  if (typeof window === "undefined") return null;
+  return normalizeStoredProjectId(
+    new URLSearchParams(window.location.search).get("projectId"),
+  ) || null;
+};
 
 async function selectTable(table: string, orderColumn?: string) {
   const empty = { data: [], error: null } as any;
@@ -15201,7 +15207,7 @@ export default function Page() {
         const selectedProjectId = selectInitialProjectIdForAccess(
           projectList,
           supabaseAuthUser,
-          readLocalCurrentProjectId(supabaseAuthUser),
+          requestedProjectId || readLocalCurrentProjectId(supabaseAuthUser),
         );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
@@ -15228,7 +15234,7 @@ export default function Page() {
         const selectedProjectId = selectInitialProjectIdForAccess(
           projectList,
           storedUser,
-          readLocalCurrentProjectId(storedUser),
+          requestedProjectId || readLocalCurrentProjectId(storedUser),
         );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
@@ -15895,8 +15901,9 @@ export default function Page() {
   ) => {
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
+    const requestedProjectId = readRequestedProjectIdFromUrl();
     const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
-    const selectedProjectId = normalizeStoredProjectId(currentProjectId);
+    const selectedProjectId = normalizeStoredProjectId(requestedProjectId || currentProjectId);
     const active =
       (selectedProjectId
         ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
@@ -16342,8 +16349,9 @@ export default function Page() {
     const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
     if (!sourceProjects.length) return;
 
+    const requestedId = readRequestedProjectIdFromUrl();
     const savedId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
-    const selectedId = normalizeStoredProjectId(currentProjectId);
+    const selectedId = normalizeStoredProjectId(requestedId || currentProjectId);
 
     const selectedProject = selectedId
       ? sourceProjects.find((project) => normalizeStoredProjectId(project.id) === selectedId)
