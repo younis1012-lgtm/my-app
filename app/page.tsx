@@ -4881,6 +4881,7 @@ async function selectProjectTable(
         {
           headers: {
             apikey: anonKey,
+            Authorization: `Bearer ${anonKey}`,
           },
           cache: "no-store",
         },
