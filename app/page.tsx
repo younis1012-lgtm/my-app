@@ -3676,7 +3676,7 @@ const inferPlanDisciplineFromText = (value: string) => {
 };
 
 const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
-  const planNoPattern = /[A-Z]{2,}[A-Z0-9]*[-–][A-Z0-9][A-Z0-9\-–]{5,}\d/gi;
+  const planNoPattern = /\b(?:\d{3,}\/\d+[a-z]?|\d{3,}-\d*[a-z][a-z0-9-]*|\d{3,}[a-z]+-\d+|[a-z]{2,}[a-z0-9]*[-–][a-z0-9][a-z0-9\-–]{5,}\d)\b/gi;
   const seen = new Set<string>();
   const sourceName = fileName.replace(/\.[^.]+$/, "");
 
@@ -3688,7 +3688,7 @@ const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<Pl
       const matches = [...line.matchAll(planNoPattern)];
       if (!matches.length) return [];
 
-      return matches.map((match) => {
+      return matches.slice(-1).map((match) => {
         const planNo = String(match[0] ?? "").replace(/–/g, "-").trim();
         const key = normalizeAccessValue(`${planNo}|${line}`);
         if (seen.has(key)) return null;
