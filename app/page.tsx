@@ -9633,6 +9633,21 @@ function PlansSection({
   onLoad: (record: PlanRecord) => void;
   onDelete: (id: string) => void;
 }) {
+  const [planSearch, setPlanSearch] = useState("");
+  const [disciplineFilter, setDisciplineFilter] = useState("");
+  const disciplines = Array.from(
+    new Set(records.map((record) => record.discipline || "עבודות כלליות")),
+  ).sort((a, b) => a.localeCompare(b, "he"));
+  const normalizedPlanSearch = planSearch.trim().toLocaleLowerCase("he");
+  const visiblePlans = records.filter((record) => {
+    const discipline = record.discipline || "עבודות כלליות";
+    if (disciplineFilter && discipline !== disciplineFilter) return false;
+    if (!normalizedPlanSearch) return true;
+    return [record.planNo, record.title, record.revision, discipline, record.notes]
+      .join(" ")
+      .toLocaleLowerCase("he")
+      .includes(normalizedPlanSearch);
+  });
   const isManualPlanFormEmpty =
     !String(`${form.planNo} ${form.revision} ${form.title} ${form.discipline} ${form.notes}`).trim() &&
     !normalizeAttachments(form.attachments).length;
@@ -9653,10 +9668,19 @@ function PlansSection({
           onFiles={onImportRegister}
         />
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 1fr) minmax(220px, 320px)", gap: 10, marginBottom: 12 }}>
+        <input type="search" value={planSearch} onChange={(event) => setPlanSearch(event.target.value)} placeholder="חיפוש לפי שם או מספר תוכנית" style={styles.input} />
+        <select value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} style={styles.input}>
+          <option value="">כל סוגי העבודות</option>
+          {disciplines.map((discipline) => (
+            <option key={discipline} value={discipline}>{discipline}</option>
+          ))}
+        </select>
+      </div>
       <FolderRecordsTable
         title="תוכניות"
-        description="תיקיית תוכניות, מהדורות וקבצים מצורפים בפרויקט."
-        records={records as any[]}
+        description={`הרשימה סווגה לפי סוג עבודה. מוצגות ${visiblePlans.length} מתוך ${records.length} תוכניות.`}
+        records={visiblePlans as any[]}
         columns={[
           { label: "מספר תוכנית", value: (record) => record.planNo || "-" },
           { label: "מהדורה", value: (record) => record.revision || "-" },
@@ -20582,13 +20606,9 @@ export default function Page() {
       const nextPlans = [...savedPlans];
       importedPlans.forEach((plan) => {
         const planNoKey = normalizeAccessValue(plan.planNo);
-        const revisionKey = normalizeAccessValue(plan.revision);
         const existingIndex = nextPlans.findIndex((item) => {
           if (normalizeStoredProjectId(item.projectId) !== projectId) return false;
-          if (!planNoKey || normalizeAccessValue(item.planNo) !== planNoKey) return false;
-          if (!revisionKey) return true;
-          const existingRevisionKey = normalizeAccessValue(item.revision);
-          return !existingRevisionKey || existingRevisionKey === revisionKey;
+          return Boolean(planNoKey) && normalizeAccessValue(item.planNo) === planNoKey;
         });
         if (existingIndex >= 0) {
           const existing = nextPlans[existingIndex];
