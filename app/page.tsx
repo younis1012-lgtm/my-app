@@ -11029,9 +11029,11 @@ function UserAccessPanel({
               const index = sourceIndex;
               const isAdmin = user.role === "admin";
               const isProjectInvite = isSelfServiceProjectCreator(user);
+              const linkedProjectId =
+                accessProjectIds(user)[0] || normalizedProjectId;
               const projectLink =
                 user.code
-                  ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}`
+                  ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
                   : (user.code ?? "");
               return (
                 <tr key={`access-user-${user.username}-${index}`}>
@@ -15257,8 +15259,18 @@ export default function Page() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const projectCodeFromLink = params.get("project");
-    const returnToProjectHome = params.get("returnToProject") === "1";
-    const requestedProjectId = normalizeStoredProjectId(params.get("projectId"));
+    // Older invitation links placed a UUID in `project`. Treat that value as
+    // both the login code and the requested project so existing links keep
+    // opening the correct project after the project-scoped user update.
+    const legacyProjectId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      String(projectCodeFromLink ?? "").trim(),
+    )
+      ? normalizeStoredProjectId(projectCodeFromLink)
+      : null;
+    const requestedProjectId =
+      normalizeStoredProjectId(params.get("projectId")) || legacyProjectId;
+    const returnToProjectHome =
+      params.get("returnToProject") === "1" || Boolean(legacyProjectId);
     if (returnToProjectHome && requestedProjectId) {
       setCurrentProjectId(requestedProjectId);
       writeLocalCurrentProjectId(requestedProjectId);
