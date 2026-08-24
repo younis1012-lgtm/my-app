@@ -15217,11 +15217,18 @@ export default function Page() {
       if (cancelled) return;
       if (supabaseAuthUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
-        const selectedProjectId = selectInitialProjectIdForAccess(
-          projectList,
-          supabaseAuthUser,
-          requestedProjectId || readLocalCurrentProjectId(supabaseAuthUser),
-        );
+        // A return link carries the project the user explicitly selected. On
+        // first render `projects` can still contain only the defaults, so
+        // validating the URL id against that temporary list would replace it
+        // with the previously active project before cloud projects arrive.
+        const selectedProjectId =
+          returnToProjectHome && requestedProjectId
+            ? requestedProjectId
+            : selectInitialProjectIdForAccess(
+                projectList,
+                supabaseAuthUser,
+                readLocalCurrentProjectId(supabaseAuthUser),
+              );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
           writeLocalCurrentProjectId(selectedProjectId, supabaseAuthUser);
@@ -15244,11 +15251,14 @@ export default function Page() {
       const storedUser = findUserForStoredSession(users, storedSession);
       if (storedUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
-        const selectedProjectId = selectInitialProjectIdForAccess(
-          projectList,
-          storedUser,
-          requestedProjectId || readLocalCurrentProjectId(storedUser),
-        );
+        const selectedProjectId =
+          returnToProjectHome && requestedProjectId
+            ? requestedProjectId
+            : selectInitialProjectIdForAccess(
+                projectList,
+                storedUser,
+                readLocalCurrentProjectId(storedUser),
+              );
         if (selectedProjectId) {
           setCurrentProjectId(selectedProjectId);
           writeLocalCurrentProjectId(selectedProjectId, storedUser);
