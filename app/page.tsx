@@ -4179,11 +4179,13 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
   {
     id: "electrical",
     title: "רשימות תיוג חשמל",
-    description: "תאי בקרה, חציות, צנרת/כבלים ועמודי תאורה",
+    description: "תאי בקרה, תשתיות כבלים, מרכזיות, עמודי תאורה ויסודות",
     templateKeys: [
       "electricalControlCells",
       "electricalCrossingPipesCables",
       "electricalLightingPole",
+      "electricalLightingCabinet",
+      "electricalLightingFoundation",
     ],
   },
   {
