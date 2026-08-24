@@ -4841,6 +4841,15 @@ const readRequestedProjectIdFromUrl = () => {
     new URLSearchParams(window.location.search).get("projectId"),
   ) || null;
 };
+const consumeRequestedProjectRoute = () => {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("projectId") && !url.searchParams.has("returnToProject"))
+    return;
+  url.searchParams.delete("projectId");
+  url.searchParams.delete("returnToProject");
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+};
 
 async function selectTable(table: string, orderColumn?: string) {
   const empty = { data: [], error: null } as any;
@@ -15330,6 +15339,7 @@ export default function Page() {
           setCurrentProjectId(selectedProjectId);
           writeLocalCurrentProjectId(selectedProjectId, supabaseAuthUser);
         }
+        consumeRequestedProjectRoute();
         setProjectAccess(supabaseAuthUser);
         setShowProjectPicker(!returnToProjectHome);
         writeAuthSession(supabaseAuthUser);
@@ -15360,6 +15370,7 @@ export default function Page() {
           setCurrentProjectId(selectedProjectId);
           writeLocalCurrentProjectId(selectedProjectId, storedUser);
         }
+        consumeRequestedProjectRoute();
         setProjectAccess(storedUser);
         setShowProjectPicker(!returnToProjectHome);
         refreshAuthSession();
