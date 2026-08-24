@@ -2534,6 +2534,8 @@ const projectAccessToRow = (access: ProjectAccess) => ({
   role: access.role,
   code: access.code ?? null,
   project_name: access.role === "admin" ? null : (access.projectName ?? ""),
+  project_ids:
+    access.role === "admin" ? [] : Array.from(new Set(access.projectIds ?? [])),
   signature: access.signatureDataUrl ?? "",
 });
 
@@ -2755,17 +2757,81 @@ const signInWithSupabaseAuth = async (
 const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (!isSupabaseConfigured || !supabase) return;
   const normalized = normalizeProjectAccessList(users);
-  const deleteResult = await supabase
+  const { data: existingRows, error: existingError } = await supabase
     .from(ACCESS_USERS_TABLE)
-    .delete()
-    .neq("id", "00000000-0000-0000-0000-000000000000");
-  if (deleteResult.error)
-    throw new Error(
-      errorText(deleteResult.error) || "שגיאה במחיקת משתמשים ישנים מ-Supabase",
+    .select("username");
+  if (existingError)
+    throw new Error(errorText(existingError) || "שגיאה בקריאת המשתמשים מ-Supabase");
+  const retainedUsernames = new Set(
+    normalized.map((user) => normalizeAccessValue(user.username)),
+  );
+  const removedUsernames = (existingRows ?? [])
+    .map((row: any) => String(row?.username ?? "").trim())
+    .filter(
+      (username) =>
+        username && !retainedUsernames.has(normalizeAccessValue(username)),
     );
-  const insertResult = await supabase
+  if (removedUsernames.length) {
+    const deleteResult = await supabase
+      .from(ACCESS_USERS_TABLE)
+      .delete()
+      .in("username", removedUsernames)
+      .select("username");
+    if (deleteResult.error)
+      throw new Error(
+        errorText(deleteResult.error) || "שגיאה במחיקת משתמשים מ-Supabase",
+      );
+    if ((deleteResult.data ?? []).length !== removedUsernames.length)
+      throw new Error("לא כל המשתמשים שנבחרו נמחקו מ-Supabase. בדוק את הרשאות המחיקה בטבלה.");
+  }
+  const rows = normalized.map(projectAccessToRow);
+  let insertResult = await supabase
     .from(ACCESS_USERS_TABLE)
-    .insert(normalized.map(projectAccessToRow));
+    .upsert(rows, { onConflict: "username" });
+  if (insertResult.error && isMissingColumnError(insertResult.error, "project_ids")) {
+    const legacyRows = rows.map(({ project_ids: _projectIds, ...row }) => row);
+    insertResult = await supabase
+      .from(ACCESS_USERS_TABLE)
+      .upsert(legacyRows, { onConflict: "username" });
+  }
+  if (
+    insertResult.error &&
+    /no unique or exclusion constraint|ON CONFLICT specification/i.test(
+      errorText(insertResult.error),
+    )
+  ) {
+    const existingUsernames = new Set(
+      (existingRows ?? []).map((row: any) =>
+        normalizeAccessValue(String(row?.username ?? "")),
+      ),
+    );
+    for (const sourceRow of rows) {
+      const row: any = isMissingColumnError(insertResult.error, "project_ids")
+        ? (({ project_ids: _projectIds, ...legacyRow }) => legacyRow)(sourceRow)
+        : sourceRow;
+      const usernameKey = normalizeAccessValue(sourceRow.username);
+      let result: any = existingUsernames.has(usernameKey)
+        ? await supabase
+            .from(ACCESS_USERS_TABLE)
+            .update(row)
+            .eq("username", sourceRow.username)
+        : await supabase.from(ACCESS_USERS_TABLE).insert(row);
+      if (result.error && isMissingColumnError(result.error, "project_ids")) {
+        const { project_ids: _projectIds, ...legacyRow } = sourceRow;
+        result = existingUsernames.has(usernameKey)
+          ? await supabase
+              .from(ACCESS_USERS_TABLE)
+              .update(legacyRow)
+              .eq("username", sourceRow.username)
+          : await supabase.from(ACCESS_USERS_TABLE).insert(legacyRow);
+      }
+      if (result.error) {
+        insertResult = result;
+        break;
+      }
+      insertResult = result;
+    }
+  }
   if (insertResult.error)
     throw new Error(
       errorText(insertResult.error) || "שגיאה בשמירת משתמשים ל-Supabase",
@@ -10813,6 +10879,9 @@ function EnhancedNonconformancesSection({
 
 function UserAccessPanel({
   users,
+  projectId,
+  projectName,
+  allowAdminRole,
   onChangeUser,
   onAddUser,
   onRemoveUser,
@@ -10823,6 +10892,9 @@ function UserAccessPanel({
   hasUnsavedChanges,
 }: {
   users: ProjectAccess[];
+  projectId: string;
+  projectName: string;
+  allowAdminRole: boolean;
   onChangeUser: (
     index: number,
     field: keyof ProjectAccess,
@@ -10836,6 +10908,19 @@ function UserAccessPanel({
   onCancelChanges: () => void;
   hasUnsavedChanges: boolean;
 }) {
+  const normalizedProjectId = normalizeStoredProjectId(projectId);
+  const normalizedProjectName = normalizeHebrewProjectName(projectName);
+  const projectUsers = users
+    .map((user, sourceIndex) => ({ user, sourceIndex }))
+    .filter(({ user }) => {
+      if (user.role === "admin") return false;
+      const ids = accessProjectIds(user);
+      if (ids.length) return ids.includes(normalizedProjectId);
+      return Boolean(
+        normalizedProjectName &&
+          normalizeHebrewProjectName(user.projectName ?? "") === normalizedProjectName,
+      );
+    });
   return (
     <div
       style={{
@@ -10859,17 +10944,14 @@ function UserAccessPanel({
       >
         <div>
           <div style={{ fontSize: 20, fontWeight: 950 }}>
-            ניהול משתמשים והרשאות
+            ניהול משתמשים והרשאות — {projectName || "הפרויקט הפעיל"}
           </div>
           <div style={{ color: "#64748b", marginTop: 4 }}>
-            מנהל מערכת נשאר עם גישה לכל הפרויקטים. משתמש רגיל רואה רק את הפרויקט
-            שהוגדר לו.
+            מוצגים רק המשתמשים המשויכים לפרויקט זה. מנהל המערכת נשאר גלובלי ואינו
+            מוצג ברשימת הפרויקט.
           </div>
           <div style={{ color: "#166534", marginTop: 6, fontWeight: 900 }}>
-            לפתיחת פרויקט עצמאי: לחץ “הוסף משתמש לפתיחת פרויקט חדש”, שלח לו את הקישור, שם המשתמש והסיסמה. אין צורך למלא שם פרויקט מראש.
-          </div>
-          <div style={{ color: "#1d4ed8", marginTop: 6, fontWeight: 900 }}>
-            לשיוך לפרויקט שכבר קיים: החלף את הקוד `new-project-*` בקוד ייחודי, הזן בשדה שם הפרויקט את שמו המדויק, שמור את השינויים ושלח את הקישור הראשי.
+            משתמש חדש ישויך אוטומטית לפרויקט הפעיל. לאחר השינוי יש ללחוץ “אישור שמירת שינויים”.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -10907,14 +10989,7 @@ function UserAccessPanel({
             onClick={onAddUser}
             style={{ ...styles.secondaryBtn }}
           >
-            הוסף משתמש לפתיחת פרויקט חדש
-          </button>
-          <button
-            type="button"
-            onClick={onResetDefaults}
-            style={{ ...styles.secondaryBtn }}
-          >
-            איפוס ברירת מחדל
+            הוסף משתמש לפרויקט זה
           </button>
         </div>
       </div>
@@ -10950,7 +11025,8 @@ function UserAccessPanel({
             </tr>
           </thead>
           <tbody>
-            {users.map((user, index) => {
+            {projectUsers.map(({ user, sourceIndex }) => {
+              const index = sourceIndex;
               const isAdmin = user.role === "admin";
               const isProjectInvite = isSelfServiceProjectCreator(user);
               const projectLink =
@@ -10958,7 +11034,7 @@ function UserAccessPanel({
                   ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}`
                   : (user.code ?? "");
               return (
-                <tr key={`access-user-${index}`}>
+                <tr key={`access-user-${user.username}-${index}`}>
                   <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
                     <input
                       value={user.displayName}
@@ -11019,7 +11095,7 @@ function UserAccessPanel({
                         fontWeight: 900,
                       }}
                     >
-                      <option value="admin">Administrator</option>
+                      {allowAdminRole ? <option value="admin">Administrator</option> : null}
                       <option value="readwrite">Read &amp; Write</option>
                       <option value="readonly">Read Only</option>
                     </select>
@@ -11187,6 +11263,13 @@ function UserAccessPanel({
                 </tr>
               );
             })}
+            {!projectUsers.length ? (
+              <tr>
+                <td colSpan={8} style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
+                  עדיין אין משתמשים המשויכים לפרויקט זה.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -15600,6 +15683,12 @@ export default function Page() {
     setDraftAccessUsers((prevUsers) =>
       prevUsers.map((user, userIndex) => {
         if (userIndex !== index) return user;
+        if (
+          !isAdminAccess(projectAccess) &&
+          (user.role === "admin" || !accessProjectIds(user).includes(activeProjectId))
+        ) return user;
+        if (!isAdminAccess(projectAccess) && field === "role" && value === "admin")
+          return user;
         const updated: ProjectAccess = {
           ...user,
           [field]: value,
@@ -15661,6 +15750,11 @@ export default function Page() {
   const removeAccessUser = (index: number) => {
     const user = draftAccessUsers[index];
     if (!user || user.role === "admin") return;
+    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
+    if (
+      !isAdminAccess(projectAccess) &&
+      !accessProjectIds(user).includes(activeProjectId)
+    ) return;
     if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
     setDraftAccessUsers((prevUsers) =>
       prevUsers.filter((_, userIndex) => userIndex !== index),
@@ -16351,6 +16445,8 @@ export default function Page() {
   const canCreateProjects =
     isAdminAccess(projectAccess) || isSelfServiceProjectCreator(projectAccess);
   const canManageProjects = isAdminAccess(projectAccess);
+  const canManageProjectUsers =
+    isAdminAccess(projectAccess) || projectAccess?.occupationalWriteAccess === true;
 
   useEffect(() => {
     if (!projectAccess) return;
@@ -24289,7 +24385,7 @@ ${invalidRecipients.join("\n")}`);
               ) : null}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {isAdminAccess(projectAccess) ? (
+              {canManageProjectUsers ? (
                 <button
                   type="button"
                   onClick={() => setShowUserManagement((prev) => !prev)}
@@ -24342,9 +24438,12 @@ ${invalidRecipients.join("\n")}`);
         </div>
       </header>
 
-      {isAdminAccess(projectAccess) && showUserManagement ? (
+      {canManageProjectUsers && showUserManagement ? (
         <UserAccessPanel
           users={draftAccessUsers}
+          projectId={normalizeStoredProjectId(currentProject?.id ?? currentProjectId)}
+          projectName={currentProject?.name ?? ""}
+          allowAdminRole={isAdminAccess(projectAccess)}
           onChangeUser={updateAccessUser}
           onAddUser={addAccessUser}
           onRemoveUser={removeAccessUser}
