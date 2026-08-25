@@ -1201,12 +1201,14 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             ? "QA"
             : "QC",
           "מס׳ סדורי": rows.length + 1,
-          "תאריך יציקה": dateText(
-            item?.executionDate ??
-              checklist?.date ??
-              result.castDate ??
-              result.testDate ??
-              attachment?.uploadedAt,
+          "תאריך יציקה": firstDateText(
+            result.castDate,
+            result.sampleDate,
+            result.samplingDate,
+            item?.executionDate,
+            checklist?.date,
+            result.testDate,
+            attachment?.uploadedAt,
           ),
           "מבנה": firstText(
             result.structure,
