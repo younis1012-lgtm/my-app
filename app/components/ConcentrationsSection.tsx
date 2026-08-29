@@ -1115,13 +1115,15 @@ const buildPileConcentrationRows = (savedChecklists: any[]): Row[] =>
         "מס׳ תעודת בדיקת חוזק לחיצה": firstText(details.strengthCertificateNo),
         "חוזק 7 ימים": firstText(details.strength7Days),
         "חוזק 28 ימים": firstText(details.strength28Days),
-        "מעמד הבטון": firstText(
-          details.concreteStatus,
-          concreteStrengthStatusForConcentration(
-            details.concreteType,
-            details.strength28Days,
-          ),
-        ),
+        "מעמד הבטון": firstText(details.strength28Days)
+          ? firstText(
+              concreteStrengthStatusForConcentration(
+                details.concreteType,
+                details.strength28Days,
+              ),
+              details.concreteStatus,
+            )
+          : "",
         "בדיקה סונית - תאריך": dateText(details.sonicDate),
         "בדיקה סונית - מס׳ תעודה": firstText(details.sonicCertificateNo),
         "בדיקה סונית - מעמד": firstText(details.sonicStatus),
@@ -1153,13 +1155,36 @@ const concreteStrengthStatusForConcentration = (
     "ב-50": 53,
     "ב-60": 63,
   };
-  const value = Number(cleanText(strength28Days).replace(",", "."));
+  const rawValue = cleanText(strength28Days);
+  if (!rawValue) return "";
+  const numericText = rawValue.replace(",", ".").match(/-?\d+(?:\.\d+)?/)?.[0];
+  if (!numericText) return "";
+  const value = Number(numericText);
   if (!minByType[type] || !Number.isFinite(value)) return "";
   return value >= minByType[type] ? "תקין" : "לא תקין";
 };
 
-const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
+const approvedConcreteSupplierName = (savedPreliminary: any[]): string => {
+  const approvedConcreteSuppliers = preliminaryBySubtype(savedPreliminary, "suppliers")
+    .filter(preliminaryRecordIsApproved)
+    .map((record, index) => ({ record, row: supplierRow(record, index) }))
+    .filter(({ record, row }) =>
+      includesAny(
+        `${row["חומר/מוצר מסופק"] ?? ""} ${recordText(record)}`,
+        ["בטון", "concrete"],
+      ),
+    )
+    .map(({ row }) => cleanText(row["שם ספק"]))
+    .filter(Boolean);
+  return approvedConcreteSuppliers.at(-1) ?? "";
+};
+
+const buildConcreteConcentrationRows = (
+  savedChecklists: any[],
+  savedPreliminary: any[] = [],
+): Row[] => {
   const rows: Row[] = [];
+  const approvedConcreteSource = approvedConcreteSupplierName(savedPreliminary);
   savedChecklists.forEach((checklist) => {
     const checklistText = recordText(checklist);
     const isConcreteChecklist =
@@ -1210,13 +1235,11 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             result.testDate,
             attachment?.uploadedAt,
           ),
-          "מבנה": firstText(
-            result.structure,
-            result.element,
-            checklist?.location,
-            checklist?.element,
-            checklist?.structure,
-          ),
+        "מבנה": firstText(
+          checklist?.location,
+          checklist?.structure,
+          checklist?.element,
+        ),
           "תת אלמנט": firstText(
             result.subElement,
             result.sub_element,
@@ -1226,7 +1249,11 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             item?.subElement,
             item?.sub_element,
           ),
-          "מקום נטילה": firstText(result.sampleLocation, "אתר"),
+          "מקום נטילה": firstText(
+            item?.sampleLocation,
+            checklist?.sampleLocation,
+            "אתר",
+          ),
           "מחתך": firstText(result.fromSection, checklist?.stationSection, checklist?.fromSection),
           "עד חתך": firstText(result.toSection, checklist?.toStationSection, checklist?.toSection),
           "צד": firstText(result.side, checklist?.side, checklist?.offset),
@@ -1234,7 +1261,10 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             result.certificateNo,
             attachmentCertificateNo(attachment, item?.certificateNo),
           ),
-          "מקור בטון": firstText(result.concreteSource, checklist?.concreteSource),
+          "מקור בטון": firstText(
+            approvedConcreteSource,
+            checklist?.concreteSource,
+          ),
           "סוג בטון": concreteType,
           'כמות בטון ביציקה (מ"ק)': firstText(
             result.quantity,
@@ -1242,9 +1272,13 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
             checklist?.castingVolumeCubicMeters,
             checklist?.concreteQuantity,
           ),
-          "סומך - דרישה": firstText(result.slumpRequirement),
-          "סומך - תוצאה": firstText(result.slumpResult),
-          "סוג אשפרה": firstText(result.curingType),
+          "סומך - דרישה": firstText(result.slumpCertificateNo)
+            ? firstText(result.slumpRequirement)
+            : "",
+          "סומך - תוצאה": firstText(result.slumpCertificateNo)
+            ? firstText(result.slumpResult)
+            : "",
+          "סוג אשפרה": "",
           "חוזק לחיצה - 7 ימים": firstText(result.strength7Days),
           "חוזק לחיצה - 28 ימים": strength28,
           "מעמד הבטון": concreteStrengthStatusForConcentration(
@@ -1300,15 +1334,18 @@ const buildConcreteConcentrationRows = (savedChecklists: any[]): Row[] => {
         "עד חתך": firstText(checklist?.toStationSection, checklist?.toSection),
         "צד": firstText(checklist?.side, checklist?.offset),
         "תעודה מס׳": "",
-        "מקור בטון": firstText(checklist?.concreteSource),
+        "מקור בטון": firstText(
+          approvedConcreteSource,
+          checklist?.concreteSource,
+        ),
         "סוג בטון": normalizeConcreteTypeForConcentration(checklist?.concreteType),
         'כמות בטון ביציקה (מ"ק)': firstText(
           checklist?.castingVolumeCubicMeters,
           checklist?.concreteQuantity,
         ),
-        "סומך - דרישה": firstText(checklist?.slumpRequirement),
-        "סומך - תוצאה": firstText(checklist?.slumpResult),
-        "סוג אשפרה": firstText(checklist?.curingType),
+        "סומך - דרישה": "",
+        "סומך - תוצאה": "",
+        "סוג אשפרה": "",
         "חוזק לחיצה - 7 ימים": "",
         "חוזק לחיצה - 28 ימים": "",
         "מעמד הבטון": "",
@@ -4381,7 +4418,8 @@ const definitions: ConcentrationDefinition[] = [
     description: "בדיקות בטון מתוך רשימות תיוג ותעודות מצורפות",
     sourceLabel: "רשימות תיוג",
     columns: concreteOutputColumns,
-    buildRows: ({ savedChecklists }) => buildConcreteConcentrationRows(savedChecklists),
+    buildRows: ({ savedChecklists, savedPreliminary }) =>
+      buildConcreteConcentrationRows(savedChecklists, savedPreliminary),
   },
   {
     id: "piles",

@@ -2,6 +2,13 @@ type TrialSectionRecord = any;
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 import { FileDropZone } from './FileDropZone';
 
+type ProjectStructureNode = {
+  id: string;
+  parentId: string;
+  nodeType: 'road' | 'site' | 'structure' | 'section' | 'element' | 'activity';
+  name: string;
+};
+
 type StoredAttachment = {
   name: string;
   type: string;
@@ -196,6 +203,131 @@ const updateTrialField = (setTrialSectionForm: any, key: string, value: string) 
   }));
 };
 
+const descendantsOf = (nodes: ProjectStructureNode[], parentId: string) => {
+  const descendantIds = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    nodes.forEach((node) => {
+      if ((node.parentId === parentId || descendantIds.has(node.parentId)) && !descendantIds.has(node.id)) {
+        descendantIds.add(node.id);
+        changed = true;
+      }
+    });
+  }
+  return nodes.filter((node) => descendantIds.has(node.id));
+};
+
+const ancestorPath = (nodes: ProjectStructureNode[], nodeId: string) => {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const path: ProjectStructureNode[] = [];
+  const visited = new Set<string>();
+  let current = byId.get(nodeId);
+  while (current && !visited.has(current.id)) {
+    path.unshift(current);
+    visited.add(current.id);
+    current = byId.get(current.parentId);
+  }
+  return path;
+};
+
+function TrialStructureFields({
+  nodes,
+  form,
+  setForm,
+}: {
+  nodes: ProjectStructureNode[];
+  form: any;
+  setForm: React.Dispatch<React.SetStateAction<any>>;
+}) {
+  const trialNodes = nodes.filter((node) => node.nodeType === 'section');
+  const linkedPath = ancestorPath(nodes, String(form?.structureNodeId || ''));
+  const selectedTrialId = String(form?.trialSectionNodeId || linkedPath.find((node) => node.nodeType === 'section')?.id || '');
+  const selectedElementId = String(form?.elementNodeId || [...linkedPath].reverse().find((node) => node.nodeType === 'element')?.id || '');
+  const selectedSubElementId = String(form?.subElementNodeId || [...linkedPath].reverse().find((node) => node.nodeType === 'activity')?.id || '');
+  const elementNodes = selectedTrialId
+    ? descendantsOf(nodes, selectedTrialId).filter((node) => node.nodeType === 'element')
+    : [];
+  const subElementNodes = selectedElementId
+    ? descendantsOf(nodes, selectedElementId).filter((node) => node.nodeType === 'activity' || node.nodeType === 'element')
+    : [];
+
+  const selectStyle = { ...styles.input, background: '#fff' };
+  return (
+    <>
+      <Field label="שם קטע ניסוי">
+        <select
+          style={selectStyle}
+          value={selectedTrialId}
+          onChange={(event) => {
+            const node = nodes.find((item) => item.id === event.target.value);
+            setForm((prev: any) => ({
+              ...prev,
+              trialSectionNodeId: node?.id || '',
+              structureNodeId: node?.id || '',
+              title: node?.name || '',
+              elementNodeId: '',
+              elementName: '',
+              element: '',
+              subElementNodeId: '',
+              subElement: '',
+            }));
+          }}
+        >
+          <option value="">בחר קטע מתוך עץ הפרויקט</option>
+          {trialNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+        </select>
+      </Field>
+      <Field label="שם האלמנט">
+        <select
+          style={selectStyle}
+          value={selectedElementId}
+          disabled={!selectedTrialId}
+          onChange={(event) => {
+            const node = nodes.find((item) => item.id === event.target.value);
+            setForm((prev: any) => ({
+              ...prev,
+              elementNodeId: node?.id || '',
+              structureNodeId: node?.id || prev.trialSectionNodeId || '',
+              elementName: node?.name || '',
+              element: node?.name || '',
+              subElementNodeId: '',
+              subElement: '',
+            }));
+          }}
+        >
+          <option value="">בחר אלמנט</option>
+          {elementNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+        </select>
+      </Field>
+      <Field label="תת אלמנט">
+        <select
+          style={selectStyle}
+          value={selectedSubElementId}
+          disabled={!selectedElementId}
+          onChange={(event) => {
+            const node = nodes.find((item) => item.id === event.target.value);
+            setForm((prev: any) => ({
+              ...prev,
+              subElementNodeId: node?.id || '',
+              structureNodeId: node?.id || prev.elementNodeId || prev.trialSectionNodeId || '',
+              subElement: node?.name || '',
+            }));
+          }}
+        >
+          <option value="">בחר תת אלמנט</option>
+          {subElementNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+        </select>
+      </Field>
+      {!nodes.length ? (
+        <div style={{ color: '#64748b', fontWeight: 700, alignSelf: 'end' }}>
+          עדיין לא הוגדר עץ פרויקט.
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 const buildTrialWordHtml = (form: any) => {
   const value = (key: string) => htmlEscape(key.toLowerCase().includes('date') ? formatDate(getTrialValue(form, key)) : getTrialValue(form, key));
   const rows = [
@@ -272,6 +404,7 @@ export function TrialSectionsSection(props: {
   setTrialSectionForm: React.Dispatch<React.SetStateAction<Omit<TrialSectionRecord, 'id' | 'projectId' | 'savedAt'>>>;
   saveTrialSection: () => void;
   resetTrialSectionEditor: () => void;
+  projectStructureNodes: ProjectStructureNode[];
 }) {
   const downloadFilledTrialWord = () => {
     const html = buildTrialWordHtml(props.trialSectionForm as any);
@@ -296,7 +429,16 @@ export function TrialSectionsSection(props: {
             <div key={group.title} style={{ ...styles.card, marginBottom: 12 }}>
               <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, fontWeight: 900 }}>{group.title}</h3>
               <div style={styles.formGrid}>
-                {group.fields.map(([key, label, kind]) => (
+                {group.title === 'פרטי קטע הניסוי' ? (
+                  <TrialStructureFields
+                    nodes={props.projectStructureNodes}
+                    form={props.trialSectionForm}
+                    setForm={props.setTrialSectionForm}
+                  />
+                ) : null}
+                {group.fields.filter(([key]) => !(
+                  group.title === 'פרטי קטע הניסוי' && ['title', 'elementName', 'subElement'].includes(key)
+                )).map(([key, label, kind]) => (
                   <Field key={key} label={label} full={kind === 'textarea'}>
                     {kind === 'textarea' ? (
                       <textarea
@@ -309,6 +451,7 @@ export function TrialSectionsSection(props: {
                         type={kind === 'date' ? 'date' : 'text'}
                         style={styles.input}
                         value={String(getTrialValue(props.trialSectionForm, key))}
+                        readOnly={key === 'qualityControlCompany'}
                         onChange={(e) => updateTrialField(props.setTrialSectionForm, key, e.target.value)}
                       />
                     )}

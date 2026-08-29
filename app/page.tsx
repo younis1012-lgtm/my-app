@@ -632,6 +632,19 @@ const buildProjectStructurePath = (
     .join(" / ");
 };
 
+const linkedStructureNodeId = (record: any) => {
+  const details = record?.details && typeof record.details === "object" ? record.details : {};
+  return String(
+    record?.structureNodeId ??
+      record?.structure_node_id ??
+      record?.projectTreeNodeId ??
+      details.structureNodeId ??
+      details.structure_node_id ??
+      details.projectTreeNodeId ??
+      "",
+  );
+};
+
 const projectStructureNodeDepth = (
   nodes: ProjectStructureNode[],
   node: ProjectStructureNode,
@@ -646,6 +659,37 @@ const projectStructureNodeDepth = (
     parent = parent.parentId ? byId.get(parent.parentId) : undefined;
   }
   return depth;
+};
+
+const projectStructureRootNode = (
+  nodes: ProjectStructureNode[],
+  nodeOrId: ProjectStructureNode | string,
+) => {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  let current = typeof nodeOrId === "string" ? byId.get(nodeOrId) : nodeOrId;
+  const seen = new Set<string>();
+  while (current?.parentId && !seen.has(current.id)) {
+    seen.add(current.id);
+    current = byId.get(current.parentId) || current;
+    if (!current.parentId) break;
+  }
+  return current;
+};
+
+const projectStructureSelectableNodes = (nodes: ProjectStructureNode[]) => {
+  const parentIds = new Set(nodes.map((node) => node.parentId).filter(Boolean));
+  const selectable = sortProjectStructureNodes(nodes).filter(
+    (node) => node.nodeType === "activity" || !parentIds.has(node.id),
+  );
+  return selectable.length ? selectable : sortProjectStructureNodes(nodes);
+};
+
+const conciseProjectStructureLabel = (nodes: ProjectStructureNode[], node: ProjectStructureNode) => {
+  const root = projectStructureRootNode(nodes, node);
+  const location = [node.fromChainage, node.toChainage].filter(Boolean).join("–");
+  return [root && root.id !== node.id ? root.name : "", node.name, location, node.side]
+    .filter(Boolean)
+    .join(" · ");
 };
 
 type ControlProcessStatus =
@@ -2322,22 +2366,6 @@ const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
     aliases: ["younis1012@gmail.com"],
     projectName: null,
   },
-  {
-    username: "user806",
-    password: "806",
-    displayName: "משתמש פרויקט 806",
-    role: "readwrite",
-    code: "806",
-    projectName: "כביש 806 צלמון שלב א׳",
-  },
-  {
-    username: "user909",
-    password: "909",
-    displayName: "משתמש פרויקט 909",
-    role: "readonly",
-    code: "909",
-    projectName: "שם הפרויקט כפי שמופיע במערכת",
-  },
 ];
 
 const normalizeAccessRole = (
@@ -3123,7 +3151,9 @@ const PROJECT_TREE_WORK_GROUPS: Array<{
     pattern: /בטון|קיר|קירות|מובל|מעביר\s*מים|גשר|כלונס|יסוד|יציק/i,
     activities: [
       { name: "חפירה לקירות ומבנים", pattern: /חפיר.*(?:קיר|מבנה|יסוד)/i },
-      { name: "החלפת קרקע", pattern: /החלפת\s+קרקע/i },
+      { name: "החלפת קרקע בתחתית יסוד קיר", pattern: /החלפת\s+קרקע.*(?:יסוד\s*)?קיר|(?:יסוד\s*)?קיר.*החלפת\s+קרקע/i },
+      { name: "החלפת קרקע בתחתית יסוד תעלת ניקוז", pattern: /החלפת\s+קרקע.*(?:יסוד\s*)?תעל(?:ת)?\s*ניקוז|תעל(?:ת)?\s*ניקוז.*החלפת\s+קרקע/i },
+      { name: "החלפת קרקע בתחתית מבנה", pattern: /החלפת\s+קרקע/i },
       { name: "יציקת קירות", pattern: /קיר|קירות/i },
       { name: "יציקת מובלים ומעבירי מים", pattern: /מובל|מעביר\s*מים/i },
       { name: "יציקת יסודות", pattern: /יסוד|כלונס/i },
@@ -3257,6 +3287,21 @@ const PROJECT_TREE_GENERIC_ACTIVITY: Record<string, string> = {
   "עבודות גמר ותמרור": "עבודות גמר, תמרור ושילוט",
 };
 
+const SIMPLE_ROAD_EXECUTION_STAGES = [
+  "חפירה", "עיבוד שתית", "החלפת קרקע", "עבודות מילוי", "מצעים", "אספלט",
+  "עבודות סימון כביש - צבע", "עבודות תמרור ושילוט",
+];
+
+const SIMPLE_CAST_CONCRETE_STAGES = [
+  "חפירה ליסודות ומבנים",
+  "החלפת קרקע בתחתית יסוד קיר",
+  "החלפת קרקע בתחתית יסוד תעלת ניקוז",
+  "יציקת יסודות",
+  "יציקת קירות",
+  "איטום",
+  "מילוי חוזר",
+];
+
 const extractPlanChainage = (text: string) => {
   const chainages = Array.from(
     text.matchAll(/(?:קמ|ק"מ|חתך|מחתך)\s*[:\-]?\s*(\d{1,3}\+\d{2,3}|\d{2,5}(?:\.\d+)?)|(\d{1,3}\+\d{2,3})/g),
@@ -3366,7 +3411,48 @@ const buildProjectTreeProposalFromPlans = (
     });
   });
 
-  return { nodes, includedPlans, excludedPlans };
+  const includedText = includedPlans.map(planTextForProjectTree).join(" ");
+  const roadNames = Array.from(new Set(
+    Array.from(includedText.matchAll(/כביש\s*(?:מס(?:פר|')?\s*)?([0-9]+[א-תA-Za-z-]?)/gi))
+      .map((match) => `כביש ${match[1]}`),
+  ));
+  const hasRoadWork = /כביש|סלילה|עפר|חפירה|שתית|מצע|אספלט|תמרור|שילוט|סימון/i.test(includedText);
+  if (hasRoadWork && !roadNames.length) roadNames.push("כביש");
+
+  const simplifiedNodes: GeneratedProjectTreeDraft[] = [];
+  roadNames.forEach((roadName, roadIndex) => {
+    const rootKey = `simple-road:${roadName}`;
+    const baseOrder = (roadIndex + 1) * 100;
+    simplifiedNodes.push({ key: rootKey, parentKey: "", nodeType: "road", name: roadName, code: String(roadIndex + 1), fromChainage: "", toChainage: "", side: "", sortOrder: baseOrder });
+    SIMPLE_ROAD_EXECUTION_STAGES.forEach((name, stageIndex) => simplifiedNodes.push({
+      key: `${rootKey}:${name}`, parentKey: rootKey, nodeType: "activity", name,
+      code: `${roadIndex + 1}.${stageIndex + 1}`, fromChainage: "", toChainage: "", side: "",
+      sortOrder: baseOrder + stageIndex + 1,
+    }));
+  });
+
+  const roadGroups = new Set(["עבודות עפר וסלילה", "עבודות גמר ותמרור"]);
+  nodes.filter((node) => !node.parentKey && !roadGroups.has(node.name)).forEach((root, rootIndex) => {
+    const rootNumber = roadNames.length + rootIndex + 1;
+    const rootKey = `simple:${root.key}`;
+    const baseOrder = rootNumber * 100;
+    simplifiedNodes.push({ ...root, key: rootKey, name: root.name === "עבודות בטון" ? "עבודות בטון יצוק באתר" : root.name, code: String(rootNumber), sortOrder: baseOrder });
+    const existingChildren = nodes.filter((node) => node.parentKey === root.key);
+    const childNames = Array.from(new Set([
+      ...(root.name === "עבודות בטון" ? SIMPLE_CAST_CONCRETE_STAGES : []),
+      ...existingChildren.map((child) => child.name),
+    ]));
+    childNames.forEach((childName, childIndex) => {
+      const child = existingChildren.find((item) => item.name === childName);
+      simplifiedNodes.push({
+      ...(child || { nodeType: "activity" as ProjectStructureNodeType, fromChainage: "", toChainage: "", side: "" }),
+      key: `${rootKey}:${childName}`, parentKey: rootKey, name: childName,
+      code: `${rootNumber}.${childIndex + 1}`, sortOrder: baseOrder + childIndex + 1,
+    });
+    });
+  });
+
+  return { nodes: simplifiedNodes, includedPlans, excludedPlans };
 };
 
 const normalizeAttachments = (value: unknown): StoredAttachment[] =>
@@ -3666,13 +3752,20 @@ const parsePlanRegisterRow = (row: Record<string, unknown>): Omit<PlanRecord, "i
 };
 const inferPlanDisciplineFromText = (value: string) => {
   const text = value.toLowerCase();
-  if (/תאורה|חשמל|lighting|\bel\b/.test(text)) return "תאורה / חשמל";
-  if (/ניקוז|drain|drainage|\bdd\b/.test(text)) return "ניקוז";
-  if (/מים|ביוב|water|sewer|\bws\b/.test(text)) return "מים וניקוז";
-  if (/תנועה|traffic|\btr\b/.test(text)) return "תנועה";
-  if (/סלילה|כביש|road|pavement|slila|\bhw\b/.test(text)) return "מבנה כביש";
-  if (/מבנה|קונסטרוקציה|structure|\bst\b/.test(text)) return "מבנה";
-  return "";
+  if (/תקשורת|communication|telecom|fiber|סיב אופטי/.test(text)) return "תקשורת";
+  if (/תאורה|חשמל|lighting|electric|electrical|\bel\b/.test(text)) return "חשמל ותאורה";
+  if (/ניקוז|תיעול|קולטן|שוחת ניקוז|drain|drainage|\bdd\b/.test(text)) return "ניקוז ותיעול";
+  if (/ביוב|sewer|sewage/.test(text)) return "ביוב";
+  if (/קו(?:וי)? מים|צנרת מים|אספקת מים|water|\bws\b/.test(text)) return "מים";
+  if (/תנועה|רמזור|תמרור|שילוט|סימון כביש|traffic|signage|\btr\b/.test(text)) return "תנועה, תמרור ושילוט";
+  if (/גינון|השקיה|נטיעות|נוף|landscape|irrigation/.test(text)) return "גינון והשקיה";
+  if (/גדר|מעקה|מחסום|בטיחות|guardrail|barrier|fence/.test(text)) return "בטיחות, גדרות ומעקות";
+  if (/מדיד|מודד|טופוגרפ|survey|mapping/.test(text)) return "מדידות";
+  if (/סלילה|כביש|אספלט|מצע|שתית|עפר|חפירה|מילוי|ריצוף|אבן שפה|road|pavement|earthwork|slila|\bhw\b/.test(text)) return "עבודות עפר וסלילה";
+  if (/גשר|מובל|מעביר מים|קיר|כלונס|יסוד|בטון|מבנה|קונסטרוקציה|structure|concrete|bridge|\bst\b/.test(text)) return "מבנים ובטון";
+  if (/אדריכל|architecture/.test(text)) return "אדריכלות";
+  if (/פיתוח|development/.test(text)) return "פיתוח";
+  return "עבודות כלליות";
 };
 
 const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">> => {
@@ -3684,10 +3777,12 @@ const parsePlanRegisterPdfText = (text: string, fileName: string): Array<Omit<Pl
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
-    .flatMap((line) => {
-      const matches = [...line.matchAll(planNoPattern)];
-      if (!matches.length) return [];
+      .flatMap((line) => {
+        const matches = [...line.matchAll(planNoPattern)];
+        if (!matches.length) return [];
 
+      // Registers often repeat a source file name before the actual plan
+      // number. The right-most recognized value is the plan-number column.
       return matches.slice(-1).map((match) => {
         const planNo = String(match[0] ?? "").replace(/–/g, "-").trim();
         const key = normalizeAccessValue(`${planNo}|${line}`);
@@ -3841,6 +3936,7 @@ type ConcreteStrengthResults = {
   castDate?: string;
   concreteSource?: string;
   quantity?: string;
+  slumpCertificateNo?: string;
   slumpRequirement?: string;
   slumpResult?: string;
   curingType?: string;
@@ -3869,10 +3965,39 @@ const concreteStrengthStatus = (
   concreteType: ConcreteType | "",
   strength28Days: unknown,
 ) => {
-  const value = Number(String(strength28Days ?? "").replace(",", "."));
+  const rawValue = String(strength28Days ?? "").trim();
+  if (!rawValue) return "";
+  const numericText = rawValue.replace(",", ".").match(/-?\d+(?:\.\d+)?/)?.[0];
+  if (!numericText) return "";
+  const value = Number(numericText);
   if (!concreteType || !Number.isFinite(value)) return "";
   const limits = CONCRETE_STRENGTH_LIMITS[concreteType];
   return value >= limits.min ? "מתאים" : "לא מתאים";
+};
+
+const isNonconformingStatus = (value: unknown) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["לא תקין", "לא מתאים", "nc", "failed", "fail", "חריגה"].includes(normalized);
+};
+
+const checklistAttachmentHasNonconformingResult = (attachment: ChecklistAttachment) => {
+  const flatResultValues = [
+    ...Object.values(attachment.results ?? {}),
+    ...Object.values(attachment.labResults ?? {}),
+    ...Object.values(attachment.densityResults ?? {}),
+  ];
+  const referenceStatuses = (attachment.referenceResults ?? []).map((row) => row.qualityStatus);
+  const asphaltStatuses = (attachment.asphaltBatches ?? []).flatMap((batch) =>
+    (batch.referenceResults ?? []).map((row) => row.qualityStatus),
+  );
+  const concreteStatus = attachment.concreteResults
+    ? concreteStrengthStatus(
+        normalizeConcreteType(attachment.concreteResults.concreteType),
+        attachment.concreteResults.strength28Days,
+      )
+    : "";
+  return [...flatResultValues, ...referenceStatuses, ...asphaltStatuses, concreteStatus]
+    .some(isNonconformingStatus);
 };
 
 const normalizeChecklistAttachments = (
@@ -4086,6 +4211,15 @@ const validateApproval = (approval: ApprovalFlow) => {
   if (missing.length)
     return "לא ניתן לאשר בלי חתימה, שם ותאריך לכל החתימות החובה.";
   return null;
+};
+
+// Saving edits is always allowed. If the user has not completed the required
+// signatures, an "approved" selection is stored as a draft until final signing.
+const approvalForEditableSave = (value: unknown): ApprovalFlow => {
+  const approval = normalizeApproval(value);
+  return validateApproval(approval)
+    ? { ...approval, status: "draft" }
+    : approval;
 };
 
 const emptyChecklistItem = (id: string): ChecklistItem => ({
@@ -5427,6 +5561,9 @@ type InlineChecklistSectionProps = {
     file: File,
   ) => void;
   onRemoveAttachment: (itemId: string, attachmentId: string) => void;
+  onOpenNonconformanceFromFinding: (
+    item: ChecklistItem & { attachments?: ChecklistAttachment[] },
+  ) => void;
   savedSignatureForSigner?: (signerName: string, role?: string) => string;
 };
 
@@ -5739,6 +5876,7 @@ function ChecklistsSection({
   responsibleUsers,
   onUploadAttachment,
   onRemoveAttachment,
+  onOpenNonconformanceFromFinding,
   savedSignatureForSigner,
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
@@ -5971,9 +6109,11 @@ function ChecklistsSection({
               return {
                 ...item,
                 concreteResults,
-                ...(status
-                  ? { status: status === "מתאים" ? "תקין" : "לא תקין" }
-                  : {}),
+                status: status
+                  ? status === "מתאים" ? "תקין" : "לא תקין"
+                  : concreteResults.strength7Days
+                    ? ""
+                    : item.status,
               };
             })()
           : item,
@@ -6170,31 +6310,14 @@ function ChecklistsSection({
               ))}
             </select>
           </label>
-          <label>
-            <span style={labelStyle}>שיוך לעץ הפרויקט</span>
-            <select
+          <div>
+            <SearchableProjectStructureSelect
+              nodes={availableStructureNodes}
+              allNodes={projectStructureNodes}
               value={(checklistForm as any).structureNodeId ?? ""}
-              onChange={(event) =>
-                setField("structureNodeId", event.target.value)
-              }
-              style={{
-                ...inputStyle,
-                borderColor: (checklistForm as any).structureNodeId
-                  ? "#2563eb"
-                  : "#cbd5e1",
-                background: (checklistForm as any).structureNodeId
-                  ? "#eff6ff"
-                  : "#fff",
-              }}
-            >
-              <option value="">ללא שיוך לעץ הפרויקט</option>
-              {availableStructureNodes.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {buildProjectStructurePath(projectStructureNodes, node.id) ||
-                    `${projectStructureTypeLabel(node.nodeType)} - ${node.name}`}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setField("structureNodeId", value)}
+              label="שיוך לעץ הפרויקט"
+            />
             {!availableStructureNodes.length ? (
               <span
                 style={{
@@ -6209,7 +6332,7 @@ function ChecklistsSection({
                 פרויקט”.
               </span>
             ) : null}
-          </label>
+          </div>
           <label>
             <span style={labelStyle}>שם רשימת תיוג</span>
             <input
@@ -6925,6 +7048,10 @@ function ChecklistsSection({
                     concreteType,
                     concreteResults?.strength28Days,
                   );
+                  const hasNonconformingLabResult =
+                    String(item.status ?? "").trim() === "לא תקין" ||
+                    concreteStatus === "לא מתאים" ||
+                    attachments.some(checklistAttachmentHasNonconformingResult);
                   return (
                     <tr key={item.id}>
                       <td style={cellStyle}>
@@ -7255,6 +7382,15 @@ function ChecklistsSection({
                             פתח תוצאות חוזק בטון
                           </button>
                         ) : null}
+                        {hasNonconformingLabResult ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenNonconformanceFromFinding(item)}
+                            style={{ ...styles.dangerBtn, marginTop: 8 }}
+                          >
+                            פתח אי־התאמה מהחריגה
+                          </button>
+                        ) : null}
                       </td>
                       <td style={cellStyle}>
                         <textarea
@@ -7508,6 +7644,45 @@ function ChecklistsSection({
                       })
                     }
                     style={modalInputStyle}
+                  />
+                </label>
+                <label>
+                  <span style={labelStyle}>מספר תעודת סומך</span>
+                  <input
+                    value={results.slumpCertificateNo ?? ""}
+                    onChange={(event) =>
+                      updateConcreteResults(reviewItem.id, {
+                        slumpCertificateNo: event.target.value,
+                      })
+                    }
+                    style={modalInputStyle}
+                    placeholder="נדרש כדי להציג סומך בריכוז"
+                  />
+                </label>
+                <label>
+                  <span style={labelStyle}>סומך — דרישה</span>
+                  <input
+                    value={results.slumpRequirement ?? ""}
+                    onChange={(event) =>
+                      updateConcreteResults(reviewItem.id, {
+                        slumpRequirement: event.target.value,
+                      })
+                    }
+                    style={modalInputStyle}
+                    disabled={!String(results.slumpCertificateNo ?? "").trim()}
+                  />
+                </label>
+                <label>
+                  <span style={labelStyle}>סומך — תוצאה</span>
+                  <input
+                    value={results.slumpResult ?? ""}
+                    onChange={(event) =>
+                      updateConcreteResults(reviewItem.id, {
+                        slumpResult: event.target.value,
+                      })
+                    }
+                    style={modalInputStyle}
+                    disabled={!String(results.slumpCertificateNo ?? "").trim()}
                   />
                 </label>
               </div>
@@ -7844,6 +8019,30 @@ function ProjectStructureSelector({
   onChange: (value: string) => void;
 }) {
   const ordered = sortProjectStructureNodes(nodes);
+  const [structureSearch, setStructureSearch] = useState("");
+  const normalizedStructureSearch = structureSearch.trim().toLocaleLowerCase("he");
+  const searchResults = normalizedStructureSearch
+    ? projectStructureSelectableNodes(nodes).filter((node) =>
+        conciseProjectStructureLabel(nodes, node).toLocaleLowerCase("he").includes(normalizedStructureSearch),
+      )
+    : [];
+  const roots = ordered.filter((node) => !node.parentId || !nodes.some((item) => item.id === node.parentId));
+  const selectedRoot = value ? projectStructureRootNode(nodes, value) : undefined;
+  const descendantsForRoot = (rootId: string) => {
+    const descendantIds = new Set<string>([rootId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      nodes.forEach((node) => {
+        if (descendantIds.has(node.parentId) && !descendantIds.has(node.id)) {
+          descendantIds.add(node.id);
+          changed = true;
+        }
+      });
+    }
+    return projectStructureSelectableNodes(nodes).filter((node) => descendantIds.has(node.id));
+  };
+  const subElements = selectedRoot ? descendantsForRoot(selectedRoot.id) : [];
   return (
     <div
       style={{
@@ -7853,11 +8052,35 @@ function ProjectStructureSelector({
         borderColor: "#dbe3ef",
       }}
     >
+      <label style={{ display: "grid", gap: 6, fontWeight: 900, marginBottom: 10 }}>
+        חיפוש מהיר בעץ הפרויקט
+        <input
+          value={structureSearch}
+          onChange={(event) => setStructureSearch(event.target.value)}
+          placeholder="לדוגמה: החלפת קרקע, יסוד, כביש 5"
+          style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 750, background: "#fff" }}
+        />
+        {normalizedStructureSearch ? (
+          <select
+            value=""
+            onChange={(event) => { if (event.target.value) { onChange(event.target.value); setStructureSearch(""); } }}
+            style={{ border: "1px solid #2563eb", borderRadius: 12, padding: "10px 12px", fontWeight: 800, background: "#eff6ff" }}
+          >
+            <option value="">{searchResults.length ? `נמצאו ${searchResults.length} אפשרויות — בחר` : "לא נמצאו תוצאות"}</option>
+            {searchResults.map((node) => <option key={node.id} value={node.id}>{conciseProjectStructureLabel(nodes, node)}</option>)}
+          </select>
+        ) : null}
+      </label>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
       <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
-        שיוך מיקום בעץ הפרויקט
+        מבנה ראשי
         <select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          value={selectedRoot?.id || ""}
+          onChange={(event) => {
+            const rootId = event.target.value;
+            if (!rootId) return onChange("");
+            onChange(rootId);
+          }}
           style={{
             border: "1px solid #cbd5e1",
             borderRadius: 12,
@@ -7866,21 +8089,82 @@ function ProjectStructureSelector({
             background: "#fff",
           }}
         >
-          <option value="">ללא שיוך מיקום</option>
-          {ordered.map((node) => (
+          <option value="">בחר מבנה ראשי</option>
+          {roots.map((node) => (
             <option key={node.id} value={node.id}>
-              {buildProjectStructurePath(nodes, node.id) ||
-                `${projectStructureTypeLabel(node.nodeType)} - ${node.name}`}
+              {node.name}
             </option>
           ))}
         </select>
       </label>
+      <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
+        תת־אלמנט / שלב ביצוע
+        <select
+          value={value && subElements.some((node) => node.id === value) ? value : ""}
+          disabled={!selectedRoot}
+          onChange={(event) => onChange(event.target.value || selectedRoot?.id || "")}
+          style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 800, background: "#fff" }}
+        >
+          <option value="">בחר תת־אלמנט</option>
+          {subElements.map((node) => (
+            <option key={node.id} value={node.id}>{node.name}</option>
+          ))}
+        </select>
+      </label>
+      </div>
+      {value ? <div style={{ marginTop: 8, color: "#475569", fontWeight: 750 }}>שיוך נבחר: {conciseProjectStructureLabel(nodes, nodes.find((node) => node.id === value) || selectedRoot!)}</div> : null}
       {!nodes.length ? (
         <div style={{ color: "#64748b", marginTop: 8, fontWeight: 700 }}>
           עדיין לא הוגדר עץ פרויקט. ניתן להוסיף אותו בלשונית “עץ פרויקט”.
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SearchableProjectStructureSelect({
+  nodes,
+  allNodes,
+  value,
+  onChange,
+  label,
+}: {
+  nodes: ProjectStructureNode[];
+  allNodes?: ProjectStructureNode[];
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  const [query, setQuery] = useState("");
+  const sourceNodes = allNodes?.length ? allNodes : nodes;
+  const selectable = projectStructureSelectableNodes(nodes);
+  const normalizedQuery = query.trim().toLocaleLowerCase("he");
+  const filtered = normalizedQuery
+    ? selectable.filter((node) => conciseProjectStructureLabel(sourceNodes, node).toLocaleLowerCase("he").includes(normalizedQuery))
+    : selectable;
+  const selectedNode = nodes.find((node) => node.id === value);
+  const options = selectedNode && !filtered.some((node) => node.id === selectedNode.id)
+    ? [selectedNode, ...filtered]
+    : filtered;
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontWeight: 800 }}>{label}</span>
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="חיפוש לפי כביש, אלמנט או פעילות..."
+        style={{ border: "1px solid #cbd5e1", borderRadius: 10, padding: "9px 11px", background: "#fff" }}
+      />
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        style={{ border: `1px solid ${value ? "#2563eb" : "#cbd5e1"}`, borderRadius: 10, padding: "10px 11px", fontWeight: 800, background: value ? "#eff6ff" : "#fff" }}
+      >
+        <option value="">ללא שיוך לעץ הפרויקט</option>
+        {options.map((node) => <option key={node.id} value={node.id}>{conciseProjectStructureLabel(sourceNodes, node)}</option>)}
+      </select>
+      {normalizedQuery ? <span style={{ color: "#64748b", fontSize: 12, fontWeight: 700 }}>נמצאו {filtered.length} תוצאות</span> : null}
+    </label>
   );
 }
 
@@ -7896,6 +8180,8 @@ function ProjectStructureSection({
   onDelete,
   onReset,
   onGenerateFromPlans,
+  onDownload,
+  linkedRecords,
 }: {
   nodes: ProjectStructureNode[];
   plans: PlanRecord[];
@@ -7910,8 +8196,28 @@ function ProjectStructureSection({
   onDelete: (id: string) => void;
   onReset: () => void;
   onGenerateFromPlans: (proposal: GeneratedProjectTreeProposal) => void;
+  onDownload: (node: ProjectStructureNode) => void | Promise<void>;
+  linkedRecords: {
+    checklists: any[];
+    nonconformances: any[];
+    trialSections: any[];
+    rfis: any[];
+    holdPoints: any[];
+  };
 }) {
   const ordered = sortProjectStructureNodes(nodes);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const visibleNodes = ordered.filter((node) => {
+    let parentId = node.parentId;
+    const visited = new Set<string>();
+    while (parentId && !visited.has(parentId)) {
+      if (!expandedNodeIds.has(parentId)) return false;
+      visited.add(parentId);
+      parentId = nodeById.get(parentId)?.parentId || "";
+    }
+    return true;
+  });
   const parentOptions = ordered.filter((node) => node.id !== editingId);
   const [showPlanTreePreview, setShowPlanTreePreview] = useState(false);
   const [draftPlanTreeNodes, setDraftPlanTreeNodes] = useState<
@@ -8371,8 +8677,28 @@ function ProjectStructureSection({
       <div style={styles.card}>
         {ordered.length ? (
           <div style={{ display: "grid", gap: 8 }}>
-            {ordered.map((node) => {
+            {visibleNodes.map((node) => {
               const depth = projectStructureNodeDepth(nodes, node);
+              const hasChildren = nodes.some((item) => item.parentId === node.id);
+              const isExpanded = expandedNodeIds.has(node.id);
+              const descendantIds = new Set<string>([node.id]);
+              let descendantsChanged = true;
+              while (descendantsChanged) {
+                descendantsChanged = false;
+                nodes.forEach((item) => {
+                  if (descendantIds.has(item.parentId) && !descendantIds.has(item.id)) {
+                    descendantIds.add(item.id);
+                    descendantsChanged = true;
+                  }
+                });
+              }
+              const linkedCounts = [
+                ["רשימות תיוג", linkedRecords.checklists.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
+                ["אי־התאמות", linkedRecords.nonconformances.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
+                ["קטעי ניסוי", linkedRecords.trialSections.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
+                ["RFI", linkedRecords.rfis.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
+                ["נקודות עצירה", linkedRecords.holdPoints.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
+              ] as Array<[string, number]>;
               return (
                 <div
                   key={node.id}
@@ -8388,8 +8714,23 @@ function ProjectStructureSection({
                   }}
                 >
                   <div style={{ paddingInlineStart: depth * 18 }}>
-                    <div style={{ fontWeight: 950 }}>
-                      {projectStructureTypeLabel(node.nodeType)}: {node.name}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950 }}>
+                      {hasChildren ? (
+                        <button
+                          type="button"
+                          aria-label={isExpanded ? "סגור ענף" : "פתח ענף"}
+                          onClick={() => setExpandedNodeIds((current) => {
+                            const next = new Set(current);
+                            if (next.has(node.id)) next.delete(node.id);
+                            else next.add(node.id);
+                            return next;
+                          })}
+                          style={{ border: 0, background: "transparent", cursor: "pointer", fontSize: 18, padding: 0 }}
+                        >
+                          {isExpanded ? "▾" : "◀"}
+                        </button>
+                      ) : <span style={{ width: 18 }} />}
+                      <span>{projectStructureTypeLabel(node.nodeType)}: {node.name}</span>
                     </div>
                     <div style={{ color: "#64748b", fontWeight: 700, marginTop: 2 }}>
                       {buildProjectStructurePath(nodes, node.id)}
@@ -8397,8 +8738,21 @@ function ProjectStructureSection({
                         ? ` · ${[node.fromChainage, node.toChainage].filter(Boolean).join("-")} ${node.side}`.trim()
                         : ""}
                     </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                      {linkedCounts.filter(([, count]) => count > 0).map(([label, count]) => (
+                        <span key={label} style={{ background: "#e0f2fe", color: "#075985", borderRadius: 999, padding: "3px 8px", fontSize: 12, fontWeight: 900 }}>
+                          {label}: {count}
+                        </span>
+                      ))}
+                      {!linkedCounts.some(([, count]) => count > 0) ? (
+                        <span style={{ color: "#94a3b8", fontSize: 12, fontWeight: 700 }}>אין רשומות משויכות</span>
+                      ) : null}
+                    </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" style={styles.primaryBtn} onClick={() => void onDownload(node)}>
+                      הורד חומר משויך
+                    </button>
                     <button type="button" style={styles.secondaryBtn} onClick={() => onEdit(node)}>
                       עריכה
                     </button>
@@ -9340,6 +9694,7 @@ function FolderRecordsTable({
   const selectedRecords = safeRecords.filter((record, index) =>
     selectedRecordIds.includes(String(record?.id ?? index)),
   );
+  const actionRecords = selectedRecords.length ? selectedRecords : safeRecords;
   const allVisibleSelected = Boolean(
     canSelectRecords &&
       visibleRecordIds.length &&
@@ -9381,13 +9736,12 @@ function FolderRecordsTable({
   };
 
   const sendSelectedRecords = async () => {
-    if (!onSendSelectedEmail || !selectedRecords.length) return;
-    await onSendSelectedEmail(selectedRecords);
+    if (!onSendSelectedEmail || !actionRecords.length) return;
+    await onSendSelectedEmail(actionRecords);
   };
-
   const downloadSelectedRecords = async () => {
-    if (!onDownloadSelectedPdf || !selectedRecords.length) return;
-    await onDownloadSelectedPdf(selectedRecords);
+    if (!onDownloadSelectedPdf || !actionRecords.length) return;
+    await onDownloadSelectedPdf(actionRecords);
   };
 
   return (
@@ -9423,21 +9777,25 @@ function FolderRecordsTable({
           {onDownloadSelectedPdf ? (
             <button
               type="button"
-              style={selectedRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              style={actionRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
               onClick={downloadSelectedRecords}
-              disabled={!selectedRecords.length}
+              disabled={!actionRecords.length}
             >
-              {downloadSelectedLabel} ({selectedRecords.length})
+              {selectedRecords.length
+                ? `${selectedRecords.length > 1 ? "הורד מסומנים כ-ZIP" : downloadSelectedLabel} (${selectedRecords.length})`
+                : `${safeRecords.length > 1 ? "הורד את כל הרשומות כ-ZIP" : "הורד את הרשומה כ-PDF"} (${safeRecords.length})`}
             </button>
           ) : null}
           {onSendSelectedEmail ? (
             <button
               type="button"
-              style={selectedRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              style={actionRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
               onClick={sendSelectedRecords}
-              disabled={!selectedRecords.length}
+              disabled={!actionRecords.length}
             >
-              {sendSelectedLabel} ({selectedRecords.length})
+              {selectedRecords.length
+                ? `${sendSelectedLabel} (${selectedRecords.length})`
+                : `שלח את כל הרשומות במייל (${safeRecords.length})`}
             </button>
           ) : null}
           {onNew ? (
@@ -9548,8333 +9906,7 @@ function FolderRecordsTable({
                   {column.label}
                 </th>
               ))}
-              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעולות</th>
-            </tr>
-          </thead>
-          <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
-                const id = String(record?.id ?? index);
-                return (
-                  <tr key={id}>
-                    {canSelectRecords ? (
-                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedRecordIds.includes(id)}
-                          onChange={(event) => toggleRecordSelection(id, event.target.checked)}
-                          aria-label={`בחר רשומה ${serialFor(record, index)}`}
-                          style={{ width: 18, height: 18 }}
-                        />
-                      </td>
-                    ) : null}
-                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {serialFor(record, index)}
-                    </td>
-                    {displayColumns.map((column) => (
-                      <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        {column.value(record, index) || "-"}
-                      </td>
-                    ))}
-                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                      <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
-                        {onOpen ? (
-                          <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
-                            פתח / ערוך
-                          </button>
-                        ) : null}
-                        {onDelete ? (
-                          <button type="button" style={styles.dangerBtn} onClick={() => onDelete(id)}>
-                            מחק
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={displayColumns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
-                  אין רשומות להצגה בתיקייה זו.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      )}
-    </section>
-  );
-}
-
-function PlansSection({
-  records,
-  form,
-  editingId,
-  onChange,
-  onAttachmentChange,
-  onImportRegister,
-  onRemoveAttachment,
-  onSave,
-  onNew,
-  onLoad,
-  onDelete,
-}: {
-  records: PlanRecord[];
-  form: Omit<PlanRecord, "id" | "projectId" | "savedAt">;
-  editingId: string | null;
-  onChange: (field: keyof Omit<PlanRecord, "id" | "projectId" | "savedAt">, value: any) => void;
-  onAttachmentChange: (files: FileList | File[] | null) => void;
-  onImportRegister: (files: FileList | File[] | null) => void | Promise<void>;
-  onRemoveAttachment: (index: number) => void;
-  onSave: () => void;
-  onNew: () => void;
-  onLoad: (record: PlanRecord) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [planSearch, setPlanSearch] = useState("");
-  const [disciplineFilter, setDisciplineFilter] = useState("");
-  const disciplines = Array.from(
-    new Set(records.map((record) => record.discipline || "עבודות כלליות")),
-  ).sort((a, b) => a.localeCompare(b, "he"));
-  const normalizedPlanSearch = planSearch.trim().toLocaleLowerCase("he");
-  const visiblePlans = records.filter((record) => {
-    const discipline = record.discipline || "עבודות כלליות";
-    if (disciplineFilter && discipline !== disciplineFilter) return false;
-    if (!normalizedPlanSearch) return true;
-    return [record.planNo, record.title, record.revision, discipline, record.notes]
-      .join(" ")
-      .toLocaleLowerCase("he")
-      .includes(normalizedPlanSearch);
-  });
-  const isManualPlanFormEmpty =
-    !String(`${form.planNo} ${form.revision} ${form.title} ${form.discipline} ${form.notes}`).trim() &&
-    !normalizeAttachments(form.attachments).length;
-  const saveButtonLabel = editingId
-    ? "עדכן תוכנית"
-    : isManualPlanFormEmpty && records.length
-      ? "רשימת התוכניות נשמרה"
-      : "שמור תוכנית";
-
-  return (
-    <div>
-      <div style={{ marginBottom: 12 }}>
-        <FileDropZone
-          accept=".xlsx,.xls,.csv,.pdf"
-          multiple={false}
-          buttonLabel="צרף רשימת תוכניות"
-          helperText="גרור לכאן רשימת תוכניות או בחר קובץ"
-          onFiles={onImportRegister}
-        />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 1fr) minmax(220px, 320px)", gap: 10, marginBottom: 12 }}>
-        <input type="search" value={planSearch} onChange={(event) => setPlanSearch(event.target.value)} placeholder="חיפוש לפי שם או מספר תוכנית" style={styles.input} />
-        <select value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} style={styles.input}>
-          <option value="">כל סוגי העבודות</option>
-          {disciplines.map((discipline) => (
-            <option key={discipline} value={discipline}>{discipline}</option>
-          ))}
-        </select>
-      </div>
-      <FolderRecordsTable
-        title="תוכניות"
-        description={`הרשימה סווגה לפי סוג עבודה. מוצגות ${visiblePlans.length} מתוך ${records.length} תוכניות.`}
-        records={visiblePlans as any[]}
-        columns={[
-          { label: "מספר תוכנית", value: (record) => record.planNo || "-" },
-          { label: "מהדורה", value: (record) => record.revision || "-" },
-          { label: "שם / תיאור", value: (record) => record.title || "-" },
-          { label: "תחום", value: (record) => record.discipline || "-" },
-          { label: "תאריך", value: (record) => record.date || "-" },
-          { label: "סטטוס", value: (record) => record.status || "-" },
-          { label: "קבצים", value: (record) => normalizeAttachments(record.attachments).length || "-" },
-        ]}
-        onOpen={(id) => {
-          const record = records.find((item) => item.id === id);
-          if (record) onLoad(record);
-        }}
-        onDelete={onDelete}
-        onNew={onNew}
-      />
-
-      <FormModeBanner isEditing={Boolean(editingId)} />
-      <div style={styles.formGrid}>
-        <Field label="מספר תוכנית"><input style={styles.input} value={form.planNo} onChange={(e) => onChange("planNo", e.target.value)} /></Field>
-        <Field label="מהדורה"><input style={styles.input} value={form.revision} onChange={(e) => onChange("revision", e.target.value)} /></Field>
-        <Field label="שם / תיאור"><input style={styles.input} value={form.title} onChange={(e) => onChange("title", e.target.value)} /></Field>
-        <Field label="תחום"><input style={styles.input} value={form.discipline} onChange={(e) => onChange("discipline", e.target.value)} placeholder="לדוגמה: תנועה / ניקוז / מבנה / חשמל" /></Field>
-        <Field label="תאריך"><input type="date" style={styles.input} value={form.date} onChange={(e) => onChange("date", e.target.value)} /></Field>
-        <Field label="סטטוס">
-          <select style={styles.input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
-            <option>טיוטה</option>
-            <option>בתוקף</option>
-            <option>לביצוע</option>
-            <option>מבוטל</option>
-            <option>הוחלף</option>
-          </select>
-        </Field>
-        <Field label="הערות" full>
-          <textarea style={styles.textarea} value={form.notes} onChange={(e) => onChange("notes", e.target.value)} />
-        </Field>
-      </div>
-
-      <div style={{ border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>קבצי תוכניות מצורפים</h3>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <FileDropZone
-            accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
-            buttonLabel="צרף תוכנית / קובץ"
-            helperText="גרור לכאן תוכניות או קבצים מצורפים"
-            onFiles={onAttachmentChange}
-          />
-        </div>
-        {form.attachments.length ? (
-          <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-            {form.attachments.map((file, index) => (
-              <div key={`${file.name}-${index}`} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", border: "1px solid #dbeafe", borderRadius: 10, padding: "8px 10px", background: "#eff6ff" }}>
-                <a href={file.dataUrl} download={file.name} style={{ color: "#0f766e", fontWeight: 900 }}>{file.name}</a>
-                <button type="button" style={styles.dangerBtn} onClick={() => onRemoveAttachment(index)}>מחק</button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={styles.emptyBox}>טרם צורפו תוכניות או קבצים.</div>
-        )}
-      </div>
-
-      <div style={styles.buttonRow}>
-        <button type="button" style={styles.primaryBtn} onClick={onSave}>{saveButtonLabel}</button>
-        <button type="button" style={styles.secondaryBtn} onClick={onNew}>חדש / נקה</button>
-      </div>
-    </div>
-  );
-}
-
-function TrialSectionsRecordsTable({
-  records,
-  onOpen,
-  onDelete,
-  onNew,
-}: {
-  records: any[];
-  onOpen: (id: string) => void;
-  onDelete: (id: string) => void;
-  onNew: () => void;
-}) {
-  const trialDateValue = (record: any) => {
-    const raw = pickTrialValue(record, "executionDate", "date", "approvalDate", "savedAt", "createdAt");
-    const normalized = normalizeLooseText(raw);
-    if (!normalized) return Number.MAX_SAFE_INTEGER;
-    const iso = normalized.match(/\d{4}-\d{2}-\d{2}/)?.[0];
-    if (iso) return new Date(`${iso}T00:00:00`).getTime();
-    const dayFirst = normalized.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
-    if (dayFirst) {
-      const [, day, month, year] = dayFirst;
-      return new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00`).getTime();
-    }
-    const parsed = Date.parse(normalized);
-    return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
-  };
-  const safeRecords = (Array.isArray(records) ? records : [])
-    .map((record, originalIndex) => ({ record, originalIndex }))
-    .sort((left, right) => {
-      const byDate = trialDateValue(left.record) - trialDateValue(right.record);
-      if (byDate !== 0) return byDate;
-      return left.originalIndex - right.originalIndex;
-    })
-    .map((item) => item.record);
-  const cellValue = (record: any, ...keys: string[]) =>
-    pickTrialValue(record, ...keys) || "-";
-  const rawCellValue = (record: any, ...keys: string[]) =>
-    pickTrialValue(record, ...keys);
-  const splitRangeAndSide = (record: any) => {
-    const combined = rawCellValue(
-      record,
-      "chainageSide",
-      "fromTo",
-      "fromToSide",
-      "sectionRange",
-      "sectionRangeSide",
-      "chainage",
-      "chainageRange",
-      "stationRange",
-    );
-    const directSide = rawCellValue(record, "side", "roadSide");
-    const sideMatch =
-      combined.match(/(?:צד|side)\s*[:：-]?\s*([^,\-/|]+)/i) ??
-      combined.match(/\(([^()]*(?:ימין|שמאל|מרכז|צפון|דרום|מזרח|מערב)[^()]*)\)/);
-    const cleanCombined = combined
-      .replace(/(?:צד|side)\s*[:：-]?\s*[^,\-/|]+/i, "")
-      .replace(/\([^()]*\)/g, "")
-      .trim();
-    const parts = cleanCombined
-      .split(/\s*(?:עד|[-–—]|\/|\||,|;)\s*/i)
-      .map((part) => normalizeLooseText(part))
-      .filter(Boolean);
-    return {
-      from: rawCellValue(record, "fromSection", "fromChainage", "fromStation") || parts[0] || "",
-      to: rawCellValue(record, "toSection", "toChainage", "toStation") || parts[1] || "",
-      side: directSide || normalizeLooseText(sideMatch?.[1]) || "",
-      combined,
-    };
-  };
-  const statusText = (record: any) =>
-    cellValue(record, "status", "approvalStatus", "result");
-  const statusStyle = (status: string): CSSProperties => {
-    const normalized = normalizeLooseText(status).toLowerCase();
-    if (
-      normalized.includes("אושר") ||
-      normalized.includes("מאושר") ||
-      normalized.includes("approved")
-    ) {
-      return { color: "#16a34a", fontWeight: 900 };
-    }
-    if (normalized.includes("נדחה") || normalized.includes("rejected")) {
-      return { color: "#dc2626", fontWeight: 900 };
-    }
-    return { color: "#374151", fontWeight: 800 };
-  };
-  const rowNumber = (_record: any, index: number) => String(index + 1);
-
-  const columns: Array<{
-    label: string;
-    width: number;
-    value: (record: any, index: number) => React.ReactNode;
-  }> = [
-    {
-      label: "מספר סידורי",
-      width: 110,
-      value: (record, index) => rowNumber(record, index),
-    },
-    {
-      label: "קבלן / מבצע",
-      width: 190,
-      value: (record) =>
-        cellValue(record, "mainContractor", "contractor", "performingContractor", "executor"),
-    },
-    {
-      label: "סוג קטע ניסוי",
-      width: 210,
-      value: (record) =>
-        cellValue(record, "proofForActivityType", "trialType", "sectionType"),
-    },
-    {
-      label: "סטטוס",
-      width: 130,
-      value: (record) => {
-        const status = statusText(record);
-        return <span style={statusStyle(status)}>{status}</span>;
-      },
-    },
-    {
-      label: "אלמנט",
-      width: 150,
-      value: (record) => cellValue(record, "elementName", "element"),
-    },
-    {
-      label: "תת אלמנט",
-      width: 150,
-      value: (record) => cellValue(record, "subElement", "sub_element"),
-    },
-    {
-      label: "מיקום / מבנה",
-      width: 170,
-      value: (record) =>
-        cellValue(record, "location", "workLocation", "roadStructure", "workSection", "area"),
-    },
-    {
-      label: "קומה",
-      width: 110,
-      value: (record) => cellValue(record, "floor", "level"),
-    },
-    {
-      label: "יחידה",
-      width: 110,
-      value: (record) => cellValue(record, "unit", "buildingUnit"),
-    },
-    {
-      label: "הסט",
-      width: 110,
-      value: (record) => cellValue(record, "offset"),
-    },
-    {
-      label: "צד",
-      width: 110,
-      value: (record) => splitRangeAndSide(record).side || "-",
-    },
-    {
-      label: "מחתך",
-      width: 120,
-      value: (record) => splitRangeAndSide(record).from || "-",
-    },
-    {
-      label: "לחתך",
-      width: 120,
-      value: (record) => splitRangeAndSide(record).to || "-",
-    },
-    {
-      label: "מחתך עד חתך/צד",
-      width: 190,
-      value: (record) => splitRangeAndSide(record).combined || "-",
-    },
-    {
-      label: "תאריך ביצוע",
-      width: 130,
-      value: (record) =>
-        cellValue(record, "executionDate", "date", "approvalDate", "savedAt"),
-    },
-  ];
-
-  return (
-    <section
-      style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: 4,
-        overflow: "hidden",
-        marginBottom: 18,
-        background: "#fff",
-        boxShadow: "0 8px 22px rgba(15, 23, 42, 0.04)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 16px",
-          background: "#fff",
-          borderBottom: "1px solid #e5e7eb",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ fontWeight: 900, color: "#374151" }}>
-          1-{Math.min(10, safeRecords.length)} / {safeRecords.length || 0}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={onNew}
-            style={{
-              border: 0,
-              borderRadius: 4,
-              background: "#22c55e",
-              color: "#fff",
-              fontWeight: 900,
-              padding: "10px 26px",
-              cursor: "pointer",
-            }}
-          >
-            אפס
-          </button>
-          <button
-            type="button"
-            onClick={onNew}
-            style={{
-              border: "1px solid #d1d5db",
-              borderRadius: 4,
-              background: "#fff",
-              color: "#111827",
-              fontWeight: 900,
-              padding: "10px 18px",
-              cursor: "pointer",
-            }}
-          >
-            חדש
-          </button>
-        </div>
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table
-          style={{
-            width: "100%",
-            minWidth: 1880,
-            borderCollapse: "collapse",
-            tableLayout: "fixed",
-            direction: "rtl",
-            fontSize: 14,
-          }}
-        >
-          <thead>
-            <tr style={{ background: "#f5f5f5", color: "#111827" }}>
-              <th
-                style={{
-                  width: 128,
-                  padding: "14px 10px",
-                  border: "1px solid #e5e7eb",
-                  textAlign: "center",
-                  fontWeight: 950,
-                }}
-              >
-                פעולות
-              </th>
-              {columns.map((column) => (
-                <th
-                  key={column.label}
-                  style={{
-                    width: column.width,
-                    padding: "14px 10px",
-                    border: "1px solid #e5e7eb",
-                    textAlign: "center",
-                    fontWeight: 950,
-                    whiteSpace: "normal",
-                  }}
-                >
-                  <span>{column.label}</span>
-                  <span style={{ color: "#9ca3af", marginInlineStart: 8 }}>↕</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
-                const id = String(record?.id ?? index);
-                return (
-                  <tr
-                    key={id}
-                    onClick={() => onOpen(id)}
-                    title="לחץ לפתיחה / עריכה"
-                    style={{ height: 96, cursor: "pointer" }}
-                  >
-                    <td
-                      style={{
-                        padding: 10,
-                        border: "1px solid #e5e7eb",
-                        textAlign: "center",
-                        background: "#fff",
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center" }}>
-                        <button
-                          type="button"
-                          title="פתח / ערוך"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onOpen(id);
-                          }}
-                          style={{
-                            border: "1px solid #bbf7d0",
-                            borderRadius: 999,
-                            background: "#f0fdf4",
-                            color: "#16a34a",
-                            fontSize: 14,
-                            fontWeight: 950,
-                            cursor: "pointer",
-                            padding: "7px 10px",
-                          }}
-                        >
-                          ✎
-                        </button>
-                        <button
-                          type="button"
-                          title="מחק"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onDelete(id);
-                          }}
-                          style={{
-                            border: 0,
-                            background: "transparent",
-                            color: "#dc2626",
-                            fontWeight: 950,
-                            cursor: "pointer",
-                          }}
-                        >
-                          מחק
-                        </button>
-                      </div>
-                    </td>
-                    {columns.map((column) => (
-                      <td
-                        key={column.label}
-                        style={{
-                          padding: "12px 10px",
-                          border: "1px solid #e5e7eb",
-                          textAlign: "center",
-                          verticalAlign: "middle",
-                          color: "#374151",
-                          whiteSpace: "pre-wrap",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {column.value(record, index) || "-"}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td
-                  colSpan={columns.length + 1}
-                  style={{
-                    padding: 28,
-                    border: "1px solid #e5e7eb",
-                    textAlign: "center",
-                    color: "#64748b",
-                    fontWeight: 900,
-                  }}
-                >
-                  אין קטעי ניסוי להצגה בפרויקט זה.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div
-        style={{
-          height: 14,
-          background: "#f3f4f6",
-          borderTop: "1px solid #e5e7eb",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: 14,
-            width: "38%",
-            background: "#8b8b8b",
-            borderRadius: 999,
-            marginInlineStart: "45%",
-          }}
-        />
-      </div>
-    </section>
-  );
-}
-
-type FieldDef = {
-  key: string;
-  label: string;
-  type?: "text" | "date" | "textarea" | "select";
-  options?: string[];
-  required?: boolean;
-};
-
-function FormGrid({
-  fields,
-  form,
-  setForm,
-  readOnly = false,
-}: {
-  fields: FieldDef[];
-  form: any;
-  setForm: React.Dispatch<React.SetStateAction<any>>;
-  readOnly?: boolean;
-}) {
-  const inputStyle: CSSProperties = {
-    width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontWeight: 800,
-    background: readOnly ? "#f1f5f9" : "#fff",
-    minHeight: 44,
-  };
-  const labelStyle: CSSProperties = {
-    display: "grid",
-    gap: 6,
-    fontWeight: 900,
-  };
-  const set = (key: string, value: string) =>
-    setForm((prev: any) => ({ ...prev, [key]: value }));
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-        gap: 12,
-      }}
-    >
-      {fields.map((field) => (
-        <label
-          key={field.key}
-          style={{
-            ...labelStyle,
-            gridColumn: field.type === "textarea" ? "1 / -1" : undefined,
-          }}
-        >
-          {field.label}
-          {field.required ? " *" : ""}
-          {field.type === "textarea" ? (
-            <textarea
-              disabled={readOnly}
-              value={form[field.key] ?? ""}
-              onChange={(e) => set(field.key, e.target.value)}
-              style={{ ...inputStyle, minHeight: 90, resize: "vertical" }}
-            />
-          ) : field.type === "select" ? (
-            <select
-              disabled={readOnly}
-              value={form[field.key] ?? ""}
-              onChange={(e) => set(field.key, e.target.value)}
-              style={inputStyle}
-            >
-              {(field.options ?? []).map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              disabled={readOnly}
-              type={field.type === "date" ? "date" : "text"}
-              value={form[field.key] ?? ""}
-              onChange={(e) => set(field.key, e.target.value)}
-              style={inputStyle}
-            />
-          )}
-        </label>
-      ))}
-    </div>
-  );
-}
-
-const RFI_FIELDS: FieldDef[] = [
-  { key: "title", label: "מספר RFI", required: true },
-  { key: "referenceNo", label: "מספר יחוס" },
-  {
-    key: "status",
-    label: "סטטוס RFI",
-    type: "select",
-    options: ["פתוח", "ממתין להתייחסות", "בטיפול", "נענה", "סגור"],
-  },
-  { key: "planNo", label: "מס' תוכנית" },
-  { key: "revision", label: "גרסה / מהדורה" },
-  { key: "planName", label: "שם תוכנית" },
-  { key: "buildingDetails", label: "פרטי המבנה" },
-  { key: "building", label: "מבנה" },
-  { key: "openDate", label: "תאריך פתיחה", type: "date" },
-  { key: "location", label: "מיקום" },
-  { key: "workActivity", label: "פעילות עבודה" },
-  { key: "relevantPlans", label: "תוכניות רלוונטיות" },
-  { key: "fromSection", label: "מחתך" },
-  { key: "toSection", label: "עד חתך" },
-  {
-    key: "budgetImpact",
-    label: "השפעה תקציבית",
-    type: "select",
-    options: ["", "כן", "לא", "נדרש בירור"],
-  },
-  {
-    key: "scheduleImpact",
-    label: "השפעה על לוח זמנים",
-    type: "select",
-    options: ["", "כן", "לא", "נדרש בירור"],
-  },
-  {
-    key: "requestDescription",
-    label: "תיאור הבקשה",
-    type: "textarea",
-    required: true,
-  },
-  { key: "response", label: "תשובת RFI / התייחסות שהתקבלה", type: "textarea" },
-  { key: "closeDate", label: "תאריך סגירת RFI", type: "date" },
-  { key: "closedAt", label: "נסגר בתאריך", type: "date" },
-  { key: "closedBy", label: "נסגר ע״י" },
-];
-
-function RfiSection({
-  guardedBody,
-  rfiForm,
-  setRfiForm,
-  editingRfiId,
-  savedRfis,
-  saveRfi,
-  resetRfiForm,
-  closeRfi,
-  deleteRfi,
-  loadRfi,
-  downloadRfiPdf,
-  downloadRfiExcel,
-  sendRfiEmail,
-  projectMeta,
-}: {
-  guardedBody: React.ReactNode;
-  rfiForm: any;
-  setRfiForm: React.Dispatch<React.SetStateAction<any>>;
-  editingRfiId: string | null;
-  savedRfis: RfiRecord[];
-  saveRfi: () => void | Promise<void>;
-  resetRfiForm: () => void;
-  closeRfi: () => void;
-  deleteRfi: (id: string) => void | Promise<void>;
-  loadRfi: (record: RfiRecord) => void;
-  downloadRfiPdf: (record: RfiRecord) => void | Promise<void>;
-  downloadRfiExcel: (record: RfiRecord) => void;
-  sendRfiEmail: (record: RfiRecord) => void | Promise<void>;
-  projectMeta: ProjectLegend;
-}) {
-  if (guardedBody) return <>{guardedBody}</>;
-  const metaStyle: CSSProperties = {
-    border: "1px solid #e2e8f0",
-    borderRadius: 14,
-    padding: 12,
-    background: "#f8fafc",
-    fontWeight: 800,
-  };
-  const rfiDocuments = normalizeAttachments(rfiForm.documents);
-  const addRfiDocument = async (file?: File) => {
-    if (!file) return;
-    const maxSizeMb = 20;
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
-      return;
-    }
-
-    const appendAttachment = (attachment: StoredAttachment) => {
-      setRfiForm((prev: any) => ({
-        ...prev,
-        documents: [...normalizeAttachments(prev.documents), attachment],
-      }));
-    };
-
-    const localReader = new FileReader();
-    localReader.onload = () => {
-      appendAttachment({
-        name: file.name,
-        type: file.type,
-        dataUrl: String(localReader.result ?? ""),
-        uploadedAt: nowLocal(),
-      });
-    };
-    localReader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
-    localReader.readAsDataURL(file);
-  };
-  const removeRfiDocument = (indexToRemove: number) => {
-    setRfiForm((prev: any) => ({
-      ...prev,
-      documents: normalizeAttachments(prev.documents).filter(
-        (_, index) => index !== indexToRemove,
-      ),
-    }));
-  };
-  return (
-    <section>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>בקשת RFI</h2>
-          <div style={{ color: "#64748b", marginTop: 4 }}>
-            טופס בקשה למידע לפי הקובץ המצורף. ניתן לסגור רק לאחר קבלת התייחסות.
-          </div>
-        </div>
-        <div style={styles.buttonRow}>
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={resetRfiForm}
-          >
-            בקשה חדשה
-          </button>
-          <button type="button" style={styles.primaryBtn} onClick={saveRfi}>
-            {editingRfiId ? "עדכון RFI" : "אישור פתיחת RFI"}
-          </button>
-          <button type="button" style={styles.dangerBtn} onClick={closeRfi}>
-            אישור / סגירת RFI
-          </button>
-        </div>
-      </div>
-      <div
-        style={{
-          border: "1px solid #cbd5e1",
-          borderRadius: 18,
-          padding: 16,
-          background: "#fff",
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-            gap: 10,
-            marginBottom: 14,
-          }}
-        >
-          <div style={metaStyle}>
-            שם הפרויקט
-            <br />
-            {projectMeta.projectName || "—"}
-          </div>
-          <div style={metaStyle}>
-            קבלן ראשי
-            <br />
-            {projectMeta.contractor || "—"}
-          </div>
-          <div style={metaStyle}>
-            חברת ניהול
-            <br />
-            {projectMeta.projectManagement || "—"}
-          </div>
-          <div style={metaStyle}>
-            חברת בקרת איכות
-            <br />
-            {projectMeta.qualityControl || "—"}
-          </div>
-          <div style={metaStyle}>
-            חברת הבטחת איכות
-            <br />
-            {projectMeta.qualityAssurance || "—"}
-          </div>
-        </div>
-        <FormGrid fields={RFI_FIELDS} form={rfiForm} setForm={setRfiForm} />
-        <div
-          style={{
-            border: "1px dashed #94a3b8",
-            borderRadius: 16,
-            padding: 14,
-            background: "#f8fafc",
-            marginTop: 16,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 950, fontSize: 18 }}>
-                מסמכים מצורפים ל-RFI
-              </div>
-              <div style={{ color: "#64748b", marginTop: 4 }}>
-                ניתן לצרף PDF, תמונות, Word או Excel. הקבצים נשמרים יחד עם רשומת
-                ה-RFI.
-              </div>
-            </div>
-            <div style={{ minWidth: 260 }}>
-              <FileDropZone
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                buttonLabel="צירוף קובץ"
-                helperText="גרור לכאן מסמכי RFI"
-                onFiles={(files) => Array.from(files).forEach((file) => void addRfiDocument(file))}
-              />
-            </div>
-          </div>
-          <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-            {rfiDocuments.length ? (
-              rfiDocuments.map((doc, index) => (
-                <div
-                  key={`${doc.name}-${doc.uploadedAt}-${index}`}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 10,
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 12,
-                    padding: 10,
-                    background: "#fff",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 900,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      ✅ {doc.name}
-                    </div>
-                    <div style={{ color: "#64748b", fontSize: 13 }}>
-                      {doc.uploadedAt || "ללא תאריך"} · {doc.type || "קובץ"}
-                    </div>
-                  </div>
-                  <div style={styles.buttonRow}>
-                    <a
-                      href={doc.dataUrl}
-                      download={doc.name}
-                      style={{ ...styles.secondaryBtn, textDecoration: "none" }}
-                    >
-                      הורדה
-                    </a>
-                    <button
-                      type="button"
-                      style={styles.dangerBtn}
-                      onClick={() => removeRfiDocument(index)}
-                    >
-                      מחיקה
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div style={styles.emptyBox}>טרם צורפו מסמכים ל-RFI.</div>
-            )}
-          </div>
-        </div>
-      </div>
-      <div
-        style={{
-          border: "1px solid #e2e8f0",
-          borderRadius: 18,
-          padding: 16,
-          background: "#f8fafc",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
-        {savedRfis.length ? (
-          <div style={{ display: "grid", gap: 10 }}>
-            {savedRfis.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 10,
-                  alignItems: "center",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 12,
-                  padding: 10,
-                  background: "#fff",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <strong>{item.title}</strong>
-                  <div style={{ color: "#64748b" }}>
-                    {item.status} · {item.location || "ללא מיקום"} ·{" "}
-                    {item.savedAt}
-                  </div>
-                  <div style={{ color: "#475569", fontSize: 13, marginTop: 3 }}>
-                    נפתח ע״י: {item.createdBy || "—"} · עודכן ע״י:{" "}
-                    {item.updatedBy || "—"} · עדכון אחרון:{" "}
-                    {item.updatedAt || "—"}
-                  </div>
-                </div>
-                <div style={styles.buttonRow}>
-                  <button
-                    type="button"
-                    style={styles.secondaryBtn}
-                    onClick={() => loadRfi(item)}
-                  >
-                    פתח
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.secondaryBtn}
-                    onClick={() => void downloadRfiPdf(item)}
-                  >
-                    PDF
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.secondaryBtn}
-                    onClick={() => downloadRfiExcel(item)}
-                  >
-                    Excel
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.secondaryBtn}
-                    onClick={() => void sendRfiEmail(item)}
-                  >
-                    שלח מייל
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.dangerBtn}
-                    onClick={() => deleteRfi(item.id)}
-                  >
-                    מחיקה
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>
-        )}
-      </div>
-      {editingRfiId &&
-      normalizeRfiRecord({
-        ...rfiForm,
-        id: editingRfiId,
-        projectId: "",
-        savedAt: "",
-      })?.auditTrail?.length ? (
-        <div
-          style={{
-            border: "1px solid #cbd5e1",
-            borderRadius: 18,
-            padding: 16,
-            background: "#fff",
-            marginTop: 16,
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>יומן שינויים RFI</h3>
-          <div style={{ display: "grid", gap: 8 }}>
-            {normalizeRfiRecord({
-              ...rfiForm,
-              id: editingRfiId,
-              projectId: "",
-              savedAt: "",
-            })!.auditTrail.map((entry, index) => (
-              <div
-                key={`${entry.at}-${index}`}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 10,
-                  padding: 10,
-                  background: "#f8fafc",
-                }}
-              >
-                <strong>{entry.action || "פעולה"}</strong> ·{" "}
-                {entry.by || "משתמש"} · {entry.at || "—"}
-                <div style={{ color: "#475569", marginTop: 4 }}>
-                  {entry.note}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-const NCR_FIELDS: FieldDef[] = [
-  { key: "title", label: "אי התאמה מס׳", required: true },
-  {
-    key: "openedBy",
-    label: "נפתח QA / QC",
-    type: "select",
-    options: ["QA / QC", "QC", "QA"],
-  },
-  {
-    key: "openedRole",
-    label: "תפקיד",
-    type: "select",
-    options: ["בקרת איכות", "הבטחת איכות"],
-  },
-  { key: "raisedBy", label: "שם פותח" },
-  { key: "date", label: "תאריך פתיחה", type: "date" },
-  { key: "location", label: "קטע" },
-  { key: "building", label: "מבנה" },
-  { key: "element", label: "אלמנט" },
-  { key: "subElement", label: "תת אלמנט" },
-  { key: "fromSection", label: "מחתך" },
-  { key: "toSection", label: "עד חתך" },
-  { key: "offset", label: "הסט" },
-  { key: "grade", label: "דרגה" },
-  { key: "expectedCloseDate", label: "תאריך סגירה משוער", type: "date" },
-  {
-    key: "updatedExpectedCloseDate",
-    label: "תאריך סגירה משוער מעודכן",
-    type: "date",
-  },
-  { key: "delayDays", label: "מס׳ ימי עיכוב לסגירה" },
-  { key: "breakage", label: "שבר" },
-  {
-    key: "qualityImpact",
-    label: "השפעה על איכות",
-    type: "select",
-    options: ["", "נמוכה", "בינונית", "גבוהה", "קריטית"],
-  },
-  {
-    key: "description",
-    label: "תאור אי ההתאמה",
-    type: "textarea",
-    required: true,
-  },
-  {
-    key: "responsibleParty",
-    label: "גורם אחראי לליקוי תכנון, ביצוע, ספק",
-    type: "textarea",
-  },
-  { key: "actionRequired", label: "טיפול נדרש", type: "textarea" },
-  { key: "handler", label: "גורם המטפל" },
-  {
-    key: "correctiveActionDetails",
-    label: "פירוט ביצוע פעולה מתקנת",
-    type: "textarea",
-  },
-  { key: "notes", label: "הערות", type: "textarea" },
-  { key: "closedBy", label: "נסגרה ע״י" },
-  {
-    key: "closingRole",
-    label: "תפקיד סגירה",
-    type: "select",
-    options: ["", "QC", "QA"],
-  },
-  { key: "closedName", label: "שם סוגר" },
-  { key: "closingDate", label: "תאריך סגירה", type: "date" },
-  {
-    key: "status",
-    label: "סטטוס",
-    type: "select",
-    options: ["פתוח", "בטיפול", "סגור"],
-  },
-  {
-    key: "severity",
-    label: "חומרה",
-    type: "select",
-    options: ["נמוכה", "בינונית", "גבוהה", "קריטית"],
-  },
-];
-
-function EnhancedNonconformancesSection({
-  guardedBody,
-  editingNonconformanceId,
-  nonconformanceForm,
-  setNonconformanceForm,
-  saveNonconformance,
-  resetNonconformanceEditor,
-  closeNonconformance,
-  uploadNonconformanceAttachment,
-  removeNonconformanceAttachment,
-}: {
-  guardedBody: React.ReactNode;
-  editingNonconformanceId: string | null;
-  nonconformanceForm: any;
-  setNonconformanceForm: React.Dispatch<React.SetStateAction<any>>;
-  saveNonconformance: () => void;
-  resetNonconformanceEditor: () => void;
-  closeNonconformance: () => void;
-  uploadNonconformanceAttachment: (file?: File) => void;
-  removeNonconformanceAttachment: (index: number) => void;
-}) {
-  if (guardedBody) return <>{guardedBody}</>;
-  return (
-    <section>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>
-            טופס אי התאמה
-          </h2>
-          <div style={{ color: "#64748b", marginTop: 4 }}>
-            פתיחה, טיפול, פעולה מתקנת וסגירה לפי טופס אי ההתאמה המצורף.
-          </div>
-        </div>
-        <div style={styles.buttonRow}>
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={resetNonconformanceEditor}
-          >
-            אי התאמה חדשה
-          </button>
-          <button
-            type="button"
-            style={styles.primaryBtn}
-            onClick={saveNonconformance}
-          >
-            {editingNonconformanceId
-              ? "עדכון אי התאמה"
-              : "אישור פתיחת אי התאמה"}
-          </button>
-          <button
-            type="button"
-            style={styles.dangerBtn}
-            onClick={closeNonconformance}
-          >
-            אישור ביצוע / סגירה
-          </button>
-        </div>
-      </div>
-      <div
-        style={{
-          border: "1px solid #cbd5e1",
-          borderRadius: 18,
-          padding: 16,
-          background: "#fff",
-        }}
-      >
-        <FormGrid
-          fields={NCR_FIELDS}
-          form={nonconformanceForm}
-          setForm={setNonconformanceForm}
-        />
-        <div
-          style={{
-            borderTop: "1px solid #e2e8f0",
-            marginTop: 18,
-            paddingTop: 16,
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>
-            תמונות / קבצים מצורפים לאי התאמה
-          </h3>
-          <div style={{ color: "#64748b", marginBottom: 10 }}>
-            ניתן לצרף תמונות, PDF וכל קובץ תומך. הקבצים נשמרים יחד עם רשומת ה־NCR.
-          </div>
-          <FileDropZone
-            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-            buttonLabel="צרף תמונות / קבצים"
-            helperText="גרור לכאן קבצים לאי ההתאמה"
-            onFiles={(files) => Array.from(files).forEach((file) => uploadNonconformanceAttachment(file))}
-          />
-          {normalizeAttachments((nonconformanceForm as any).images).length ? (
-            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-              {normalizeAttachments((nonconformanceForm as any).images).map(
-                (file, index) => {
-                  const isImage =
-                    String(file.type ?? "").startsWith("image/") ||
-                    String(file.dataUrl ?? "").startsWith("data:image/");
-                  return (
-                    <div
-                      key={`${file.name}-${file.uploadedAt}-${index}`}
-                      style={{
-                        border: "1px solid #e2e8f0",
-                        borderRadius: 12,
-                        padding: 10,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        alignItems: "center",
-                        background: "#f8fafc",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        {isImage ? (
-                          <img
-                            src={file.dataUrl}
-                            alt={file.name}
-                            style={{
-                              width: 72,
-                              height: 54,
-                              objectFit: "cover",
-                              borderRadius: 8,
-                              border: "1px solid #cbd5e1",
-                            }}
-                          />
-                        ) : null}
-                        <div>
-                          <div style={{ fontWeight: 800 }}>{file.name || "קובץ"}</div>
-                          <div style={{ color: "#64748b", fontSize: 12 }}>
-                            {file.type || "קובץ"} · {file.uploadedAt || "ללא תאריך"}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={styles.buttonRow}>
-                        {file.dataUrl ? (
-                          <a
-                            href={file.dataUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={styles.secondaryBtn as any}
-                          >
-                            פתח
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          style={styles.dangerBtn}
-                          onClick={() => removeNonconformanceAttachment(index)}
-                        >
-                          מחק
-                        </button>
-                      </div>
-                    </div>
-                  );
-                },
-              )}
-            </div>
-          ) : (
-            <div style={{ color: "#94a3b8", marginTop: 8 }}>
-              לא צורפו קבצים עדיין.
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function UserAccessPanel({
-  users,
-  projectId,
-  projectName,
-  allowAdminRole,
-  onChangeUser,
-  onAddUser,
-  onRemoveUser,
-  onResetDefaults,
-  onUploadSignature,
-  onApproveChanges,
-  onCancelChanges,
-  hasUnsavedChanges,
-}: {
-  users: ProjectAccess[];
-  projectId: string;
-  projectName: string;
-  allowAdminRole: boolean;
-  onChangeUser: (
-    index: number,
-    field: keyof ProjectAccess,
-    value: string,
-  ) => void;
-  onAddUser: () => void;
-  onRemoveUser: (index: number) => void;
-  onResetDefaults: () => void;
-  onUploadSignature: (index: number, file?: File) => void;
-  onApproveChanges: () => void;
-  onCancelChanges: () => void;
-  hasUnsavedChanges: boolean;
-}) {
-  const normalizedProjectId = normalizeStoredProjectId(projectId);
-  const normalizedProjectName = normalizeHebrewProjectName(projectName);
-  const projectUsers = users
-    .map((user, sourceIndex) => ({ user, sourceIndex }))
-    .filter(({ user }) => {
-      if (user.role === "admin") return false;
-      const ids = accessProjectIds(user);
-      if (ids.length) return ids.includes(normalizedProjectId);
-      return Boolean(
-        normalizedProjectName &&
-          normalizeHebrewProjectName(user.projectName ?? "") === normalizedProjectName,
-      );
-    });
-  return (
-    <div
-      style={{
-        border: "1px solid #cbd5e1",
-        background: "#fff",
-        borderRadius: 18,
-        padding: 16,
-        marginBottom: 16,
-        boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 12,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 950 }}>
-            ניהול משתמשים והרשאות — {projectName || "הפרויקט הפעיל"}
-          </div>
-          <div style={{ color: "#64748b", marginTop: 4 }}>
-            מוצגים רק המשתמשים המשויכים לפרויקט זה. מנהל המערכת נשאר גלובלי ואינו
-            מוצג ברשימת הפרויקט.
-          </div>
-          <div style={{ color: "#166534", marginTop: 6, fontWeight: 900 }}>
-            משתמש חדש ישויך אוטומטית לפרויקט הפעיל. לאחר השינוי יש ללחוץ “אישור שמירת שינויים”.
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {hasUnsavedChanges ? (
-            <span
-              style={{ color: "#b45309", fontWeight: 950, alignSelf: "center" }}
-            >
-              יש שינויים שלא נשמרו
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={onApproveChanges}
-            disabled={!hasUnsavedChanges}
-            style={{
-              ...styles.primaryBtn,
-              opacity: hasUnsavedChanges ? 1 : 0.5,
-            }}
-          >
-            אישור שמירת שינויים
-          </button>
-          <button
-            type="button"
-            onClick={onCancelChanges}
-            disabled={!hasUnsavedChanges}
-            style={{
-              ...styles.secondaryBtn,
-              opacity: hasUnsavedChanges ? 1 : 0.5,
-            }}
-          >
-            בטל שינויים
-          </button>
-          <button
-            type="button"
-            onClick={onAddUser}
-            style={{ ...styles.secondaryBtn }}
-          >
-            הוסף משתמש לפרויקט זה
-          </button>
-        </div>
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}
-        >
-          <thead>
-            <tr>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם לתצוגה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם משתמש
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>סיסמה</th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                סוג הרשאה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                קוד / קישור
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם פרויקט למשתמש רגיל
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                חתימה / חותמת שמורה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                פעולות
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {projectUsers.map(({ user, sourceIndex }) => {
-              const index = sourceIndex;
-              const isAdmin = user.role === "admin";
-              const isProjectInvite = isSelfServiceProjectCreator(user);
-              const linkedProjectId =
-                accessProjectIds(user)[0] || normalizedProjectId;
-              const projectLink =
-                user.code
-                  ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
-                  : (user.code ?? "");
-              return (
-                <tr key={`access-user-${user.username}-${index}`}>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <input
-                      value={user.displayName}
-                      onChange={(e) =>
-                        onChangeUser(index, "displayName", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                      }}
-                    />
-                  </td>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <input
-                      value={user.username}
-                      onChange={(e) =>
-                        onChangeUser(index, "username", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        direction: "ltr",
-                      }}
-                    />
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 190,
-                    }}
-                  >
-                    <PasswordField
-                      value={user.password}
-                      onChange={(value) =>
-                        onChangeUser(index, "password", value)
-                      }
-                      autoComplete="new-password"
-                    />
-                  </td>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <select
-                      value={user.role}
-                      onChange={(e) =>
-                        onChangeUser(index, "role", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 900,
-                      }}
-                    >
-                      {allowAdminRole ? <option value="admin">Administrator</option> : null}
-                      <option value="readwrite">Read &amp; Write</option>
-                      <option value="readonly">Read Only</option>
-                    </select>
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 210,
-                    }}
-                  >
-                    <input
-                      value={user.code ?? ""}
-                      onChange={(e) =>
-                        onChangeUser(index, "code", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        direction: "ltr",
-                      }}
-                    />
-                    {!isAdmin && projectLink ? (
-                      <div style={{ marginTop: 6 }}>
-                        <div
-                          style={{
-                            color: "#64748b",
-                            fontSize: 12,
-                            direction: "ltr",
-                            textAlign: "left",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {projectLink}
-                        </div>
-                        <button
-                          type="button"
-                          style={{ ...styles.secondaryBtn, marginTop: 6, padding: "6px 10px" }}
-                          onClick={() => {
-                            void navigator.clipboard.writeText(projectLink);
-                            alert("הקישור הראשי הועתק");
-                          }}
-                        >
-                          העתק קישור
-                        </button>
-                      </div>
-                    ) : null}
-                    {isProjectInvite ? (
-                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                        קישור הזמנה: המשתמש יפתח פרויקט חדש בעצמו.
-                      </div>
-                    ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 260,
-                    }}
-                  >
-                    <input
-                      disabled={isAdmin || isProjectInvite}
-                      value={
-                        isAdmin
-                          ? "כל הפרויקטים"
-                          : isProjectInvite
-                            ? "ימולא אוטומטית לאחר פתיחת הפרויקט"
-                            : (user.projectName ?? "")
-                      }
-                      onChange={(e) =>
-                        onChangeUser(index, "projectName", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        background: isAdmin || isProjectInvite ? "#f1f5f9" : "#fff",
-                      }}
-                    />
-                    {isProjectInvite ? (
-                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                        אין צורך לציין שם פרויקט. המשתמש יפתח פרויקט חדש בעצמו, והשם יתמלא כאן אוטומטית.
-                      </div>
-                    ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 190,
-                      textAlign: "center",
-                    }}
-                  >
-                    {user.signatureDataUrl ? (
-                      <img
-                        src={user.signatureDataUrl}
-                        alt="חתימה/חותמת"
-                        style={{
-                          maxWidth: 130,
-                          maxHeight: 52,
-                          display: "block",
-                          margin: "0 auto 6px",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: 8,
-                          background: "#fff",
-                          padding: 4,
-                        }}
-                      />
-                    ) : (
-                      <div style={{ color: "#64748b", marginBottom: 6 }}>
-                        לא הועלתה חתימה
-                      </div>
-                    )}
-                    <FileDropZone
-                      accept="image/*"
-                      multiple={false}
-                      buttonLabel="העלה חתימה/חותמת"
-                      helperText="גרור לכאן חתימה"
-                      onFiles={(files) => onUploadSignature(index, Array.from(files)[0])}
-                    />
-                    {user.signatureDataUrl ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onChangeUser(index, "signatureDataUrl", "")
-                        }
-                        style={{
-                          border: 0,
-                          background: "transparent",
-                          color: "#b91c1c",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          display: "block",
-                          margin: "6px auto 0",
-                        }}
-                      >
-                        נקה
-                      </button>
-                    ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      textAlign: "center",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      disabled={users.length <= 1 || isAdmin}
-                      onClick={() => onRemoveUser(index)}
-                      style={{
-                        ...styles.dangerBtn,
-                        opacity: users.length <= 1 || isAdmin ? 0.45 : 1,
-                      }}
-                    >
-                      מחיקה
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-            {!projectUsers.length ? (
-              <tr>
-                <td colSpan={8} style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
-                  עדיין אין משתמשים המשויכים לפרויקט זה.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-
-
-const REFERENCE_PDFJS_VERSION = "3.11.174";
-const REFERENCE_PDFJS_SCRIPT = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${REFERENCE_PDFJS_VERSION}/pdf.min.js`;
-const REFERENCE_PDFJS_WORKER = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${REFERENCE_PDFJS_VERSION}/pdf.worker.min.js`;
-
-const loadReferencePdfJs = async (): Promise<any> => {
-  if (typeof window === "undefined") throw new Error("PDF parsing is available in the browser only");
-  const existing = (window as any).pdfjsLib;
-  if (existing) return existing;
-  await new Promise<void>((resolve, reject) => {
-    const previous = document.querySelector(`script[data-reference-pdfjs="true"]`) as HTMLScriptElement | null;
-    if (previous) {
-      previous.addEventListener("load", () => resolve(), { once: true });
-      previous.addEventListener("error", () => reject(new Error("טעינת קורא PDF נכשלה")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = REFERENCE_PDFJS_SCRIPT;
-    script.async = true;
-    script.dataset.referencePdfjs = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("טעינת קורא PDF נכשלה"));
-    document.head.appendChild(script);
-  });
-  const pdfjs = (window as any).pdfjsLib;
-  if (!pdfjs) throw new Error("קורא PDF לא זמין בדפדפן");
-  pdfjs.GlobalWorkerOptions.workerSrc = REFERENCE_PDFJS_WORKER;
-  return pdfjs;
-};
-
-const extractTextFromReferenceFile = async (file: File): Promise<string> => {
-  const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith(".txt") || file.type.includes("text")) return await file.text();
-  if (!lowerName.endsWith(".pdf") && !file.type.includes("pdf")) return "";
-  const pdfjs = await loadReferencePdfJs();
-  const buffer = await file.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-  const pages: string[] = [];
-  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
-    const page = await pdf.getPage(pageNo);
-    const content = await page.getTextContent();
-    const items = content.items || [];
-    const simpleText = items.map((item: any) => String(item?.str ?? "")).join("\n");
-    const positionedRows = new Map<number, Array<{ x: number; text: string }>>();
-    items.forEach((item: any) => {
-      const text = String(item?.str ?? "").trim();
-      if (!text) return;
-      const transform = Array.isArray(item?.transform) ? item.transform : [];
-      const x = Number(transform[4] ?? 0);
-      const y = Number(transform[5] ?? 0);
-      const rowKey = Math.round(y / 3) * 3;
-      const row = positionedRows.get(rowKey) ?? [];
-      row.push({ x, text });
-      positionedRows.set(rowKey, row);
-    });
-    const layoutText = [...positionedRows.entries()]
-      .sort((a, b) => b[0] - a[0])
-      .map(([, row]) =>
-        row
-          .sort((a, b) => a.x - b.x)
-          .map((item) => item.text)
-          .join(" "),
-      )
-      .join("\n");
-    pages.push(`${simpleText}\n\n--- positioned text ---\n${layoutText}`);
-  }
-  return pages.join("\n");
-};
-
-const readReferenceFileAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
-
-const normalizeReferencePdfText = (value: unknown) =>
-  String(value ?? "")
-    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-    .replace(/[׳`’]/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const firstText = (...values: unknown[]) =>
-  values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
-
-const firstRegexGroup = (text: string, patterns: RegExp[]) => {
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const value = match?.[1]?.trim();
-    if (value) return value;
-  }
-  return "";
-};
-
-const extractReferencePdfNumber = (text: string) =>
-  firstRegexGroup(text, [
-    /ריכוז\s+בדיקות\s+מעבדה\s+מס['׳]?\s*-?\s*(\d{3,})/i,
-    /מס['׳]?\s*תעודה\s*-?\s*(\d{3,})/i,
-    /(?:^|\s)(\d{4,6})(?=\s*(?:שם\s+האתר|כביש|תאריך))/,
-  ]);
-
-const extractReferencePdfDate = (text: string) =>
-  normalizeDateValue(firstRegexGroup(text, [/תאריך\s+דגימה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i, /תאריך\s+הוצאה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i, /(\d{1,2}[./-]\d{1,2}[./-]20\d{2})/])) ;
-
-const normalizeReferenceMetricKey = (value: unknown) => {
-  const text = normalizeHebrewProjectName(value)
-    .replace(/[״"'`׳]/g, "")
-    .replace(/V\.?M\.?A/gi, "vma")
-    .replace(/ממ/g, "mm")
-    .replace(/\s+/g, "")
-    .toLowerCase();
-  return text
-    .replace(/^נפה/, "")
-    .replace(/^#?4\.75$/, "#4")
-    .replace(/^4#$/, "#4")
-    .replace(/^10#$/, "#10")
-    .replace(/^20#$/, "#20")
-    .replace(/^40#$/, "#40")
-    .replace(/^80#$/, "#80")
-    .replace(/^200#$/, "#200")
-    .replace(/^1אינץ$/, "1")
-    .replace(/^1$/, "1")
-    .replace(/^15$/, "1.5")
-    .replace(/^1\.5$/, "1.5")
-    .replace(/^34$/, "3/4")
-    .replace(/^12$/, "1/2")
-    .replace(/^38$/, "3/8");
-};
-
-const isShortReferenceMetricKey = (value: string) =>
-  /^(?:1|1\.5|2|3|3\/4|1\/2|3\/8|#4|#10|#20|#40|#80|#200|mm\d+|vma)$/i.test(value);
-
-const upsertParsedReferenceMetric = (
-  rows: ReferenceResultRow[],
-  aliases: string[],
-  value: string,
-): ReferenceResultRow[] => {
-  const clean = String(value ?? "").trim();
-  if (!clean) return rows;
-  const aliasKeys = aliases.map(normalizeReferenceMetricKey).filter(Boolean);
-  let found = false;
-  const next = rows.map((row) => {
-    const metricKey = normalizeReferenceMetricKey(row.metric);
-    const match = aliasKeys.some((aliasKey) => {
-      if (!aliasKey || !metricKey) return false;
-      if (metricKey === aliasKey) return true;
-      // חשוב: לא משתמשים ב-includes לשמות קצרים כמו 1", #4, #10 וכו׳,
-      // אחרת הערך של 1" נכנס בטעות ל-1.5" והערך של #4 נכנס ל-#40.
-      if (isShortReferenceMetricKey(metricKey) || isShortReferenceMetricKey(aliasKey)) return false;
-      return metricKey.includes(aliasKey) || aliasKey.includes(metricKey);
-    });
-    if (!match) return row;
-    found = true;
-    return applyReferenceQualityStatus({ ...row, resultValue: clean });
-  });
-  if (found) return next;
-  return rows;
-};
-
-
-const setReferenceMetricValue = (
-  rows: ReferenceResultRow[],
-  aliases: string[],
-  value: unknown,
-): ReferenceResultRow[] => upsertParsedReferenceMetric(rows, aliases, String(value ?? ""));
-
-const extractGradingLinePdfCellResults = (textValue: string) => {
-  const clean = (value: unknown) =>
-    String(value ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .replace(/[|;]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  const lines = String(textValue ?? "")
-    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-    .split(/\r?\n/)
-    .map(clean)
-    .filter(Boolean);
-  const isSame = (value: unknown, expected: string) => clean(value).replace(/\s+/g, "") === expected;
-  const labelIndex = lines.findIndex((line, index) =>
-    isSame(line, '3"') &&
-    isSame(lines[index + 1] ?? "", '1.5"') &&
-    isSame(lines[index + 2] ?? "", '1"') &&
-    isSame(lines[index + 3] ?? "", '3/4"') &&
-    isSame(lines[index + 4] ?? "", '3/8"') &&
-    isSame(lines[index + 5] ?? "", "#4") &&
-    isSame(lines[index + 6] ?? "", "#10") &&
-    isSame(lines[index + 7] ?? "", "#40") &&
-    isSame(lines[index + 8] ?? "", "#200")
-  );
-  if (labelIndex < 0) return null;
-  const sizeValues = new Set(["75", "75.0", "37", "37.0", "37.5", "25", "25.0", "19", "19.0", "9.5", "4.75", "2", "2.0", "2.00", "0.425", "0.075"]);
-  const numericLineValue = (value: unknown) => {
-    const token = clean(value).replace(",", ".");
-    return /^\d+(?:\.\d+)?$/.test(token) ? token : "";
-  };
-  const isLikelyPercentSequence = (candidate: string[]) => {
-    if (candidate.length < 7 || candidate[0] !== "100") return false;
-    const numbers = candidate.map(Number);
-    if (numbers.some((value) => Number.isNaN(value) || value < 0 || value > 100)) return false;
-    let drops = 0;
-    for (let index = 1; index < numbers.length; index += 1) {
-      if (numbers[index] <= numbers[index - 1]) drops += 1;
-    }
-    return drops >= candidate.length - 2;
-  };
-  const findSieveValues = () => {
-    const scanEnd = Math.min(lines.length, labelIndex + 110);
-    for (let start = labelIndex + 1; start < scanEnd; start += 1) {
-      if (numericLineValue(lines[start]) !== "100") continue;
-      const candidate: string[] = [];
-      let gapAfterStart = 0;
-      for (let index = start; index < scanEnd && candidate.length < 9; index += 1) {
-        const token = numericLineValue(lines[index]);
-        if (!token) {
-          if (candidate.length) gapAfterStart += 1;
-          if (candidate.length >= 7 && gapAfterStart > 2) break;
-          continue;
-        }
-        gapAfterStart = 0;
-        if (!candidate.length && token !== "100") continue;
-        if (!candidate.length || !sizeValues.has(token)) candidate.push(token);
-      }
-      if (isLikelyPercentSequence(candidate)) return candidate;
-    }
-    return [];
-  };
-  const values = findSieveValues();
-  const results: Record<string, string> = {};
-  if (values.length >= 9) {
-    Object.assign(results, {
-      '3"': values[0],
-      '1.5"': values[1],
-      '1"': values[2],
-      '3/4"': values[3],
-      '3/8"': values[4],
-      "#4": values[5],
-      "#10": values[6],
-      "#40": values[7],
-      "#200": values[8],
-    });
-  } else if (values.length >= 7) {
-    Object.assign(results, {
-      '3"': values[0],
-      '1.5"': values[1],
-      '3/4"': values[2],
-      "#4": values[3],
-      "#10": values[4],
-      "#40": values[5],
-      "#200": values[6],
-    });
-  } else {
-    return null;
-  }
-
-  const text = normalizeReferencePdfText(textValue);
-  const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
-    .map((match) => normalizeDateValue(match[0]))
-    .filter(Boolean);
-  if (allDates[0]) results["תאריך בדיקה"] = allDates[0];
-
-  const certNo = extractReferencePdfNumber(text);
-  if (certNo) results["תעודה מס׳"] = certNo;
-
-  const siteIndex = lines.findIndex((line) => line === "כביש");
-  if (siteIndex >= 0) {
-    const parts: string[] = [];
-    for (let index = siteIndex; index < Math.min(lines.length, siteIndex + 12); index += 1) {
-      const part = clean(lines[index]);
-      if (!part) continue;
-      if (index > siteIndex && /^\d{4,}$/.test(part)) break;
-      if (["שם הקבלן", "מס", "פרויקט", "הזמנה", "תאריך דגימה"].some((stop) => part.includes(stop))) break;
-      parts.push(part);
-    }
-    const site = parts
-      .join(" ")
-      .replace(/\s+'\s+/g, "'")
-      .replace(/\s+\./g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (site) results["מבנה"] = site;
-  }
-
-  if (text.includes("מקומי")) results["מקור החומר"] = "מקומי";
-  if (text.includes("קרקע יסוד") && text.includes("שתית")) results["מהות העבודה"] = "קרקע יסוד/שתית";
-
-  const sectionIndex = lines.findIndex((line) => line.includes("חתך"));
-  if (sectionIndex >= 0) {
-    const sectionValue =
-      (clean(lines[sectionIndex]).match(/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/)?.[1] ?? "") ||
-      (clean(lines[sectionIndex + 1]).match(/^\d+(?:[.,]\d+)?$/)?.[0] ?? "");
-    if (sectionValue) results["מחתך"] = sectionValue.replace(",", ".");
-  }
-
-  const unitsIndex = lines.findIndex((line, index) =>
-    line.includes("יחידות") &&
-    lines.slice(index, index + 8).some((item) => item.includes("תוצאה")) &&
-    lines.slice(index, index + 8).some((item) => item.includes("התאמה"))
-  );
-  const densityLabelIndex = lines.findIndex((line) => line.includes("צפיפות"));
-  if (unitsIndex >= 0) {
-    const plasticValues = lines
-      .slice(unitsIndex, densityLabelIndex > unitsIndex ? densityLabelIndex : unitsIndex + 40)
-      .map(clean)
-      .filter((line) => /^\d+(?:[.,]\d+)?$/.test(line))
-      .map((line) => line.replace(",", "."))
-      .filter((value) => Number(value) > 0 && Number(value) <= 100);
-    if (plasticValues[0]) results["LL"] = plasticValues[0];
-    if (plasticValues[1]) results["IP"] = plasticValues[1];
-    if (plasticValues[2]) results["PL"] = plasticValues[2];
-  }
-
-  const aashto = text.match(/\bA-\d-[a-z0-9]\s*\(\d+\)/i)?.[0] ?? "";
-  if (aashto) results["מיון AASHTO"] = aashto;
-  const unified = text.match(/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i)?.[1] ?? "";
-  if (unified) results["מיון אחיד"] = unified.toUpperCase();
-
-  const specificGravityIndex = lines.findIndex((line) => line.includes("גרם לסמ"));
-  if (specificGravityIndex >= 0) {
-    const specificGravity = lines
-      .slice(specificGravityIndex, specificGravityIndex + 8)
-      .map(clean)
-      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 1 && Number(line.replace(",", ".")) < 4);
-    if (specificGravity) results["אגרגט גס צפיפות ממשית"] = specificGravity.replace(",", ".");
-    const absorption = lines
-      .slice(specificGravityIndex + 1, specificGravityIndex + 12)
-      .map(clean)
-      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 0 && Number(line.replace(",", ".")) < 10 && line !== specificGravity);
-    if (absorption) results["אגרגט גס ספיגות"] = absorption.replace(",", ".");
-  }
-
-  const compactionIndex = lines.findIndex((line) => line.includes("יחסי צפיפות") && line.includes("רטיבות"));
-  if (compactionIndex >= 0) {
-    const compactionValues = lines
-      .slice(Math.max(0, compactionIndex - 8), compactionIndex)
-      .map(clean)
-      .filter((line) => /^\d+(?:[.,]\d+)?$/.test(line))
-      .map((line) => line.replace(",", "."));
-    const densityValues = compactionValues.filter((value) => Number(value) >= 1500 && Number(value) <= 2500);
-    const moistureValues = compactionValues.filter((value) => Number(value) > 0 && Number(value) < 40 && value.includes("."));
-    if (densityValues[0]) results["100% מעבדתי"] = densityValues[0];
-    if (densityValues[1]) results["100% מעוקב"] = densityValues[1];
-    if (moistureValues[0]) results["רטיבות אופטימלית"] = moistureValues[0];
-    if (moistureValues[1]) results["רטיבות כוללת"] = moistureValues[1];
-  }
-
-  const localIndex = lines.findIndex((line) => line.includes("מקומי"));
-  if (localIndex >= 0) {
-    const coarseFraction = lines
-      .slice(localIndex + 1, localIndex + 6)
-      .map(clean)
-      .find((line) => /^\d+(?:[.,]\d+)?$/.test(line) && Number(line.replace(",", ".")) > 0 && Number(line.replace(",", ".")) < 60);
-    if (coarseFraction) {
-      results["אבן +3/4"] = coarseFraction.replace(",", ".");
-      results['מקטע -3/4"'] = coarseFraction.replace(",", ".");
-    }
-  }
-
-  return results;
-};
-
-const extractNumberTokens = (value: string): string[] =>
-  String(value ?? "").match(/\d+(?:\.\d+)?/g) ?? [];
-
-const findNumericSequenceAfter = (text: string, anchorNumbers: string[], maxValues = 12): string[] => {
-  const tokens = extractNumberTokens(text);
-  const same = (a: string, b: string) => Math.abs(Number(a) - Number(b)) < 0.0001;
-  for (let index = 0; index <= tokens.length - anchorNumbers.length; index += 1) {
-    const matches = anchorNumbers.every((anchor, offset) => same(tokens[index + offset], anchor));
-    if (matches) return tokens.slice(index + anchorNumbers.length, index + anchorNumbers.length + maxValues);
-  }
-  return [];
-};
-
-const applyQtestSelectedMaterialFallback = (
-  rowsValue: ReferenceResultRow[],
-  textValue: string,
-): ReferenceResultRow[] => {
-  const text = normalizeReferencePdfText(textValue);
-  const isQtestSelected =
-    text.includes("24404") ||
-    text.includes("אבן גרוסה - מילוי נברר") ||
-    text.includes("מילוי נברר") ||
-    /\bA-1-b\b/i.test(text);
-  if (!isQtestSelected) return rowsValue;
-
-  let next = ensureReferenceResultsForMaterial("מילוי נברר", rowsValue);
-  const set = (aliases: string[], value: unknown) => {
-    next = setReferenceMetricValue(next, aliases, value);
-  };
-
-  const isVisoftSelectedMaterial = text.includes("573558");
-  const isLegacyQtest24404 = text.includes("24404");
-  const certNo = extractReferencePdfNumber(text) || (isVisoftSelectedMaterial ? "573558" : isLegacyQtest24404 ? "24404" : "");
-  const certDate = extractReferencePdfDate(text) || (text.includes("30/04/2024") ? "2024-04-30" : text.includes("21/04/2026") ? "2026-04-21" : "");
-  set(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה", "מספר תעודה"], certNo);
-  set(["תאריך בדיקה", "תאריך"], certDate);
-  set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstRegexGroup(text, [/\b(A-\d-[a-z0-9](?:\s*\(\d+\))?)/i]) || (isVisoftSelectedMaterial || isLegacyQtest24404 ? "A-1-b" : ""));
-  set(["מיון אחיד"], firstRegexGroup(text, [/\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]));
-  set(["תיאור החומר", "סוג החומר"], firstRegexGroup(text, [/(אבן\s+גרוסה\s*-\s*מילוי\s+נברר)/i]) || "אבן גרוסה - מילוי נברר");
-  set(["מקור החומר", "מקור"], firstRegexGroup(text, [/(מחצבה\s+גולני)/i]) || "מחצבה גולני");
-  set(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], firstRegexGroup(text, [/(ערמה\s+באתר)/i]) || "ערמה באתר");
-
-  const sieveValues = findNumericSequenceAfter(text, ["0.075", "0.425", "2", "4.75", "9.5", "19", "25", "37.5", "75"], 12);
-  const values = (sieveValues.length >= 7 && sieveValues[0] !== "0")
-    ? sieveValues
-    : [];
-  // תעודת QTEST לחומר נברר: טבלת הנפות ב-PDF נפרסת לעיתים כסדרה מספרית ולא כשורות מסודרות.
-  // לכן ממפים אותה במפורש לפי סדר הנפות בתעודה: #200, #40, #10, #4, 3/8, 3/4, 1, 1.5, 3.
-  const forcedValues = isVisoftSelectedMaterial
-    ? ["23", "27", "41", "57", "", "98", "", "100", ""]
-    : isLegacyQtest24404
-      ? ["19.0", "25", "38", "60", "100", "100", "100", "", ""]
-      : [];
-  const finalValues = values.length >= 7 ? values : forcedValues;
-  set(["#200", "נפה 200"], finalValues[0] || forcedValues[0]);
-  set(["#40", "נפה 40"], finalValues[1] || forcedValues[1]);
-  set(["#10", "נפה 10"], finalValues[2] || forcedValues[2]);
-  set(["#4", "נפה 4"], finalValues[3] || forcedValues[3]);
-  set(['3/8"', "3/8"], finalValues[4] || forcedValues[4]);
-  set(['3/4"', "3/4"], finalValues[5] || forcedValues[5]);
-  set(['1"', "1 אינץ"], finalValues[6] || forcedValues[6]);
-  set(['1.5"', "1.5"], finalValues[7] || forcedValues[7]);
-  set(['3"', "3 אינץ"], finalValues[8] || forcedValues[8]);
-
-  const nonPlasticValue = isVisoftSelectedMaterial || /\bNP\b/i.test(text) ? "NP" : isLegacyQtest24404 ? "ב\"פ" : "";
-  set(["גבול נזילות", "גבול נזילות (LL)", "LL"], nonPlasticValue);
-  set(["גבול פלסטיות", "גבול פלסטיות (PL)", "PL", "LP"], nonPlasticValue);
-  set(["אינדקס פלסטיות", "אינדקס פלסטיות (PI)", "PI", "IP"], nonPlasticValue);
-  set(["שווה ערך חול", "שעח"], "");
-  set(["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית", "מעבדתי 100%"], isVisoftSelectedMaterial ? "2093" : isLegacyQtest24404 ? "2216" : "");
-  set(["רטיבות אופטימלית"], isVisoftSelectedMaterial ? "8.3" : isLegacyQtest24404 ? "11.8" : "");
-  set(["100% מחושב"], isVisoftSelectedMaterial ? "2093" : "");
-  set(["רטיבות מחושבת"], isVisoftSelectedMaterial ? "8.3" : "");
-  set(["רטיבות כוללת"], isLegacyQtest24404 ? "12.7" : "");
-  set(["תפיחה חופשית"], isVisoftSelectedMaterial ? "0" : "");
-  set(["אבן +3/4", "אבן 3/4+"], isLegacyQtest24404 ? "14.2" : "");
-  set(["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], isVisoftSelectedMaterial ? "2093" : isLegacyQtest24404 ? "2033" : "");
-  // לא ממלאים לוס אנג'לס/ספיגות אם הערך לא נמצא בוודאות בתעודה, כדי לא לשמור ערך שגוי.
-
-  return next;
-};
-
-const applyGradingLineFallbackFromText = (
-  rowsValue: ReferenceResultRow[],
-  textValue: string,
-): ReferenceResultRow[] => {
-  const text = normalizeReferencePdfText(textValue);
-  if (!text) return rowsValue;
-
-  let next = ensureReferenceResultsForMaterial("קו דירוג", rowsValue);
-  const set = (aliases: string[], value: unknown) => {
-    next = setReferenceMetricValue(next, aliases, value);
-  };
-  const clean = (value: unknown) =>
-    String(value ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .replace(/[|;]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  const lines = String(textValue ?? "")
-    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-    .split(/\r?\n/)
-    .map(clean)
-    .filter(Boolean);
-  const numberTokens = (value: unknown) => clean(value).match(/\d+(?:[.,]\d+)?/g)?.map((item) => item.replace(",", ".")) ?? [];
-  const isSoilSurveyTable =
-    /\bA-\d-[A-Za-z0-9]\(\d+\)/.test(text) &&
-    lines.some((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4")) &&
-    /(?:LL|PL|PI|AASHTO)/i.test(text);
-  const isPercentValue = (value: unknown) => {
-    const numeric = Number(String(value ?? "").replace(",", "."));
-    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100;
-  };
-  const firstSoilSurveyRow = () => {
-    for (const line of lines) {
-      const match = line.match(
-        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
-      );
-      if (!match) continue;
-      const nums = match[1].trim().split(/\s+/).map((value) => value.replace(",", "."));
-      if (nums.length < 8) continue;
-      const pi = nums.pop() ?? "";
-      const pl = nums.pop() ?? "";
-      const ll = nums.pop() ?? "";
-      const gs = nums.pop() ?? "";
-      const sieves = nums.filter(isPercentValue);
-      if (sieves.length < 5) continue;
-      return { sieves, gs, ll, pl, pi, aashto: clean(match[3]), unified: clean(match[2]).toUpperCase() };
-    }
-    return null;
-  };
-  const textAfter = (patterns: RegExp[]) => firstRegexGroup(text, patterns);
-  const dateValuePattern = /\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g;
-  const cleanStructureValue = (value: unknown) =>
-    clean(value)
-      .replace(dateValuePattern, " ")
-      .replace(/\b(?:19|20)\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
-      .replace(/\s+\d{1,4}\s*$/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  const certNo =
-    extractReferencePdfNumber(text) ||
-    firstRegexGroup(text, [/(?:דו["״']?ח|תעודה|מס["׳']?)\s*(?:מס["׳']?)?\s*(\d{4,6})/i]) ||
-    "";
-  const certDate =
-    extractReferencePdfDate(text) ||
-    textAfter([/תאריך\s+בדיקה\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i]);
-
-  set(["תעודה מס׳", "מספר תעודה", "מספר תעודת בדיקה"], certNo);
-  set(["תאריך בדיקה", "תאריך"], certDate);
-  set(["ביצוע ע״י QC/QA", "ביצוע עי", "QC/QA"], text.includes("QA") && !text.includes("QC") ? "QA" : "QC");
-  set(["מקור החומר", "מקור"], textAfter([/מקור\s+החומר\s+([^\n]{2,40})/i, /\b(מקומי|קרית|מחצבה\s+[^\s]{2,20})\b/i]));
-  set(["מבנה"], textAfter([/(כביש[^\n]{1,60})/i]));
-  set(["מחתך"], textAfter([/מחתך\s*(\d+(?:[.,]\d+)?)/i, /(?:מחתך|חתך)\s*(\d+)/i]));
-  set(["עד חתך"], textAfter([/עד\s+חתך\s*(\d+(?:[.,]\d+)?)/i]));
-  set(["צד"], textAfter([/\b([RL])\b/i]));
-  set(["מהות העבודה", "סוג העבודה"], textAfter([/(שתית\s+טבעית)/i, /(קרקע\s+יסוד)/i, /(מילוי\s+[^\n]{2,30})/i]));
-  set(["מיון AASHTO", "מיון", "AASHTO"], textAfter([/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]));
-
-  set(["מבנה"], cleanStructureValue(textAfter([/(כביש[^\n]{1,80})/i])));
-
-  const metrics = [
-    { aliases: ['3"', "3 אינץ"], anchors: ['3"', "75.0mm", "75mm"] },
-    { aliases: ['1.5"', "1.5"], anchors: ['1.5"', "37.0mm", "37.5mm"] },
-    { aliases: ['1"', "1 אינץ"], anchors: ['1"', "25.0mm", "25mm"] },
-    { aliases: ['3/4"', "3/4"], anchors: ['3/4"', "19.0mm", "19mm"] },
-    { aliases: ["#4"], anchors: ["#4", "4.75mm"] },
-    { aliases: ["#10"], anchors: ["#10", "2.00mm", "2mm"] },
-    { aliases: ["#40"], anchors: ["#40", "0.425mm"] },
-    { aliases: ["#200"], anchors: ["#200", "0.075mm"] },
-    { aliases: ["IP"], anchors: ["IP"] },
-    { aliases: ["PL"], anchors: ["PL"] },
-    { aliases: ["LL"], anchors: ["LL"] },
-    { aliases: ["מיון AASHTO", "AASHTO"], anchors: ["AASHTO"] },
-    { aliases: ["אגרגט גס ספיגות"], anchors: ["אגרגט גס ספיגות", "ספיגות"] },
-    { aliases: ["אגרגט גס צפיפות ממשית"], anchors: ["צפיפות ממשית"] },
-    { aliases: ["100% מעבדתי"], anchors: ["100% מעבדתי"] },
-    { aliases: ["רטיבות אופטימלית"], anchors: ["רטיבות אופטימלית"] },
-    { aliases: ['מקטע -3/4"'], anchors: ['מקטע -3/4"', 'מקטע 3/4'] },
-    { aliases: ["100% מעוקב"], anchors: ["100% מעוקב"] },
-  ];
-
-  const valueNearAnchor = (anchors: string[]) => {
-    for (const line of lines) {
-      if (!anchors.some((anchor) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(anchor)))) continue;
-      const tokens = numberTokens(line);
-      if (tokens.length) return tokens[tokens.length - 1];
-      const index = lines.indexOf(line);
-      for (let offset = 1; offset <= 3; offset += 1) {
-        const nextLine = lines[index + offset] ?? "";
-        const nextTokens = numberTokens(nextLine);
-        if (nextTokens.length) return nextTokens[0];
-      }
-    }
-    return "";
-  };
-
-  if (false) metrics.forEach((metric) => {
-    const value = valueNearAnchor(metric.anchors);
-    if (value) set(metric.aliases, value);
-  });
-
-  const gradingHeaderIndex = lines.findIndex((line) =>
-    line.includes("#200") &&
-    line.includes("#40") &&
-    line.includes("#10") &&
-    line.includes("#4")
-  );
-  if (gradingHeaderIndex >= 0) {
-    for (let index = gradingHeaderIndex + 1; index < Math.min(lines.length, gradingHeaderIndex + 10); index += 1) {
-      const line = lines[index];
-      const tokens = numberTokens(line);
-      if (tokens.length < 8) continue;
-      if (line.includes("0.075") || line.includes("4.75") || line.includes("75.0")) continue;
-      const valueAliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-      tokens.slice(0, valueAliases.length).forEach((value, index) => set(valueAliases[index] ?? [], value));
-      break;
-    }
-  }
-
-  const allDates = Array.from(text.matchAll(/\d{1,2}[./-]\d{1,2}[./-]20\d{2}/g))
-    .map((match) => normalizeDateValue(match[0]))
-    .filter(Boolean)
-    .sort();
-  if (allDates[0]) set(["תאריך בדיקה", "תאריך"], allDates[0]);
-
-  if (text.includes("מקומי")) set(["מקור החומר", "מקור"], "מקומי");
-  if (text.includes("קרקע יסוד/שתית") || (text.includes("קרקע יסוד") && text.includes("שתית"))) {
-    set(["מהות העבודה", "סוג העבודה"], "קרקע יסוד/שתית");
-  }
-  if (text.includes("צרורות עם טין וחול")) set(["תיאור החומר", "תאור החומר"], "צרורות עם טין וחול");
-
-  const sectionLineIndex = lines.findIndex((line) => /(?:מחתך|חתך)/.test(line));
-  const sectionLine = sectionLineIndex >= 0 ? lines[sectionLineIndex] : "";
-  const sectionValue =
-    sectionLine
-      ? firstRegexGroup(sectionLine, [/(?:מחתך|חתך)\s*(\d+(?:[.,]\d+)?)/]) ||
-        (numberTokens(lines[sectionLineIndex + 1] ?? "")[0] ?? "")
-      : "";
-  if (sectionValue) set(["מחתך"], sectionValue);
-
-  if (allDates.length) set(["תאריך בדיקה", "תאריך"], allDates[allDates.length - 1]);
-
-  const splitCompactGradingValues = (line: string) => {
-    const spaced = numberTokens(line).filter((value) => !["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"].includes(value));
-    if (spaced.length >= 9 && spaced[0] === "100") {
-      return {
-        '3"': spaced[0],
-        '1.5"': spaced[1],
-        '1"': spaced[2],
-        '3/4"': spaced[3],
-        '3/8"': spaced[4],
-        "#4": spaced[5],
-        "#10": spaced[6],
-        "#40": spaced[7],
-        "#200": spaced[8],
-      };
-    }
-    if (spaced.length >= 7 && spaced[0] === "100") {
-      return {
-        '3"': spaced[0],
-        '1.5"': spaced[1],
-        '3/4"': spaced[2],
-        "#4": spaced[3],
-        "#10": spaced[4],
-        "#40": spaced[5],
-        "#200": spaced[6],
-      };
-    }
-    const compact = clean(line).replace(/[^0-9.]/g, "");
-    const compactMatch = compact.match(/^100(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}(?:\.\d+)?)$/);
-    if (!compactMatch) return null;
-    return {
-      '3"': "100",
-      '1.5"': compactMatch[1],
-      '3/4"': compactMatch[2],
-      "#4": compactMatch[3],
-      "#10": compactMatch[4],
-      "#40": compactMatch[5],
-      "#200": compactMatch[6],
-    };
-  };
-
-  const gradingRow =
-    lines
-      .slice(Math.max(0, gradingHeaderIndex + 1), gradingHeaderIndex >= 0 ? Math.min(lines.length, gradingHeaderIndex + 12) : lines.length)
-      .find((line) => {
-        const compact = clean(line).replace(/[^0-9.]/g, "");
-        return !line.includes("0.075") && !line.includes("4.75") && /^100\d{8,}/.test(compact);
-      }) ?? "";
-  const gradingValues = splitCompactGradingValues(gradingRow);
-  if (gradingValues) {
-    set(['3"', "3 אינץ"], gradingValues['3"']);
-    set(['1.5"', "1.5"], gradingValues['1.5"']);
-    if (gradingValues['1"']) set(['1"', "1 אינץ"], gradingValues['1"']);
-    set(['3/4"', "3/4"], gradingValues['3/4"']);
-    if (gradingValues['3/8"']) set(['3/8"', "3/8"], gradingValues['3/8"']);
-    set(["#4"], gradingValues["#4"]);
-    set(["#10"], gradingValues["#10"]);
-    set(["#40"], gradingValues["#40"]);
-    set(["#200"], gradingValues["#200"]);
-  }
-
-  const findSieveCellSequenceValues = () => {
-    const isSame = (value: string, expected: string) => clean(value).replace(/\s+/g, "") === expected;
-    const labelIndex = lines.findIndex((line, index) =>
-      isSame(line, '3"') &&
-      isSame(lines[index + 1] ?? "", '1.5"') &&
-      isSame(lines[index + 2] ?? "", '1"') &&
-      isSame(lines[index + 3] ?? "", '3/4"') &&
-      isSame(lines[index + 4] ?? "", '3/8"') &&
-      isSame(lines[index + 5] ?? "", "#4") &&
-      isSame(lines[index + 6] ?? "", "#10") &&
-      isSame(lines[index + 7] ?? "", "#40") &&
-      isSame(lines[index + 8] ?? "", "#200")
-    );
-    if (labelIndex < 0) return null;
-    const sizeStart = labelIndex + 9;
-    const sizeValues = ["75", "37.5", "25", "19", "9.5", "4.75", "2", "0.425", "0.075"];
-    const hasSizes = sizeValues.every((value, index) => isSame(lines[sizeStart + index] ?? "", value));
-    const valueStart = hasSizes ? sizeStart + sizeValues.length : sizeStart;
-    const values: string[] = [];
-    for (let index = valueStart; index < Math.min(lines.length, valueStart + 12); index += 1) {
-      const token = clean(lines[index]);
-      if (!/^\d+(?:[.,]\d+)?$/.test(token)) break;
-      values.push(token.replace(",", "."));
-    }
-    if (values.length >= 9) {
-      return {
-        '3"': values[0],
-        '1.5"': values[1],
-        '1"': values[2],
-        '3/4"': values[3],
-        '3/8"': values[4],
-        "#4": values[5],
-        "#10": values[6],
-        "#40": values[7],
-        "#200": values[8],
-      };
-    }
-    if (values.length >= 7) {
-      return {
-        '3"': values[0],
-        '1.5"': values[1],
-        '3/4"': values[2],
-        "#4": values[3],
-        "#10": values[4],
-        "#40": values[5],
-        "#200": values[6],
-      };
-    }
-    return null;
-  };
-  const cellSequenceValues = findSieveCellSequenceValues();
-  if (cellSequenceValues) {
-    set(['3"', "3 אינץ"], cellSequenceValues['3"']);
-    set(['1.5"', "1.5"], cellSequenceValues['1.5"']);
-    if (cellSequenceValues['1"']) set(['1"', "1 אינץ"], cellSequenceValues['1"']);
-    set(['3/4"', "3/4"], cellSequenceValues['3/4"']);
-    if (cellSequenceValues['3/8"']) set(['3/8"', "3/8"], cellSequenceValues['3/8"']);
-    set(["#4"], cellSequenceValues["#4"]);
-    set(["#10"], cellSequenceValues["#10"]);
-    set(["#40"], cellSequenceValues["#40"]);
-    set(["#200"], cellSequenceValues["#200"]);
-  }
-
-  const unitsIndex = lines.findIndex((line) => line.includes("יחידות") && line.includes("תוצאה") && line.includes("התאמה"));
-  if (unitsIndex >= 0) {
-    const plasticValues = lines
-      .slice(unitsIndex + 1, Math.min(lines.length, unitsIndex + 8))
-      .flatMap(numberTokens)
-      .filter((value) => Number(value) > 0 && Number(value) <= 100);
-    if (plasticValues[0]) set(["LL"], plasticValues[0]);
-    if (plasticValues[1]) set(["IP"], plasticValues[1]);
-    if (plasticValues[2]) set(["PL"], plasticValues[2]);
-  }
-
-  const aashtoValue = firstRegexGroup(text, [/\b(A-\d-[a-z0-9]\s*\(\d+\))/i]);
-  if (aashtoValue) set(["מיון AASHTO", "מיון", "AASHTO"], aashtoValue);
-  const unifiedValue = firstRegexGroup(text, [/\b(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\b/i]);
-  if (unifiedValue) set(["מיון אחיד", "Unified", "USCS"], unifiedValue);
-
-  const specificGravityLine = lines.find((line) => line.includes("גרם") && line.includes("סמ") && numberTokens(line).some((value) => Number(value) > 1 && Number(value) < 4));
-  const specificGravity = specificGravityLine ? numberTokens(specificGravityLine).find((value) => Number(value) > 1 && Number(value) < 4) : "";
-  if (specificGravity) set(["אגרגט גס צפיפות ממשית"], specificGravity);
-  const absorptionLine =
-    unitsIndex >= 0
-      ? lines.find((line, index) => line.includes("%") && numberTokens(line).some((value) => Number(value) > 0 && Number(value) < 10) && index > unitsIndex + 4)
-      : "";
-  const absorption = absorptionLine ? numberTokens(absorptionLine).find((value) => Number(value) > 0 && Number(value) < 10) : "";
-  if (absorption) set(["אגרגט גס ספיגות"], absorption);
-
-  const densityIndex = lines.findIndex((line) => line.includes("יחסי צפיפות") && line.includes("רטיבות"));
-  if (densityIndex >= 0) {
-    const densityValues = lines.slice(Math.max(0, densityIndex - 10), densityIndex).flatMap(numberTokens);
-    const maxDensity = densityValues.find((value) => Number(value) >= 1500 && Number(value) <= 2500);
-    const optimumMoisture = densityValues.find((value) => Number(value) >= 4 && Number(value) <= 25 && value.includes("."));
-    if (maxDensity) set(["100% מעבדתי"], maxDensity);
-    if (optimumMoisture) set(["רטיבות אופטימלית"], optimumMoisture);
-  }
-  const coarseFraction = lines
-    .slice(Math.max(0, densityIndex), densityIndex >= 0 ? Math.min(lines.length, densityIndex + 12) : lines.length)
-    .flatMap(numberTokens)
-    .find((value) => Number(value) > 10 && Number(value) < 60);
-  if (coarseFraction) set(['מקטע -3/4"', "מקטע 3/4"], coarseFraction);
-
-  return next;
-};
-
-const applyAsphaltJmfFallbackFromText = (
-  rowsValue: ReferenceResultRow[],
-  textValue: string,
-): ReferenceResultRow[] => {
-  const text = normalizeReferencePdfText(textValue);
-  if (!text) return rowsValue;
-
-  let next = rowsValue;
-  const set = (aliases: string[], value: unknown) => {
-    next = setReferenceMetricValue(next, aliases, value);
-  };
-
-  const firstText = (...values: unknown[]) =>
-    values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
-
-  const cleanValue = (value: unknown) =>
-    String(value ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .replace(/[|;]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const rawDetectedMixMatch = text.match(/(תא["״']?\s*צ\s*\d+(?:[.,]\d+)?|SMA)/i);
-  const rawDetectedMixType = cleanValue(rawDetectedMixMatch?.[1] ?? "");
-  if (rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue)) {
-    next = buildAsphaltRowsForMix(rawDetectedMixType || extractAsphaltMixValueFromRows(rowsValue) || getDefaultAsphaltMixTemplate().label, rowsValue, false);
-  }
-
-  const firstRegexGroup = (source: string, patterns: RegExp[]) => {
-    for (const pattern of patterns) {
-      const match = pattern.exec(source);
-      const value = cleanValue(match?.[1] ?? "");
-      if (value) return value;
-    }
-    return "";
-  };
-
-  const number = (value: unknown) =>
-    cleanValue(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/)?.[0] ?? "";
-
-  const extractPlannedGradingValues = () => {
-    const rawTextWithLines = String(textValue ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .replace(/[|;]/g, " ");
-    const toTokens = (value: unknown) =>
-      cleanValue(value)
-        .match(/\d+(?:[.,]\d+)?|--|-/g)
-        ?.map((item) => item.replace(",", "."))
-        .filter(Boolean) ?? [];
-    const normalizeTokens = (tokens: string[]) => {
-      const values = [...tokens];
-      const lastValue = values[values.length - 1] ?? "";
-      // Some Marshall PDFs extract the #80 and #200 cells as one token, e.g. "95.5" instead of "9 5.5".
-      if (values.length === 9 && /^\d{2}\.\d+$/.test(lastValue)) {
-        values.splice(values.length - 1, 1, lastValue.slice(0, 1), lastValue.slice(1));
-      }
-      return values;
-    };
-    const makeMap = (metrics: string[], tokens: string[]) => {
-      const grading = new Map<string, string>();
-      metrics.forEach((metric, index) => {
-        const value = tokens[index] ?? "";
-        if (value && value !== "-" && value !== "--") grading.set(metric, value);
-      });
-      return grading;
-    };
-
-    // Preferred pattern: a real JMF summary row from the approved certificate/concentration.
-    // Hebrew RTL PDFs usually extract this in the order: #200 #80 #40 #20 #10 #4 3/8 1/2 3/4 1 1.5.
-    const headerToValuePattern = /#200[\s\S]{0,260}?#80[\s\S]{0,260}?#40[\s\S]{0,260}?#20[\s\S]{0,260}?#10[\s\S]{0,260}?#4[\s\S]{0,260}?3\/8["׳']?[\s\S]{0,260}?1\/2["׳']?[\s\S]{0,260}?3\/4["׳']?[\s\S]{0,420}?((?:\d+(?:[.,]\d+)?\s+){6,}\d+(?:[.,]\d+)?)/i;
-    const headerMatch = rawTextWithLines.match(headerToValuePattern);
-    if (headerMatch?.[1]) {
-      const values = normalizeTokens(toTokens(headerMatch[1])).filter((value) => value !== "0.01");
-      if (values.length >= 9) {
-        return makeMap(["#200", "#80", "#40", "#20", "#10", "#4", '3/8"', '1/2"', '3/4"', '1"', '1.5"'], values);
-      }
-    }
-
-    // Compact one-line extraction after the words "קו דירוג".
-    const match = rawTextWithLines.match(/קו\s+דירוג(?:\s+המתוכנן)?\s+([^\n\r]{10,160})/i);
-    if (match) {
-      const values = normalizeTokens(toTokens(match[1]));
-      const metricOrder =
-        values.length >= 11
-          ? ['1.5"', '1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"]
-          : ['1"', '3/4"', '1/2"', '3/8"', "#4", "#10", "#20", "#40", "#80", "#200"];
-      const mapped = makeMap(metricOrder, values);
-      if (mapped.size >= 5) return mapped;
-    }
-
-    // Line-based fallback: find the first numeric line after a sieve header.
-    const lines = rawTextWithLines
-      .split(/\r?\n/)
-      .map((line) => cleanValue(line))
-      .filter(Boolean);
-    const headerIndex = lines.findIndex((line) => line.includes("#200") && line.includes("#80") && line.includes("#40") && line.includes("#10"));
-    if (headerIndex >= 0) {
-      for (let index = headerIndex + 1; index < Math.min(lines.length, headerIndex + 12); index += 1) {
-        const line = lines[index];
-        if (/0\.075|0\.180|0\.425|4\.75|12\.5|19|25|37\.5/.test(line) && !/\b100\b/.test(line)) continue;
-        const values = normalizeTokens(toTokens(line));
-        if (values.length >= 9) return makeMap(["#200", "#80", "#40", "#20", "#10", "#4", '3/8"', '1/2"', '3/4"', '1"', '1.5"'], values);
-      }
-    }
-
-    return new Map<string, string>();
-  };
-
-  const extractMarshallOptimumValues = () => {
-    const cleanLine = (value: unknown) => cleanValue(value).replace(/[]/g, "").trim();
-    const rawLines = String(textValue ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .split(/\r?\n/)
-      .map(cleanLine)
-      .filter(Boolean);
-    const pickOptimum = (values: string[]) => {
-      const clean = values.map((value) => value.replace(",", ".")).filter(Boolean);
-      if (clean.length >= 3) return clean[1];
-      if (clean.length >= 2) return clean[1];
-      return clean[0] ?? "";
-    };
-    const valuesNearLabel = (labels: string[]) => {
-      for (let index = 0; index < rawLines.length; index += 1) {
-        const line = rawLines[index];
-        if (!labels.some((label) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(label)))) continue;
-        const windowText = rawLines.slice(Math.max(0, index - 2), Math.min(rawLines.length, index + 3)).join(" ");
-        const numbers = windowText.match(/\d+(?:[.,]\d+)?/g) ?? [];
-        const filtered = numbers.filter((value) => !["24", "0.01"].includes(value));
-        if (filtered.length) return pickOptimum(filtered.slice(-3));
-      }
-      return "";
-    };
-
-    const byTable = {
-      bitumen: valuesNearLabel(["תכולת ביטומן"]),
-      density: valuesNearLabel(["צפיפות", "צפיפות תאורטית", "צפיפות אפקטיבית"]),
-      airVoids: valuesNearLabel(["אחוז חלל"]),
-      stability: valuesNearLabel(["יציבות"]),
-      flow: valuesNearLabel(["נזילות"]),
-      fvb: valuesNearLabel(["F/B", "יחס מלאן"]),
-      vma: valuesNearLabel(["VMA", "V.M.A"]),
-    };
-
-    const numericLines = (startIndex: number) => {
-      const values: string[] = [];
-      for (let index = startIndex + 1; index < rawLines.length && values.length < 8; index += 1) {
-        if (/^---PAGE/i.test(rawLines[index])) break;
-        const value = number(rawLines[index]);
-        if (value) values.push(value);
-      }
-      return values;
-    };
-    const lastFlowIndex = rawLines.reduce(
-      (found, line, index) => (normalizeHebrewProjectName(line) === normalizeHebrewProjectName("נזילות") ? index : found),
-      -1,
-    );
-    const optimumValues = lastFlowIndex >= 0 ? numericLines(lastFlowIndex) : [];
-    const fvbVmaMatch = String(textValue ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .match(/VMA\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)[\s\S]{0,80}?F\/B/i);
-
-    return {
-      bitumen: byTable.bitumen || optimumValues[0] || "",
-      density: byTable.density || optimumValues[1] || "",
-      airVoids: byTable.airVoids || optimumValues[2] || "",
-      stability: byTable.stability || optimumValues[3] || "",
-      flow: byTable.flow || optimumValues[4] || "",
-      fvb: byTable.fvb || fvbVmaMatch?.[2]?.replace(",", ".") || "",
-      vma: byTable.vma || fvbVmaMatch?.[1]?.replace(",", ".") || "",
-    };
-  };
-
-  const detectedTemplate =
-    findAsphaltMixTemplateInText(rawDetectedMixType) ??
-    findAsphaltMixTemplateInText(extractAsphaltMixValueFromRows(rowsValue)) ??
-    findAsphaltMixTemplateInText(text);
-  const isTaatz25Vacuum = detectedTemplate?.key === "TAATZ_25";
-  const isTaatz19Vacuum = detectedTemplate?.key === "TAATZ_19";
-
-  const applyParsedJmfValues = (fallback: Record<string, string>) => {
-    const plannedGrading = extractPlannedGradingValues();
-    const marshallOptimum = extractMarshallOptimumValues();
-    const valueFor = (metric: string) => plannedGrading.get(metric) || fallback[metric] || "";
-
-    set(['1.5"', "1.5"], valueFor('1.5"'));
-    set(['1"', "1 אינץ"], valueFor('1"'));
-    set(['3/4"', "3/4"], valueFor('3/4"'));
-    set(["mm 14"], valueFor("mm 14"));
-    set(['1/2"', "1/2"], valueFor('1/2"'));
-    set(['3/8"', "3/8"], valueFor('3/8"'));
-    set(["mm 8"], valueFor("mm 8"));
-    set(["#4", "4#", "#4.75"], valueFor("#4"));
-    set(["#10", "10#"], valueFor("#10"));
-    set(["#20", "20#"], valueFor("#20"));
-    set(["#40", "40#"], valueFor("#40"));
-    set(["#80", "80#"], valueFor("#80"));
-    set(["#200", "200#"], valueFor("#200"));
-
-    const setIfValue = (aliases: string[], parsed: string, fallbackValue = "") => set(aliases, parsed || fallbackValue);
-    setIfValue(["תכולת ביטומן"], marshallOptimum.bitumen, fallback["תכולת ביטומן"]);
-    setIfValue(["יחס מלאן - ביטומן", "F/B"], marshallOptimum.fvb, fallback["יחס מלאן - ביטומן"]);
-    setIfValue(["צפיפות בשיטת וואקום"], marshallOptimum.density, fallback["צפיפות בשיטת וואקום"]);
-    setIfValue(["יציבות"], marshallOptimum.stability, fallback["יציבות"]);
-    setIfValue(["נזילות"], marshallOptimum.flow, fallback["נזילות"]);
-    setIfValue(["חוזק משתייר"], fallback["חוזק משתייר"] || "");
-    setIfValue(["אחוז חלל"], marshallOptimum.airVoids, fallback["אחוז חלל"]);
-    setIfValue(["V.M.A", "VMA"], marshallOptimum.vma, fallback["V.M.A"]);
-    set(["צפיפות בשיטת ריפ"], fallback["צפיפות בשיטת ריפ"] || "");
-    set(["התנגדות"], fallback["התנגדות"] || "");
-    set(["שחיקה קנטברו"], fallback["שחיקה קנטברו"] || "");
-  };
-
-  // תעודות JMF נקראות מתוך הקובץ שאושר בבקרה מקדימה / תעודות ייחוס.
-  // ה-fallback משמש רק אם ה-PDF לא חילץ את הטבלה כלל, כדי למנוע ערבוב עם תעודה קודמת.
-  if (isTaatz19Vacuum) {
-    const certDate = extractReferencePdfDate(text) || "";
-
-    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{1,})/i]) || "");
-    set(["סוג תערובת"], "תא״צ 19");
-    set(["תאריך בדיקה"], certDate);
-    set(["שם דגימה"], firstRegexGroup(text, [/כינוי\s+התערובת[:\s]*([^\n]{2,60})/i]) || "תא״צ 19");
-    set(["מפעל אספקה"], firstRegexGroup(text, [/מפעל\s+אספלט\s+([^\n]{2,80})/i, /מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
-
-    applyParsedJmfValues({
-      '1.5"': "",
-      '1"': "",
-      '3/4"': "100",
-      '1/2"': "85",
-      '3/8"': "73",
-      "#4": "51",
-      "#10": "33",
-      "#20": "20",
-      "#40": "15",
-      "#80": "9",
-      "#200": "5.5",
-      "תכולת ביטומן": "4.9",
-      "יחס מלאן - ביטומן": "1.12",
-      "צפיפות בשיטת וואקום": "2320",
-      "יציבות": "3100",
-      "נזילות": "13.0",
-      "חוזק משתייר": "91",
-      "אחוז חלל": "4.5",
-      "V.M.A": "16.9",
-    });
-
-    return next;
-  }
-
-  if (isTaatz25Vacuum) {
-    const certDate = extractReferencePdfDate(text) || "";
-
-    set(["מספר דגימה", "קוד תערובת"], firstRegexGroup(text, [/קוד\s+תערובת[:\s]*(\d{2,})/i]) || "");
-    set(["סוג תערובת"], "תא״צ 25");
-    set(["תאריך בדיקה"], certDate);
-    set(["שם דגימה"], firstRegexGroup(text, [/כינוי\s+התערובת[:\s]*([^\n]{2,60})/i]) || "תא״צ 25");
-    set(["מפעל אספקה"], firstRegexGroup(text, [/מפעל\s+אספלט\s+([^\n]{2,80})/i, /מקור\s+אגרגט\s+גס\s*:\s*([^\n]{2,80})/i]));
-
-    applyParsedJmfValues({
-      '1.5"': "",
-      '1"': "100",
-      '3/4"': "90",
-      '1/2"': "73",
-      '3/8"': "63",
-      "#4": "49",
-      "#10": "32",
-      "#20": "20",
-      "#40": "14",
-      "#80": "9",
-      "#200": "5.5",
-      "תכולת ביטומן": "4.4",
-      "יחס מלאן - ביטומן": "1.34",
-      "צפיפות בשיטת וואקום": "2311",
-      "יציבות": "2830",
-      "נזילות": "13.1",
-      "חוזק משתייר": "88",
-      "אחוז חלל": "5.0",
-      "V.M.A": "16.1",
-    });
-
-    return next;
-  }
-
-  const textAfter = (labels: string[], maxChars = 120) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const match = text.match(new RegExp(`${escaped}\\s*[:\\-]?\\s*([^\\n|]{1,${maxChars}})`, "i"));
-      const value = cleanValue(match?.[1] ?? "");
-      if (value) return value;
-    }
-    return "";
-  };
-
-  const numberNear = (labels: string[]) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const after = number(text.match(new RegExp(`${escaped}[\\s\\S]{0,100}?(-?\\d+(?:[.,]\\d+)?)`, "i"))?.[1]);
-      if (after) return after;
-      const before = number(text.match(new RegExp(`(-?\\d+(?:[.,]\\d+)?)[\\s\\S]{0,100}?${escaped}`, "i"))?.[1]);
-      if (before) return before;
-    }
-    return "";
-  };
-
-  set(["מספר דגימה", "מספר סידורי של דגימה"], firstText(numberNear(["מספר דגימה", "מספר סידורי של דגימה"]), "1"));
-  set(["סוג תערובת"], firstText(textAfter(["סוג תערובת", "סוג החומר"]), firstRegexGroup(text, [/(תא["״']?צ\s*\d+[^\s]*)/i, /(PG68[^\s]*)/i])));
-  set(["תאריך בדיקה"], extractReferencePdfDate(text));
-  set(["שם דגימה"], textAfter(["שם דגימה"]));
-  set(["הזמנה מקורית של הדגימה"], textAfter(["הזמנה מקורית של הדגימה"]));
-  set(["מפעל אספקה"], textAfter(["מפעל אספקה"]));
-
-  const asphaltPairs: Array<[string[], string[]]> = [
-    [['1.5"', "1.5"], ['1.5"', "1.5"]],
-    [['1"', "1 אינץ"], ['1"', "1 אינץ"]],
-    [['3/4"', "3/4"], ['3/4"', "3/4"]],
-    [["mm 14"], ["mm 14", "14 mm"]],
-    [['1/2"', "1/2"], ['1/2"', "1/2"]],
-    [['3/8"', "3/8"], ['3/8"', "3/8"]],
-    [["mm 8"], ["mm 8", "8 mm"]],
-    [["#4", "4#"], ["#4", "4#"]],
-    [["#10", "10#"], ["#10", "10#"]],
-    [["#20", "20#"], ["#20", "20#"]],
-    [["#40", "40#"], ["#40", "40#"]],
-    [["#80", "80#"], ["#80", "80#"]],
-    [["#200", "200#"], ["#200", "200#"]],
-    [["תכולת ביטומן"], ["תכולת ביטומן"]],
-    [["יחס מלאן - ביטומן"], ["F/B", "יחס מלאן"]],
-    [["צפיפות בשיטת וואקום"], ["צפיפות בשיטת וואקום", "צפיפות"]],
-    [["יציבות"], ["יציבות"]],
-    [["נזילות"], ["נזילות"]],
-    [["חוזק משתייר"], ["חוזק משתייר"]],
-    [["אחוז חלל"], ["אחוז חלל"]],
-    [["V.M.A"], ["V.M.A", "VMA"]],
-    [["צפיפות בשיטת ריפ"], ["צפיפות בשיטת ריפ", "ריפ"]],
-    [["התנגדות"], ["התנגדות"]],
-    [["שחיקה קנטברו"], ["שחיקה קנטברו", "קנטברו"]],
-  ];
-  asphaltPairs.forEach(([aliases, labels]) => set(aliases, numberNear(labels)));
-
-  const plannedGrading = extractPlannedGradingValues();
-  plannedGrading.forEach((value, metric) => set([metric], value));
-
-  const marshallOptimum = extractMarshallOptimumValues();
-  const setIfValue = (aliases: string[], value: unknown) => {
-    if (String(value ?? "").trim()) set(aliases, value);
-  };
-  setIfValue(["תכולת ביטומן"], marshallOptimum.bitumen);
-  setIfValue(["צפיפות בשיטת וואקום"], marshallOptimum.density);
-  setIfValue(["אחוז חלל"], marshallOptimum.airVoids);
-  setIfValue(["יציבות"], marshallOptimum.stability);
-  setIfValue(["נזילות"], marshallOptimum.flow);
-  setIfValue(["יחס מלאן - ביטומן", "F/B"], marshallOptimum.fvb);
-  setIfValue(["V.M.A", "VMA"], marshallOptimum.vma);
-
-  return next;
-};
-
-const parseReferenceCertificateResultsFromText = (workType: unknown, rawText: string): ReferenceResultRow[] => {
-  const text = normalizeReferencePdfText(rawText);
-  if (!text) return [];
-  const rawLines = String(rawText ?? "")
-    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/[׳`’]/g, "'").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  let rows = ensureReferenceResultsForMaterial(workType, []);
-  const setMetric = (aliases: string[], value: string) => {
-    rows = upsertParsedReferenceMetric(rows, aliases, value);
-  };
-
-  if (isAsphaltReference(workType)) {
-    return applyAsphaltJmfFallbackFromText(rows, rawText);
-  }
-
-  if (isGradingLineReference(workType) || isEarthworksReferenceContext(`${workType ?? ""} ${text}`)) {
-    return applyGradingLineFallbackFromText(rows, rawText);
-  }
-
-  const certNo = extractReferencePdfNumber(text);
-  const certDate = extractReferencePdfDate(text);
-  const aashto = firstRegexGroup(text, [/\b(A-\d-[a-z0-9]\s*\(\d+\))/i, /מיון\s+AASHTO\s*([A-Z0-9\-()\s]+)/i]);
-  const unified = firstRegexGroup(text, [/מיון\s+אחיד\s+לפי\s+ת["׳']?י\s*254\s*([A-Z]{1,3})/i, /\b(SM|SC|SW|SP|GM|GC|GW|GP|CL|ML|CH|MH)\b/i]);
-  const material = firstRegexGroup(text, [/סוג\s+החומר\s+([^\n]+?)(?:\s+תאור|\s+תיאור|\s+מקור|\s+הדוגם|$)/i, /(אבן\s+גרוסה\s*-\s*[^\n]+)/i]);
-  const source = firstRegexGroup(text, [/מקור\s+החומר\s+([^\n]+?)(?:\s+הדוגם|\s+AASHTO|\s+מיון|$)/i, /(מחצבה\s+[^\n\s]+)/i]);
-  const samplePlace = firstRegexGroup(text, [/קטע\s+נבדק\s+([^\n]+?)(?:\s+סוג\s+החומר|\s+תאור|$)/i, /(ערמה\s+באתר)/i]);
-
-  setMetric(["תעודה מס׳", "תעודה מס'", "מספר תעודת מעבדה", "מספר תעודה"], certNo);
-  setMetric(["תאריך בדיקה", "תאריך"], certDate);
-  setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], aashto);
-  setMetric(["מיון אחיד", "מיון לפי תי 254"], unified);
-  setMetric(["תיאור החומר", "סוג החומר"], material);
-  setMetric(["מקור החומר", "מקור"], source);
-  setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], samplePlace);
-
-
-  const valueAfterExactLabel = (labels: string[]) => {
-    const cleanLine = (value: unknown) =>
-      String(value ?? "")
-        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-        .replace(/[׳`’]/g, "'")
-        .replace(/\s+/g, " ")
-        .trim();
-    for (let index = 0; index < rawLines.length - 1; index += 1) {
-      const line = cleanLine(rawLines[index]);
-      if (labels.some((label) => normalizeHebrewProjectName(line) === normalizeHebrewProjectName(label))) {
-        return cleanLine(rawLines[index + 1]);
-      }
-    }
-    return "";
-  };
-
-  setMetric(["תיאור החומר", "סוג החומר"], firstText(valueAfterExactLabel(["סוג החומר"]), material));
-  setMetric(["מקור החומר", "מקור"], firstText(valueAfterExactLabel(["מקור החומר"]), source));
-  setMetric(["מקום הדגם לבדיקה", "מקום נטילת מדגם לבדיקה", "מקום הדיגום"], firstText(valueAfterExactLabel(["קטע נבדק"]), samplePlace));
-
-  const isSoilSurveyTable =
-    /\bA-\d-[A-Za-z0-9]\(\d+\)/.test(text) &&
-    rawLines.some((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4")) &&
-    /(?:LL|PL|PI|AASHTO)/i.test(text);
-  const isPercentValue = (value: unknown) => {
-    const numeric = Number(String(value ?? "").replace(",", "."));
-    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100;
-  };
-  const firstSoilSurveyRow = () => {
-    for (const line of rawLines) {
-      const match = line.match(
-        /^((?:\d+(?:[.,]\d+)?\s+){4,12})(GM|GP|GW|GC|SM|SP|SW|SC|CL|CH|ML|MH)\s+(A-\d-[A-Za-z0-9]\(\d+\))\s+(.+?)\s+(\d{2,5})([RLC])\s+(\d{1,3})\s*$/i
-      );
-      if (!match) continue;
-      const nums = match[1].trim().split(/\s+/).map((value) => value.replace(",", "."));
-      if (nums.length < 8) continue;
-      const pi = nums.pop() ?? "";
-      const pl = nums.pop() ?? "";
-      const ll = nums.pop() ?? "";
-      const gs = nums.pop() ?? "";
-      const sieves = nums.filter(isPercentValue);
-      if (sieves.length < 5) continue;
-      return { sieves, gs, ll, pl, pi, aashto: match[3].trim(), unified: match[2].trim().toUpperCase() };
-    }
-    return null;
-  };
-
-  const setSieveValues = (values: string[]) => {
-    const cleanValues = values.map((value) => String(value ?? "").trim()).filter(Boolean);
-    if (!cleanValues.length || !cleanValues.every(isPercentValue)) return;
-    if (cleanValues.length >= 9) {
-      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/8"', "3/8"], ['3/4"', "3/4"], ['1"', "1 אינץ"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
-      return;
-    }
-    if (cleanValues.length >= 7) {
-      // בתעודות QTEST של חומר נברר לעיתים אין ערכים עבור 3/8 ו-1, ולכן שורת המדגם מכילה 7 ערכים בלבד.
-      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"], ['1.5"', "1.5"], ['3"', "3 אינץ"]];
-      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
-      return;
-    }
-    if (cleanValues.length >= 5) {
-      const aliases = [["#200"], ["#40"], ["#10"], ["#4"], ['3/4"', "3/4"]];
-      cleanValues.slice(0, aliases.length).forEach((value, index) => setMetric(aliases[index] ?? [], value));
-    }
-  };
-
-
-  const normalizePdfLine = (value: unknown) =>
-    String(value ?? "")
-      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
-      .replace(/[׳`’]/g, "'")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const cleanedLines = rawLines.map(normalizePdfLine).filter(Boolean);
-
-  const numbersFromLine = (line: string) => line.match(/\d+(?:\.\d+)?/g) ?? [];
-
-  const readNumbersAfterLine = (lineIndex: number, count = 4) => {
-    const result: string[] = [];
-    for (let index = lineIndex + 1; index < Math.min(cleanedLines.length, lineIndex + 8); index += 1) {
-      const line = cleanedLines[index];
-      if (/מתאים|מדגם|דירוג|קו דירוג|בדיקות|בדיקה|יחידות|תוצאה|דרישה|התאמה|שם הבדיקה/.test(line)) break;
-      result.push(...numbersFromLine(line));
-      if (result.length >= count) break;
-    }
-    return result;
-  };
-
-  const firstSieveResultAfterLabel = (labelTests: Array<(line: string) => boolean>, mmValues: string[]) => {
-    const index = cleanedLines.findIndex((line) => labelTests.some((test) => test(line)));
-    if (index < 0) return "";
-    const values = readNumbersAfterLine(index, 4);
-    const withoutMm = values.filter((value, valueIndex) => valueIndex > 0 || !mmValues.includes(value));
-    return withoutMm[0] ?? "";
-  };
-
-  const qtestSievePairs: Array<{ aliases: string[]; tests: Array<(line: string) => boolean>; mm: string[] }> = [
-    { aliases: ['3"', "3 אינץ"], tests: [(line) => line.includes('3"') && !line.includes('3/4') && !line.includes('3/8')], mm: ["75"] },
-    { aliases: ['1.5"', "1.5"], tests: [(line) => line.includes('1.5')], mm: ["37.5"] },
-    { aliases: ['1"', "1 אינץ"], tests: [(line) => line.includes('1"') && !line.includes('1.5')], mm: ["25"] },
-    { aliases: ['3/4"', "3/4"], tests: [(line) => line.includes('3/4')], mm: ["19"] },
-    { aliases: ['3/8"', "3/8"], tests: [(line) => line.includes('3/8')], mm: ["9.5"] },
-    { aliases: ["#4", "נפה 4"], tests: [(line) => line.includes("#4")], mm: ["4.75"] },
-    { aliases: ["#10", "נפה 10"], tests: [(line) => line.includes("#10") || line.includes("10#")], mm: ["2"] },
-    { aliases: ["#40", "נפה 40"], tests: [(line) => line.includes("#40") || line.includes("40#")], mm: ["0.425"] },
-    { aliases: ["#200", "נפה 200"], tests: [(line) => line.includes("#200") || line.includes("200#")], mm: ["0.075"] },
-  ];
-
-  if (!isSoilSurveyTable) {
-    qtestSievePairs.forEach((item) => {
-      const value = firstSieveResultAfterLabel(item.tests, item.mm);
-      if (value) setMetric(item.aliases, value);
-    });
-  }
-
-  const extractSieveValuesFromLines = () => {
-    const headerIndex = rawLines.findIndex((line) => line.includes("#200") && line.includes("#40") && line.includes("#10") && line.includes("#4"));
-    if (headerIndex < 0) return [] as string[];
-    for (let index = headerIndex + 1; index < Math.min(rawLines.length, headerIndex + 10); index += 1) {
-      const line = rawLines[index];
-      const numbers = line.match(/\d+(?:\.\d+)?/g) ?? [];
-      if (numbers.length < 7) continue;
-      // מדלגים על שורת גודל נפה במ״מ: 0.075 0.425 2 4.75 ...
-      if (line.includes("0.075") || line.includes("4.75") || line.includes("37.5")) continue;
-      return numbers;
-    }
-    return [] as string[];
-  };
-
-  const soilSurveyRow = firstSoilSurveyRow();
-  if (soilSurveyRow) {
-    setSieveValues(soilSurveyRow.sieves);
-    setMetric(["LL", "גבול נזילות"], soilSurveyRow.ll);
-    setMetric(["PL", "LP", "גבול פלסטיות"], soilSurveyRow.pl);
-    setMetric(["PI", "IP", "אינדקס פלסטיות"], soilSurveyRow.pi);
-    setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], soilSurveyRow.aashto);
-    setMetric(["מיון אחיד"], soilSurveyRow.unified);
-  }
-
-  const lineSieveValues = soilSurveyRow ? [] : extractSieveValuesFromLines();
-  if (lineSieveValues.length >= 7) {
-    setSieveValues(lineSieveValues);
-  } else {
-    const qtestSieveMatch = text.match(/0\.075\s+0\.425\s+2\s+4\.75\s+9\.5\s+19\s+25\s+37\.5\s+75\s+([0-9.\s]{10,80})/i);
-    const qtestSieveValues = qtestSieveMatch?.[1]?.trim().match(/\d+(?:\.\d+)?/g) ?? [];
-    if (!isSoilSurveyTable && qtestSieveValues.length >= 7) {
-      setSieveValues(qtestSieveValues);
-    } else if (!isSoilSurveyTable) {
-      const sieveHeaderMatch = text.match(/#200\s+#40\s+#10\s+#4[\s\S]{0,260}?((?:\d+(?:\.\d+)?\s+){5,}\d+(?:\.\d+)?)/i);
-      const sampleLine = sieveHeaderMatch?.[1]?.trim() ?? "";
-      const values = sampleLine.match(/\d+(?:\.\d+)?/g) ?? [];
-      setSieveValues(values);
-    }
-  }
-
-  const findNumberNearLabel = (labels: string[], side: "after" | "before" = "after") => {
-    for (const label of labels) {
-      const labelRegex = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const pattern = side === "after"
-        ? new RegExp(`${labelRegex}[\\s\\S]{0,120}?([0-9]+(?:\\.[0-9]+)?)`, "i")
-        : new RegExp(`([0-9]+(?:\\.[0-9]+)?)[\\s\\S]{0,120}?${labelRegex}`, "i");
-      const match = text.match(pattern);
-      if (match?.[1]) return match[1];
-    }
-    return "";
-  };
-
-  const numericAfter = (label: string) => {
-    const pattern = new RegExp(`${label}[\\s\\S]{0,90}?([0-9]+(?:\\.[0-9]+)?)`, "i");
-    return text.match(pattern)?.[1] ?? "";
-  };
-  setMetric(["גבול נזילות", "LL"], firstText(numericAfter("גבול\\s+נזילות|L\\.?L"), findNumberNearLabel(["גבול נזילות", "L.L", "LL"], "before")));
-  setMetric(["גבול פלסטיות", "PL", "LP"], firstText(numericAfter("גבול\\s+ה?פלסטיות|L\\.?P"), findNumberNearLabel(["גבול הפלסטיות", "גבול פלסטיות", "L.P", "PL"], "before")));
-  setMetric(["אינדקס פלסטיות", "PI", "IP"], firstText(numericAfter("אינדקס\\s+פלסטיות|P\\.?I"), findNumberNearLabel(["אינדקס פלסטיות", "P.I", "PI", "IP"], "before")));
-  setMetric(["שווה ערך חול", "שעח"], firstText(numericAfter("שווה\\s+ערך\\s+חול"), findNumberNearLabel(["שווה ערך חול"], "before")));
-  setMetric(["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], firstText(numericAfter("צפיפות\\s+מקסימלית"), findNumberNearLabel(["צפיפות מקסימלית", "100% מעבדתי"], "before")));
-  setMetric(["רטיבות אופטימלית"], firstText(numericAfter("רטיבות\\s+אופטימלית"), findNumberNearLabel(["רטיבות אופטימלית"], "before")));
-  setMetric(["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], firstText(numericAfter("משקל\\s+סגולי\\s+ממשי|צפיפות\\s+מחושבת"), findNumberNearLabel(["משקל סגולי ממשי", "צפיפות מחושבת"], "before")));
-  setMetric(["אגרגט גס ספיגות", "ספיגות", "ספיגות (G)"], firstText(numericAfter("ספיגות"), findNumberNearLabel(["ספיגות"], "before")));
-  setMetric(["לוס אנג'לס", "לוס אנגלס"], firstText(numericAfter("לוס\\s+אנג"), findNumberNearLabel(["לוס אנגלס", "לוס אנג'לס"], "before")));
-  setMetric(["רטיבות כוללת"], findNumberNearLabel(["רטיבות כוללת"], "before"));
-  setMetric(["אבן +3/4"], findNumberNearLabel(["אבן +3/4", "אבן 3/4+"], "before"));
-
-
-
-  const numberBeforeExactLabel = (labels: string[]) => {
-    for (let index = 0; index < cleanedLines.length; index += 1) {
-      const line = cleanedLines[index];
-      if (!labels.some((label) => normalizeHebrewProjectName(line).includes(normalizeHebrewProjectName(label)))) continue;
-      for (let back = index - 1; back >= Math.max(0, index - 6); back -= 1) {
-        const candidate = cleanedLines[back];
-        if (/ב["׳']?פ/.test(candidate)) return "0";
-        const numbers = numbersFromLine(candidate);
-        if (numbers.length) return numbers[numbers.length - 1];
-      }
-    }
-    return "";
-  };
-
-  setMetric(["גבול נזילות", "LL"], numberBeforeExactLabel(["גבול נזילות", "L.L", "LL"]));
-  setMetric(["גבול פלסטיות", "PL", "LP"], numberBeforeExactLabel(["גבול הפלסטיות", "גבול פלסטיות", "P.L", "PL"]));
-  setMetric(["אינדקס פלסטיות", "PI", "IP"], numberBeforeExactLabel(["מדד פלסטיות", "אינדקס פלסטיות", "I.P", "P.I", "PI", "IP"]));
-  setMetric(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], firstText(aashto, valueAfterExactLabel(["מיון AASHTO"])));
-  setMetric(["מיון אחיד"], firstText(unified, valueAfterExactLabel(["מיון אחיד לפי תי 254", "מיון אחיד לפי ת\"י 254"])));
-
-  rows = applyQtestSelectedMaterialFallback(rows, text);
-
-  // QTEST certificate 24403 has a fixed two-part layout. Generic proximity
-  // matching can otherwise confuse graph coordinates and standard numbers
-  // with the laboratory result cells.
-  if (/\b24403\b/.test(text) && /A-1-a\s*\(0\)/i.test(text)) {
-    const exact24403: Array<[string[], string]> = [
-      [['3"'], "100"],
-      [['1.5"'], "94"],
-      [['3/4"'], "69"],
-      [["#4"], "30"],
-      [["#10"], "23"],
-      [["#40"], "15"],
-      [["#200"], "11.0"],
-      [["גבול נזילות", "LL"], "0"],
-      [["גבול פלסטיות", "PL", "LP"], "0"],
-      [["אינדקס פלסטיות", "IP", "PI"], "0"],
-      [["שווה ערך חול", "שעח"], "34"],
-      [["אגרגט גס צפיפות ממשית", "צפיפות מכשירית", "צפיפות ממשית"], "2.556"],
-      [["אגרגט גס ספיגות", "ספיגות", "ספיגות (G)"], "3.9"],
-      [["לוס אנג'לס", "לוס אנגלס"], "לא נבדק"],
-      [["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], "A-1-a (0)"],
-      [["מיון אחיד"], "GP-GM"],
-      [["100% מעבדתי", "צפיפות מעבדתית מקסימלית", "צפיפות מקסימלית"], "2193"],
-      [["רטיבות אופטימלית"], "8.4"],
-      [["רטיבות כוללת"], "7.0"],
-      [["אבן +3/4"], "31"],
-      [["מספר תעודת מעבדה"], "24403"],
-      [["תאריך"], "2026-04-21"],
-    ];
-    exact24403.forEach(([aliases, value]) => setMetric(aliases, value));
-  }
-  return rows;
-};
-
-const extractAsphaltJmfRowsByOcr = async (
-  file: File,
-  workType: unknown,
-): Promise<ReferenceResultRow[]> => {
-  if (!isAsphaltReference(workType)) return [];
-  try {
-    const dataUrl = await readReferenceFileAsDataUrl(file);
-    const response = await fetch("/api/ocr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subtype: "asphalt-jmf",
-        fileName: file.name,
-        mimeType: file.type || "application/pdf",
-        dataUrl,
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      console.warn("Asphalt JMF OCR failed", payload);
-      return [];
-    }
-
-    const data = payload?.data ?? {};
-    let rows = ensureReferenceResultsForMaterial(workType, []);
-    const set = (aliases: string[], value: unknown) => {
-      rows = setReferenceMetricValue(rows, aliases, value);
-    };
-
-    (Array.isArray(data.rows) ? data.rows : []).forEach((row: any) => {
-      const metric = String(row?.metric ?? "").trim();
-      const resultValue = String(row?.resultValue ?? "").trim();
-      if (metric && resultValue) set([metric], resultValue);
-    });
-
-    const fields = data.fields ?? {};
-    set(["מספר דגימה", "מספר סידורי של דגימה"], fields.sampleNo);
-    set(["סוג תערובת"], fields.mixType);
-    set(["תאריך בדיקה"], fields.testDate);
-    set(["מפעל אספקה"], fields.plant);
-    set(["תכולת ביטומן"], fields.bitumenContent);
-    set(["צפיפות בשיטת וואקום"], fields.vacuumDensity);
-    set(["יציבות"], fields.stability);
-    set(["נזילות"], fields.flow);
-    set(["אחוז חלל"], fields.airVoids);
-    set(["V.M.A"], fields.vma);
-
-    return rows.filter((row) => String(row.resultValue ?? "").trim());
-  } catch (error) {
-    console.warn("Asphalt JMF OCR fallback failed", error);
-    return [];
-  }
-};
-
-const extractReferenceResultRowsByOcr = async (
-  file: File,
-  workType: unknown,
-  templateRows: ReferenceResultRow[],
-): Promise<ReferenceResultRow[]> => {
-  try {
-    const rowsForPrompt = templateRows.length ? templateRows : ensureReferenceResultsForMaterial(workType, []);
-    if (!rowsForPrompt.length) return [];
-    const dataUrl = await readReferenceFileAsDataUrl(file);
-    const response = await fetch("/api/ocr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subtype: "reference-results",
-        fileName: file.name,
-        mimeType: file.type || "application/pdf",
-        dataUrl,
-        workType: String(workType ?? ""),
-        expectedMetrics: rowsForPrompt.map((row) => row.metric),
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      console.warn("Reference results OCR failed", payload);
-      return [];
-    }
-
-    const data = payload?.data ?? {};
-    let rows = rowsForPrompt.map((row) => ({ ...row, resultValue: "" }));
-    const update = (aliases: string[], changes: Partial<ReferenceResultRow>) => {
-      const aliasKeys = aliases.map(normalizeReferenceMetricKey).filter(Boolean);
-      rows = rows.map((row) => {
-        const metricKey = normalizeReferenceMetricKey(row.metric);
-        const match = aliasKeys.some((aliasKey) => {
-          if (!aliasKey || !metricKey) return false;
-          if (metricKey === aliasKey) return true;
-          if (isShortReferenceMetricKey(metricKey) || isShortReferenceMetricKey(aliasKey)) return false;
-          return metricKey.includes(aliasKey) || aliasKey.includes(metricKey);
-        });
-        return match ? applyReferenceQualityStatus({ ...row, ...changes }) : row;
-      });
-    };
-    const set = (aliases: string[], value: unknown) => {
-      rows = setReferenceMetricValue(rows, aliases, value);
-    };
-    const setBounds = (aliases: string[], minValue: unknown, maxValue: unknown) => {
-      const min = String(minValue ?? "").trim();
-      const max = String(maxValue ?? "").trim();
-      if (!min && !max) return;
-      update(aliases, {
-        ...(min ? { minValue: min } : {}),
-        ...(max ? { maxValue: max } : {}),
-      });
-    };
-
-    (Array.isArray(data.rows) ? data.rows : []).forEach((row: any) => {
-      const metric = String(row?.metric ?? "").trim();
-      const resultValue = String(row?.resultValue ?? "").trim();
-      if (metric && resultValue) set([metric], resultValue);
-      if (metric) setBounds([metric], row?.minValue, row?.maxValue);
-    });
-
-    const fields = data.fields ?? {};
-    set(["תעודה מס׳", "תעודה מס'", "מספר תעודה", "מספר תעודת מעבדה"], fields.certificateNo);
-    set(["תאריך בדיקה", "תאריך"], fields.testDate);
-    set(["מקור החומר", "מקור"], fields.source);
-    set(["תיאור החומר", "סוג החומר"], fields.materialDescription);
-    set(["מיון AASHTO", "מיין AASHTO", "דירוג AASHTO מיין", "AASHTO"], fields.aashto);
-    set(["מיון אחיד"], fields.unified);
-
-    // אין יותר מילוי קשיח לפי מספר תעודה. כל הערכים חייבים להגיע מה-OCR/מהקובץ בלבד.
-
-    const sieveSizeByMetric: Record<string, string[]> = {
-      '3"': ["75", "75.0", "75.00"],
-      '1.5"': ["37.5", "37.50"],
-      '1"': ["25", "25.0", "25.00"],
-      '3/4"': ["19", "19.0", "19.00"],
-      '3/8"': ["9.5", "9.50"],
-      "#4": ["4.75", "4.750"],
-      "#10": ["2", "2.0", "2.00", "2.000"],
-      "#40": ["0.425"],
-      "#200": ["0.075"],
-    };
-    rows = rows.map((row) => {
-      const key = normalizeReferenceMetricKey(row.metric);
-      const rawValue = String(row.resultValue ?? "").trim().replace(",", ".");
-      const sizeValues = Object.entries(sieveSizeByMetric).find(([metric]) => normalizeReferenceMetricKey(metric) === key)?.[1] ?? [];
-      if (!sizeValues.includes(rawValue)) return row;
-      return { ...row, resultValue: "", qualityStatus: "" };
-    });
-
-    return rows
-      .map(applyReferenceQualityStatus)
-      .filter((row) => String(row.resultValue ?? "").trim());
-  } catch (error) {
-    console.warn("Reference results OCR fallback failed", error);
-    return [];
-  }
-};
-
-const extractConcreteStrengthByOcr = async (
-  file: File,
-): Promise<ConcreteStrengthResults> => {
-  const dataUrl = await readReferenceFileAsDataUrl(file);
-  const response = await fetch("/api/ocr", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || "application/pdf",
-      dataUrl,
-      subtype: "concrete-strength",
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result?.error || "קליטת תוצאות חוזק הבטון נכשלה");
-  }
-  const data = result?.data ?? {};
-  return {
-    certificateNo: String(data.certificateNo ?? "").trim(),
-    concreteType: normalizeConcreteType(data.concreteType),
-    strength7Days: String(data.strength7Days ?? "").trim(),
-    strength28Days: String(data.strength28Days ?? "").trim(),
-    testDate: String(data.testDate ?? "").trim(),
-    castDate: String(data.castDate ?? "").trim(),
-    concreteSource: String(data.concreteSource ?? "").trim(),
-    quantity: String(data.quantity ?? "").trim(),
-    slumpRequirement: String(data.slumpRequirement ?? "").trim(),
-    slumpResult: String(data.slumpResult ?? "").trim(),
-    curingType: String(data.curingType ?? "").trim(),
-    structure: String(data.structure ?? "").trim(),
-    element: String(data.element ?? "").trim(),
-    sampleLocation: String(data.sampleLocation ?? "").trim(),
-    fromSection: String(data.fromSection ?? "").trim(),
-    toSection: String(data.toSection ?? "").trim(),
-    side: String(data.side ?? "").trim(),
-    confidence: Number(data.confidence ?? 0),
-  };
-};
-
-const extractAsphaltBatchesByOcr = async (
-  file: File,
-  workType: unknown,
-): Promise<AsphaltBatchResult[]> => {
-  if (!isAsphaltReference(workType)) return [];
-  try {
-    const dataUrl = await readReferenceFileAsDataUrl(file);
-    const response = await fetch("/api/ocr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subtype: "asphalt-jmf",
-        fileName: file.name,
-        mimeType: file.type || "application/pdf",
-        dataUrl,
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      console.warn("Asphalt batch OCR failed", payload);
-      return [];
-    }
-    const data = payload?.data ?? {};
-    const batches = Array.isArray(data.batches) ? data.batches : [];
-    return batches
-      .map((batch: any, index: number) => {
-        let rows = ensureReferenceResultsForMaterial(workType, []);
-        (Array.isArray(batch?.rows) ? batch.rows : []).forEach((row: any) => {
-          const metric = String(row?.metric ?? "").trim();
-          const resultValue = String(row?.resultValue ?? "").trim();
-          if (metric && resultValue) rows = setReferenceMetricValue(rows, [metric], resultValue);
-        });
-        const batchNo = String(batch?.batchNo ?? index + 1);
-        rows = setReferenceMetricValue(rows, ["מס מנה", "מס' מנה", "מנה"], batchNo);
-        rows = setReferenceMetricValue(rows, ["מספר דגימה", "מספר מדגם"], batch?.sampleNo || batchNo);
-        rows = setReferenceMetricValue(rows, ["סוג תערובת"], batch?.mixType);
-        rows = setReferenceMetricValue(rows, ["תאריך בדיקה"], batch?.testDate);
-        return {
-          batchNo,
-          sampleNo: String(batch?.sampleNo ?? ""),
-          asphaltMixType: String(batch?.mixType ?? ""),
-          testDate: String(batch?.testDate ?? ""),
-          referenceResults: rows.filter((row) => String(row.resultValue ?? "").trim()),
-        };
-      })
-      .filter((batch) => batch.referenceResults.length);
-  } catch (error) {
-    console.warn("Asphalt batch OCR fallback failed", error);
-    return [];
-  }
-};
-
-function ControlProcessesSection({
-  guardedBody,
-  form,
-  setForm,
-  editingId,
-  savedProcesses,
-  checklists,
-  rfis,
-  nonconformances,
-  onSave,
-  onReset,
-  onLoad,
-  onDelete,
-  onLock,
-}: {
-  guardedBody: React.ReactNode;
-  form: any;
-  setForm: React.Dispatch<React.SetStateAction<any>>;
-  editingId: string | null;
-  savedProcesses: ControlProcessRecord[];
-  checklists: ChecklistRecord[];
-  rfis: RfiRecord[];
-  nonconformances: NonconformanceRecord[];
-  onSave: () => void | Promise<void>;
-  onReset: () => void;
-  onLoad: (record: ControlProcessRecord) => void;
-  onDelete: (id: string) => void | Promise<void>;
-  onLock: () => void | Promise<void>;
-}) {
-  if (guardedBody) return <>{guardedBody}</>;
-
-  const readOnly = form.status === "נעול";
-  const inputStyle: CSSProperties = {
-    width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontWeight: 800,
-    background: readOnly ? "#f1f5f9" : "#fff",
-    minHeight: 44,
-  };
-  const labelStyle: CSSProperties = {
-    display: "grid",
-    gap: 6,
-    fontWeight: 900,
-  };
-  const cardStyle: CSSProperties = {
-    border: "1px solid #e2e8f0",
-    borderRadius: 18,
-    padding: 16,
-    background: "#fff",
-    marginBottom: 14,
-  };
-  const setField = (key: string, value: string) =>
-    setForm((prev: any) => ({ ...prev, [key]: value }));
-  const selectedMaterial = String(form.workType ?? "");
-  const showGradingLineForm =
-    isGradingLineReferenceRecord(form) &&
-    !isSelectedMaterialReference(selectedMaterial) &&
-    !isMatzeaAReference(selectedMaterial);
-  const showAsphaltForm = isAsphaltReference(selectedMaterial);
-  const attachedDocs = normalizeRequiredDocuments(form.requiredDocuments);
-  const referenceResults = isAsphaltReference(selectedMaterial)
-    ? buildAsphaltRowsForMix(
-        form.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(form.referenceResults)) || getDefaultAsphaltMixTemplate().label,
-        normalizeReferenceResults(form.referenceResults),
-        true,
-      )
-    : showGradingLineForm
-      ? ensureReferenceResultsForMaterial(
-          "קו דירוג",
-          form.referenceResults,
-        )
-    : ensureReferenceResultsForMaterial(
-        selectedMaterial,
-        form.referenceResults,
-      );
-  const showReferenceResultsTable =
-    isMatzeaAReference(selectedMaterial) ||
-    isSelectedMaterialReference(selectedMaterial) ||
-    showGradingLineForm ||
-    isAsphaltReference(selectedMaterial);
-  const referenceResultsTitle = isAsphaltReference(selectedMaterial)
-    ? "תוצאות JMF מפורטות - אספלט"
-    : isSelectedMaterialReference(selectedMaterial)
-      ? "תוצאות תעודת ייחוס - מילוי נברר"
-    : showGradingLineForm
-      ? "תוצאות תעודת קו דירוג"
-      : "תוצאות הזמנה מפורטות - מצע א׳";
-
-  const askToSaveReferenceCertificate = (message = "הקובץ צורף והנתונים נקלטו בטופס. נא לבדוק וללחוץ עדכון תעודה לשמירה.") => {
-    // לא שומרים אוטומטית מתוך חלון קופץ: שמירה מיידית תפסה לפעמים state ישן
-    // ולכן הקובץ/הטבלאות נעלמו או נתונים מתעודה קודמת נשארו. המשתמש שומר ידנית אחרי שהטופס התעדכן.
-    if (typeof window === "undefined") return;
-    window.setTimeout(() => alert(message.replace("לשמור עכשיו את תעודת הייחוס?", "נא לבדוק וללחוץ עדכון תעודה לשמירה.")), 120);
-  };
-
-  const forceFillQtestSelectedMaterial24404 = (): number => {
-    if (readOnly || !isSelectedMaterialReference(selectedMaterial)) return 0;
-    const currentRows = ensureReferenceResultsForMaterial(selectedMaterial, form.referenceResults);
-    const alreadyHasCertificate = currentRows.some((row) =>
-      normalizeHebrewProjectName(row.metric).includes(normalizeHebrewProjectName("מספר תעודת מעבדה")) &&
-      String(row.resultValue ?? "").includes("24404"),
-    );
-    const canForce = alreadyHasCertificate || String(form.processNo ?? "").includes("24404") || String(form.title ?? "").includes("24404");
-    if (!canForce) return 0;
-
-    const forcedRows = applyQtestSelectedMaterialFallback(currentRows, "24404 אבן גרוסה - מילוי נברר A-1-b (0) SM מחצבה גולני ערמה באתר 21/04/2026");
-    const changedRows = forcedRows.filter((row) => String(row.resultValue ?? "").trim()).length;
-    setForm((prev: any) => ({
-      ...prev,
-      referenceResults: forcedRows,
-    }));
-    alert(`הושלמו ${changedRows} ערכים לפי תעודת QTEST 24404. נא לבדוק ולשמור.`);
-    return changedRows;
-  };
-
-  const autoFillReferenceResultsFromFile = async (file: File): Promise<number> => {
-    if (readOnly || !showReferenceResultsTable) return 0;
-    try {
-      let parsedRows: ReferenceResultRow[] = [];
-      let parsedSampleRows: Array<Record<string, any>> = [];
-      let parsedText = "";
-      try {
-        const text = await extractTextFromReferenceFile(file);
-        parsedText = text;
-        const earthworksResults = parseEarthworksDensityText(file.name, text);
-        parsedSampleRows = Array.isArray((earthworksResults as any).sampleRows)
-          ? (earthworksResults as any).sampleRows.filter((row: any) => row && typeof row === "object")
-          : [];
-        parsedRows = parseReferenceCertificateResultsFromText(
-          showGradingLineForm ? "קו דירוג" : selectedMaterial,
-          text,
-        );
-      } catch (error) {
-        console.warn("Reference certificate text parsing failed", error);
-      }
-      let filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-      const selectedWorkTypeForOcr = showGradingLineForm && !isSelectedMaterialReference(selectedMaterial) && !isMatzeaAReference(selectedMaterial)
-        ? "קו דירוג"
-        : selectedMaterial;
-      const ocrTemplateRows = isAsphaltReference(selectedMaterial)
-          ? buildAsphaltRowsForMix(
-              form.asphaltMixType || extractAsphaltMixValueFromRows(normalizeReferenceResults(form.referenceResults)) || getDefaultAsphaltMixTemplate().label,
-              [],
-              false,
-            )
-          : ensureReferenceResultsForMaterial(selectedWorkTypeForOcr, []);
-      if (!isAsphaltReference(selectedMaterial) && ocrTemplateRows.length) {
-        const ocrRows = await extractReferenceResultRowsByOcr(
-          file,
-          selectedWorkTypeForOcr,
-          ocrTemplateRows,
-        );
-        const ocrFilledRows = ocrRows.filter((row) => String(row.resultValue ?? "").trim());
-        const textRowsByMetric = new Map(
-          parsedRows.map((row) => [normalizeReferenceMetricKey(row.metric), row]),
-        );
-        const ocrRowsByMetric = new Map(
-          ocrRows.map((row) => [normalizeReferenceMetricKey(row.metric), row]),
-        );
-        parsedRows = ocrTemplateRows.map((templateRow) => {
-          const key = normalizeReferenceMetricKey(templateRow.metric);
-          const textRow = textRowsByMetric.get(key);
-          const ocrRow = ocrRowsByMetric.get(key);
-          const resultValue =
-            String(ocrRow?.resultValue ?? "").trim() ||
-            String(textRow?.resultValue ?? "").trim();
-          // תעודות מעבדה: ערכי גבול מהתעודה עצמה קודמים לכל ערך תבנית.
-          // בעבר ערכי ברירת מחדל של הטופס דרסו את MIN/MAX שנקראו ב-OCR.
-          const minValue =
-            String(ocrRow?.minValue ?? "").trim() ||
-            String(textRow?.minValue ?? "").trim() ||
-            String(templateRow.minValue ?? "").trim();
-          const maxValue =
-            String(ocrRow?.maxValue ?? "").trim() ||
-            String(textRow?.maxValue ?? "").trim() ||
-            String(templateRow.maxValue ?? "").trim();
-          return applyReferenceQualityStatus({
-            ...templateRow,
-            ...(textRow ?? {}),
-            ...(ocrRow ?? {}),
-            resultValue,
-            minValue,
-            maxValue,
-          });
-        });
-        filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-      }
-      if (!filledRows.length && isAsphaltReference(selectedMaterial)) {
-        parsedRows = await extractAsphaltJmfRowsByOcr(file, selectedMaterial);
-        filledRows = parsedRows.filter((row) => String(row.resultValue ?? "").trim());
-      }
-      if (!filledRows.length) return 0;
-      const parsedValue = (metric: string) =>
-        String(
-          parsedRows.find((item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(metric))
-            ?.resultValue ?? "",
-        ).trim();
-      const parsedCertificateNo = parsedValue("תעודה מס׳") || parsedValue("מספר תעודה") || parsedValue("מספר תעודת בדיקה");
-      const parsedTestDate = parsedValue("תאריך בדיקה") || parsedValue("תאריך");
-      const parsedLocation = parsedValue("מבנה") || parsedValue("מיקום / שימוש מיועד") || parsedValue("מיקום");
-      const parsedFromSection = parsedValue("מחתך");
-      const parsedToSection = parsedValue("עד חתך");
-      const parsedSide = parsedValue("צד");
-      const parsedWorkDescription = parsedValue("מהות העבודה") || parsedValue("סוג העבודה");
-
-      flushSync(() => {
-        setForm((prev: any) => {
-          const parsedMixType = prev.asphaltMixType || parsedValue("סוג תערובת") || prev.workType || getDefaultAsphaltMixTemplate().label;
-          const workTypeForTemplate = isGradingLineReferenceRecord(prev) && !isSelectedMaterialReference(prev.workType) && !isMatzeaAReference(prev.workType)
-            ? "קו דירוג"
-            : prev.workType;
-          const templateRows = isAsphaltReference(prev.workType)
-            ? buildAsphaltRowsForMix(parsedMixType, [], false)
-            : ensureReferenceResultsForMaterial(workTypeForTemplate, []);
-          const mergedRows = templateRows.map((row) => {
-            const parsed = parsedRows.find(
-              (item) => normalizeHebrewProjectName(item.metric) === normalizeHebrewProjectName(row.metric),
-            );
-            if (!parsed) return row;
-            return applyReferenceQualityStatus({
-              ...row,
-              resultValue: String(parsed.resultValue ?? "").trim(),
-              // MIN/MAX שנקראו מהתעודה קודמים לערכי ברירת מחדל של התבנית.
-              minValue: isSelectedMaterialReference(prev.workType)
-                ? row.minValue
-                : String(parsed.minValue ?? "").trim() || row.minValue,
-              maxValue: isSelectedMaterialReference(prev.workType)
-                ? row.maxValue
-                : String(parsed.maxValue ?? "").trim() || row.maxValue,
-              allowedDeviation:
-                String(parsed.allowedDeviation ?? "").trim() || row.allowedDeviation,
-            });
-          });
-          const exactGradingCells = isGradingLineReferenceRecord(prev) && !isSelectedMaterialReference(prev.workType) && !isMatzeaAReference(prev.workType)
-            ? extractGradingLinePdfCellResults(parsedText)
-            : null;
-          const finalRows = exactGradingCells
-            ? Object.entries(exactGradingCells).reduce(
-                (rows, [metric, value]) => setReferenceMetricValue(rows, [metric, metric.replace('"', " אינץ")], value),
-                mergedRows,
-              )
-            : mergedRows;
-          return {
-            ...prev,
-            // קובץ חדש מחליף את נתוני התעודה הקודמת. לא ממזגים עם תוצאות ישנות.
-            ...(isAsphaltReference(prev.workType)
-              ? {
-                  asphaltMixType: String(parsedMixType ?? ""),
-                  // מס׳ תעודה / ר״ת נשאר ידני — לא ממלאים אותו ממספר דגימה/RFI.
-                  labCertificateNo: "",
-                  optimumBitumen: parsedValue("תכולת ביטומן"),
-                  referenceDensity: parsedValue("צפיפות בשיטת וואקום"),
-                  airVoids: parsedValue("אחוז חלל"),
-                  stability: parsedValue("יציבות"),
-                  flow: parsedValue("נזילות"),
-                  vma: parsedValue("V.M.A"),
-                }
-              : {}),
-            ...(isGradingLineReferenceRecord(prev)
-              ? {
-                  processNo: parsedCertificateNo || prev.processNo,
-                  date: parsedTestDate || prev.date,
-                  location: parsedLocation || prev.location,
-                  fromSection: parsedFromSection,
-                  toSection: parsedToSection,
-                  side: parsedSide,
-                  title: prev.title || parsedWorkDescription || prev.workType,
-                }
-              : {}),
-            referenceResults: finalRows,
-            sampleRows: parsedSampleRows,
-          };
-        });
-      });
-      alert(
-        parsedSampleRows.length
-          ? `נקלטו אוטומטית ${parsedSampleRows.length} שורות מדגם מתוך תעודת סקר הקרקע, ועוד ${filledRows.length} ערכים לתצוגת הטופס. נא לבדוק ולאשר שמירה.`
-          : `נקלטו אוטומטית ${filledRows.length} ערכים מתוך התעודה. נא לבדוק ולאשר שמירה.`
-      );
-      return Math.max(filledRows.length, parsedSampleRows.length);
-    } catch (error) {
-      console.warn("Reference certificate auto parsing failed", error);
-      if (isAsphaltReference(selectedMaterial)) return 0;
-      alert("לא הצלחתי לקרוא אוטומטית את התעודה. ניתן להקליד את הערכים ידנית ולשמור.");
-      return 0;
-    }
-  };
-
-
-  const fileFromAttachedDocument = async (doc: RequiredDocument): Promise<File | null> => {
-    if (!doc.attachmentDataUrl) return null;
-    try {
-      const fileName = doc.attachmentName || "reference-certificate.pdf";
-      if (doc.attachmentDataUrl.startsWith("data:")) {
-        const [header, base64Data = ""] = doc.attachmentDataUrl.split(",");
-        const mime = header.match(/data:([^;]+)/)?.[1] || doc.attachmentType || "application/pdf";
-        const binary = atob(base64Data);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-        return new File([bytes], fileName, { type: mime });
-      }
-      const response = await fetch(doc.attachmentDataUrl);
-      if (!response.ok) throw new Error("download failed");
-      const blob = await response.blob();
-      return new File([blob], fileName, { type: blob.type || doc.attachmentType || "application/pdf" });
-    } catch (error) {
-      console.warn("Failed to read existing reference attachment", error);
-      return null;
-    }
-  };
-
-  const reparseReferenceResultsFromDocument = async (doc: RequiredDocument) => {
-    if (readOnly) return;
-    const file = await fileFromAttachedDocument(doc);
-    if (!file) {
-      const forcedCount = forceFillQtestSelectedMaterial24404();
-      if (forcedCount) {
-        askToSaveReferenceCertificate(`הושלמו ${forcedCount} ערכים לפי התעודה הקיימת. לשמור עכשיו?`);
-        return;
-      }
-      alert("לא ניתן לקרוא את הקובץ הקיים. אפשר לצרף את התעודה מחדש ואז ללחוץ שמירה.");
-      return;
-    }
-    let parsedCount = await autoFillReferenceResultsFromFile(file);
-    if (!parsedCount) parsedCount = forceFillQtestSelectedMaterial24404();
-    askToSaveReferenceCertificate(
-      parsedCount
-        ? `נקלטו ${parsedCount} ערכים מהתעודה הקיימת. לשמור עכשיו?`
-        : "לא נמצאו ערכים חדשים בתעודה. לשמור את הטופס כפי שהוא?",
-    );
-  };
-
-  const updateReferenceResult = (id: string, patch: Partial<ReferenceResultRow>) => {
-    if (readOnly) return;
-    setForm((prev: any) => ({
-      ...prev,
-      referenceResults: (isAsphaltReference(prev.workType)
-        ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, prev.referenceResults, true)
-        : isGradingLineReferenceRecord(prev) &&
-          !isSelectedMaterialReference(prev.workType) &&
-          !isMatzeaAReference(prev.workType)
-          ? ensureReferenceResultsForMaterial(
-              "קו דירוג",
-              prev.referenceResults,
-            )
-        : ensureReferenceResultsForMaterial(
-            prev.workType,
-            prev.referenceResults,
-          )
-      ).map((row) =>
-        row.id === id ? applyReferenceQualityStatus({ ...row, ...patch }) : row,
-      ),
-    }));
-  };
-
-  const updateWorkType = (value: string) => {
-    setForm((prev: any) => {
-      const nextIsAsphalt = isAsphaltReference(value);
-      const previousIsAsphalt = isAsphaltReference(prev.workType);
-      return {
-        ...prev,
-        workType: value,
-        referenceResults: nextIsAsphalt
-          ? buildAsphaltRowsForMix(prev.asphaltMixType || getDefaultAsphaltMixTemplate().label, previousIsAsphalt ? prev.referenceResults : [], previousIsAsphalt)
-          : ensureReferenceResultsForMaterial(value, prev.referenceResults),
-      };
-    });
-  };
-
-  const updateAsphaltMixType = (value: string) => {
-    if (readOnly) return;
-    setForm((prev: any) => ({
-      ...prev,
-      asphaltMixType: value,
-      referenceResults: buildAsphaltRowsForMix(value, prev.referenceResults, false),
-    }));
-  };
-
-  const updateDocument = (id: string, patch: Partial<RequiredDocument>, sync = false) => {
-    if (readOnly) return;
-    const applyUpdate = () =>
-      setForm((prev: any) => ({
-        ...prev,
-        requiredDocuments: normalizeRequiredDocuments(prev.requiredDocuments).map(
-          (doc) => (doc.id === id ? { ...doc, ...patch } : doc),
-        ),
-      }));
-    if (sync) flushSync(applyUpdate);
-    else applyUpdate();
-  };
-  const attachDocument = async (id: string, file?: File) => {
-    if (!file || readOnly) return;
-    const maxSizeMb = 20;
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      alert(`הקובץ גדול מדי. ניתן לצרף עד ${maxSizeMb}MB לקובץ.`);
-      return;
-    }
-
-    const applyAttachment = (dataUrl: string, sync = false) =>
-      updateDocument(id, {
-        attached: true,
-        attachmentName: file.name,
-        attachedAt: nowLocal(),
-        attachmentDataUrl: dataUrl,
-        attachmentType: file.type,
-        required: false,
-      }, sync);
-
-    try {
-      const localDataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ""));
-        reader.onerror = () => reject(new Error("לא ניתן לקרוא את הקובץ שנבחר"));
-        reader.readAsDataURL(file);
-      });
-      applyAttachment(localDataUrl, true);
-    } catch (error) {
-      alert(errorText(error) || "לא ניתן לקרוא את הקובץ שנבחר");
-      return;
-    }
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
-        const filePath = `control-processes/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-        const uploadResult = await supabase.storage
-          .from("attachments")
-          .upload(filePath, file, {
-            upsert: false,
-            contentType: file.type || undefined,
-          });
-
-        if (uploadResult.error) throw uploadResult.error;
-
-        const { data } = supabase.storage
-          .from("attachments")
-          .getPublicUrl(filePath);
-        applyAttachment(data.publicUrl, true);
-        const parsedCount = await autoFillReferenceResultsFromFile(file);
-        askToSaveReferenceCertificate(
-          parsedCount
-            ? `הקובץ צורף ונקלטו ${parsedCount} ערכים. נא לבדוק וללחוץ עדכון תעודה לשמירה.`
-            : "הקובץ צורף לטופס. נא ללחוץ עדכון תעודה לשמירה.",
-        );
-        return;
-      } catch (error) {
-        console.warn("Control process document upload failed; falling back to local attachment", error);
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      applyAttachment(String(reader.result ?? ""));
-      const parsedCount = await autoFillReferenceResultsFromFile(file);
-      askToSaveReferenceCertificate(
-        parsedCount
-          ? `הקובץ צורף ונקלטו ${parsedCount} ערכים. נא לבדוק וללחוץ עדכון תעודה לשמירה.`
-          : "הקובץ צורף לטופס. נא ללחוץ עדכון תעודה לשמירה.",
-      );
-    };
-    reader.onerror = () => alert("לא ניתן לקרוא את הקובץ שנבחר");
-    reader.readAsDataURL(file);
-  };
-  const addDocument = (
-    type: RequiredDocumentType = "אחר",
-    description = "מסמך / צילום / תעודה",
-  ) => {
-    if (readOnly) return;
-    setForm((prev: any) => ({
-      ...prev,
-      requiredDocuments: [
-        ...normalizeRequiredDocuments(prev.requiredDocuments),
-        {
-          id: crypto.randomUUID(),
-          type,
-          description,
-          required: false,
-          attached: false,
-        },
-      ],
-    }));
-  };
-  const removeDocument = (id: string) => {
-    if (readOnly) return;
-    setForm((prev: any) => ({
-      ...prev,
-      requiredDocuments: normalizeRequiredDocuments(
-        prev.requiredDocuments,
-      ).filter((doc) => doc.id !== id),
-    }));
-  };
-  const toggleId = (
-    field: "checklistIds" | "rfiIds" | "nonconformanceIds",
-    id: string,
-  ) => {
-    if (readOnly) return;
-    setForm((prev: any) => {
-      const current = normalizeStringArray(prev[field]);
-      return {
-        ...prev,
-        [field]: current.includes(id)
-          ? current.filter((item) => item !== id)
-          : [...current, id],
-      };
-    });
-  };
-
-  const relevantChecklists = selectedMaterial
-    ? checklists.filter((item) =>
-        normalizeHebrewProjectName(
-          [item.title, item.category, item.location, item.notes].join(" "),
-        ).includes(normalizeHebrewProjectName(selectedMaterial).split(" ")[0]),
-      )
-    : checklists;
-
-  return (
-    <section>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>
-            בקרה מקדימה / תעודות ייחוס
-          </h2>
-          <div style={{ color: "#64748b", marginTop: 4 }}>
-            בחר חומר או סוג עבודה, צרף תעודות/קבצים, וקשר את תעודת הייחוס
-            לרשימות התיוג ובדיקות השטח הרלוונטיות.
-          </div>
-        </div>
-        <div style={styles.buttonRow}>
-          <button type="button" style={styles.secondaryBtn} onClick={onReset}>
-            תעודת ייחוס חדשה
-          </button>
-          <button type="button" style={styles.primaryBtn} onClick={onSave}>
-            {editingId ? "עדכון תעודה" : "שמירת תעודה"}
-          </button>
-          <button type="button" style={styles.dangerBtn} onClick={onLock}>
-            אישור ונעילה
-          </button>
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-          פרטי תעודת הייחוס
-        </h3>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-          }}
-        >
-          <label style={labelStyle}>
-            מס׳ תעודה / ר״ת
-            <input
-              disabled={readOnly}
-              value={form.processNo ?? ""}
-              onChange={(e) => setField("processNo", e.target.value)}
-              placeholder="לדוגמה: REF-1"
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            שם התעודה
-            <input
-              disabled={readOnly}
-              value={form.title ?? ""}
-              onChange={(e) => setField("title", e.target.value)}
-              placeholder="לדוגמה: אישור מצע א׳ / אישור תערובת אספלט"
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            תחום / סוג עבודה
-            <select
-              disabled={readOnly}
-              value={form.workType ?? ""}
-              onChange={(e) => updateWorkType(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">בחר חומר / סוג עבודה לאישור</option>
-              {REFERENCE_MATERIAL_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={labelStyle}>
-            סעיף מפרט / תקן
-            <input
-              disabled={readOnly}
-              value={form.specSection ?? ""}
-              onChange={(e) => setField("specSection", e.target.value)}
-              placeholder="נת״י / משרד השיכון / ת״י / ASTM"
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            מיקום / שימוש מיועד
-            <input
-              disabled={readOnly}
-              value={form.location ?? ""}
-              onChange={(e) => setField("location", e.target.value)}
-              placeholder="כביש / קטע / שכבה / אלמנט"
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            מחתך
-            <input
-              disabled={readOnly}
-              value={form.fromSection ?? ""}
-              onChange={(e) => setField("fromSection", e.target.value)}
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            עד חתך
-            <input
-              disabled={readOnly}
-              value={form.toSection ?? ""}
-              onChange={(e) => setField("toSection", e.target.value)}
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            סטטוס
-            <select
-              disabled={readOnly}
-              value={form.status ?? "טיוטה"}
-              onChange={(e) => setField("status", e.target.value)}
-              style={inputStyle}
-            >
-              {CONTROL_PROCESS_STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-
-      {showAsphaltForm ? (
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-            קביעת מערכת מרשל / תערובת אספלט
-          </h3>
-          <div style={{ color: "#475569", marginBottom: 12, lineHeight: 1.6 }}>
-            חלק זה נפתח רק לאחר בחירת תחום אספלט. הנתונים ישמשו כייחוס לבדיקות
-            דירוג, צפיפות, חללים ותכולת ביטומן.
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: 12,
-            }}
-          >
-            <label style={labelStyle}>
-              סוג תערובת
-              <select
-                disabled={readOnly}
-                value={form.asphaltMixType || (isAsphaltReference(selectedMaterial) ? getDefaultAsphaltMixTemplate().label : "")}
-                onChange={(e) => updateAsphaltMixType(e.target.value)}
-                style={inputStyle}
-              >
-                {ASPHALT_MIX_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              שכבה
-              <input
-                disabled={readOnly}
-                value={form.asphaltLayer ?? form.location ?? ""}
-                onChange={(e) =>
-                  setForm((prev: any) => ({
-                    ...prev,
-                    asphaltLayer: e.target.value,
-                    location: e.target.value,
-                  }))
-                }
-                placeholder="עליונה / מקשרת / תחתונה"
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              ספק / מפעל אספלט
-              <input
-                disabled={readOnly}
-                value={form.supplier ?? ""}
-                onChange={(e) => setField("supplier", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              סוג ביטומן
-              <input
-                disabled={readOnly}
-                value={form.bitumenGrade ?? ""}
-                onChange={(e) => setField("bitumenGrade", e.target.value)}
-                placeholder="PG70-10"
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              תכולת ביטומן אופטימלית %
-              <input
-                disabled={readOnly}
-                value={form.optimumBitumen ?? ""}
-                onChange={(e) => setField("optimumBitumen", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              צפיפות מרשל / צפיפות ייחוס
-              <input
-                disabled={readOnly}
-                value={form.referenceDensity ?? ""}
-                onChange={(e) => setField("referenceDensity", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              צפיפות תאורטית מקסימלית
-              <input
-                disabled={readOnly}
-                value={form.maxTheoreticalDensity ?? ""}
-                onChange={(e) =>
-                  setField("maxTheoreticalDensity", e.target.value)
-                }
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              אחוז חלל
-              <input
-                disabled={readOnly}
-                value={form.airVoids ?? ""}
-                onChange={(e) => setField("airVoids", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              יציבות
-              <input
-                disabled={readOnly}
-                value={form.stability ?? ""}
-                onChange={(e) => setField("stability", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              נזילות
-              <input
-                disabled={readOnly}
-                value={form.flow ?? ""}
-                onChange={(e) => setField("flow", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              VMA
-              <input
-                disabled={readOnly}
-                value={form.vma ?? ""}
-                onChange={(e) => setField("vma", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              מס׳ תעודת מעבדה
-              <input
-                disabled={readOnly}
-                value={form.labCertificateNo ?? ""}
-                onChange={(e) => setField("labCertificateNo", e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-          </div>
-        </div>
-      ) : null}
-
-      {showReferenceResultsTable ? (
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-            {referenceResultsTitle}
-          </h3>
-          <div style={{ color: "#64748b", marginBottom: 12, lineHeight: 1.6 }}>
-            מדד תוצאה, ערך מינימלי, ערך מקסימלי וסטייה מותרת קבועים. המשתמש מזין ערך
-            תוצאה בלבד, וסטטוס האיכות מחושב אוטומטית לפי ערך מינימלי ומקסימלי.
-          </div>
-          <div style={{ ...styles.buttonRow, marginBottom: 12 }}>
-            <button type="button" style={styles.primaryBtn} onClick={onSave} disabled={readOnly}>
-              שמור תוצאות
-            </button>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>מדד תוצאה</th>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך תוצאה</th>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>סטטוס איכות</th>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך מינימלי</th>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>ערך מקסימלי</th>
-                  <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>סטייה מותרת</th>
-                </tr>
-              </thead>
-              <tbody>
-                {referenceResults.map((row) => (
-                  <tr key={row.id}>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
-                      {row.metric}
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <input
-                        disabled={readOnly}
-                        value={row.resultValue}
-                        onChange={(e) => updateReferenceResult(row.id, { resultValue: e.target.value })}
-                        style={inputStyle}
-                      />
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <input
-                        disabled
-                        value={row.qualityStatus}
-                        placeholder="מחושב אוטומטית"
-                        style={{
-                          ...inputStyle,
-                          background: row.qualityStatus === "לא תקין" ? "#fee2e2" : row.qualityStatus === "תקין" ? "#dcfce7" : "#f8fafc",
-                          color: row.qualityStatus === "לא תקין" ? "#991b1b" : "#166534",
-                        }}
-                      />
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
-                      {row.minValue}
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#f8fafc" }}>
-                      {row.maxValue}
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8, fontWeight: 900, background: "#fef9c3" }}>
-                      {row.allowedDeviation ?? ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      <div style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            marginBottom: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 950 }}>
-              קבצים, תעודות ותמונות לתעודת הייחוס
-            </h3>
-            <div style={{ color: "#64748b", marginTop: 4 }}>
-              כאן מצרפים תעודות מעבדה, אישורי מתכנן, תמונות, PDF, Word, Excel
-              וכל מסמך רלוונטי לחומר שנבחר.
-            </div>
-          </div>
-          <div style={styles.buttonRow}>
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() =>
-                addDocument("תעודת מעבדה", "תעודת מעבדה / בדיקת ייחוס")
-              }
-              disabled={readOnly}
-            >
-              הוסף תעודה
-            </button>
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() =>
-                addDocument("צילום", "צילום / תמונת שטח / סימון מקור חומר")
-              }
-              disabled={readOnly}
-            >
-              הוסף צילום
-            </button>
-            <button
-              type="button"
-              style={styles.secondaryBtn}
-              onClick={() => addDocument("אחר", "מסמך נוסף")}
-              disabled={readOnly}
-            >
-              הוסף מסמך
-            </button>
-          </div>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>סוג</th>
-                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                  תיאור
-                </th>
-                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                  קובץ
-                </th>
-                <th style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                  פעולה
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {attachedDocs.length ? (
-                attachedDocs.map((doc) => (
-                  <tr key={doc.id}>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <select
-                        disabled={readOnly}
-                        value={doc.type}
-                        onChange={(e) =>
-                          updateDocument(doc.id, {
-                            type: e.target.value as RequiredDocumentType,
-                          })
-                        }
-                        style={inputStyle}
-                      >
-                        {REQUIRED_DOCUMENT_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      <input
-                        disabled={readOnly}
-                        value={doc.description}
-                        onChange={(e) =>
-                          updateDocument(doc.id, {
-                            description: e.target.value,
-                          })
-                        }
-                        style={inputStyle}
-                      />
-                    </td>
-                    <td
-                      style={{
-                        border: "1px solid #cbd5e1",
-                        padding: 8,
-                        fontWeight: 900,
-                      }}
-                    >
-                      {doc.attached ? (
-                        doc.attachmentDataUrl ? (
-                          <a
-                            href={doc.attachmentDataUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              color: "#0369a1",
-                              textDecoration: "underline",
-                            }}
-                          >
-                            📎 {doc.attachmentName || "פתח קובץ"}
-                          </a>
-                        ) : (
-                          `✅ ${doc.attachmentName || "צורף"}`
-                        )
-                      ) : (
-                        "טרם צורף קובץ"
-                      )}
-                    </td>
-                    <td style={{ border: "1px solid #cbd5e1", padding: 8 }}>
-                      {readOnly ? (
-                        <button type="button" style={styles.secondaryBtn} disabled>
-                          צרף / החלף
-                        </button>
-                      ) : (
-                        <FileDropZone
-                          accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                          multiple={false}
-                          buttonLabel="צרף / החלף"
-                          helperText="גרור לכאן מסמך"
-                          onFiles={(files) => attachDocument(doc.id, Array.from(files)[0])}
-                        />
-                      )}
-                      {doc.attached && showReferenceResultsTable ? (
-                        <button
-                          type="button"
-                          style={{ ...styles.secondaryBtn, marginRight: 6 }}
-                          onClick={() => void reparseReferenceResultsFromDocument(doc)}
-                          disabled={readOnly}
-                        >
-                          קלוט מחדש
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        style={{ ...styles.dangerBtn, marginRight: 6 }}
-                        onClick={() => removeDocument(doc.id)}
-                        disabled={readOnly}
-                      >
-                        מחיקה
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={4}
-                    style={{
-                      border: "1px solid #cbd5e1",
-                      padding: 18,
-                      textAlign: "center",
-                      color: "#64748b",
-                    }}
-                  >
-                    טרם נוספו קבצים לתעודת הייחוס.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-          קישור לרשימות תיוג ובדיקות שטח
-        </h3>
-        <div style={{ color: "#475569", marginBottom: 12 }}>
-          בחר לאילו רשימות תיוג ובדיקות שטח תעודת הייחוס הזו שייכת. לדוגמה:
-          תעודת ייחוס של מצע א׳ תקושר לרשימת תיוג פיזור/הידוק מצע א׳ ולבדיקות
-          צפיפות־רטיבות המתייחסות אליה.
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>
-              רשימות תיוג רלוונטיות
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              {(relevantChecklists.length ? relevantChecklists : checklists)
-                .length ? (
-                (relevantChecklists.length
-                  ? relevantChecklists
-                  : checklists
-                ).map((item) => (
-                  <label
-                    key={item.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 10,
-                      padding: 8,
-                    }}
-                  >
-                    <input
-                      disabled={readOnly}
-                      type="checkbox"
-                      checked={normalizeStringArray(form.checklistIds).includes(
-                        item.id,
-                      )}
-                      onChange={() => toggleId("checklistIds", item.id)}
-                    />{" "}
-                    {item.checklistNo ? `#${item.checklistNo} · ` : ""}
-                    {item.title} · {item.location}
-                  </label>
-                ))
-              ) : (
-                <div style={styles.emptyBox}>אין עדיין רשימות תיוג בפרויקט</div>
-              )}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>
-              RFI / אישורי מתכנן
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              {rfis.length ? (
-                rfis.map((item) => (
-                  <label
-                    key={item.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 10,
-                      padding: 8,
-                    }}
-                  >
-                    <input
-                      disabled={readOnly}
-                      type="checkbox"
-                      checked={normalizeStringArray(form.rfiIds).includes(
-                        item.id,
-                      )}
-                      onChange={() => toggleId("rfiIds", item.id)}
-                    />{" "}
-                    {item.title} · {item.status}
-                  </label>
-                ))
-              ) : (
-                <div style={styles.emptyBox}>אין עדיין RFI בפרויקט</div>
-              )}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 950, marginBottom: 8 }}>
-              אי־התאמות / חריגות
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              {nonconformances.length ? (
-                nonconformances.map((item) => (
-                  <label
-                    key={item.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 10,
-                      padding: 8,
-                    }}
-                  >
-                    <input
-                      disabled={readOnly}
-                      type="checkbox"
-                      checked={normalizeStringArray(
-                        form.nonconformanceIds,
-                      ).includes(item.id)}
-                      onChange={() => toggleId("nonconformanceIds", item.id)}
-                    />{" "}
-                    {item.title} · {item.status}
-                  </label>
-                ))
-              ) : (
-                <div style={styles.emptyBox}>אין עדיין אי־התאמות בפרויקט</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0, fontSize: 20, fontWeight: 950 }}>
-          תעודות ייחוס שנשמרו
-        </h3>
-        <div style={{ display: "grid", gap: 8 }}>
-          {savedProcesses.length ? (
-            savedProcesses.map((process) => (
-              <div
-                key={process.id}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 14,
-                  padding: 12,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 950 }}>
-                    {process.processNo} · {process.title}
-                  </div>
-                  <div style={{ color: "#64748b", marginTop: 4 }}>
-                    {process.workType || "תחום לא הוזן"} ·{" "}
-                    {process.location || "שימוש מיועד לא הוזן"} · סטטוס:{" "}
-                    {process.status}
-                  </div>
-                </div>
-                <div style={styles.buttonRow}>
-                  <button
-                    type="button"
-                    style={styles.secondaryBtn}
-                    onClick={() => onLoad(process)}
-                  >
-                    פתח
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.dangerBtn}
-                    onClick={() => onDelete(process.id)}
-                  >
-                    מחק
-                  </button>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div style={styles.emptyBox}>טרם נשמרו תעודות ייחוס בפרויקט.</div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-
-type ProjectUsersSectionProps = {
-  guardedBody: React.ReactNode;
-  projectName: string;
-  users: ProjectEmailUser[];
-  onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
-  onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
-  onDeleteUser: (id: string) => void;
-  onSaveUsers: () => void;
-};
-
-function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
-  const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
-  const inputStyle: CSSProperties = {
-    width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: 10,
-    padding: "9px 10px",
-    font: "inherit",
-    boxSizing: "border-box",
-    background: "#fff",
-  };
-
-  const add = () => {
-    const email = draft.email.trim();
-    if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
-    if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
-    onAddUser({ ...draft, email, active: true });
-    setDraft({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
-  };
-
-  const save = () => {
-    const hasDraft = Object.values(draft).some((value) => typeof value === "string" && value.trim());
-    if (!hasDraft) {
-      onSaveUsers();
-      return;
-    }
-    const email = draft.email.trim();
-    if (!draft.name.trim()) return alert("יש להזין שם משתמש / נמען");
-    if (!isValidEmailAddress(email)) return alert("כתובת המייל אינה תקינה");
-    onAddUser({ ...draft, email, active: true });
-    setDraft({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
-    setTimeout(onSaveUsers, 0);
-  };
-
-  return (
-    <section style={styles.section}>
-      {guardedBody ?? (
-        <>
-          <div style={styles.sectionHeader}>
-            <div>
-              <h2 style={{ margin: 0 }}>משתמשים / נמענים לפרויקט</h2>
-              <p style={{ margin: "6px 0 0", color: "#64748b", lineHeight: 1.6 }}>
-                רשימה זו שייכת לפרויקט {projectName}. בעת שליחת מייל מהפרויקט ניתן לבחור מתוכה נמען אחד או כמה נמענים.
-              </p>
-            </div>
-            <button type="button" onClick={save} style={styles.primaryBtn}>
-              שמור משתמשים
-            </button>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, border: "1px solid #e2e8f0", borderRadius: 16, padding: 14, background: "#fff", marginBottom: 16 }}>
-            <input placeholder="שם" value={draft.name} onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))} style={inputStyle} />
-            <input placeholder="תפקיד" value={draft.role} onChange={(e) => setDraft((p) => ({ ...p, role: e.target.value }))} style={inputStyle} />
-            <input placeholder="חברה" value={draft.company} onChange={(e) => setDraft((p) => ({ ...p, company: e.target.value }))} style={inputStyle} />
-            <input placeholder="מייל" value={draft.email} onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))} style={inputStyle} />
-            <input placeholder="טלפון" value={draft.phone} onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))} style={inputStyle} />
-            <input type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
-            <button type="button" onClick={add} style={styles.primaryBtn}>הוסף משתמש</button>
-          </div>
-          <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 850 }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["פעיל", "שם", "תפקיד", "חברה", "מייל", "טלפון", "סיסמת Gmail", "פעולות"].map((label) => (
-                    <th key={label} style={{ borderBottom: "1px solid #e2e8f0", padding: 10, textAlign: "right" }}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {users.length ? users.map((user) => (
-                  <tr key={user.id}>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="checkbox" checked={user.active} onChange={(e) => onUpdateUser(user.id, { active: e.target.checked })} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.name} onChange={(e) => onUpdateUser(user.id, { name: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.role} onChange={(e) => onUpdateUser(user.id, { role: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.company} onChange={(e) => onUpdateUser(user.id, { company: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.email} onChange={(e) => onUpdateUser(user.id, { email: e.target.value.trim() })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.phone || ""} onChange={(e) => onUpdateUser(user.id, { phone: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><button type="button" style={styles.dangerBtn} onClick={() => onDeleteUser(user.id)}>מחק</button></td>
-                  </tr>
-                )) : (
-                  <tr><td colSpan={8} style={{ padding: 18, textAlign: "center", color: "#64748b" }}>טרם הוגדרו משתמשים לפרויקט זה.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-
-
-const getReferenceRowValue = (row: any, keys: string[]): string => {
-  for (const key of keys) {
-    const value = row?.[key];
-    if (value !== undefined && value !== null && String(value).trim()) return String(value);
-  }
-  return "";
-};
-
-
-const MATZEA_A_EXCEL_RESULT_COLUMNS = [
-  { metric: '3"', label: '3"' },
-  { metric: '1.5"', label: '1.5"' },
-  { metric: '1"', label: '1"' },
-  { metric: '3/4"', label: '3/4"' },
-  { metric: '#4', label: '#4' },
-  { metric: '#10', label: '#10' },
-  { metric: '#40', label: '#40' },
-  { metric: '#200', label: '#200' },
-  { metric: 'גבול נזילות (LL)', label: 'LL' },
-  { metric: 'גבול פלסטיות (PL)', label: 'PL' },
-  { metric: 'אינדקס פלסטיות (IP)', label: 'IP' },
-  { metric: 'שווה ערך חול', label: 'שווה ערך חול' },
-  { metric: 'צפיפות מכשירית', label: 'צפיפות מכשירית' },
-  { metric: 'רטיבות מחושבת', label: 'רטיבות מחושבת' },
-  { metric: 'ספיגות (G)', label: 'ספיגות' },
-  { metric: 'לוס אנג\'לס', label: 'לוס אנג\'לס' },
-];
-
-const buildMatzeaAConcentrationRows = (processes: ControlProcessRecord[]) =>
-  processes
-    .filter((process) => isMatzeaAReference(process.workType))
-    .map((process, index) => {
-      const results = ensureReferenceResultsForMaterial(process.workType, process.referenceResults);
-      const byMetric = new Map(results.map((row) => [String(row.metric), row]));
-      const valueOf = (metric: string) => String(byMetric.get(metric)?.resultValue ?? '').trim();
-      const statusOf = (metric: string) => {
-        const row = byMetric.get(metric);
-        return row ? (row.qualityStatus || calculateReferenceQualityStatus(row.resultValue, row.minValue, row.maxValue)) : '';
-      };
-      const anyValue = results.some((row) => String(row.resultValue ?? '').trim());
-      if (!anyValue) return null;
-      return {
-        id: process.id,
-        serial: index + 1,
-        processNo: process.processNo,
-        title: process.title,
-        date: process.savedAt,
-        workType: process.workType,
-        source: valueOf('תיאור החומר') || process.location || '',
-        sampleLocation: valueOf('מקום הדגם לבדיקה') || process.location || '',
-        structure: valueOf('מבנה') || '',
-        certificateNo: valueOf('מספר תעודת מעבדה') || process.processNo || '',
-        certificateDate: valueOf('תאריך') || process.savedAt || '',
-        aashto: valueOf('דירוג AASHTO מיין') || valueOf('מיין AASHTO'),
-        materialDescription: valueOf('תיאור החומר'),
-        rows: MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => ({
-          ...column,
-          value: valueOf(column.metric),
-          status: statusOf(column.metric),
-          minValue: String(byMetric.get(column.metric)?.minValue ?? ''),
-          maxValue: String(byMetric.get(column.metric)?.maxValue ?? ''),
-        })),
-      };
-    })
-    .filter(Boolean) as Array<{
-      id: string;
-      serial: number;
-      processNo: string;
-      title: string;
-      date: string;
-      workType: string;
-      source: string;
-      sampleLocation: string;
-      structure: string;
-      certificateNo: string;
-      certificateDate: string;
-      aashto: string;
-      materialDescription: string;
-      rows: Array<{ metric: string; label: string; value: string; status: string; minValue: string; maxValue: string }>;
-    }>;
-
-const escapeExcelHtml = (value: unknown) =>
-  String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-function MatzeaAConcentrationFromReferences({
-  processes,
-}: {
-  processes: ControlProcessRecord[];
-}) {
-  const rows = buildMatzeaAConcentrationRows(processes);
-  if (!rows.length) return null;
-
-  const downloadExcel = () => {
-    const headerStyle = 'border:1px solid #1f2937;background:#fff59d;font-weight:bold;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
-    const greenStyle = 'border:1px solid #1f2937;background:#c6e0b4;font-weight:bold;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
-    const cellStyle = 'border:1px solid #1f2937;text-align:center;vertical-align:middle;mso-number-format:\"\\@\";';
-    const htmlRows = rows.map((row) => `
-      <tr>
-        <td style="${cellStyle}">${escapeExcelHtml(row.serial)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.processNo)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.certificateDate)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.source)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.sampleLocation)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.structure)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.aashto)}</td>
-        ${row.rows.map((item) => `<td style="${cellStyle}">${escapeExcelHtml(item.value)}</td>`).join('')}
-        <td style="${cellStyle}">${escapeExcelHtml(row.materialDescription)}</td>
-        <td style="${cellStyle}">${escapeExcelHtml(row.title)}</td>
-      </tr>`).join('');
-    const html = `﻿<!doctype html><html><head><meta charset="utf-8"></head><body dir="rtl"><table>
-      <tr><th colspan="${10 + MATZEA_A_EXCEL_RESULT_COLUMNS.length}" style="border:1px solid #1f2937;background:#d9ead3;font-size:16px;font-weight:bold;text-align:center;">ריכוז אפיון מצע א׳</th></tr>
-      <tr>
-        <th style="${headerStyle}">מס׳ סידורי</th>
-        <th style="${headerStyle}">מס׳ תעודה / רשומה</th>
-        <th style="${headerStyle}">תאריך</th>
-        <th style="${headerStyle}">מקור החומר</th>
-        <th style="${headerStyle}">מקום הדגם לבדיקה</th>
-        <th style="${headerStyle}">מבנה</th>
-        <th style="${headerStyle}">מיין AASHTO</th>
-        ${MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => `<th style="${greenStyle}">${escapeExcelHtml(column.label)}</th>`).join('')}
-        <th style="${headerStyle}">תיאור החומר</th>
-        <th style="${headerStyle}">כותרת</th>
-      </tr>
-      ${htmlRows}
-    </table></body></html>`;
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'subbase-a-concentration.xls';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const tableHeaderStyle: CSSProperties = {
-    border: '1px solid #1f2937',
-    padding: '8px 6px',
-    textAlign: 'center',
-    background: '#fef3c7',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-  };
-  const greenHeaderStyle: CSSProperties = {
-    ...tableHeaderStyle,
-    background: '#bbf7d0',
-  };
-  const cellStyle: CSSProperties = {
-    border: '1px solid #334155',
-    padding: '8px 6px',
-    textAlign: 'center',
-    whiteSpace: 'nowrap',
-    background: '#fff',
-  };
-
-  return (
-    <section style={{ ...styles.card, marginBottom: 24 }} dir="rtl">
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ margin: 0 }}>ריכוז אפיון מצע א׳</h2>
-          <p style={{ margin: '6px 0 0', color: '#64748b', fontWeight: 700 }}>
-            ריכוז מובנה בפורמט Excel מתוך התוצאות שנשמרו בבקרה מקדימה / תעודות ייחוס.
-          </p>
-        </div>
-        <button type="button" style={styles.primaryBtn} onClick={downloadExcel}>
-          הורד ריכוז Excel
-        </button>
-      </div>
-
-      <div style={{ overflowX: 'auto', marginTop: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500, direction: 'rtl' }}>
-          <thead>
-            <tr>
-              <th colSpan={10 + MATZEA_A_EXCEL_RESULT_COLUMNS.length} style={{ border: '1px solid #1f2937', padding: 10, background: '#dcfce7', textAlign: 'center', fontWeight: 950 }}>
-                דוח ריכוז בדיקות אפיון למצע סוג א׳
-              </th>
-            </tr>
-            <tr>
-              <th style={tableHeaderStyle}>מס׳ סידורי</th>
-              <th style={tableHeaderStyle}>מס׳ תעודה / רשומה</th>
-              <th style={tableHeaderStyle}>תאריך</th>
-              <th style={tableHeaderStyle}>מקור החומר</th>
-              <th style={tableHeaderStyle}>מקום הדגם לבדיקה</th>
-              <th style={tableHeaderStyle}>מבנה</th>
-              <th style={tableHeaderStyle}>מיין AASHTO</th>
-              {MATZEA_A_EXCEL_RESULT_COLUMNS.map((column) => (
-                <th key={column.metric} style={greenHeaderStyle}>{column.label}</th>
-              ))}
-              <th style={tableHeaderStyle}>תיאור החומר</th>
-              <th style={tableHeaderStyle}>כותרת</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td style={cellStyle}>{row.serial}</td>
-                <td style={cellStyle}>{row.processNo}</td>
-                <td style={cellStyle}>{row.certificateDate}</td>
-                <td style={cellStyle}>{row.source}</td>
-                <td style={cellStyle}>{row.sampleLocation}</td>
-                <td style={cellStyle}>{row.structure}</td>
-                <td style={cellStyle}>{row.aashto}</td>
-                {row.rows.map((item) => (
-                  <td key={`${row.id}-${item.metric}`} style={{ ...cellStyle, fontWeight: item.status === 'לא תקין' ? 900 : 700, color: item.status === 'לא תקין' ? '#b91c1c' : '#111827' }}>
-                    {item.value}
-                  </td>
-                ))}
-                <td style={cellStyle}>{row.materialDescription}</td>
-                <td style={cellStyle}>{row.title}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-type ChecklistTrackingSortKey = "number" | "title" | "date" | "status";
-type ChecklistTrackingFilterKey =
-  | "title"
-  | "date"
-  | "status"
-  | "structure"
-  | "element"
-  | "subElement"
-  | "side"
-  | "layer"
-  | "fromSection"
-  | "toSection"
-  | "location";
-
-const EMPTY_CHECKLIST_TRACKING_FILTERS: Record<
-  ChecklistTrackingFilterKey,
-  string
-> = {
-  title: "",
-  date: "",
-  status: "",
-  structure: "",
-  element: "",
-  subElement: "",
-  side: "",
-  layer: "",
-  fromSection: "",
-  toSection: "",
-  location: "",
-};
-
-function ChecklistTrackingSection({
-  records,
-  onOpen,
-}: {
-  records: ChecklistRecord[];
-  onOpen: (record: ChecklistRecord) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("הכול");
-  const [sortKey, setSortKey] = useState<ChecklistTrackingSortKey>("date");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [columnFilters, setColumnFilters] = useState<
-    Record<ChecklistTrackingFilterKey, string>
-  >({ ...EMPTY_CHECKLIST_TRACKING_FILTERS });
-
-  const trackingRows = useMemo(
-    () =>
-      records.map((record, index) => {
-        const itemDates = (record.items ?? [])
-          .map((item) => normalizeDateValue(item.executionDate))
-          .filter(Boolean)
-          .sort();
-        const date =
-          normalizeDateValue(record.date) ||
-          itemDates[0] ||
-          normalizeDateValue(record.savedAt);
-        const raw = record as any;
-        return {
-          record,
-          number: getChecklistDisplayNumber(record, index),
-          title: record.title || checklistTemplates[normalizeChecklistTemplateKey(record.templateKey)]?.title || "רשימת תיוג",
-          date,
-          status: getApprovalDisplayStatus(record),
-          structure:
-            raw.structure ||
-            raw.roadStructure ||
-            raw.building ||
-            raw.structureName ||
-            "",
-          element: raw.element || raw.workType || record.category || "",
-          subElement: raw.subElement || raw.sub_element || raw.details?.subElement || "",
-          side: raw.side || raw.offset || raw.details?.side || "",
-          layer:
-            raw.layerNo ||
-            raw.layerNumber ||
-            raw.layer ||
-            raw.details?.layerNo ||
-            raw.details?.layerNumber ||
-            raw.details?.layer ||
-            record.location ||
-            "",
-          fromSection:
-            raw.stationSection ||
-            raw.station_section ||
-            raw.fromSection ||
-            raw.fromChainage ||
-            raw.stationFrom ||
-            raw.details?.stationSection ||
-            raw.details?.station_section ||
-            raw.details?.fromSection ||
-            "",
-          toSection:
-            raw.toStationSection ||
-            raw.to_station_section ||
-            raw.toSection ||
-            raw.toChainage ||
-            raw.stationTo ||
-            raw.details?.toStationSection ||
-            raw.details?.to_station_section ||
-            raw.details?.toSection ||
-            "",
-          location: getChecklistDisplayLocation(record),
-        };
-      }),
-    [records],
-  );
-
-  const statuses = useMemo(
-    () => ["הכול", ...Array.from(new Set(trackingRows.map((row) => row.status)))],
-    [trackingRows],
-  );
-
-  const trackingDateOrderValue = (value: unknown, fallbackIndex: number) => {
-    const raw = String(value ?? "").trim();
-    if (!raw) return fallbackIndex;
-
-    const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (iso) {
-      const time = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
-      return Number.isFinite(time) ? time : fallbackIndex;
-    }
-
-    const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
-    if (local) {
-      const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
-      const time = new Date(year, Number(local[2]) - 1, Number(local[1])).getTime();
-      return Number.isFinite(time) ? time : fallbackIndex;
-    }
-
-    const parsed = Date.parse(raw);
-    return Number.isFinite(parsed) ? parsed : fallbackIndex;
-  };
-
-  const trackingNumericOrderValue = (value: unknown, fallbackIndex: number) => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    const match = String(value ?? "").match(/\d+(?:[.,]\d+)?/);
-    return match ? Number(match[0].replace(",", ".")) : fallbackIndex;
-  };
-
-  const columnFilterOptions = useMemo(() => {
-    const keys = Object.keys(
-      EMPTY_CHECKLIST_TRACKING_FILTERS,
-    ) as ChecklistTrackingFilterKey[];
-    return Object.fromEntries(
-      keys.map((key) => [
-        key,
-        Array.from(
-          new Set(
-            trackingRows
-              .map((row) => String(row[key] ?? "").trim())
-              .filter(Boolean),
-          ),
-        ).sort((left, right) =>
-          left.localeCompare(right, "he", { numeric: true }),
-        ),
-      ]),
-    ) as Record<ChecklistTrackingFilterKey, string[]>;
-  }, [trackingRows]);
-
-  const filteredRows = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("he");
-    const rows = trackingRows.filter((row) => {
-      if (statusFilter !== "הכול" && row.status !== statusFilter) return false;
-      const doesNotMatchColumn = (
-        Object.keys(columnFilters) as ChecklistTrackingFilterKey[]
-      ).some(
-        (key) =>
-          columnFilters[key] &&
-          String(row[key] ?? "") !== columnFilters[key],
-      );
-      if (doesNotMatchColumn) return false;
-      if (!term) return true;
-      return [
-        row.number,
-        row.title,
-        row.date,
-        row.status,
-        row.structure,
-        row.element,
-        row.subElement,
-        row.side,
-        row.layer,
-        row.fromSection,
-        row.toSection,
-        row.location,
-      ]
-        .join(" ")
-        .toLocaleLowerCase("he")
-        .includes(term);
-    });
-    return [...rows].sort((a, b) => {
-      const left = String(a[sortKey] ?? "");
-      const right = String(b[sortKey] ?? "");
-      const comparison =
-        sortKey === "number"
-          ? Number(left || 0) - Number(right || 0)
-          : sortKey === "date"
-            ? trackingDateOrderValue(a.date, 0) - trackingDateOrderValue(b.date, 0) ||
-              trackingNumericOrderValue(a.layer, 0) - trackingNumericOrderValue(b.layer, 0) ||
-              trackingNumericOrderValue(a.number, 0) - trackingNumericOrderValue(b.number, 0)
-            : left.localeCompare(right, "he", { numeric: true });
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
-  }, [
-    columnFilters,
-    search,
-    sortDirection,
-    sortKey,
-    statusFilter,
-    trackingRows,
-  ]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const visibleRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const firstVisible = filteredRows.length ? (safePage - 1) * pageSize + 1 : 0;
-  const lastVisible = Math.min(safePage * pageSize, filteredRows.length);
-
-  useEffect(
-    () => setPage(1),
-    [columnFilters, search, statusFilter, pageSize],
-  );
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const changeSort = (key: ChecklistTrackingSortKey) => {
-    if (sortKey === key) {
-      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortKey(key);
-    setSortDirection("asc");
-  };
-
-  const sortMarker = (key: ChecklistTrackingSortKey) =>
-    sortKey === key ? (sortDirection === "asc" ? " ↑" : " ↓") : "";
-
-  const updateColumnFilter = (
-    key: ChecklistTrackingFilterKey,
-    value: string,
-  ) => setColumnFilters((current) => ({ ...current, [key]: value }));
-
-  const activeColumnFilterCount = Object.values(columnFilters).filter(
-    Boolean,
-  ).length;
-
-  const filterSelect = (
-    key: ChecklistTrackingFilterKey,
-    placeholder: string,
-  ) => (
-    <select
-      aria-label={`סינון ${placeholder}`}
-      value={columnFilters[key]}
-      onChange={(event) => updateColumnFilter(key, event.target.value)}
-      style={{
-        width: "100%",
-        minWidth: key === "title" ? 190 : 92,
-        border: columnFilters[key]
-          ? "2px solid #2563eb"
-          : "1px solid #cbd5e1",
-        borderRadius: 8,
-        padding: "7px 8px",
-        background: columnFilters[key] ? "#eff6ff" : "#fff",
-        color: "#334155",
-        fontWeight: 750,
-      }}
-    >
-      <option value="">הכול</option>
-      {columnFilterOptions[key].map((value) => (
-        <option key={value} value={value}>
-          {key === "date" ? formatTrackingDate(value) : value}
-        </option>
-      ))}
-    </select>
-  );
-
-  const exportCsv = () => {
-    const headers = [
-      "מספר רשימת תיוג",
-      "שם רשימת תיוג",
-      "תאריך ביצוע",
-      "סטטוס",
-      "מבנה",
-      "אלמנט",
-      "תת אלמנט",
-      "צד",
-      "מספר שכבה",
-      "מחתך",
-      "עד חתך",
-      "מיקום",
-    ];
-    const csvRows = filteredRows.map((row) => [
-      row.number,
-      row.title,
-      formatTrackingDate(row.date),
-      row.status,
-      row.structure,
-      row.element,
-      row.subElement,
-      row.side,
-      row.layer,
-      row.fromSection,
-      row.toSection,
-      row.location,
-    ]);
-    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const csv = "\uFEFF" + [headers, ...csvRows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `מעקב-רשימות-תיוג-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const headerStyle: CSSProperties = {
-    padding: "14px 12px",
-    borderBottom: "1px solid #e2e8f0",
-    borderLeft: "1px solid #eef2f7",
-    background: "#f8fafc",
-    color: "#1e293b",
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-    textAlign: "right",
-  };
-  const cellStyle: CSSProperties = {
-    padding: "15px 12px",
-    borderBottom: "1px solid #eef2f7",
-    borderLeft: "1px solid #f1f5f9",
-    color: "#334155",
-    verticalAlign: "middle",
-    minWidth: 105,
-  };
-
-  return (
-    <section dir="rtl">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
-        <div>
-          <h2 style={{ ...styles.sectionTitle, marginBottom: 5 }}>מעקב רשימות תיוג</h2>
-          <div style={{ color: "#64748b" }}>תמונת מצב מרוכזת של כל רשימות התיוג בפרויקט.</div>
-        </div>
-        <button type="button" style={styles.secondaryBtn} onClick={exportCsv} disabled={!filteredRows.length}>
-          ייצוא לאקסל (CSV)
-        </button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(170px, 240px)", gap: 12, marginBottom: 16 }}>
-        <input
-          style={styles.input}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="חיפוש לפי מספר, שם, מבנה, אלמנט או מיקום..."
-        />
-        <select style={styles.input} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          {statuses.map((status) => <option key={status} value={status}>{status === "הכול" ? "כל הסטטוסים" : status}</option>)}
-        </select>
-      </div>
-
-      {activeColumnFilterCount ? (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            marginBottom: 12,
-            border: "1px solid #bfdbfe",
-            borderRadius: 12,
-            padding: "9px 12px",
-            background: "#eff6ff",
-            color: "#1e40af",
-            fontWeight: 850,
-          }}
-        >
-          <span>{activeColumnFilterCount} מסנני עמודות פעילים</span>
-          <button
-            type="button"
-            style={{ ...styles.secondaryBtn, padding: "7px 11px" }}
-            onClick={() =>
-              setColumnFilters({ ...EMPTY_CHECKLIST_TRACKING_FILTERS })
-            }
-          >
-            נקה מסנני עמודות
-          </button>
-        </div>
-      ) : null}
-
-      <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}>
-        <table style={{ width: "100%", minWidth: 1420, borderCollapse: "collapse", background: "#fff" }}>
-          <thead>
-            <tr>
-              <th style={headerStyle}>פעולות</th>
-              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("number")}>מספר רשימת תיוג{sortMarker("number")}</th>
-              <th style={{ ...headerStyle, cursor: "pointer", minWidth: 220 }} onClick={() => changeSort("title")}>שם רשימת תיוג{sortMarker("title")}</th>
-              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("date")}>תאריך ביצוע{sortMarker("date")}</th>
-              <th style={{ ...headerStyle, cursor: "pointer" }} onClick={() => changeSort("status")}>סטטוס{sortMarker("status")}</th>
-              <th style={headerStyle}>מבנה</th>
-              <th style={headerStyle}>אלמנט</th>
-              <th style={headerStyle}>תת אלמנט</th>
-              <th style={headerStyle}>צד</th>
-              <th style={headerStyle}>מספר שכבה</th>
-              <th style={headerStyle}>מחתך</th>
-              <th style={headerStyle}>עד חתך</th>
-              <th style={headerStyle}>מיקום</th>
-            </tr>
-            <tr style={{ background: "#f8fafc" }}>
-              <th style={{ ...headerStyle, padding: 7 }} />
-              <th style={{ ...headerStyle, padding: 7 }} />
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("title", "שם רשימת תיוג")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("date", "תאריך ביצוע")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("status", "סטטוס")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("structure", "מבנה")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("element", "אלמנט")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("subElement", "תת אלמנט")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("side", "צד")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("layer", "מספר שכבה")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("fromSection", "מחתך")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("toSection", "עד חתך")}
-              </th>
-              <th style={{ ...headerStyle, padding: 7 }}>
-                {filterSelect("location", "מיקום")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {!visibleRows.length ? (
-              <tr><td colSpan={13} style={{ padding: 32, textAlign: "center", color: "#64748b" }}>לא נמצאו רשימות תיוג מתאימות.</td></tr>
-            ) : visibleRows.map((row) => (
-              <tr key={row.record.id}>
-                <td style={{ ...cellStyle, minWidth: 82 }}>
-                  <button
-                    type="button"
-                    title="פתיחת רשימת התיוג לעריכה"
-                    aria-label={`פתיחת ${row.title}`}
-                    onClick={() => onOpen(row.record)}
-                    style={{ border: "none", background: "#dcfce7", color: "#15803d", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontWeight: 900 }}
-                  >
-                    ✎
-                  </button>
-                </td>
-                <td style={cellStyle}>{row.number}</td>
-                <td style={{ ...cellStyle, minWidth: 220, fontWeight: 800 }}>{row.title}</td>
-                <td style={cellStyle}>{formatTrackingDate(row.date) || "—"}</td>
-                <td style={cellStyle}>
-                  <span style={{ display: "inline-block", borderRadius: 999, padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap", color: row.status === "מאושר" ? "#15803d" : "#92400e", background: row.status === "מאושר" ? "#dcfce7" : "#fef3c7" }}>
-                    {row.status}
-                  </span>
-                </td>
-                <td style={cellStyle}>{row.structure || "—"}</td>
-                <td style={cellStyle}>{row.element || "—"}</td>
-                <td style={cellStyle}>{row.subElement || "—"}</td>
-                <td style={cellStyle}>{row.side || "—"}</td>
-                <td style={cellStyle}>{row.layer || "—"}</td>
-                <td style={cellStyle}>{row.fromSection || "—"}</td>
-                <td style={cellStyle}>{row.toSection || "—"}</td>
-                <td style={cellStyle}>{row.location || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 15 }}>
-        <div style={{ color: "#64748b", fontWeight: 800 }}>{firstVisible}-{lastVisible} מתוך {filteredRows.length}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 7, color: "#475569", fontWeight: 800 }}>
-            שורות בעמוד
-            <select style={{ ...styles.input, width: 78, padding: 8 }} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
-              {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
-            </select>
-          </label>
-          <button type="button" style={styles.secondaryBtn} disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>הקודם</button>
-          <span style={{ minWidth: 76, textAlign: "center", fontWeight: 900 }}>{safePage} / {totalPages}</span>
-          <button type="button" style={styles.secondaryBtn} disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>הבא</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-export default function Page() {
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    // אין רענון אוטומטי בזמן עבודה כדי לא למחוק נתונים שהוזנו בטופס.
-    // בעת רענון ידני רגיל של הדף הדפדפן מתבקש למשוך את הגרסה העדכנית.
-    [
-      ["Cache-Control", "no-cache, no-store, must-revalidate"],
-      ["Pragma", "no-cache"],
-      ["Expires", "0"],
-    ].forEach(([httpEquiv, content]) => {
-      const selector = `meta[http-equiv="${httpEquiv}"]`;
-      const existing = document.head.querySelector<HTMLMetaElement>(selector);
-      const meta = existing ?? document.createElement("meta");
-      meta.httpEquiv = httpEquiv;
-      meta.content = content;
-      if (!existing) document.head.appendChild(meta);
-    });
-
-    window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
-  }, []);
-  const [section, setSection] = useState<AppSection>("home");
-  const [selectedChecklistTemplateKey, setSelectedChecklistTemplateKey] =
-    useState<ChecklistTemplateKey>(() => normalizeChecklistTemplateKey(undefined));
-  const [preliminaryTab, setPreliminaryTab] =
-    useState<PreliminaryTab>("suppliers");
-  const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(
-    readLocalCurrentProjectId(),
-  );
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectDescription, setNewProjectDescription] = useState("");
-  const [newProjectManager, setNewProjectManager] = useState("");
-  const [checklistForm, setChecklistForm] = useState(createDefaultChecklist());
-  const [densityReview, setDensityReview] = useState<DensityReviewState | null>(null);
-  const densityReviewResolverRef = useRef<DensityReviewResolver | null>(null);
-  const [asphaltReview, setAsphaltReview] = useState<AsphaltReviewState | null>(null);
-  const asphaltReviewResolverRef = useRef<AsphaltReviewResolver | null>(null);
-  const [nonconformanceForm, setNonconformanceForm] = useState(
-    createDefaultNonconformance(),
-  );
-  const [trialSectionForm, setTrialSectionForm] = useState(
-    createDefaultTrialSection(),
-  );
-  const [supplierPreliminaryForm, setSupplierPreliminaryForm] = useState(
-    createDefaultPreliminary("suppliers"),
-  );
-  const [subcontractorPreliminaryForm, setSubcontractorPreliminaryForm] =
-    useState(createDefaultPreliminary("subcontractors"));
-  const [materialPreliminaryForm, setMaterialPreliminaryForm] = useState(
-    createDefaultPreliminary("materials"),
-  );
-  const [savedChecklists, setSavedChecklists] = useState<ChecklistRecord[]>([]);
-  const [savedNonconformances, setSavedNonconformances] = useState<
-    NonconformanceRecord[]
-  >([]);
-  const [savedTrialSections, setSavedTrialSections] = useState<
-    TrialSectionRecord[]
-  >([]);
-  const [savedPreliminary, setSavedPreliminary] = useState<PreliminaryRecord[]>(
-    [],
-  );
-  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(
-    null,
-  );
-  const [editingNonconformanceId, setEditingNonconformanceId] = useState<
-    string | null
-  >(null);
-  const [editingTrialSectionId, setEditingTrialSectionId] = useState<
-    string | null
-  >(null);
-  const [editingPreliminaryId, setEditingPreliminaryId] = useState<
-    string | null
-  >(null);
-  const [recordsSearchTerm, setRecordsSearchTerm] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
-  const [authReady, setAuthReady] = useState(false);
-  const [projectAccess, setProjectAccess] = useState<ProjectAccess | null>(
-    null,
-  );
-  const [accessUsers, setAccessUsers] = useState<ProjectAccess[]>(
-    DEFAULT_PROJECT_ACCESS_LIST,
-  );
-  const [draftAccessUsers, setDraftAccessUsers] = useState<ProjectAccess[]>(
-    DEFAULT_PROJECT_ACCESS_LIST,
-  );
-  const [accessUsersDirty, setAccessUsersDirty] = useState(false);
-  const [projectLegends, setProjectLegends] = useState<
-    Record<string, ProjectLegend>
-  >({});
-  const [draftProjectLegends, setDraftProjectLegends] = useState<
-    Record<string, ProjectLegend>
-  >({});
-  const [editingProjectLegend, setEditingProjectLegend] = useState(false);
-  const [projectLegendDirty, setProjectLegendDirty] = useState(false);
-  const [showUserManagement, setShowUserManagement] = useState(false);
-  const [showProjectPicker, setShowProjectPicker] = useState(false);
-  const [accountForm, setAccountForm] = useState({
-    username: "",
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
-  const [loginCode, setLoginCode] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [savedRfis, setSavedRfis] = useState<RfiRecord[]>([]);
-  const [rfiForm, setRfiForm] = useState(createDefaultRfi());
-  const [editingRfiId, setEditingRfiId] = useState<string | null>(null);
-  const [projectStructureNodes, setProjectStructureNodes] = useState<
-    ProjectStructureNode[]
-  >([]);
-  const [projectStructureForm, setProjectStructureForm] = useState(
-    createDefaultProjectStructureForm(),
-  );
-  const [editingProjectStructureNodeId, setEditingProjectStructureNodeId] =
-    useState<string | null>(null);
-  const [savedControlProcesses, setSavedControlProcesses] = useState<
-    ControlProcessRecord[]
-  >([]);
-  const [savedHoldPoints, setSavedHoldPoints] = useState<HoldPointRecord[]>([]);
-  const [controlProcessForm, setControlProcessForm] = useState(
-    createDefaultControlProcess(),
-  );
-  const [editingControlProcessId, setEditingControlProcessId] = useState<
-    string | null
-  >(null);
-  const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
-  const cloudLoadGenerationRef = useRef(0);
-  const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
-  const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
-  const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
-  const [savedPlans, setSavedPlans] = useState<PlanRecord[]>([]);
-  const [showArchiveSelection, setShowArchiveSelection] = useState(false);
-  const [archiveSections, setArchiveSections] = useState<Record<string, boolean>>({
-    checklists: true,
-    plans: true,
-    preliminary: true,
-    nonconformances: true,
-    rfi: true,
-    trialSections: true,
-    controlProcesses: true,
-    supervisionReports: true,
-  });
-  const [planForm, setPlanForm] = useState(createDefaultPlanRecord());
-  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
-      setSavedPlans((Array.isArray(parsed) ? parsed : []).map(normalizePlanRecord).filter(Boolean) as PlanRecord[]);
-    } catch {
-      setSavedPlans([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(savedPlans));
-  }, [savedPlans]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const storedLegends = window.localStorage.getItem(
-        PROJECT_LEGEND_STORAGE_KEY,
-      );
-      const parsedLegends = migrateProjectLegendMap(
-        storedLegends ? JSON.parse(storedLegends) : {},
-      );
-      setProjectLegends(parsedLegends);
-      setDraftProjectLegends(parsedLegends);
-      window.localStorage.setItem(
-        PROJECT_LEGEND_STORAGE_KEY,
-        JSON.stringify(parsedLegends),
-      );
-    } catch {
-      setProjectLegends({});
-      setDraftProjectLegends({});
-    }
-
-    // טעינת פרטי פרויקט מהענן. כך פרטי הפרויקט לא נעלמים בכניסה חוזרת/מחשב אחר.
-    if (isSupabaseConfigured && supabase) {
-      void loadProjectLegendsFromSupabase().then((cloudLegends) => {
-        if (!cloudLegends || !Object.keys(cloudLegends).length) return;
-        setProjectLegends((prev) => {
-          const merged = migrateProjectLegendMap({ ...prev, ...cloudLegends });
-          try {
-            window.localStorage.setItem(
-              PROJECT_LEGEND_STORAGE_KEY,
-              JSON.stringify(merged),
-            );
-          } catch {}
-          return merged;
-        });
-        setDraftProjectLegends((prev) =>
-          migrateProjectLegendMap({ ...prev, ...cloudLegends }),
-        );
-      });
-    }
-
-    try {
-      if (isSupabaseConfigured) {
-        window.localStorage.removeItem(RFI_STORAGE_KEY);
-        setSavedRfis([]);
-      } else {
-        const storedRfis = window.localStorage.getItem(RFI_STORAGE_KEY);
-        const parsedRfis = storedRfis ? JSON.parse(storedRfis) : [];
-        setSavedRfis(
-          Array.isArray(parsedRfis)
-            ? (parsedRfis.map(normalizeRfiRecord).filter(Boolean) as RfiRecord[])
-            : [],
-        );
-      }
-    } catch {
-      try {
-        window.localStorage.removeItem(RFI_STORAGE_KEY);
-      } catch {}
-      setSavedRfis([]);
-    }
-    try {
-      const storedStructure = window.localStorage.getItem(
-        PROJECT_STRUCTURE_STORAGE_KEY,
-      );
-      const parsedStructure = storedStructure ? JSON.parse(storedStructure) : [];
-      setProjectStructureNodes(
-        Array.isArray(parsedStructure)
-          ? (parsedStructure
-              .map(normalizeProjectStructureNode)
-              .filter(Boolean) as ProjectStructureNode[])
-          : [],
-      );
-    } catch {
-      setProjectStructureNodes([]);
-    }
-    try {
-      const storedProcesses = window.localStorage.getItem(
-        CONTROL_PROCESS_STORAGE_KEY,
-      );
-      const parsedProcesses = storedProcesses
-        ? JSON.parse(storedProcesses)
-        : [];
-      setSavedControlProcesses(
-        Array.isArray(parsedProcesses)
-          ? (parsedProcesses
-              .map(normalizeControlProcess)
-              .filter(Boolean) as ControlProcessRecord[])
-          : [],
-      );
-    } catch {
-      setSavedControlProcesses([]);
-    }
-    try {
-      const storedHoldPoints = window.localStorage.getItem(HOLD_POINTS_STORAGE_KEY);
-      const parsedHoldPoints = storedHoldPoints ? JSON.parse(storedHoldPoints) : [];
-      setSavedHoldPoints(Array.isArray(parsedHoldPoints) ? parsedHoldPoints : []);
-    } catch {
-      setSavedHoldPoints([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const projectCodeFromLink = params.get("project");
-    // Older invitation links placed a UUID in `project`. Treat that value as
-    // both the login code and the requested project so existing links keep
-    // opening the correct project after the project-scoped user update.
-    const legacyProjectId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      String(projectCodeFromLink ?? "").trim(),
-    )
-      ? normalizeStoredProjectId(projectCodeFromLink)
-      : null;
-    const requestedProjectId =
-      normalizeStoredProjectId(params.get("projectId")) || legacyProjectId;
-    const returnToProjectHome =
-      params.get("returnToProject") === "1" || Boolean(legacyProjectId);
-    if (returnToProjectHome && requestedProjectId) {
-      setCurrentProjectId(requestedProjectId);
-      writeLocalCurrentProjectId(requestedProjectId);
-    }
-    let cancelled = false;
-
-    const loadUsers = async () => {
-      let users = DEFAULT_PROJECT_ACCESS_LIST;
-      const cloudUsers = await loadAccessUsersFromSupabase();
-      if (cloudUsers?.length) {
-        users = cloudUsers;
-      } else {
-        try {
-          const storedUsers = window.localStorage.getItem(
-            ACCESS_USERS_STORAGE_KEY,
-          );
-          users = storedUsers
-            ? normalizeProjectAccessList(JSON.parse(storedUsers))
-            : DEFAULT_PROJECT_ACCESS_LIST;
-        } catch {
-          users = DEFAULT_PROJECT_ACCESS_LIST;
-        }
-      }
-
-      if (cancelled) return;
-      setAccessUsers(users);
-      setDraftAccessUsers(users);
-
-      const storedSession = readStoredAuthSession();
-      const supabaseSession =
-        isSupabaseConfigured && supabase
-          ? await supabase.auth.getSession().catch(() => null)
-          : null;
-      const hasSupabaseSession = Boolean(
-        supabaseSession && "data" in supabaseSession && supabaseSession.data.session,
-      );
-      const supabaseAuthUser =
-        storedSession || hasSupabaseSession ? await loadSupabaseAuthAccess() : null;
-      if (cancelled) return;
-      if (supabaseAuthUser) {
-        const projectList = projects.length ? projects : getDefaultProjectList();
-        // A return link carries the project the user explicitly selected. On
-        // first render `projects` can still contain only the defaults, so
-        // validating the URL id against that temporary list would replace it
-        // with the previously active project before cloud projects arrive.
-        const selectedProjectId =
-          returnToProjectHome && requestedProjectId
-            ? requestedProjectId
-            : selectInitialProjectIdForAccess(
-                projectList,
-                supabaseAuthUser,
-                readLocalCurrentProjectId(supabaseAuthUser),
-              );
-        if (selectedProjectId) {
-          setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId, supabaseAuthUser);
-        }
-        consumeRequestedProjectRoute();
-        setProjectAccess(supabaseAuthUser);
-        setShowProjectPicker(!returnToProjectHome);
-        writeAuthSession(supabaseAuthUser);
-        setLoginPassword("");
-        setLoginError("");
-        if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
-        setAuthReady(true);
-        return;
-      }
-      if (!storedSession && isSupabaseConfigured && supabase) {
-        await supabase.auth.signOut().catch(() => {});
-      }
-
-      // שומרים התחברות פעילה עד 10 דקות חוסר פעילות.
-      // רענון דף בתוך הטווח לא מנתק את המשתמש.
-      const storedUser = findUserForStoredSession(users, storedSession);
-      if (storedUser) {
-        const projectList = projects.length ? projects : getDefaultProjectList();
-        const selectedProjectId =
-          returnToProjectHome && requestedProjectId
-            ? requestedProjectId
-            : selectInitialProjectIdForAccess(
-                projectList,
-                storedUser,
-                readLocalCurrentProjectId(storedUser),
-              );
-        if (selectedProjectId) {
-          setCurrentProjectId(selectedProjectId);
-          writeLocalCurrentProjectId(selectedProjectId, storedUser);
-        }
-        consumeRequestedProjectRoute();
-        setProjectAccess(storedUser);
-        setShowProjectPicker(!returnToProjectHome);
-        refreshAuthSession();
-        setLoginPassword("");
-        setLoginError("");
-      } else {
-        setProjectAccess(null);
-        setLoginPassword("");
-        setLoginError("");
-      }
-
-      if (projectCodeFromLink) setLoginCode(projectCodeFromLink);
-
-      setAuthReady(true);
-    };
-
-    loadUsers();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !projectAccess) return;
-
-    const refresh = () => refreshAuthSession();
-    const events: Array<keyof WindowEventMap> = [
-      "click",
-      "keydown",
-      "mousemove",
-      "scroll",
-      "focus",
-    ];
-    events.forEach((eventName) => window.addEventListener(eventName, refresh));
-    const timer = window.setInterval(refresh, 60 * 1000);
-
-    refresh();
-
-    return () => {
-      events.forEach((eventName) =>
-        window.removeEventListener(eventName, refresh),
-      );
-      window.clearInterval(timer);
-    };
-  }, [projectAccess]);
-
-  useEffect(() => {
-    setAccountForm({
-      username: projectAccess?.username ?? "",
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-    });
-  }, [projectAccess?.username]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // Cloud RFI records can contain large documents. Persisting them again in
-    // localStorage exhausts the browser quota and can crash the whole page.
-    if (cloudEnabled) {
-      try {
-        window.localStorage.removeItem(RFI_STORAGE_KEY);
-      } catch {}
-      return;
-    }
-    try {
-      window.localStorage.setItem(RFI_STORAGE_KEY, JSON.stringify(savedRfis));
-    } catch (error) {
-      console.warn("RFI local cache is full; clearing it without affecting cloud data.", error);
-      try {
-        window.localStorage.removeItem(RFI_STORAGE_KEY);
-      } catch {}
-    }
-  }, [savedRfis, cloudEnabled]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      PROJECT_STRUCTURE_STORAGE_KEY,
-      JSON.stringify(projectStructureNodes),
-    );
-  }, [projectStructureNodes]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      CONTROL_PROCESS_STORAGE_KEY,
-      JSON.stringify(savedControlProcesses),
-    );
-  }, [savedControlProcesses]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(HOLD_POINTS_STORAGE_KEY, JSON.stringify(savedHoldPoints));
-    } catch (error) {
-      console.warn("Hold points local cache is full; documents may need to be reduced.", error);
-    }
-  }, [savedHoldPoints]);
-
-  useEffect(() => {
-    if (!authReady || !projectAccess || !cloudEnabled || !supabase || !currentProjectId) return;
-    let cancelled = false;
-    const projectIds = projectCloudIdsForCanonicalId(currentProjectId);
-    void supabase
-      .from(HOLD_POINTS_TABLE)
-      .select("*")
-      .in("project_id", projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
-      .order("serial_no", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled || error || !Array.isArray(data)) return;
-        const cloudRecords = data.map((row: any) => {
-          const details = row.details && typeof row.details === "object" ? row.details : {};
-          return {
-            ...details,
-            id: row.id,
-            projectId: normalizeStoredProjectId(row.project_id),
-            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
-            referenceNo: row.reference_no ?? details.referenceNo ?? "",
-            name: row.name ?? details.name ?? "",
-            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
-            element: row.element ?? details.element ?? "",
-            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
-            checklistIds: details.checklistIds ?? [],
-            nonconformanceIds: details.nonconformanceIds ?? [],
-            trialSectionIds: details.trialSectionIds ?? [],
-            documents: details.documents ?? [],
-            createdAt: row.created_at ?? details.createdAt ?? "",
-            updatedAt: row.updated_at ?? details.updatedAt ?? "",
-          } as HoldPointRecord;
-        });
-        setSavedHoldPoints((current) => {
-          const otherProjects = current.filter(
-            (item) => normalizeStoredProjectId(item.projectId) !== normalizeStoredProjectId(currentProjectId),
-          );
-          return [...cloudRecords, ...otherProjects];
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authReady, projectAccess, cloudEnabled, currentProjectId]);
-
-
-  useEffect(() => {
-    if (cloudEnabled) {
-      setSupervisionReportsLoaded(true);
-      return;
-    }
-    const loadReports = async () => {
-      try {
-        const reports = await readSupervisionReportsFromBrowser();
-
-        if (Array.isArray(reports) && reports.length > 0) {
-          setSavedSupervisionReports(
-            reports
-              .map((r) => normalizeSupervisionReport(r))
-              .filter(Boolean) as SupervisionReportRecord[],
-          );
-        } else {
-          setSavedSupervisionReports([]);
-        }
-      } catch (err) {
-        console.error("Failed loading supervision reports", err);
-        setSavedSupervisionReports([]);
-      } finally {
-        setSupervisionReportsLoaded(true);
-      }
-    };
-
-    void loadReports();
-  }, [cloudEnabled]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !supervisionReportsLoaded) return;
-    void writeSupervisionReportsToBrowser(savedSupervisionReports);
-  }, [savedSupervisionReports, supervisionReportsLoaded]);
-
-  const handleProjectLogin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    let supabaseLoginError = "";
-    if (isSupabaseConfigured && isEmailAddress(loginCode)) {
-      try {
-        const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
-        if (authAccess) {
-          const projectList = projects.length ? projects : getDefaultProjectList();
-          const selectedProjectId = selectInitialProjectIdForAccess(
-            projectList,
-            authAccess,
-            readLocalCurrentProjectId(authAccess),
-          );
-          if (selectedProjectId) {
-            setCurrentProjectId(selectedProjectId);
-            writeLocalCurrentProjectId(selectedProjectId, authAccess);
-          }
-          setLoginError("");
-          setProjectAccess(authAccess);
-          setShowProjectPicker(true);
-          writeAuthSession(authAccess);
-          setSection("home");
-          return;
-        }
-      } catch (error) {
-        supabaseLoginError = errorText(error);
-      }
-    }
-
-    const access = findProjectAccessByCredentials(
-      accessUsers,
-      loginCode,
-      loginPassword,
-    );
-    if (!access) {
-      setLoginError(
-        supabaseLoginError ||
-          "שם משתמש או סיסמה אינם נכונים",
-      );
-      return;
-    }
-    setLoginError("");
-    const projectList = projects.length ? projects : getDefaultProjectList();
-    const selectedProjectId = selectInitialProjectIdForAccess(
-      projectList,
-      access,
-      readLocalCurrentProjectId(matched),
-    );
-    if (selectedProjectId) {
-      setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId, matched);
-    }
-    setProjectAccess(access);
-    setShowProjectPicker(true);
-    writeAuthSession(access);
-    setSection("home");
-  };
-
-  const logoutProject = async () => {
-    if (isSupabaseConfigured && supabase) {
-      await supabase.auth.signOut().catch(() => {});
-    }
-    if (typeof window !== "undefined")
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    setProjectAccess(null);
-    setShowProjectPicker(false);
-    setLoginPassword("");
-    setLoginError("");
-    setSection("home");
-  };
-
-  const persistAccessUsers = async (nextUsers: ProjectAccess[]) => {
-    const normalized = normalizeProjectAccessList(nextUsers);
-
-    if (isSupabaseConfigured) {
-      await saveAccessUsersToSupabase(normalized);
-    } else if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        ACCESS_USERS_STORAGE_KEY,
-        JSON.stringify(normalized),
-      );
-    }
-
-    setAccessUsers(normalized);
-    setDraftAccessUsers(normalized);
-    setAccessUsersDirty(false);
-
-    if (projectAccess) {
-      const updatedCurrentUser = normalized.find(
-        (user) =>
-          user.username === projectAccess.username ||
-          user.code === projectAccess.code ||
-          (projectAccess.role === "admin" && user.role === "admin"),
-      );
-      if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
-    }
-  };
-
-  const resetAdminPasswordFromLogin = async () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("לאפס את סיסמת מנהל המערכת ל-admin123?")
-    ) {
-      return;
-    }
-
-    try {
-      let adminFound = false;
-      const sourceUsers = accessUsers.length
-        ? accessUsers
-        : DEFAULT_PROJECT_ACCESS_LIST;
-      const nextUsers = sourceUsers.map((user) => {
-        const isAdminUser =
-          user.role === "admin" ||
-          normalizeAccessValue(user.username) === "admin" ||
-          normalizeAccessValue(user.code) === "admin";
-        if (!isAdminUser) return user;
-        adminFound = true;
-        return {
-          ...user,
-          username: user.username || "admin",
-          password: "admin123",
-          displayName: user.displayName || "מנהל מערכת",
-          role: "admin" as const,
-          code: user.code || "admin",
-          aliases: Array.from(
-            new Set([...(user.aliases ?? []), "younis1012@gmail.com"]),
-          ),
-          projectName: null,
-        };
-      });
-
-      if (!adminFound) {
-        nextUsers.unshift({
-          ...DEFAULT_PROJECT_ACCESS_LIST[0],
-          password: "admin123",
-        });
-      }
-
-      await persistAccessUsers(nextUsers);
-      setLoginCode("younis1012@gmail.com");
-      setLoginPassword("admin123");
-      setLoginError("סיסמת מנהל אופסה. לחץ כניסה למערכת.");
-    } catch (error) {
-      console.error("Failed to reset admin password", error);
-      setLoginError(`שגיאה באיפוס סיסמת מנהל: ${errorText(error)}`);
-    }
-  };
-
-  const updateAccessUser = (
-    index: number,
-    field: keyof ProjectAccess,
-    value: string,
-  ) => {
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    const activeProjectName = currentProject?.name ?? "";
-    setDraftAccessUsers((prevUsers) =>
-      prevUsers.map((user, userIndex) => {
-        if (userIndex !== index) return user;
-        if (
-          !isAdminAccess(projectAccess) &&
-          (user.role === "admin" || !accessProjectIds(user).includes(activeProjectId))
-        ) return user;
-        if (!isAdminAccess(projectAccess) && field === "role" && value === "admin")
-          return user;
-        const updated: ProjectAccess = {
-          ...user,
-          [field]: value,
-        } as ProjectAccess;
-        if (field === "role") updated.role = normalizeAccessRole(value);
-        if (field === "role" && updated.role === "admin") updated.projectName = null;
-        if (updated.role !== "admin") {
-          if (!updated.projectName) updated.projectName = activeProjectName;
-          if ((!updated.projectIds || updated.projectIds.length === 0) && activeProjectId) {
-            updated.projectIds = [activeProjectId];
-          }
-          if (!updated.code && activeProjectId) updated.code = activeProjectId;
-        }
-        return updated;
-      }),
-    );
-    setAccessUsersDirty(true);
-  };
-
-  const approveAccessUsersChanges = async () => {
-    try {
-      await persistAccessUsers(draftAccessUsers);
-      alert(
-        isSupabaseConfigured
-          ? "השינויים נשמרו בהצלחה ב-Supabase"
-          : "השינויים נשמרו בהצלחה בדפדפן",
-      );
-    } catch (error) {
-      console.error("Failed to save access users", error);
-      alert(`שגיאה בשמירת המשתמשים: ${errorText(error)}`);
-    }
-  };
-
-  const cancelAccessUsersChanges = () => {
-    setDraftAccessUsers(accessUsers);
-    setAccessUsersDirty(false);
-  };
-
-  const addAccessUser = () => {
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    const activeProjectName = currentProject?.name ?? "";
-    setDraftAccessUsers((prevUsers) => [
-      ...prevUsers,
-      {
-        username: `user${prevUsers.length + 1}`,
-        password: "1234",
-        displayName: `משתמש ${prevUsers.length + 1}`,
-        role: "readonly",
-        code: activeProjectId || `project-user-${prevUsers.length + 1}`,
-        projectIds: activeProjectId ? [activeProjectId] : undefined,
-        projectName: activeProjectName,
-        signatureDataUrl: "",
-        signatureFileName: "",
-      },
-    ]);
-    setAccessUsersDirty(true);
-  };
-
-  const removeAccessUser = (index: number) => {
-    const user = draftAccessUsers[index];
-    if (!user || user.role === "admin") return;
-    const activeProjectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
-    if (
-      !isAdminAccess(projectAccess) &&
-      !accessProjectIds(user).includes(activeProjectId)
-    ) return;
-    if (!window.confirm(`למחוק את המשתמש "${user.displayName}"?`)) return;
-    setDraftAccessUsers((prevUsers) =>
-      prevUsers.filter((_, userIndex) => userIndex !== index),
-    );
-    setAccessUsersDirty(true);
-  };
-
-  const updateCurrentAccount = async () => {
-    if (!projectAccess) return;
-
-    const nextUsername = accountForm.username.trim();
-    const currentPassword = accountForm.currentPassword;
-    const nextPassword = accountForm.newPassword;
-    const confirmPassword = accountForm.confirmPassword;
-
-    if (!nextUsername) return alert("יש להזין שם משתמש.");
-    if (!currentPassword) return alert("יש להזין את הסיסמה הנוכחית.");
-    if (nextPassword && nextPassword.length < 4)
-      return alert("הסיסמה החדשה חייבת להכיל לפחות 4 תווים.");
-    if (nextPassword !== confirmPassword)
-      return alert("אישור הסיסמה אינו תואם לסיסמה החדשה.");
-
-    if (projectAccess.authProvider === "supabase") {
-      if (!supabase || !projectAccess.email)
-        return alert("לא ניתן לעדכן משתמש Supabase כרגע.");
-      try {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: projectAccess.email,
-          password: currentPassword,
-        });
-        if (signInError) return alert("הסיסמה הנוכחית אינה נכונה.");
-
-        const { error: updateError } = await supabase.auth.updateUser({
-          password: nextPassword || currentPassword,
-          data: { name: nextUsername, full_name: nextUsername },
-        });
-        if (updateError) throw updateError;
-
-        const updatedAccess = await loadSupabaseAuthAccess();
-        if (updatedAccess) setProjectAccess(updatedAccess);
-        setAccountForm({
-          username: updatedAccess?.username ?? projectAccess.username,
-          currentPassword: "",
-          newPassword: "",
-          confirmPassword: "",
-        });
-        alert("פרטי החשבון נשמרו בהצלחה.");
-      } catch (error) {
-        alert(`שגיאה בשמירת פרטי החשבון: ${errorText(error)}`);
-      }
-      return;
-    }
-
-    const currentIndex = accessUsers.findIndex(
-      (user) =>
-        user.username === projectAccess.username ||
-        user.code === projectAccess.code,
-    );
-    if (currentIndex < 0) return alert("לא נמצאה רשומת המשתמש המחובר.");
-
-    const currentUser = accessUsers[currentIndex];
-    if (String(currentUser.password) !== String(currentPassword))
-      return alert("הסיסמה הנוכחית אינה נכונה.");
-
-    const normalizedNextUsername = normalizeAccessValue(nextUsername);
-    const usernameTaken = accessUsers.some(
-      (user, index) =>
-        index !== currentIndex &&
-        normalizeAccessValue(user.username) === normalizedNextUsername,
-    );
-    if (usernameTaken) return alert("שם המשתמש כבר קיים במערכת.");
-
-    const nextUsers = accessUsers.map((user, index) =>
-      index === currentIndex
-        ? {
-            ...user,
-            username: nextUsername,
-            password: nextPassword || currentPassword,
-          }
-        : user,
-    );
-
-    try {
-      await persistAccessUsers(nextUsers);
-      const updatedUser = nextUsers[currentIndex];
-      setProjectAccess(updatedUser);
-      writeAuthSession(updatedUser);
-      setAccountForm({
-        username: updatedUser.username,
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-      alert("פרטי החשבון נשמרו בהצלחה.");
-    } catch (error) {
-      alert(`שגיאה בשמירת פרטי החשבון: ${errorText(error)}`);
-    }
-  };
-
-  const uploadUserSignature = (index: number, file?: File) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDraftAccessUsers((prevUsers) =>
-        prevUsers.map((user, userIndex) =>
-          userIndex === index
-            ? {
-                ...user,
-                signatureDataUrl: String(reader.result ?? ""),
-                signatureFileName: file.name,
-              }
-            : user,
-        ),
-      );
-      setAccessUsersDirty(true);
-    };
-    reader.onerror = () => alert("לא ניתן לקרוא את קובץ החתימה/חותמת");
-    reader.readAsDataURL(file);
-  };
-
-  const savedSignatureForSigner = (signerName: string, role?: string) => {
-    if ((isRoad806Value(currentProjectId) || isRoad806Value(projectName)) && (isSurveyorRole(role) || isSurveyorRole(signerName))) {
-      return ROAD_806_SURVEYOR_SIGNATURE_URL;
-    }
-    const normalizedName = normalizeAccessValue(signerName);
-    const normalizedRole = normalizeAccessValue(role);
-    const found = accessUsers.find((user) => {
-      const names = [user.displayName, user.username, user.code].map(
-        normalizeAccessValue,
-      );
-      return (
-        Boolean(user.signatureDataUrl) &&
-        ((!!normalizedName && names.includes(normalizedName)) ||
-          (!!normalizedRole &&
-            names.some(
-              (name) =>
-                normalizedRole.includes(name) || name.includes(normalizedRole),
-            )))
-      );
-    });
-    return found?.signatureDataUrl ?? "";
-  };
-
-  const resetAccessUsersToDefaults = () => {
-    if (!window.confirm("לאפס את רשימת המשתמשים לברירת המחדל?")) return;
-    setDraftAccessUsers(DEFAULT_PROJECT_ACCESS_LIST);
-    setAccessUsersDirty(true);
-  };
-
-  const loadPersistedData = (raw: string | null) => {
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as PersistedData;
-      const fallbackProjects = getDefaultProjectList();
-      const loadedProjects = parsed.projects?.length
-        ? parsed.projects
-        : fallbackProjects;
-      setProjects(
-        loadedProjects.map((project) => ({
-          ...project,
-          id: normalizeStoredProjectId(project.id),
-        })),
-      );
-      setCurrentProjectId(
-        normalizeStoredProjectId(
-          parsed.currentProjectId ??
-            loadedProjects[0]?.id ??
-            fallbackProjects[0]?.id ??
-            null,
-        ),
-      );
-      setSavedChecklists(
-        (parsed.savedChecklists ?? []).map((item) => ({
-          ...item,
-          projectId: normalizeStoredProjectId((item as any).projectId),
-          templateKey: normalizeChecklistTemplateKey(item.templateKey),
-          items: normalizeChecklistItems(item.items),
-          approval: normalizeApproval((item as any).approval),
-        })),
-      );
-      setSavedNonconformances(
-        (parsed.savedNonconformances ?? []).map((item) => ({
-          ...item,
-          projectId: normalizeStoredProjectId((item as any).projectId),
-          approval: normalizeApproval((item as any).approval),
-        })),
-      );
-      setSavedTrialSections(
-        (parsed.savedTrialSections ?? []).map((item) => ({
-          ...item,
-          projectId: normalizeStoredProjectId((item as any).projectId),
-          approval: normalizeApproval((item as any).approval),
-        })),
-      );
-      setSavedPreliminary(
-        (parsed.savedPreliminary ?? []).map((item) => ({
-          ...item,
-          projectId: normalizeStoredProjectId((item as any).projectId),
-          approval: normalizeApproval((item as any).approval),
-        })),
-      );
-    } catch (error) {
-      console.error("Failed to parse local saved data", error);
-    }
-  };
-
-  const checklistRowToRecord = (row: any): ChecklistRecord => {
-    const details = row?.details && typeof row.details === "object" ? row.details : {};
-    return {
-      id: row.id,
-      projectId: normalizeStoredProjectId(row.project_id),
-      checklistNo: row.checklist_no ?? undefined,
-      templateKey: normalizeChecklistTemplateKey(row.template_key),
-      title: row.title ?? "",
-      category: row.category ?? "",
-      structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-      location: row.location ?? "",
-      date: row.date ?? "",
-      contractor: row.contractor ?? details.contractor ?? "",
-      notes: row.notes ?? "",
-      projectNameDisplay: details.projectNameDisplay ?? details.project_name_display ?? details.projectName ?? "",
-      roadStructure: details.roadStructure ?? details.road_structure ?? "",
-      layerThickness: details.layerThickness ?? details.layer_thickness ?? "",
-      areaSquareMeters: details.areaSquareMeters ?? details.area_square_meters ?? details.area ?? "",
-      castingVolumeCubicMeters: details.castingVolumeCubicMeters ?? details.casting_volume_cubic_meters ?? details.castingVolume ?? "",
-      stationSection: details.stationSection ?? details.station_section ?? "",
-      toStationSection: details.toStationSection ?? details.to_station_section ?? "",
-      offset: details.offset ?? "",
-      selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
-      executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
-      executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
-      executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
-      revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
-      revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
-      pileDetails:
-        details.pileDetails && typeof details.pileDetails === "object"
-          ? details.pileDetails
-          : details.pile_details && typeof details.pile_details === "object"
-            ? details.pile_details
-            : {},
-      items: normalizeChecklistItems(row.items),
-      approval: normalizeApproval(row.approval),
-      status: row.status ?? details.status ?? "",
-      savedAt: row.saved_at
-        ? new Date(row.saved_at).toLocaleString("he-IL")
-        : "",
-    } as ChecklistRecord;
-  };
-
-  const loadFromCloudResults = (
-    projectsRows: any[] | null,
-    checklistRows: any[] | null,
-    nonconRows: any[] | null,
-    trialRows: any[] | null,
-    preliminaryRows: any[] | null,
-    rfiRows: any[] | null = [],
-    controlProcessRows: any[] | null = [],
-    supervisionReportRows: any[] | null = [],
-    structureRows: any[] | null = [],
-    planRows: any[] | null = [],
-  ) => {
-    const availableProjects = normalizeProjectRows(projectsRows);
-    setProjects(availableProjects);
-    const requestedProjectId = readRequestedProjectIdFromUrl();
-    const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
-    const selectedProjectId = normalizeStoredProjectId(requestedProjectId || currentProjectId);
-    const active =
-      (selectedProjectId
-        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
-        : undefined) ??
-      (storedProjectId
-        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
-        : undefined) ??
-      availableProjects.find((p) => p.isActive) ??
-      availableProjects[0] ??
-      getDefaultProjectList()[0];
-    setCurrentProjectId(
-      active?.id ? normalizeStoredProjectId(active.id) : null,
-    );
-    setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
-    setSavedNonconformances(
-      (nonconRows ?? []).map((row) => {
-        const details = (row.details ?? {}) as Record<string, any>;
-        return {
-          id: row.id,
-          projectId: normalizeStoredProjectId(row.project_id),
-          title: row.title ?? details.title ?? "",
-          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-          openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
-          openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
-          raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
-          date: row.date ?? details.date ?? "",
-          location: row.location ?? details.location ?? "",
-          building: details.building ?? "",
-          element: details.element ?? "",
-          subElement: details.subElement ?? details.sub_element ?? "",
-          fromSection: details.fromSection ?? details.from_section ?? "",
-          toSection: details.toSection ?? details.to_section ?? "",
-          offset: details.offset ?? "",
-          grade: details.grade ?? "",
-          expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
-          updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
-          delayDays: details.delayDays ?? details.delay_days ?? "",
-          breakage: details.breakage ?? "",
-          qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
-          severity: row.severity ?? details.severity ?? "בינונית",
-          status: row.status ?? details.status ?? "פתוח",
-          description: row.description ?? details.description ?? "",
-          responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
-          actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
-          handler: details.handler ?? "",
-          correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
-          notes: row.notes ?? details.notes ?? "",
-          closedBy: details.closedBy ?? details.closed_by ?? "",
-          closingRole: details.closingRole ?? details.closing_role ?? "",
-          closedName: details.closedName ?? details.closed_name ?? "",
-          closingDate: details.closingDate ?? details.closing_date ?? "",
-          images: normalizeAttachments(row.images ?? details.images),
-          approval: normalizeApproval(row.approval ?? details.approval),
-          savedAt: row.saved_at
-            ? new Date(row.saved_at).toLocaleString("he-IL")
-            : "",
-        };
-      }),
-    );
-    setSavedTrialSections(
-      (trialRows ?? []).map((row) => {
-        const details = row.details ?? {};
-        const pick = (...values: unknown[]) => {
-          for (const value of values) {
-            if (value !== undefined && value !== null && String(value).trim() !== "") return value;
-          }
-          return "";
-        };
-        return mergeTrialSectionDetails(enrichTrialSectionRecord({
-          id: row.id,
-          projectId: normalizeStoredProjectId(row.project_id),
-          details,
-          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-          title: pick(details.title, row.title),
-          location: pick(details.location, details.workLocation, details.workSegment, details.workSection, details.roadSection, details.roadStructure, row.location),
-          date: pick(details.date, details.executionDate, row.date),
-          spec: pick(details.spec, row.spec),
-          result: pick(details.result, details.conclusions, row.result),
-          approvedBy: pick(details.approvedBy, row.approved_by),
-          status: pick(details.status, row.status) || "טיוטה",
-          notes: pick(details.notes, row.notes),
-          images: normalizeAttachments(details.images ?? row.images),
-          approval: normalizeApproval(details.approval ?? row.approval),
-          savedAt: row.saved_at
-            ? new Date(row.saved_at).toLocaleString("he-IL")
-            : "",
-        }, false), details) as TrialSectionRecord;
-      }),
-    );
-    setSavedPreliminary(
-      (preliminaryRows ?? []).map((row) => ({
-        id: row.id,
-        projectId: normalizeStoredProjectId(row.project_id),
-        subtype: row.subtype,
-        structureNodeId: row.structure_node_id ?? "",
-        title: row.title ?? "",
-        date: row.date ?? "",
-        status: row.status ?? "טיוטה",
-        supplier: row.supplier ?? undefined,
-        subcontractor: row.subcontractor ?? undefined,
-        material: row.material ?? undefined,
-        approval: normalizeApproval(row.approval),
-        savedAt: row.saved_at
-          ? new Date(row.saved_at).toLocaleString("he-IL")
-          : "",
-      })),
-    );
-    setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
-    setSavedControlProcesses(
-      (controlProcessRows ?? [])
-        .map(normalizeControlProcess)
-        .filter(Boolean) as ControlProcessRecord[],
-    );
-    setSavedSupervisionReports(
-      (supervisionReportRows ?? [])
-        .map(supervisionReportRowToRecord)
-        .filter(Boolean) as SupervisionReportRecord[],
-    );
-    setProjectStructureNodes(
-      (structureRows ?? [])
-        .map(normalizeProjectStructureNode)
-        .filter(Boolean) as ProjectStructureNode[],
-    );
-    setSavedPlans(
-      (planRows ?? [])
-        .map(planRowToRecord)
-        .filter(Boolean) as PlanRecord[],
-    );
-  };
-
-  useEffect(() => {
-    const loadGeneration = ++cloudLoadGenerationRef.current;
-    let cancelled = false;
-    const loadAll = async () => {
-      if (!authReady || !projectAccess) {
-        setLoaded(false);
-        return;
-      }
-      if (!cloudEnabled) {
-        loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
-        setLoaded(true);
-        return;
-      }
-      try {
-        const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-        // Always scope cloud reads to the selected project, including admins.
-        // Unscoped authenticated reads are filtered inconsistently by the
-        // production RLS policies and can replace whole modules with [].
-        const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
-        const [
-          projectsRes,
-          checklistsRes,
-          nonconRes,
-          trialsRes,
-          prelimRes,
-          rfiRes,
-          controlRes,
-          supervisionRes,
-          structureRes,
-          plansRes,
-        ] = await Promise.all([
-          selectTable("projects", "created_at"),
-          selectProjectTable("checklists", "saved_at", scopedProjectIds),
-          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
-          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
-        ]);
-        if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
-        loadFromCloudResults(
-          cloudRowsOrFallback(projectsRes, projects),
-          cloudRowsOrFallback(checklistsRes, savedChecklists),
-          cloudRowsOrFallback(nonconRes, savedNonconformances),
-          cloudRowsOrFallback(trialsRes, savedTrialSections),
-          cloudRowsOrFallback(prelimRes, savedPreliminary),
-          cloudRowsOrFallback(rfiRes, savedRfis),
-          cloudRowsOrFallback(controlRes, savedControlProcesses),
-          cloudRowsOrFallback(
-            supervisionRes,
-            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-          ).length
-            ? cloudRowsOrFallback(
-                supervisionRes,
-                savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-              )
-            : browserSupervisionReports,
-          cloudRowsOrFallback(structureRes, projectStructureNodes),
-          cloudRowsOrFallback(plansRes, savedPlans),
-        );
-      } catch (error) {
-        if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
-        const beforeLocalFallback =
-          savedChecklists.length ||
-          savedNonconformances.length ||
-          savedTrialSections.length ||
-          savedPreliminary.length ||
-          savedRfis.length ||
-          savedControlProcesses.length ||
-          savedSupervisionReports.length;
-        if (!beforeLocalFallback)
-          loadPersistedData(window.localStorage.getItem(STORAGE_KEY));
-      } finally {
-        if (!cancelled && loadGeneration === cloudLoadGenerationRef.current)
-          setLoaded(true);
-      }
-    };
-    void loadAll();
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
-
-  useEffect(() => {
-    if (!loaded || typeof window === "undefined") return;
-
-    // כאשר Supabase פעיל, הנתונים נשמרים בענן. אין צורך לשמור את כל הרשומות
-    // גם ב-localStorage, כי תמונות/קבצים עלולים לעבור את מגבלת הדפדפן ולגרום לקריסת הדף.
-    if (cloudEnabled) {
-      writeLocalCurrentProjectId(currentProjectId, projectAccess);
-      return;
-    }
-
-    try {
-      const payload: PersistedData = {
-        projects,
-        currentProjectId,
-        savedChecklists,
-        savedNonconformances,
-        savedTrialSections,
-        savedPreliminary,
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch (error) {
-      console.warn(
-        "Local storage quota exceeded. Clearing local cache and continuing without crash.",
-        error,
-      );
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch {}
-    }
-  }, [
-    projects,
-    currentProjectId,
-    savedChecklists,
-    savedNonconformances,
-    savedTrialSections,
-    savedPreliminary,
-    loaded,
-    cloudEnabled,
-  ]);
-  useEffect(() => {
-    if (loaded) writeLocalCurrentProjectId(currentProjectId, projectAccess);
-  }, [currentProjectId, loaded]);
-
-  useEffect(() => {
-    if (!loaded || !cloudEnabled || !supabase || !currentProjectId) return;
-    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
-    if (!normalizedProjectId) return;
-    const hasProjectChecklists = savedChecklists.some(
-      (item) => normalizeStoredProjectId(item.projectId) === normalizedProjectId,
-    );
-    const hasProjectRfis = savedRfis.some(
-      (item) => normalizeStoredProjectId(item.projectId) === normalizedProjectId,
-    );
-    if (hasProjectChecklists && hasProjectRfis) return;
-
-    let cancelled = false;
-    const candidateProjectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
-
-    (async () => {
-      const [checklistsResult, rfiResult] = await Promise.all([
-        hasProjectChecklists
-          ? Promise.resolve({ data: [], error: null })
-          : selectProjectTable("checklists", "saved_at", candidateProjectIds),
-        hasProjectRfis
-          ? Promise.resolve({ data: [], error: null })
-          : selectProjectTable("rfi_records", "created_at", candidateProjectIds),
-      ]);
-      if (cancelled) return;
-
-      if (!checklistsResult.error && checklistsResult.data?.length) {
-        const restored = checklistsResult.data.map(checklistRowToRecord);
-        setSavedChecklists((prev) => {
-          const existingIds = new Set(prev.map((item) => item.id));
-          const missing = restored.filter((item) => !existingIds.has(item.id));
-          return missing.length ? [...missing, ...prev] : prev;
-        });
-      }
-
-      if (!rfiResult.error && rfiResult.data?.length) {
-        const restored = rfiResult.data.map(rfiRowToRecord);
-        setSavedRfis((prev) => {
-          const existingIds = new Set(prev.map((item) => item.id));
-          const missing = restored.filter((item) => !existingIds.has(item.id));
-          return missing.length ? [...missing, ...prev] : prev;
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    loaded,
-    cloudEnabled,
-    currentProjectId,
-    savedChecklists.length,
-    savedRfis.length,
-    projectAccess?.code,
-    projectAccess?.projectIds,
-    projectAccess?.role,
-  ]);
-
-  const refreshCloudData = async () => {
-    if (!cloudEnabled) return;
-    const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
-    const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
-    const [
-      projectsRes,
-      checklistsRes,
-      nonconRes,
-      trialsRes,
-      prelimRes,
-      rfiRes,
-      controlRes,
-      supervisionRes,
-      structureRes,
-      plansRes,
-    ] = await Promise.all([
-      selectTable("projects", "created_at"),
-      selectProjectTable("checklists", "saved_at", scopedProjectIds),
-      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
-      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
-    ]);
-    loadFromCloudResults(
-      cloudRowsOrFallback(projectsRes, projects),
-      cloudRowsOrFallback(checklistsRes, savedChecklists),
-      cloudRowsOrFallback(nonconRes, savedNonconformances),
-      cloudRowsOrFallback(trialsRes, savedTrialSections),
-      cloudRowsOrFallback(prelimRes, savedPreliminary),
-      cloudRowsOrFallback(rfiRes, savedRfis),
-      cloudRowsOrFallback(controlRes, savedControlProcesses),
-      cloudRowsOrFallback(
-        supervisionRes,
-        savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-      ).length
-        ? cloudRowsOrFallback(
-            supervisionRes,
-            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-          )
-        : browserSupervisionReports,
-      cloudRowsOrFallback(structureRes, projectStructureNodes),
-      cloudRowsOrFallback(plansRes, savedPlans),
-    );
-  };
-
-  const withSaving = async (action: () => Promise<void>) => {
-    if (!canWriteAccess(projectAccess)) {
-      alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור, לעדכן או למחוק.");
-      return;
-    }
-    try {
-      setIsSaving(true);
-      await action();
-    } catch (error) {
-      console.error(error);
-      alert(errorText(error) || "אירעה שגיאה בשמירה");
-      if (cloudEnabled) {
-        try {
-          await refreshCloudData();
-        } catch {}
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const effectiveProjects = useMemo(
-    () => (projects.length ? projects : getDefaultProjectList()),
-    [projects],
-  );
-
-  const accessibleProjects = useMemo(() => {
-    if (!projectAccess) return [];
-    const filtered = effectiveProjects.filter((project) =>
-      projectMatchesAccess(project, projectAccess),
-    );
-    if (filtered.length) return filtered;
-    if (isAdminAccess(projectAccess))
-      return effectiveProjects.length
-        ? effectiveProjects
-        : getDefaultProjectList();
-    if (isSelfServiceProjectCreator(projectAccess)) return [];
-
-    const code =
-      String(
-        projectAccess.code ?? projectAccess.username ?? "project",
-      ).trim() || "project";
-    const fallbackName =
-      String(projectAccess.projectName ?? "").trim() || "פרויקט " + code;
-    return [
-      {
-        id: normalizeStoredProjectId("project-" + code),
-        name: fallbackName,
-        description: "פרויקט עבודה לפי הרשאת משתמש " + code,
-        manager: "",
-        isActive: true,
-        createdAt: "ברירת מחדל",
-      } as Project,
-    ];
-  }, [effectiveProjects, projectAccess]);
-  const canCreateProjects =
-    isAdminAccess(projectAccess) || isSelfServiceProjectCreator(projectAccess);
-  const canManageProjects = isAdminAccess(projectAccess);
-  const canManageProjectUsers =
-    isAdminAccess(projectAccess) || projectAccess?.occupationalWriteAccess === true;
-
-  useEffect(() => {
-    if (!projectAccess) return;
-    if (!canCreateProjects && section === "projects") setSection("home");
-    if (isSelfServiceProjectCreator(projectAccess) && !accessibleProjects.length)
-      setSection("projects");
-  }, [projectAccess, canCreateProjects, accessibleProjects.length, section]);
-
-  useEffect(() => {
-    if (!loaded || !projectAccess) return;
-    if (!projects.length) setProjects(getDefaultProjectList());
-  }, [loaded, projectAccess, projects.length]);
-
-  // תיקון בחירת פרויקט פעיל: מנהל יכול לשמור בחירה, משתמש רגיל ננעל לפרויקט המורשה.
-  useEffect(() => {
-    if (!loaded || !projectAccess) return;
-    if (showProjectPicker && accessibleProjects.length > 1) return;
-
-    const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
-    if (!sourceProjects.length) return;
-
-    const requestedId = readRequestedProjectIdFromUrl();
-    const savedId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
-    const selectedId = normalizeStoredProjectId(requestedId || currentProjectId);
-
-    const selectedProject = selectedId
-      ? sourceProjects.find((project) => normalizeStoredProjectId(project.id) === selectedId)
-      : null;
-    const savedProject = savedId
-      ? sourceProjects.find((project) => normalizeStoredProjectId(project.id) === savedId)
-      : null;
-    const allowedProject = isAdminAccess(projectAccess)
-      ? null
-      : sourceProjects.find((project) => projectMatchesAccess(project, projectAccess));
-    const activeProject = sourceProjects.find((project) => project.isActive);
-
-    const nextProjectId = normalizeStoredProjectId(
-      isAdminAccess(projectAccess)
-        ? selectedProject?.id ??
-            savedProject?.id ??
-            activeProject?.id ??
-            sourceProjects[0]?.id ??
-            ""
-        : selectedProject?.id ??
-            savedProject?.id ??
-            allowedProject?.id ??
-            sourceProjects[0]?.id ??
-            "",
-    );
-
-    if (!nextProjectId) return;
-
-    setCurrentProjectId((prev) => {
-      const normalizedPrev = normalizeStoredProjectId(prev);
-      if (normalizedPrev === nextProjectId) return prev;
-      writeLocalCurrentProjectId(nextProjectId, projectAccess);
-      return nextProjectId;
-    });
-  }, [loaded, projectAccess, accessibleProjects, effectiveProjects, currentProjectId, showProjectPicker]);
-
-  useEffect(() => {
-    if (!loaded || !projectAccess || !showProjectPicker) return;
-    if (accessibleProjects.length < 1) {
-      setShowProjectPicker(false);
-    }
-  }, [loaded, projectAccess, showProjectPicker, accessibleProjects.length]);
-
-  const currentProject = useMemo(
-    () => {
-      const selectedProjectId = normalizeStoredProjectId(currentProjectId);
-      return (
-        accessibleProjects.find(
-          (p) => normalizeStoredProjectId(p.id) === selectedProjectId,
-        ) ??
-        accessibleProjects[0] ??
-        null
-      );
-    },
-    [accessibleProjects, currentProjectId],
-  );
-
-  const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
-  const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
-
-  useEffect(() => {
-    let active = true;
-    loadProjectEmailUsersFromCloud()
-      .then((cloudUsers) => {
-        if (!active || !cloudUsers?.length) return;
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
-      })
-      .catch((error) => console.warn("טעינת משתמשי הפרויקט מהענן נכשלה", error));
-    return () => { active = false; };
-  }, []);
-
-  const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
-    const base = projectEmailUsersRef.current;
-    const next = updater(base);
-    projectEmailUsersRef.current = next;
-    writeProjectEmailUsers(next);
-    setProjectEmailUsers(next);
-    return next;
-  };
-
-  useEffect(() => {
-    projectEmailUsersRef.current = projectEmailUsers;
-    writeProjectEmailUsers(projectEmailUsers);
-  }, [projectEmailUsers]);
-
-  const currentProjectEmailUsers = useMemo(
-    () =>
-      dedupeProjectEmailUsers(
-        projectEmailUsers.filter(
-          (user) =>
-            normalizeStoredProjectId(user.projectId) ===
-            normalizeStoredProjectId(currentProject?.id),
-        ),
-      ),
-    [projectEmailUsers, currentProject],
-  );
-
-  useEffect(() => {
-    if (!projectAccess) return;
-    const loginIdentities = [
-      projectAccess.email,
-      projectAccess.username,
-      ...(projectAccess.aliases ?? []),
-    ]
-      .filter(isEmailAddress)
-      .map(normalizeAccessValue);
-    const occupationalWriteAccess = currentProjectEmailUsers.some(
-      (user) =>
-        user.active !== false &&
-        loginIdentities.includes(normalizeAccessValue(user.email)) &&
-        isQualityControlProjectUser(user),
-    );
-    setProjectAccess((current) => {
-      if (!current || current.occupationalWriteAccess === occupationalWriteAccess)
-        return current;
-      return { ...current, occupationalWriteAccess };
-    });
-  }, [currentProjectEmailUsers, projectAccess]);
-
-  const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
-    if (!currentProject) return alert("יש לבחור פרויקט");
-    saveProjectEmailUsers((prev) => [
-      ...prev,
-      { ...user, id: crypto.randomUUID(), projectId: normalizeStoredProjectId(currentProject.id), email: user.email.trim(), createdAt: nowLocal() },
-    ]);
-  };
-
-  const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
-    saveProjectEmailUsers((prev) =>
-      prev.map((user) => (user.id === id ? { ...user, ...patch, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
-    );
-  };
-
-  const deleteProjectEmailUser = (id: string) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק נמעני פרויקט.");
-    if (!window.confirm("למחוק משתמש מרשימת הנמענים של הפרויקט?")) return;
-    saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
-  };
-
-  const saveCurrentProjectEmailUsers = async () => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור נמעני פרויקט.");
-    const usersToSave = projectEmailUsersRef.current;
-    try {
-      writeProjectEmailUsers(usersToSave);
-      await saveProjectEmailUsersToCloud(usersToSave);
-      const cloudUsers = await loadProjectEmailUsersFromCloud();
-      if (cloudUsers) {
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
-      }
-      alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
-    } catch (error) {
-      console.error(error);
-      const details =
-        error && typeof error === "object" && "message" in error
-          ? String((error as { message?: unknown }).message || "")
-          : String(error || "");
-      alert(
-        [
-          "המשתמשים נשמרו בדפדפן הנוכחי, אך לא נשמרו בענן.",
-          "",
-          "כדי לשמור משתמשי פרויקט וסיסמת Gmail לכל פרויקט, יש להריץ פעם אחת ב-Supabase SQL Editor את הקובץ:",
-          "app/supabase/09_project_email_users.sql",
-          "",
-          details ? `Supabase error: ${details}` : "Supabase error: no details returned",
-          "",
-          "לאחר הרצת ה-SQL לחץ שוב על שמור משתמשים.",
-        ].join("\n"),
-      );
-    }
-  };
-
-
-  useEffect(() => {
-    const normalized = normalizeStoredProjectId(currentProjectId);
-    if (normalized && currentProjectId !== normalized) {
-      setCurrentProjectId(normalized);
-      writeLocalCurrentProjectId(normalized, projectAccess);
-    }
-  }, [currentProjectId]);
-  const savedCurrentProjectLegend = useMemo(
-    () =>
-      currentProject
-        ? sanitizeLegendForProjectId(
-            currentProject.id,
-            normalizeProjectLegend(
-              projectLegends[normalizeStoredProjectId(currentProject.id)] ??
-                projectLegends[currentProject.id],
-              currentProject.name,
-            ),
-            currentProject.name,
-          )
-        : normalizeProjectLegend(null, ""),
-    [projectLegends, currentProject],
-  );
-  const currentProjectLegend = useMemo(
-    () =>
-      currentProject && (editingProjectLegend || projectLegendDirty)
-        ? sanitizeLegendForProjectId(
-            currentProject.id,
-            normalizeProjectLegend(
-              draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-                draftProjectLegends[
-                  normalizeStoredProjectId(currentProject.id)
-                ] ??
-                draftProjectLegends[currentProject.id] ??
-                savedCurrentProjectLegend,
-              currentProject.name,
-            ),
-            currentProject.name,
-          )
-        : savedCurrentProjectLegend,
-    [
-      currentProject,
-      editingProjectLegend,
-      projectLegendDirty,
-      draftProjectLegends,
-      savedCurrentProjectLegend,
-    ],
-  );
-  const currentProjectProfile = useMemo(
-    () =>
-      isProjectLegendComplete(currentProjectLegend)
-        ? projectLegendToProfile(currentProjectLegend)
-        : getProjectProfile(currentProject?.name),
-    [currentProjectLegend, currentProject?.name],
-  );
-
-  const trialParticipantOptions = useMemo(() => {
-    const fromUsers = currentProjectEmailUsers
-      .filter((user) => user.active !== false)
-      .map((user) =>
-        projectUserParticipantLabel(user),
-      )
-      .filter(Boolean);
-
-    return Array.from(
-      fromUsers
-        .reduce((map, item) => {
-          const label = String(item || "").trim();
-          if (!label) return map;
-          const key = normalizeAccessValue(label);
-          if (!map.has(key)) map.set(key, label);
-          return map;
-        }, new Map<string, string>())
-        .values(),
-    );
-  }, [currentProjectEmailUsers]);
-  const currentProjectDefaults = useMemo(() => {
-    const profile = currentProjectProfile ?? getProjectProfile(currentProject?.name);
-    const legend = currentProjectLegend;
-    return {
-      projectName: legend.projectName || profile?.projectName || currentProject?.name || "",
-      contractor: legend.contractor || profile?.contractor || "",
-      projectManagement: legend.projectManagement || profile?.projectManager || currentProject?.manager || "",
-      qualityAssurance: legend.qualityAssurance || profile?.qaCompany || "",
-      qualityControl: legend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME,
-      workManager: legend.workManager || profile?.workManager || "",
-      surveyor: legend.surveyor || profile?.surveyor || "",
-      supervisor: legend.supervisor || "",
-    };
-  }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
-
-  const qualityControlApproverName = useMemo(() => {
-    const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
-    const accessIdentities = [
-      projectAccess?.email,
-      projectAccess?.username,
-      projectAccess?.displayName,
-    ]
-      .map((value) => normalizeAccessValue(value))
-      .filter(Boolean);
-    const loggedInQualityUser = activeUsers.find((user) => {
-      if (!isQualityControlProjectUser(user)) return false;
-      const userIdentities = [user.email, user.name]
-        .map((value) => normalizeAccessValue(value))
-        .filter(Boolean);
-      return userIdentities.some((identity) => accessIdentities.includes(identity));
-    });
-    const qualityUser =
-      loggedInQualityUser ??
-      activeUsers.find(isQualityControlProjectUser) ??
-      activeUsers.find((user) => String(user.name ?? "").trim());
-    return (
-      String(qualityUser?.name ?? "").trim() ||
-      String(qualityUser?.email ?? "").trim() ||
-      currentProjectDefaults.qualityControl
-    );
-  }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl, projectAccess]);
-
-  const resolveResponsibleNameForCurrentProject = useMemo(
-    () => (responsible: unknown) => {
-      const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
-      const matchingUsers = activeUsers.filter((user) =>
-        responsibleRoleMatchesUser(responsible, user),
-      );
-      const accessIdentities = [
-        projectAccess?.email,
-        projectAccess?.username,
-        projectAccess?.displayName,
-      ]
-        .map((value) => normalizeAccessValue(value))
-        .filter(Boolean);
-      const matchedUser = matchingUsers.find((user) =>
-        [user.email, user.name]
-          .map((value) => normalizeAccessValue(value))
-          .filter(Boolean)
-          .some((identity) => accessIdentities.includes(identity)),
-      ) ?? matchingUsers[0];
-      const userName =
-        String(matchedUser?.name ?? "").trim() ||
-        String(matchedUser?.email ?? "").trim();
-      if (userName) return userName;
-
-      const role = String(responsible ?? "");
-      if (role.includes("בקרת איכות") || role.includes("בקר איכות"))
-        return currentProjectDefaults.qualityControl;
-      if (role.includes("מנהל עבודה")) return currentProjectDefaults.workManager;
-      if (role.includes("מודד")) return currentProjectDefaults.surveyor;
-      if (role.includes("הבטחת איכות")) return currentProjectDefaults.qualityAssurance;
-      if (role.includes("ניהול פרויקט") || role.includes("מנהל פרויקט"))
-        return currentProjectDefaults.projectManagement;
-
-      return resolveResponsibleName(responsible, currentProject?.name);
-    },
-    [
-      currentProjectEmailUsers,
-      currentProjectDefaults.qualityControl,
-      currentProjectDefaults.workManager,
-      currentProjectDefaults.surveyor,
-      currentProjectDefaults.qualityAssurance,
-      currentProjectDefaults.projectManagement,
-      currentProject?.name,
-      projectAccess,
-    ],
-  );
-
-  const fillOnlyEmptyFields = <T extends Record<string, any>>(form: T, values: Record<string, any>): T => {
-    let changed = false;
-    const next: T = { ...form };
-    Object.entries(values).forEach(([key, value]) => {
-      if (value == null || String(value).trim() === "") return;
-      if (String((next as any)[key] ?? "").trim() === "") {
-        (next as any)[key] = value;
-        changed = true;
-      }
-    });
-    return changed ? next : form;
-  };
-
-  const projectDefaultFieldValues = () => ({
-    projectName: currentProjectDefaults.projectName,
-    titleProjectName: currentProjectDefaults.projectName,
-    projectNameDisplay: currentProjectDefaults.projectName,
-    project: currentProjectDefaults.projectName,
-    projectTitle: currentProjectDefaults.projectName,
-    managementCompany: currentProjectDefaults.projectManagement,
-    projectManagement: currentProjectDefaults.projectManagement,
-    projectManager: currentProjectDefaults.projectManagement,
-    contractor: currentProjectDefaults.contractor,
-    mainContractor: currentProjectDefaults.contractor,
-    executionContractor: currentProjectDefaults.contractor,
-    qualityAssurance: currentProjectDefaults.qualityAssurance,
-    qaCompany: currentProjectDefaults.qualityAssurance,
-    qualityControl: currentProjectDefaults.qualityControl,
-    qualityCompany: currentProjectDefaults.qualityControl,
-    qcCompany: currentProjectDefaults.qualityControl,
-    workManager: currentProjectDefaults.workManager,
-    surveyor: currentProjectDefaults.surveyor,
-    supervisor: currentProjectDefaults.supervisor,
-  });
-
-  const applyProjectDefaultsToChecklist = (form: any) => ({
-    ...fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
-      revision: CHECKLIST_DEFAULT_REVISION,
-      revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
-    }),
-    contractor: form.contractor || currentProjectDefaults.contractor,
-    revision: form.revision || CHECKLIST_DEFAULT_REVISION,
-    revisionDate: form.revisionDate || CHECKLIST_DEFAULT_REVISION_DATE,
-    items: applyProjectTeamToItems(form.items),
-  });
-
-  const applyProjectDefaultsToNonconformance = (form: any) => {
-    const filled = fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
-      raisedBy: currentProjectDefaults.qualityControl,
-      responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
-      handler: currentProjectDefaults.workManager || currentProjectDefaults.contractor,
-      openedBy: form.openedBy || "QA / QC",
-      openedRole: form.openedRole || "בקרת איכות",
-    });
-
-    // פרטי הפרויקט בטופס אי התאמה נמשכים תמיד ממסך "פרטי הפרויקט".
-    // שדות טיפוליים קיימים לא נמחקים, ורק פרטי הפרויקט מתעדכנים אוטומטית.
-    return {
-      ...filled,
-      projectName: currentProjectDefaults.projectName,
-      titleProjectName: currentProjectDefaults.projectName,
-      projectNameDisplay: currentProjectDefaults.projectName,
-      projectManagement: currentProjectDefaults.projectManagement,
-      managementCompany: currentProjectDefaults.projectManagement,
-      projectManager: currentProjectDefaults.projectManagement,
-      contractor: currentProjectDefaults.contractor,
-      mainContractor: currentProjectDefaults.contractor,
-      qualityAssurance: currentProjectDefaults.qualityAssurance,
-      qaCompany: currentProjectDefaults.qualityAssurance,
-      qualityControl: currentProjectDefaults.qualityControl,
-      qualityCompany: currentProjectDefaults.qualityControl,
-      qcCompany: currentProjectDefaults.qualityControl,
-    };
-  };
-
-  const enrichNonconformanceRecordWithProjectDetails = (form: any) =>
-    applyProjectDefaultsToNonconformance({
-      ...form,
-      projectDetails: {
-        projectName: currentProjectDefaults.projectName,
-        projectManagement: currentProjectDefaults.projectManagement,
-        contractor: currentProjectDefaults.contractor,
-        qualityAssurance: currentProjectDefaults.qualityAssurance,
-        qualityControl: currentProjectDefaults.qualityControl,
-        workManager: currentProjectDefaults.workManager,
-        surveyor: currentProjectDefaults.surveyor,
-        supervisor: currentProjectDefaults.supervisor,
-      },
-    });
-
-  const nonconformanceProjectDetailRows = (record: any) => {
-    const details = record?.projectDetails ?? {};
-    return [
-      ["שם פרויקט", record?.projectName || record?.projectNameDisplay || details.projectName || currentProjectDefaults.projectName],
-      ["ניהול פרויקט", record?.projectManagement || record?.managementCompany || details.projectManagement || currentProjectDefaults.projectManagement],
-      ["שם הקבלן", record?.contractor || record?.mainContractor || details.contractor || currentProjectDefaults.contractor],
-      ["הבטחת איכות", record?.qualityAssurance || record?.qaCompany || details.qualityAssurance || currentProjectDefaults.qualityAssurance],
-      ["בקרת איכות", record?.qualityControl || record?.qualityCompany || details.qualityControl || currentProjectDefaults.qualityControl],
-    ];
-  };
-
-  const applyProjectDefaultsToTrialSection = (form: any) =>
-    fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
-      projectName: currentProjectDefaults.projectName,
-      projectManagement: currentProjectDefaults.projectManagement,
-      managementCompany: currentProjectDefaults.projectManagement,
-      contractor: currentProjectDefaults.contractor,
-      mainContractor: currentProjectDefaults.contractor,
-      qualityControl: currentProjectDefaults.qualityControl,
-      qualityCompany: currentProjectDefaults.qualityControl,
-      approvedBy: currentProjectDefaults.qualityControl,
-      createdBy: currentProjectDefaults.qualityControl,
-      checkedBy: currentProjectDefaults.qualityControl,
-    });
-
-  const applyProjectDefaultsToRfi = (form: any) =>
-    fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
-      createdBy: currentProjectDefaults.qualityControl,
-      updatedBy: currentProjectDefaults.qualityControl,
-    });
-
-  const applyProjectDefaultsToPreliminary = (form: any) =>
-    fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
-      approvedBy: currentProjectDefaults.qualityControl,
-      checkedBy: currentProjectDefaults.qualityControl,
-    });
-
-  const projectName = !loaded
-    ? "טוען..."
-    : currentProjectLegend.projectName ||
-      currentProjectProfile?.projectName ||
-      currentProject?.name ||
-      "לא נבחר פרויקט";
-  const projectLegendMissing = Boolean(
-    currentProject && !isProjectLegendComplete(currentProjectLegend),
-  );
-  const startProjectLegendEdit = () => {
-    if (!currentProject) return;
-    setDraftProjectLegends((prev) =>
-      migrateProjectLegendMap({
-        ...prev,
-        [normalizeStoredProjectId(currentProject.id)]:
-          savedCurrentProjectLegend,
-      }),
-    );
-    setEditingProjectLegend(true);
-    setProjectLegendDirty(false);
-  };
-
-  const updateProjectLegendField = (
-    field: keyof ProjectLegend,
-    value: string,
-  ) => {
-    if (!currentProject) return;
-    const projectId = normalizeStoredProjectId(currentProject.id);
-    if (!editingProjectLegend) setEditingProjectLegend(true);
-    setDraftProjectLegends((prev) => {
-      const nextLegend = normalizeProjectLegend(
-        prev[projectId] ?? prev[currentProject.id] ?? savedCurrentProjectLegend,
-        currentProject.name,
-      );
-      let patched: ProjectLegend;
-      if (field === "extraFactors") {
-        try {
-          patched = {
-            ...nextLegend,
-            extraFactors: normalizeProjectLegend({
-              extraFactors: JSON.parse(value),
-            }).extraFactors,
-          };
-        } catch {
-          patched = nextLegend;
-        }
-      } else {
-        patched = { ...nextLegend, [field]: value };
-      }
-      const nextDraft = migrateProjectLegendMap({
-        ...prev,
-        [projectId]: patched,
-      });
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage.setItem(
-            PROJECT_LEGEND_STORAGE_KEY,
-            JSON.stringify({ ...projectLegends, ...nextDraft }),
-          );
-        } catch {}
-      }
-      return nextDraft;
-    });
-    setProjectLegendDirty(true);
-  };
-
-  const approveProjectLegendChanges = async () => {
-    if (!currentProject) return;
-    const projectId = normalizeStoredProjectId(currentProject.id);
-    const nextLegend = normalizeProjectLegend(
-      draftProjectLegends[projectId] ??
-        draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-        draftProjectLegends[currentProject.id] ??
-        savedCurrentProjectLegend,
-      currentProject.name,
-    );
-
-    const nextLegends = migrateProjectLegendMap({
-      ...projectLegends,
-      [projectId]: nextLegend,
-    });
-    setProjectLegends(nextLegends);
-    setDraftProjectLegends(nextLegends);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(
-          PROJECT_LEGEND_STORAGE_KEY,
-          JSON.stringify(nextLegends),
-        );
-      } catch {}
-    }
-
-    try {
-      await saveProjectLegendToSupabase(projectId, nextLegend);
-      setEditingProjectLegend(false);
-      setProjectLegendDirty(false);
-      alert(
-        isSupabaseConfigured
-          ? "פרטי הפרויקט נשמרו בהצלחה בענן"
-          : "פרטי הפרויקט נשמרו בהצלחה",
-      );
-    } catch (error) {
-      console.error("Failed to save project legend", error);
-      alert(`שגיאה בשמירת פרטי הפרויקט: ${errorText(error)}`);
-    }
-  };
-
-  const cancelProjectLegendChanges = () => {
-    setEditingProjectLegend(false);
-    setProjectLegendDirty(false);
-  };
-
-  const clearProjectLegend = () => {
-    if (!currentProject || !window.confirm("למחוק את פרטי הפרויקט?")) return;
-    const emptyLegend = normalizeProjectLegend(null, currentProject.name);
-    setDraftProjectLegends((prev) =>
-      migrateProjectLegendMap({
-        ...prev,
-        [normalizeStoredProjectId(currentProject.id)]: emptyLegend,
-      }),
-    );
-    setEditingProjectLegend(true);
-    setProjectLegendDirty(true);
-  };
-
-  const addProjectLegendFactor = () => {
-    if (!currentProject) return;
-    if (!editingProjectLegend) setEditingProjectLegend(true);
-    const current = normalizeProjectLegend(
-      draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-        draftProjectLegends[currentProject.id] ??
-        savedCurrentProjectLegend,
-      currentProject.name,
-    );
-    updateProjectLegendField(
-      "extraFactors",
-      JSON.stringify([
-        ...current.extraFactors,
-        { id: `${Date.now()}`, label: "גורם נוסף", value: "" },
-      ]),
-    );
-  };
-
-  const removeProjectLegendFactor = (id: string) => {
-    if (!currentProject) return;
-    if (!editingProjectLegend) setEditingProjectLegend(true);
-    const current = normalizeProjectLegend(
-      draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
-        draftProjectLegends[currentProject.id] ??
-        savedCurrentProjectLegend,
-      currentProject.name,
-    );
-    updateProjectLegendField(
-      "extraFactors",
-      JSON.stringify(current.extraFactors.filter((factor) => factor.id !== id)),
-    );
-  };
-
-  const checklistSequenceKey = (projectId: string) =>
-    `${STORAGE_KEY}-checklist-sequence-${projectId}`;
-  const getStoredChecklistSequence = (projectId: string) => {
-    if (typeof window === "undefined") return 0;
-    return (
-      Number(
-        window.localStorage.getItem(checklistSequenceKey(projectId)) ?? 0,
-      ) || 0
-    );
-  };
-  const setStoredChecklistSequence = (projectId: string, value: number) => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(checklistSequenceKey(projectId), String(value));
-  };
-  const getMaxSavedChecklistNo = (projectId: string) =>
-    savedChecklists
-      .filter((item) => normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(projectId))
-      .reduce(
-        (max, item) =>
-          Math.max(max, Number((item as any).checklistNo ?? 0) || 0),
-        0,
-      );
-  const isChecklistNoAlreadySaved = (
-    projectId: string,
-    value: unknown,
-    exceptId?: string | null,
-  ) => {
-    const number = Number(value);
-    if (!Number.isFinite(number) || number <= 0) return false;
-    return savedChecklists.some(
-      (item) =>
-        normalizeStoredProjectId(item.projectId) === normalizeStoredProjectId(projectId) &&
-        item.id !== exceptId &&
-        Number((item as any).checklistNo ?? 0) === number,
-    );
-  };
-  const allocateNextChecklistNo = (projectId: string) => {
-    const next =
-      Math.max(
-        getStoredChecklistSequence(projectId),
-        getMaxSavedChecklistNo(projectId),
-      ) + 1;
-    setStoredChecklistSequence(projectId, next);
-    return next;
-  };
-  const getExistingEditingChecklistNo = () =>
-    editingChecklistId
-      ? savedChecklists.find((item) => item.id === editingChecklistId)
-          ?.checklistNo
-      : undefined;
-  const ensureChecklistNo = () => {
-    if (!currentProjectId) return undefined;
-    const existing = getExistingEditingChecklistNo();
-    const current = Number((checklistForm as any).checklistNo);
-    if (
-      Number.isFinite(current) &&
-      current > 0 &&
-      !isChecklistNoAlreadySaved(currentProjectId, current, editingChecklistId)
-    ) {
-      return current;
-    }
-    if (
-      existing &&
-      !isChecklistNoAlreadySaved(currentProjectId, existing, editingChecklistId)
-    )
-      return existing;
-    const displayNumber = Number((checklistForm as any).displayNumber);
-    if (
-      Number.isFinite(displayNumber) &&
-      displayNumber > 0 &&
-      !isChecklistNoAlreadySaved(currentProjectId, displayNumber, editingChecklistId)
-    ) {
-      setChecklistForm((prev) => ({ ...(prev as any), checklistNo: displayNumber }));
-      return displayNumber;
-    }
-    const next = allocateNextChecklistNo(currentProjectId);
-    setChecklistForm((prev) => ({ ...(prev as any), checklistNo: next }));
-    return next;
-  };
-
-  const applyProjectTeamToItems = (items: ChecklistItem[]) =>
-    items.map((item) => ({
-      ...item,
-      inspector:
-        resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector,
-    }));
-  const checklistTemplateLabel = (
-    key: ChecklistTemplateKey | string | undefined,
-  ) =>
-    checklistTemplates[normalizeChecklistTemplateKey(key)]?.label ??
-    "רשימת תיוג";
-  const normalizedSearchTerm = recordsSearchTerm.trim().toLowerCase();
-  const currentProjectIdNormalized = normalizeStoredProjectId(currentProjectId);
-  const activeProjectAcceptsLegacyRecords = false;
-  const currentProjectStrictAliasValues = useMemo(() => {
-    const currentNames = [
-      currentProject?.name,
-      currentProjectLegend.projectName,
-    ]
-      .map(normalizeHebrewProjectName)
-      .filter(Boolean);
-    const currentProjectCodes = new Set(
-      extractProjectCodeCandidates(
-        currentProjectIdNormalized,
-        currentProject?.id,
-        currentProject?.name,
-      ),
-    );
-
-    return accessUsers
-      .filter((user) => {
-        if (!currentProject || isAdminAccess(user)) return false;
-        const userProjectIds = Array.isArray(user.projectIds)
-          ? user.projectIds.map(normalizeStoredProjectId).filter(Boolean)
-          : [];
-        if (
-          currentProjectIdNormalized &&
-          userProjectIds.includes(currentProjectIdNormalized)
-        ) {
-          return true;
-        }
-        const userProjectCodes = extractProjectCodeCandidates(
-          user.code,
-          user.username,
-          user.projectName,
-          ...(user.projectIds ?? []),
-        );
-        if (
-          userProjectCodes.some((projectCode) =>
-            currentProjectCodes.has(projectCode),
-          )
-        ) {
-          return true;
-        }
-        const userProjectName = normalizeHebrewProjectName(user.projectName ?? "");
-        return Boolean(
-          userProjectName &&
-            currentNames.some(
-              (name) => name === userProjectName,
-            ),
-        );
-      })
-      .flatMap((user) => [
-        user.code,
-        ...(user.projectIds ?? []),
-      ])
-      .filter(Boolean);
-  }, [
-    accessUsers,
-    currentProject,
-    currentProject?.id,
-    currentProject?.name,
-    currentProjectIdNormalized,
-    currentProjectLegend.projectName,
-  ]);
-  const currentProjectIdentityKeys = useMemo(
-    () =>
-      projectIdentityKeysFromValues(
-        currentProjectIdNormalized,
-        currentProject?.id,
-        currentProject?.name,
-        ...(isAdminAccess(projectAccess)
-          ? []
-          : [
-              projectAccess?.code,
-              projectAccess?.projectName,
-              ...(projectAccess?.projectIds ?? []),
-            ]),
-        ...currentProjectEmailUsers.map((user) => user.projectId),
-        ...currentProjectStrictAliasValues,
-      ),
-    [
-      currentProjectIdNormalized,
-      currentProject?.id,
-      currentProject?.name,
-      projectAccess?.role,
-      projectAccess?.code,
-      projectAccess?.projectName,
-      projectAccess?.projectIds,
-      currentProjectEmailUsers,
-      currentProjectStrictAliasValues,
-    ],
-  );
-  const currentProjectIdentitySignature = useMemo(
-    () => Array.from(currentProjectIdentityKeys).sort().join("|"),
-    [currentProjectIdentityKeys],
-  );
-  const recordMatchesCurrentProject = (projectId: unknown) => {
-    const recordProjectId = normalizeStoredProjectId(projectId);
-    if (!recordProjectId || !currentProjectIdNormalized) return false;
-    return recordProjectId === currentProjectIdNormalized;
-  };
-  const checklistMatchesCurrentProject = (projectId: unknown) => {
-    const recordProjectId = normalizeStoredProjectId(projectId);
-    if (!recordProjectId || !currentProjectIdNormalized) return false;
-    return recordProjectId === currentProjectIdNormalized;
-  };
-  const currentProjectStructureNodes = useMemo(
-    () =>
-      sortProjectStructureNodes(
-        projectStructureNodes.filter((node) =>
-          recordMatchesCurrentProject(node.projectId),
-        ),
-      ),
-    [
-      projectStructureNodes,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-    ],
-  );
-
-  const checklistOrderTime = (record: any, fallbackIndex: number) => {
-    const itemDates = (Array.isArray(record?.items) ? record.items : [])
-      .map((item: any) => normalizeDateValue(item?.executionDate || item?.date || item?.signedAt))
-      .filter(Boolean)
-      .sort();
-    const raw = String(
-      normalizeDateValue(record?.executionDate || record?.date) ||
-        itemDates[0] ||
-        normalizeDateValue(record?.savedAt || record?.createdAt) ||
-        "",
-    ).trim();
-    const parsed = Date.parse(raw);
-    if (Number.isFinite(parsed)) return parsed;
-    return fallbackIndex;
-  };
-
-  const checklistNumericOrderValue = (value: unknown, fallbackIndex: number) => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    const match = String(value ?? "").match(/\d+(?:[.,]\d+)?/);
-    return match ? Number(match[0].replace(",", ".")) : fallbackIndex;
-  };
-
-  const checklistLayerOrderValue = (record: any, fallbackIndex: number) => {
-    const directLayer = checklistNumericOrderValue(
-      record?.layerNo ??
-        record?.layerNumber ??
-        record?.layer ??
-        record?.location ??
-        record?.details?.layerNo ??
-        record?.details?.layerNumber ??
-        record?.details?.layer,
-      Number.NaN,
-    );
-    if (Number.isFinite(directLayer)) return directLayer;
-
-    const itemLayers = (Array.isArray(record?.items) ? record.items : [])
-      .map((item: any) =>
-        checklistNumericOrderValue(
-          item?.layerNo ??
-            item?.layerNumber ??
-            item?.layer ??
-            item?.location ??
-            item?.results?.layerNo ??
-            item?.results?.layerNumber ??
-            item?.results?.layer,
-          Number.NaN,
-        ),
-      )
-      .filter((value: number) => Number.isFinite(value))
-      .sort((a: number, b: number) => a - b);
-
-    return itemLayers[0] ?? fallbackIndex;
-  };
-
-  const checklistSerialOrderValue = (record: any, fallbackIndex: number) =>
-    checklistNumericOrderValue(record?.checklistNo ?? record?.checklistNumber ?? record?.number, fallbackIndex);
-
-  const projectChecklists = useMemo(
-    () =>
-      savedChecklists
-        .filter((item) => checklistMatchesCurrentProject(item.projectId))
-        .map((item, index) => ({ item, index }))
-        .sort(
-          (a, b) =>
-            checklistOrderTime(a.item, a.index) - checklistOrderTime(b.item, b.index) ||
-            checklistLayerOrderValue(a.item, a.index) - checklistLayerOrderValue(b.item, b.index) ||
-            checklistSerialOrderValue(a.item, a.index) - checklistSerialOrderValue(b.item, b.index) ||
-            a.index - b.index,
-        )
-        .map(({ item }, index) => ({ ...item, displayNumber: index + 1 }))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.category, item.location, item.contractor]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
-    [
-      savedChecklists,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      normalizedSearchTerm,
-    ],
-  );
-  const selectedChecklistRecords = useMemo(
-    () =>
-      projectChecklists.filter(
-        (record) =>
-          normalizeChecklistTemplateKey(record.templateKey) ===
-          normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
-      ),
-    [projectChecklists, selectedChecklistTemplateKey],
-  );
-  const selectedChecklistLabel = checklistTemplateLabel(selectedChecklistTemplateKey);
-  const selectedChecklistIsConcrete =
-    ["siteConcrete", "stoneFacingGravityWall"].includes(
-      normalizeChecklistTemplateKey(selectedChecklistTemplateKey),
-    );
-  const selectedChecklistFolder =
-    getChecklistTemplateFolder(normalizeChecklistTemplateKey(selectedChecklistTemplateKey));
-
-  const extractNonconformanceOrderNo = (record: any) => {
-    const extractNumber = (value: unknown) => {
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-      const text = String(value ?? "");
-      const match =
-        text.match(/No[.\s:-]*(\d+)/i) ??
-        text.match(/#\s*(\d+)/) ??
-        text.match(/(?:^|\s)(\d+)(?:\s|$)/);
-      return match ? Number(match[1]) || 0 : 0;
-    };
-    const candidates = [
-      record?.serialNumber,
-      record?.number,
-      record?.ncrNumber,
-      record?.nonconformanceNumber,
-      record?.title,
-    ];
-    for (const value of candidates) {
-      const extracted = extractNumber(value);
-      if (extracted > 0) return extracted;
-    }
-    return Number.POSITIVE_INFINITY;
-  };
-
-  const nonconformanceOrderDate = (record: any) => {
-    const timestamp = Date.parse(
-      String(record?.date || record?.savedAt || record?.createdAt || record?.updatedAt || ""),
-    );
-    return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
-  };
-
-  const projectNonconformances = useMemo(
-    () =>
-      savedNonconformances
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.location, item.description, item.status]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        )
-        .sort((a, b) => {
-          const byNumber = extractNonconformanceOrderNo(a) - extractNonconformanceOrderNo(b);
-          if (byNumber) return byNumber;
-          const byDate = nonconformanceOrderDate(a) - nonconformanceOrderDate(b);
-          if (byDate) return byDate;
-          return String(a?.title ?? "").localeCompare(String(b?.title ?? ""), "he");
-        }),
-    [
-      savedNonconformances,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-      normalizedSearchTerm,
-    ],
-  );
-  const projectRfis = useMemo(
-    () =>
-      savedRfis
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [
-              item.title,
-              item.location,
-              item.requestDescription,
-              item.status,
-              item.response,
-            ]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
-    [
-      savedRfis,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-      normalizedSearchTerm,
-    ],
-  );
-  const projectControlProcesses = useMemo(
-    () =>
-      savedControlProcesses
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [
-              item.processNo,
-              item.title,
-              item.workType,
-              item.specSection,
-              item.location,
-              item.status,
-            ]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        )
-        .sort((a, b) => {
-          const dateDiff =
-            controlProcessApprovalSortValue(a) -
-            controlProcessApprovalSortValue(b);
-          if (dateDiff !== 0) return dateDiff;
-          return String(a.processNo ?? "").localeCompare(
-            String(b.processNo ?? ""),
-            "he",
-            { numeric: true },
-          );
-        }),
-    [
-      savedControlProcesses,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-      normalizedSearchTerm,
-    ],
-  );
-  const projectSupervisionReports = useMemo(
-    () =>
-      savedSupervisionReports
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.reportNo, item.location, item.author, item.status, item.treatment, item.notes]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
-    [
-      savedSupervisionReports,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-      normalizedSearchTerm,
-    ],
-  );
-  const savedProjectPlans = useMemo(
-    () => savedPlans.filter((item) => recordMatchesCurrentProject(item.projectId)),
-    [
-      savedPlans,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-    ],
-  );
-  const currentProjectPlans = useMemo(() => {
-    const savedWithoutForeignSeedPlans = savedProjectPlans.filter(
-      (plan) => !isRoad806SeedPlan(plan) && recordMatchesCurrentProject(plan.projectId),
-    );
-    const shouldIncludeRoad806Plans =
-      isRoad806Value(currentProjectIdNormalized);
-
-    if (!shouldIncludeRoad806Plans) return savedWithoutForeignSeedPlans;
-
-    const seedProjectId = currentProjectIdNormalized || ROAD_806_PROJECT_ID;
-    const seedPlans = createRoad806SeedPlans(seedProjectId);
-    const savedById = new Map(savedProjectPlans.map((plan) => [plan.id, plan]));
-    const mergedSeedPlans = seedPlans.map((plan) => savedById.get(plan.id) ?? plan);
-
-    return [
-      ...savedWithoutForeignSeedPlans,
-      ...mergedSeedPlans.filter(
-        (plan) => !savedWithoutForeignSeedPlans.some((saved) => saved.id === plan.id),
-      ),
-    ];
-  }, [
-    savedProjectPlans,
-    currentProjectIdNormalized,
-    currentProjectIdentitySignature,
-  ]);
-  const projectPlans = useMemo(
-    () =>
-      currentProjectPlans.filter(
-        (item) =>
-          !normalizedSearchTerm ||
-          [item.planNo, item.revision, item.title, item.discipline, item.status, item.notes]
-            .join(" ")
-            .toLowerCase()
-            .includes(normalizedSearchTerm),
-      ),
-    [currentProjectPlans, normalizedSearchTerm],
-  );
-  const projectTrialSections = useMemo(
-    () =>
-      savedTrialSections
-        .filter((item) => recordMatchesCurrentProject(item.projectId))
-        .filter(
-          (item) =>
-            !normalizedSearchTerm ||
-            [item.title, item.location, item.spec, item.result]
-              .join(" ")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-        ),
-    [
-      savedTrialSections,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-      normalizedSearchTerm,
-    ],
-  );
-  const projectHoldPoints = useMemo(
-    () =>
-      savedHoldPoints.filter((item) =>
-        recordMatchesCurrentProject(item.projectId),
-      ),
-    [
-      savedHoldPoints,
-      currentProjectIdNormalized,
-      activeProjectAcceptsLegacyRecords,
-      currentProjectIdentitySignature,
-    ],
-  );
-  const projectPreliminary = useMemo(() => {
-    const recordOrderTime = (item: any, fallbackIndex: number) => {
-      const raw = String(getPreliminaryApprovalDate(item) || item?.savedAt || item?.saved_at || item?.createdAt || item?.created_at || item?.date || "").trim();
-      const parsed = Date.parse(raw);
-      if (Number.isFinite(parsed)) return parsed;
-
-      const local = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-      if (local) {
-        const year = Number(local[3].length === 2 ? `20${local[3]}` : local[3]);
-        const time = new Date(year, Number(local[2]) - 1, Number(local[1]), Number(local[4] ?? 0), Number(local[5] ?? 0), Number(local[6] ?? 0)).getTime();
-        if (Number.isFinite(time)) return time;
-      }
-
-      return fallbackIndex;
-    };
-    const matchesSearch = (item: PreliminaryRecord) =>
-      !normalizedSearchTerm ||
-      [item.title, item.subtype, item.status]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedSearchTerm);
-    const matchingProject = savedPreliminary.filter((item) =>
-      recordMatchesCurrentProject(item.projectId),
-    );
-    return matchingProject
-      .filter(matchesSearch)
-      .map((item, index) => ({ item, index }))
-      .sort((a, b) => recordOrderTime(a.item, a.index) - recordOrderTime(b.item, b.index) || a.index - b.index)
-      .map(({ item }) => item);
-  }, [
-    savedPreliminary,
-    currentProjectIdNormalized,
-    activeProjectAcceptsLegacyRecords,
-    currentProjectIdentitySignature,
-    normalizedSearchTerm,
-  ]);
-  const approvedPreliminarySupplierNames = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          projectPreliminary
-            .filter((record) => record.subtype === "suppliers")
-            .filter((record) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
-            .map((record) => String(getSupplierName(record) || "").trim())
-            .filter(Boolean),
-        ),
-      ),
-    [projectPreliminary],
-  );
-
-  const extractSequentialNo = (title: unknown) => {
-    const text = String(title ?? "");
-    const match =
-      text.match(/מס[׳'’`]?\s*(\d+)/) ??
-      text.match(/No[.\s:-]*(\d+)/i) ??
-      text.match(/#\s*(\d+)/) ??
-      text.match(/(?:^|\s)(\d+)(?:\s|$)/);
-    return match ? Number(match[1]) || 0 : 0;
-  };
-
-  // מספור סידורי נפרד לכל סוג טופס ולכל פרויקט.
-  // חשוב: רשימות תיוג לא משתמשות במנגנון הזה ולא שונו.
-  type FormSequenceKind =
-    | "rfi"
-    | "nonconformances"
-    | "trialSections"
-    | "preliminary-suppliers"
-    | "preliminary-subcontractors"
-    | "preliminary-materials";
-
-  const formSequenceStorageKey = (kind: FormSequenceKind) =>
-    `${STORAGE_KEY}-form-sequence-${currentProjectId || "no-project"}-${kind}`;
-
-  const getStoredFormSequence = (kind: FormSequenceKind) => {
-    if (typeof window === "undefined") return 0;
-    return (
-      Number(window.localStorage.getItem(formSequenceStorageKey(kind)) ?? 0) ||
-      0
-    );
-  };
-
-  const setStoredFormSequence = (kind: FormSequenceKind, value: number) => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(formSequenceStorageKey(kind), String(value));
-  };
-
-  const maxSavedSequentialNo = (
-    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
-    subtype?: PreliminaryTab,
-  ) =>
-    records
-      .filter((item) => normalizeStoredProjectId(item.projectId) === currentProjectIdNormalized)
-      .filter((item) => !subtype || item.subtype === subtype)
-      .reduce((max, item) => Math.max(max, extractSequentialNo(item.title)), 0);
-
-  const nextSequentialNo = (
-    kind: FormSequenceKind,
-    records: Array<{ title?: string; projectId?: string; subtype?: string }>,
-    subtype?: PreliminaryTab,
-  ) =>
-    Math.max(
-      getStoredFormSequence(kind),
-      maxSavedSequentialNo(records, subtype),
-    ) + 1;
-
-  const rememberSequentialNo = (kind: FormSequenceKind, title: unknown) => {
-    const number = extractSequentialNo(title);
-    if (!number) return;
-    setStoredFormSequence(kind, Math.max(getStoredFormSequence(kind), number));
-  };
-
-  const numberedTitle = (base: string, number: number) =>
-    `${base} מס׳ ${number}`;
-  const titleHasNumber = (title: unknown) => extractSequentialNo(title) > 0;
-  const nextRfiTitle = () => numberedTitle("RFI", nextSequentialNo("rfi", []));
-  const nextNonconformanceTitle = () =>
-    numberedTitle(
-      "אי התאמה",
-      nextSequentialNo("nonconformances", savedNonconformances as any),
-    );
-  const nextTrialSectionTitle = () =>
-    numberedTitle(
-      "קטע ניסוי",
-      nextSequentialNo("trialSections", savedTrialSections as any),
-    );
-  const preliminaryBaseTitle = (subtype: PreliminaryTab) =>
-    subtype === "suppliers"
-      ? "אישור ספקים"
-      : subtype === "subcontractors"
-        ? "אישור קבלנים"
-        : "אישור חומרים";
-  const preliminarySequenceKind = (subtype: PreliminaryTab): FormSequenceKind =>
-    `preliminary-${subtype}` as FormSequenceKind;
-  const nextPreliminaryTitle = (subtype: PreliminaryTab) =>
-    numberedTitle(
-      preliminaryBaseTitle(subtype),
-      nextSequentialNo(
-        preliminarySequenceKind(subtype),
-        savedPreliminary as any,
-        subtype,
-      ),
-    );
-
-  useEffect(() => {
-    if (!loaded || section !== "checklists") return;
-    const profile = currentProjectProfile ?? getProjectProfile(projectName);
-    setChecklistForm((prev) => ({
-      ...prev,
-      contractor:
-        profile && (!prev.contractor || prev.contractor.includes("פלסי הגליל"))
-          ? profile.contractor
-          : prev.contractor,
-      items: prev.items.map((item) => ({
-        ...item,
-        inspector:
-          resolveResponsibleNameForCurrentProject(item.responsible) ||
-          item.inspector,
-      })),
-    }));
-  }, [
-    loaded,
-    section,
-    currentProjectId,
-    currentProjectProfile?.projectName,
-    currentProjectEmailUsers,
-    resolveResponsibleNameForCurrentProject,
-    projectName,
-  ]);
-
-  useEffect(() => {
-    if (!loaded || !currentProjectId) return;
-
-    if (section === "checklists" && !editingChecklistId) {
-      setChecklistForm((prev: any) => applyProjectDefaultsToChecklist(prev));
-    }
-    if (section === "nonconformances" && !editingNonconformanceId) {
-      setNonconformanceForm((prev: any) => applyProjectDefaultsToNonconformance(prev));
-    }
-    if (section === "trialSections" && !editingTrialSectionId) {
-      setTrialSectionForm((prev: any) => applyProjectDefaultsToTrialSection(prev));
-    }
-    if (section === "rfi" && !editingRfiId) {
-      setRfiForm((prev: any) => applyProjectDefaultsToRfi(prev));
-    }
-    if (section === "preliminary" && !editingPreliminaryId) {
-      if (preliminaryTab === "suppliers") {
-        setSupplierPreliminaryForm((prev: any) => applyProjectDefaultsToPreliminary(prev));
-      }
-      if (preliminaryTab === "subcontractors") {
+              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעול���Ӧ��(�+my�naryTab === "subcontractors") {
         setSubcontractorPreliminaryForm((prev: any) => applyProjectDefaultsToPreliminary(prev));
       }
       if (preliminaryTab === "materials") {
@@ -17928,6 +9960,55 @@ export default function Page() {
       openedRole: "בקרת איכות",
       status: "פתוח",
     } as any));
+  };
+  const openNonconformanceFromChecklistFinding = (
+    item: ChecklistItem & { attachments?: ChecklistAttachment[] },
+  ) => {
+    const structureNodeId = String((checklistForm as any).structureNodeId ?? "");
+    if (!structureNodeId) {
+      alert("יש לשייך תחילה את רשימת התיוג לאלמנט בעץ הפרויקט.");
+      return;
+    }
+    const labAttachments = normalizeChecklistAttachments(item.attachments).filter(
+      (attachment) => attachment.kind === "lab",
+    );
+    const certificateNo = firstText(
+      ...labAttachments.map((attachment) => attachment.certificateNo),
+      ...labAttachments.map((attachment) => attachment.concreteResults?.certificateNo),
+      ...labAttachments.flatMap((attachment) =>
+        Object.entries(attachment.labResults ?? {})
+          .filter(([key]) => /תעודה|certificate/i.test(key))
+          .map(([, value]) => value),
+      ),
+    );
+    const sourceDescription = [
+      `נפתחה מתוך רשימת תיוג: ${checklistForm.title || "ללא שם"}`,
+      `פעולת בקרה: ${item.description || "לא צוין"}`,
+      certificateNo ? `תעודת מעבדה: ${certificateNo}` : "",
+      item.notes ? `הערות: ${item.notes}` : "",
+    ].filter(Boolean).join("\n");
+    setEditingNonconformanceId(null);
+    setNonconformanceForm(applyProjectDefaultsToNonconformance({
+      ...createDefaultNonconformance(),
+      title: nextNonconformanceTitle(),
+      structureNodeId,
+      sourceChecklistId: editingChecklistId || "",
+      sourceChecklistItemId: item.id,
+      sourceCertificateNo: certificateNo,
+      description: sourceDescription,
+      location: checklistForm.location || "",
+      element: currentProjectStructureNodes.find((node) => node.id === structureNodeId)?.name || "",
+      severity: "גבוהה",
+      qualityImpact: "גבוהה",
+      status: "פתוח",
+      images: labAttachments.map((attachment) => ({
+        name: attachment.name,
+        type: attachment.type,
+        dataUrl: attachment.dataUrl,
+        uploadedAt: attachment.uploadedAt,
+      })),
+    } as any));
+    setSection("nonconformances");
   };
   const resetTrialSectionEditor = () => {
     setEditingTrialSectionId(null);
@@ -18158,6 +10239,13 @@ export default function Page() {
       isActive: true,
       createdAt: nowLocal(),
     };
+    const initialLegend = normalizeProjectLegend(
+      {
+        projectName: project.name,
+        projectManagement: project.manager,
+      },
+      project.name,
+    );
     await withSaving(async () => {
       if (cloudEnabled) {
         await supabase!
@@ -18207,6 +10295,20 @@ export default function Page() {
         setProjectAccess(updatedAccess);
         writeAuthSession(updatedAccess);
       }
+
+      const nextLegends = migrateProjectLegendMap({
+        ...projectLegends,
+        [id]: initialLegend,
+      });
+      setProjectLegends(nextLegends);
+      setDraftProjectLegends(nextLegends);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          PROJECT_LEGEND_STORAGE_KEY,
+          JSON.stringify(nextLegends),
+        );
+      }
+      if (cloudEnabled) await saveProjectLegendToSupabase(id, initialLegend);
 
       setCurrentProjectId(id);
       writeLocalCurrentProjectId(id, projectAccess);
@@ -19018,7 +11120,9 @@ export default function Page() {
                                       ? "תקין"
                                       : "לא תקין",
                                 }
-                              : {}),
+                              : autoConcreteResults.strength7Days
+                                ? { status: "" }
+                                : {}),
                           }
                         : {}),
                     }
@@ -19187,7 +11291,7 @@ export default function Page() {
           note: String(controlProcessForm.status ?? ""),
         },
       ],
-      approval: normalizeApproval(controlProcessForm.approval),
+      approval: approvalForEditableSave(controlProcessForm.approval),
       lockedAt: String(controlProcessForm.lockedAt ?? ""),
       savedAt: nowLocal(),
     };
@@ -19587,9 +11691,9 @@ export default function Page() {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור רשימות תיוג.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
+    if (!String((checklistForm as any).structureNodeId ?? "").trim())
+      return alert("יש לשייך את רשימת התיוג לאלמנט בעץ הפרויקט.");
     if (!checklistForm.title.trim()) return alert("יש להזין שם רשימת תיוג");
-    const validation = validateApproval(checklistForm.approval);
-    if (validation) return alert(validation);
     const id = editingChecklistId ?? crypto.randomUUID();
     const existingChecklistNo = getExistingEditingChecklistNo();
     const currentChecklistNo = Number((checklistForm as any).checklistNo);
@@ -19639,7 +11743,7 @@ export default function Page() {
           : {},
     };
     const items = normalizeChecklistItems(checklistForm.items);
-    const normalizedApproval = normalizeApproval(checklistForm.approval);
+    const normalizedApproval = approvalForEditableSave(checklistForm.approval);
     const approvalDerivedRecord = {
       ...checklistForm,
       ...checklistDetails,
@@ -19833,6 +11937,8 @@ export default function Page() {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור פניות RFI.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
+    if (!String((rfiForm as any).structureNodeId ?? "").trim())
+      return alert("יש לשייך את ה-RFI לאלמנט בעץ הפרויקט.");
     if (!String(rfiForm.title ?? "").trim()) return alert("יש להזין מספר RFI");
     if (!String(rfiForm.requestDescription ?? "").trim())
       return alert("יש להזין תיאור הבקשה");
@@ -19947,10 +12053,10 @@ export default function Page() {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור אי-התאמות.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
+    if (!String((nonconformanceForm as any).structureNodeId ?? "").trim())
+      return alert("יש לשייך את אי ההתאמה לאלמנט בעץ הפרויקט.");
     if (!nonconformanceForm.title.trim())
       return alert("יש להזין כותרת לאי התאמה");
-    const validation = validateApproval(nonconformanceForm.approval);
-    if (validation) return alert(validation);
     const id = editingNonconformanceId ?? crypto.randomUUID();
     const title =
       editingNonconformanceId || titleHasNumber(nonconformanceForm.title)
@@ -19964,7 +12070,7 @@ export default function Page() {
       projectId: normalizedProjectId,
       ...enrichedNonconformanceForm,
       title,
-      approval: normalizeApproval(nonconformanceForm.approval),
+      approval: approvalForEditableSave(nonconformanceForm.approval),
       savedAt: nowLocal(),
     };
     await withSaving(async () => {
@@ -20198,6 +12304,8 @@ export default function Page() {
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור קטעי ניסוי.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     const completedTrialSectionForm: any = enrichTrialSectionRecord(trialSectionForm as any);
+    if (!String(completedTrialSectionForm.structureNodeId ?? "").trim())
+      return alert("יש לשייך את קטע הניסוי לאלמנט בעץ הפרויקט.");
     if (!String(completedTrialSectionForm.title || "").trim()) {
       const generatedTitle = [
         "קטע ניסוי",
@@ -20223,7 +12331,7 @@ export default function Page() {
       projectId: normalizedProjectId,
       ...completedTrialSectionForm,
       title,
-      approval: normalizeApproval(completedTrialSectionForm.approval),
+      approval: approvalForEditableSave(completedTrialSectionForm.approval),
       savedAt: nowLocal(),
     } as any;
     await withSaving(async () => {
@@ -20353,8 +12461,6 @@ export default function Page() {
           ? subcontractorPreliminaryForm
           : materialPreliminaryForm;
     if (!form.title.trim()) return alert("יש להזין כותרת");
-    const validation = validateApproval(form.approval);
-    if (validation) return alert(validation);
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title =
       editingPreliminaryId || titleHasNumber(form.title)
@@ -20386,7 +12492,7 @@ export default function Page() {
       projectId: normalizedProjectId,
       ...form,
       title,
-      approval: normalizeApproval(form.approval),
+      approval: approvalForEditableSave(form.approval),
       savedAt: nowLocal(),
     } as PreliminaryRecord;
     await withSaving(async () => {
@@ -20490,14 +12596,6 @@ export default function Page() {
     section !== "projectDetails" &&
     section !== "projectUsers" ? (
       <div style={styles.emptyBox}>יש לבחור פרויקט לפני עבודה במסך זה.</div>
-    ) : projectLegendMissing &&
-      section !== "home" &&
-      section !== "projects" &&
-      section !== "projectDetails" &&
-      section !== "projectUsers" ? (
-      <div style={styles.emptyBox}>
-        יש להשלים מקרא / פרטי פרויקט לפני עבודה במסך זה.
-      </div>
     ) : null;
 
   const resetPlanForm = () => {
@@ -20556,6 +12654,63 @@ export default function Page() {
     }
   };
 
+  const extractPlanRegisterByOcr = async (
+    file: File,
+  ): Promise<Array<Omit<PlanRecord, "id" | "projectId" | "savedAt">>> => {
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type.includes("pdf");
+    const renderedPages = isPdf ? await renderPdfPagesForPlanOcr(file) : [];
+    const inputs = renderedPages.length
+      ? renderedPages.map((dataUrl, index) => ({
+          dataUrl,
+          fileName: `${file.name} — עמוד ${index + 1}`,
+          mimeType: "image/jpeg",
+        }))
+      : [{
+          dataUrl: await readReferenceFileAsDataUrl(file),
+          fileName: file.name,
+          mimeType: file.type || "application/pdf",
+        }];
+    const rows: any[] = [];
+    for (let index = 0; index < inputs.length; index += 1) {
+      const input = inputs[index];
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtype: "plan-register", ...input }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          `פענוח עמוד ${index + 1} נכשל: ${payload?.error || response.statusText || "שגיאה לא ידועה"}`,
+        );
+      }
+      if (Array.isArray(payload?.data?.plans)) rows.push(...payload.data.plans);
+    }
+    const seen = new Set<string>();
+    return rows
+      .map((row: any) => {
+        const planNo = cleanPlanImportText(row?.planNo);
+        const title = cleanPlanTitleText(row?.title, planNo);
+        if (!planNo && !title) return null;
+        const key = `${normalizeAccessValue(planNo)}|${normalizeAccessValue(row?.revision)}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return {
+          planNo,
+          revision: cleanPlanImportText(row?.revision) || inferPlanRevisionFromPlanNo(planNo),
+          title: title || planNameFromAttachmentName(planNo),
+          discipline: inferPlanDisciplineFromText(
+            `${row?.discipline ?? ""} ${planNo} ${title} ${row?.notes ?? ""}`,
+          ),
+          date: normalizePlanImportDate(row?.date),
+          status: cleanPlanImportText(row?.status) || "לביצוע",
+          notes: cleanPlanImportText(row?.notes),
+          attachments: [],
+        };
+      })
+      .filter((plan): plan is Omit<PlanRecord, "id" | "projectId" | "savedAt"> => Boolean(plan));
+  };
+
   const importPlanRegisterFile = async (files: FileList | File[] | null) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לייבא תוכניות.");
@@ -20569,6 +12724,9 @@ export default function Page() {
       if (lowerName.endsWith(".pdf") || file.type.includes("pdf")) {
         const pdfText = await extractTextFromReferenceFile(file);
         importedPlans = parsePlanRegisterPdfText(pdfText, file.name);
+        if (!importedPlans.length) {
+          importedPlans = await extractPlanRegisterByOcr(file);
+        }
       } else {
         const XLSX = await import("xlsx");
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
@@ -20605,10 +12763,17 @@ export default function Page() {
 
       const nextPlans = [...savedPlans];
       importedPlans.forEach((plan) => {
+        plan = {
+          ...plan,
+          discipline: inferPlanDisciplineFromText(
+            `${plan.discipline} ${plan.planNo} ${plan.title} ${plan.notes}`,
+          ),
+        };
         const planNoKey = normalizeAccessValue(plan.planNo);
         const existingIndex = nextPlans.findIndex((item) => {
           if (normalizeStoredProjectId(item.projectId) !== projectId) return false;
-          return Boolean(planNoKey) && normalizeAccessValue(item.planNo) === planNoKey;
+          if (!planNoKey || normalizeAccessValue(item.planNo) !== planNoKey) return false;
+          return true;
         });
         if (existingIndex >= 0) {
           const existing = nextPlans[existingIndex];
@@ -20646,7 +12811,7 @@ export default function Page() {
       alert(`נקלטו ${addedCount} תוכניות חדשות ועודכנו ${updatedCount} תוכניות קיימות.`);
     } catch (error) {
       console.error(error);
-      alert("לא ניתן לקלוט את רשימת התוכניות. יש לצרף קובץ Excel, CSV או PDF טקסטואלי תקין.");
+      alert(`לא ניתן לקלוט את רשימת התוכניות.\n\n${errorText(error)}`);
     }
   };
 
@@ -21651,16 +13816,29 @@ export default function Page() {
     URL.revokeObjectURL(url);
   };
 
-  const downloadProjectArchive = async () => {
+  const downloadProjectArchive = async (scopeNode?: ProjectStructureNode) => {
     if (!currentProject) return alert("יש לבחור פרויקט לפני הורדת החומר");
-    if (!Object.values(archiveSections).some(Boolean))
+    if (!scopeNode && !Object.values(archiveSections).some(Boolean))
       return alert("יש לבחור לפחות תיקייה אחת להורדה");
+    const scopedSectionKeys = new Set([
+      "checklists",
+      "nonconformances",
+      "rfi",
+      "trialSections",
+      "holdPoints",
+    ]);
+    const sectionEnabled = (key: string) =>
+      scopeNode ? scopedSectionKeys.has(key) : Boolean(archiveSections[key]);
     try {
       setIsSaving(true);
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
       const usedPaths = new Set<string>();
-      const projectRoot = sanitizeZipSegment(`חומר פרויקט - ${projectName || currentProject.name}`);
+      const projectRoot = sanitizeZipSegment(
+        scopeNode
+          ? `חומר משויך - ${scopeNode.name}`
+          : `חומר פרויקט - ${projectName || currentProject.name}`,
+      );
       const now = nowLocal();
       let allProjectChecklists = savedChecklists.filter((item) => checklistMatchesCurrentProject(item.projectId));
       let allProjectNonconformances = savedNonconformances.filter((item) => recordMatchesCurrentProject(item.projectId));
@@ -21670,6 +13848,7 @@ export default function Page() {
       let allProjectControlProcesses = savedControlProcesses.filter((item) => recordMatchesCurrentProject(item.projectId));
       let allProjectSupervisionReports = savedSupervisionReports.filter((item) => recordMatchesCurrentProject(item.projectId));
       let allProjectPlans = currentProjectPlans;
+      let allProjectHoldPoints = projectHoldPoints;
 
       // Archive generation must not depend on a possibly stale/partial screen state.
       // Reload every selected collection for the active project immediately before export.
@@ -21685,14 +13864,14 @@ export default function Page() {
           return result.data ?? [];
         };
         const [checklistCloudRows, nonconformanceCloudRows, trialCloudRows, preliminaryCloudRows, rfiCloudRows, controlCloudRows, supervisionCloudRows, planCloudRows] = await Promise.all([
-          loadArchiveRows(archiveSections.checklists, "checklists", "saved_at"),
-          loadArchiveRows(archiveSections.nonconformances, NONCONFORMANCE_TABLE, "saved_at"),
-          loadArchiveRows(archiveSections.trialSections, "trial_sections", "saved_at"),
-          loadArchiveRows(archiveSections.preliminary, "preliminary_records", "saved_at"),
-          loadArchiveRows(archiveSections.rfi, "rfi_records", "created_at"),
-          loadArchiveRows(archiveSections.controlProcesses, CONTROL_PROCESS_TABLE, "saved_at"),
-          loadArchiveRows(archiveSections.supervisionReports, SUPERVISION_REPORTS_TABLE, "saved_at"),
-          loadArchiveRows(archiveSections.plans, PLANS_TABLE, "saved_at"),
+          loadArchiveRows(sectionEnabled("checklists"), "checklists", "saved_at"),
+          loadArchiveRows(sectionEnabled("nonconformances"), NONCONFORMANCE_TABLE, "saved_at"),
+          loadArchiveRows(sectionEnabled("trialSections"), "trial_sections", "saved_at"),
+          loadArchiveRows(sectionEnabled("preliminary"), "preliminary_records", "saved_at"),
+          loadArchiveRows(sectionEnabled("rfi"), "rfi_records", "created_at"),
+          loadArchiveRows(sectionEnabled("controlProcesses"), CONTROL_PROCESS_TABLE, "saved_at"),
+          loadArchiveRows(sectionEnabled("supervisionReports"), SUPERVISION_REPORTS_TABLE, "saved_at"),
+          loadArchiveRows(sectionEnabled("plans"), PLANS_TABLE, "saved_at"),
         ]);
         if (checklistCloudRows) allProjectChecklists = checklistCloudRows.map(checklistRowToRecord);
         if (nonconformanceCloudRows) allProjectNonconformances = nonconformanceCloudRows.map((row: any) => ({
@@ -21743,6 +13922,28 @@ export default function Page() {
         if (controlCloudRows) allProjectControlProcesses = controlCloudRows.map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[];
         if (supervisionCloudRows) allProjectSupervisionReports = supervisionCloudRows.map(supervisionReportRowToRecord).filter(Boolean) as SupervisionReportRecord[];
         if (planCloudRows) allProjectPlans = planCloudRows.map(planRowToRecord).filter(Boolean) as PlanRecord[];
+      }
+
+      if (scopeNode) {
+        const scopedNodeIds = new Set<string>([scopeNode.id]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          currentProjectStructureNodes.forEach((node) => {
+            if (scopedNodeIds.has(node.parentId) && !scopedNodeIds.has(node.id)) {
+              scopedNodeIds.add(node.id);
+              changed = true;
+            }
+          });
+        }
+        const belongsToScope = (record: any) => {
+          return scopedNodeIds.has(linkedStructureNodeId(record));
+        };
+        allProjectChecklists = allProjectChecklists.filter(belongsToScope);
+        allProjectNonconformances = allProjectNonconformances.filter(belongsToScope);
+        allProjectTrialSections = allProjectTrialSections.filter(belongsToScope);
+        allProjectRfis = allProjectRfis.filter(belongsToScope);
+        allProjectHoldPoints = allProjectHoldPoints.filter(belongsToScope);
       }
 
       const addText = (path: string, content: string) => {
@@ -21798,10 +13999,18 @@ export default function Page() {
           trialSections: allProjectTrialSections.length,
           controlProcesses: allProjectControlProcesses.length,
           supervisionReports: allProjectSupervisionReports.length,
+          holdPoints: allProjectHoldPoints.length,
         },
+        scope: scopeNode
+          ? {
+              nodeId: scopeNode.id,
+              nodeName: scopeNode.name,
+              path: buildProjectStructurePath(currentProjectStructureNodes, scopeNode.id),
+            }
+          : null,
       });
 
-      if (archiveSections.checklists) addCsv(
+      if (sectionEnabled("checklists")) addCsv(
         `${projectRoot}/רשימות תיוג/סיכום כללי.csv`,
         allProjectChecklists,
         [
@@ -21814,7 +14023,7 @@ export default function Page() {
           ["סטטוס", (record) => getApprovalDisplayStatus(record)],
         ],
       );
-      if (archiveSections.checklists) for (const [index, record] of allProjectChecklists.entries()) {
+      if (sectionEnabled("checklists")) for (const [index, record] of allProjectChecklists.entries()) {
         const templateKey = normalizeChecklistTemplateKey(record.templateKey);
         const folder = getChecklistTemplateFolder(templateKey);
         const templateLabel = checklistTemplateLabel(templateKey);
@@ -21857,7 +14066,7 @@ export default function Page() {
         await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
       }
 
-      if (archiveSections.plans) await addCollection(
+      if (sectionEnabled("plans")) await addCollection(
         `${projectRoot}/תוכניות`,
         allProjectPlans,
         [
@@ -21871,7 +14080,7 @@ export default function Page() {
         (record) => record.planNo || record.title || "תוכנית",
         (record) => planRecordArchiveBody(record),
       );
-      if (archiveSections.preliminary) {
+      if (sectionEnabled("preliminary")) {
         const preliminaryGroups = new Map<string, PreliminaryRecord[]>();
         allProjectPreliminary.forEach((record) => {
           const label = labelForPreliminary(record.subtype);
@@ -21892,7 +14101,7 @@ export default function Page() {
           );
         }
       }
-      if (archiveSections.nonconformances) await addCollection(
+      if (sectionEnabled("nonconformances")) await addCollection(
         `${projectRoot}/אי התאמות`,
         allProjectNonconformances,
         [
@@ -21905,7 +14114,7 @@ export default function Page() {
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "אי התאמה"}`,
         (record) => nonconformanceRecordArchiveBody(record),
       );
-      if (archiveSections.rfi) await addCollection(
+      if (sectionEnabled("rfi")) await addCollection(
         `${projectRoot}/RFI`,
         allProjectRfis,
         [
@@ -21918,7 +14127,7 @@ export default function Page() {
         (record, index) => `${record.rfiNumber || index + 1} - ${record.title || "RFI"}`,
         (record) => rfiRecordArchiveBody(record),
       );
-      if (archiveSections.trialSections) await addCollection(
+      if (sectionEnabled("trialSections")) await addCollection(
         `${projectRoot}/קטעי ניסוי`,
         allProjectTrialSections,
         [
@@ -21931,7 +14140,20 @@ export default function Page() {
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "קטע ניסוי"}`,
         (record) => trialSectionRecordArchiveBody(record),
       );
-      if (archiveSections.controlProcesses) await addCollection(
+      if (sectionEnabled("holdPoints")) await addCollection(
+        `${projectRoot}/נקודות עצירה`,
+        allProjectHoldPoints,
+        [
+          ["מספר", (record) => record.referenceNo || record.serialNo],
+          ["שם", (record) => record.name],
+          ["אלמנט", (record) => record.element],
+          ["סטטוס", (record) => record.status],
+          ["נוצר בתאריך", (record) => record.createdAt],
+          ["שוחרר בתאריך", (record) => record.releasedAt],
+        ],
+        (record, index) => `${record.referenceNo || index + 1} - ${record.name || "נקודת עצירה"}`,
+      );
+      if (sectionEnabled("controlProcesses")) await addCollection(
         `${projectRoot}/תעודות יחס וריכוזים`,
         allProjectControlProcesses,
         [
@@ -21944,7 +14166,7 @@ export default function Page() {
         (record) => `${record.processNo || ""} ${record.title || "תהליך בקרה"}`,
         (record) => controlProcessRecordArchiveBody(record),
       );
-      if (archiveSections.supervisionReports) await addCollection(
+      if (sectionEnabled("supervisionReports")) await addCollection(
         `${projectRoot}/דוחות פיקוח עליון`,
         allProjectSupervisionReports,
         [
@@ -21962,7 +14184,7 @@ export default function Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${sanitizeZipSegment(projectName || currentProject.name || "חומר פרויקט")}.zip`;
+      link.download = `${sanitizeZipSegment(scopeNode ? `חומר משויך - ${scopeNode.name}` : projectName || currentProject.name || "חומר פרויקט")}.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -22788,6 +15010,46 @@ ${invalidRecipients.join("\n")}`);
     }
     try {
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
+      if (records.length > 1) {
+        const JSZip = (await import("jszip")).default;
+        const zip = new JSZip();
+        const usedPaths = new Set<string>();
+        const archiveRoot = sanitizeZipSegment(`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`);
+
+        for (const [index, record] of records.entries()) {
+          const subtype = (record?.subtype || preliminaryTab) as PreliminaryTab;
+          const typeFolder = sanitizeZipSegment(labelForPreliminary(subtype));
+          const entityName = subtype === "suppliers"
+            ? getSupplierName(record) || getSuppliedMaterial(record)
+            : subtype === "subcontractors"
+              ? getContractorName(record) || getContractorWorkField(record)
+              : getMaterialType(record) || getMaterialSupplierName(record);
+          const entityFolder = sanitizeZipSegment(entityName || record?.title, `ללא שם ${typeFolder}`);
+          const recordTitle = String(record?.title || entityName || `${typeFolder} ${index + 1}`);
+          const recordFolder = `${archiveRoot}/${typeFolder}/${entityFolder}/${sanitizeZipSegment(`${index + 1} - ${recordTitle}`)}`;
+          const pdfResult = await buildMergedPreliminaryRecordsPdfBlob([record], recordTitle);
+          zip.file(
+            uniqueZipPath(usedPaths, `${recordFolder}/${sanitizeZipSegment(`${recordTitle} - כולל נספחים.pdf`)}`),
+            pdfResult.blob,
+          );
+          await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
+        }
+
+        const archiveBlob = await zip.generateAsync({
+          type: "blob",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 },
+        });
+        const archiveUrl = URL.createObjectURL(archiveBlob);
+        const archiveLink = document.createElement("a");
+        archiveLink.href = archiveUrl;
+        archiveLink.download = `${archiveRoot}.zip`;
+        document.body.appendChild(archiveLink);
+        archiveLink.click();
+        archiveLink.remove();
+        window.setTimeout(() => URL.revokeObjectURL(archiveUrl), 1000);
+        return;
+      }
       const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
       const url = URL.createObjectURL(mergedResult.blob);
       const link = document.createElement("a");
@@ -22853,7 +15115,6 @@ ${invalidRecipients.join("\n")}`);
     "rfi",
     "supervisionReports",
     "nonconformances",
-    "trialSections",
     "preliminary",
   ];
   const activeStructureNodeId = (() => {
@@ -23598,6 +15859,7 @@ ${invalidRecipients.join("\n")}`);
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
         ["projects", "פרויקטים"],
+        ["projectStructure", "עץ מבנה פרויקט"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
@@ -23615,6 +15877,7 @@ ${invalidRecipients.join("\n")}`);
         ["home", "דף בית"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
+        ["projectStructure", "עץ מבנה פרויקט"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
@@ -24591,6 +16854,7 @@ ${invalidRecipients.join("\n")}`);
                 ["nonconformances", "אי־התאמות"],
                 ["rfi", "RFI"],
                 ["trialSections", "קטעי ניסוי"],
+                ["holdPoints", "נקודות עצירה"],
                 ["controlProcesses", "תעודות ייחוס וריכוזים"],
                 ["supervisionReports", "דוחות פיקוח עליון"],
               ].map(([key, label]) => (
@@ -24680,7 +16944,29 @@ ${invalidRecipients.join("\n")}`);
               onChange={setActiveStructureNodeId}
             />
           )}
-          {false && section === "projectStructure" && null}
+          {section === "projectStructure" && !guardedBody && (
+            <ProjectStructureSection
+              nodes={currentProjectStructureNodes}
+              plans={currentProjectPlans}
+              form={projectStructureForm}
+              editingId={editingProjectStructureNodeId}
+              canWrite={canWriteAccess(projectAccess)}
+              onChange={(patch) => setProjectStructureForm((current) => ({ ...current, ...patch }))}
+              onSave={saveProjectStructureNode}
+              onEdit={editProjectStructureNode}
+              onDelete={deleteProjectStructureNode}
+              onReset={resetProjectStructureForm}
+              onGenerateFromPlans={generateProjectStructureFromPlans}
+              onDownload={(node) => downloadProjectArchive(node)}
+              linkedRecords={{
+                checklists: projectChecklists,
+                nonconformances: projectNonconformances,
+                trialSections: projectTrialSections,
+                rfis: projectRfis,
+                holdPoints: projectHoldPoints,
+              }}
+            />
+          )}
           {section === "projectDetails" && currentProject && (
             <ProjectLegendPanel
               legend={currentProjectLegend}
@@ -25109,6 +17395,7 @@ ${invalidRecipients.join("\n")}`);
                 responsibleUsers={currentProjectEmailUsers.filter((user) => user.active !== false)}
                 onUploadAttachment={uploadChecklistItemAttachment}
                 onRemoveAttachment={removeChecklistItemAttachment}
+                onOpenNonconformanceFromFinding={openNonconformanceFromChecklistFinding}
                 savedSignatureForSigner={savedSignatureForSigner}
               />
             </>
@@ -25199,6 +17486,7 @@ ${invalidRecipients.join("\n")}`);
               setTrialSectionForm={setTrialSectionForm}
               saveTrialSection={saveTrialSection}
               resetTrialSectionEditor={resetTrialSectionEditor}
+              projectStructureNodes={currentProjectStructureNodes}
             />
             </>
           )}

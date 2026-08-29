@@ -9,7 +9,7 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register';
   workType?: string;
   expectedMetrics?: string[];
 };
@@ -350,6 +350,7 @@ const concreteStrengthEmptyData = {
   castDate: '',
   concreteSource: '',
   quantity: '',
+  slumpCertificateNo: '',
   slumpRequirement: '',
   slumpResult: '',
   curingType: '',
@@ -375,6 +376,7 @@ const concreteStrengthJsonSchema = {
     castDate: { type: 'string' },
     concreteSource: { type: 'string' },
     quantity: { type: 'string' },
+    slumpCertificateNo: { type: 'string' },
     slumpRequirement: { type: 'string' },
     slumpResult: { type: 'string' },
     curingType: { type: 'string' },
@@ -978,6 +980,89 @@ export async function POST(req: NextRequest) {
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
 
+    if (subtype === 'plan-register') {
+      const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const prompt = `אתה מחלץ רשימת תוכניות הנדסיות מקובץ PDF, לרבות PDF סרוק כתמונה.
+קרא את כל הטבלאות והחזר JSON בלבד. כל שורה שמייצגת תוכנית תהיה איבר במערך plans.
+
+לכל תוכנית חלץ:
+- planNo: מספר תוכנית / מספר שרטוט.
+- title: שם או תיאור התוכנית.
+- revision: מהדורה / רוויזיה.
+- date: תאריך בפורמט yyyy-mm-dd אם ניתן.
+- status: מטרה או סטטוס כגון לביצוע, לאישור, לעיון, מבוטל.
+- discipline: תחום או מקצוע אם כתוב במפורש.
+- notes: קנה מידה או הערה משמעותית.
+
+כללים:
+- אל תיצור תוכניות מכותרות, מספרי עמודים או שורות סיכום.
+- שמור מספרי תוכנית בדיוק רב, כולל מקפים, לוכסנים ואותיות.
+- אם תא ריק החזר מחרוזת ריקה ואל תנחש.
+- אל תחזיר כפילויות של אותו מספר תוכנית ואותה מהדורה.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (isImage(mimeType)) {
+        content.push({ type: 'input_image', image_url: normalizedFileData, detail: 'high' });
+      } else {
+        const renderedPages = await renderPdfPagesToPngDataUrls(normalizedFileData, mimeType, 8);
+        if (renderedPages.length) {
+        renderedPages.forEach((imageDataUrl, index) => {
+          content.push({ type: 'input_text', text: `עמוד ${index + 1}` });
+          content.push({ type: 'input_image', image_url: imageDataUrl, detail: 'high' });
+        });
+        } else {
+          content.push({ type: 'input_file', filename: fileName, file_data: normalizedFileData });
+        }
+      }
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'plan_register_extract',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  plans: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        planNo: { type: 'string' },
+                        title: { type: 'string' },
+                        revision: { type: 'string' },
+                        date: { type: 'string' },
+                        status: { type: 'string' },
+                        discipline: { type: 'string' },
+                        notes: { type: 'string' },
+                      },
+                      required: ['planNo', 'title', 'revision', 'date', 'status', 'discipline', 'notes'],
+                    },
+                  },
+                },
+                required: ['plans'],
+              },
+            },
+          },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI plan register OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Plan register OCR failed' }, { status: 500 });
+      }
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      return NextResponse.json({ data: safeJsonParse(outputText) ?? { plans: [] } });
+    }
+
     if (subtype === 'concrete-strength') {
       const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
       const prompt = `אתה מחלץ תוצאות חוזק לחיצה מתעודת מעבדת בטון עבור בקרת איכות.
@@ -992,10 +1077,11 @@ export async function POST(req: NextRequest) {
 - castDate: תאריך היציקה או תאריך נטילת הדגימה בפורמט yyyy-mm-dd.
 - concreteSource: שם מפעל הבטון / ספק הבטון.
 - quantity: כמות הבטון ביציקה במ"ק.
-- slumpRequirement: דרישת הסומך.
-- slumpResult: תוצאת בדיקת הסומך.
-- curingType: סוג האשפרה.
-- structure, element, sampleLocation, fromSection, toSection, side: פרטי המיקום אם הם מופיעים בתעודה.
+- slumpCertificateNo: מספר תעודת בדיקת הסומך, רק אם מצוין במפורש.
+- slumpRequirement: דרישת הסומך, רק אם הכותרת "סומך" או "שקיעה" מופיעה במפורש ליד הערך.
+- slumpResult: תוצאת בדיקת הסומך, רק אם הכותרת "סומך" או "שקיעה" מופיעה במפורש ליד הערך.
+- curingType: סוג האשפרה, רק אם קיים שדה מפורש בשם "סוג אשפרה"; אין להסיק מטקסט אחר.
+- structure, element, sampleLocation, fromSection, toSection, side: השאר ריקים; המיקום נקלט מרשימת התיוג במערכת.
 
 כללים:
 - אל תעתיק מספר מדגם, גיל בדיקה, משקל, מידות קובייה או עומס בתור חוזק.
@@ -1004,6 +1090,8 @@ export async function POST(req: NextRequest) {
 - חפש את עמודת "חוזק לחיצה", "ממוצע", "תוצאה" או MPa. אל תחזיר את גיל הבדיקה 7/28, מספר מדגם, משקל, שטח, עומס או מידות בתור תוצאת חוזק.
 - אם יש טבלה עם שורות של קוביות, קבץ לפי גיל הבדיקה. תוצאה מודפסת מסכמת או ממוצע גוברים על חישוב עצמאי.
 - אם גיל 28 ימים טרם הגיע או אין תוצאה, השאר strength28Days ריק.
+- אם אין מספר תעודת סומך מפורש, השאר slumpCertificateNo, slumpRequirement ו-slumpResult ריקים.
+- אין להחזיר גיל בדיקה, טווח ימים, מספר מדגם, שם מבצע או תיאור אלמנט בתור סוג אשפרה או סומך.
 - confidence בין 0 ל-1.`;
       const content: any[] = [{ type: 'input_text', text: prompt }];
       if (isImage(mimeType)) {

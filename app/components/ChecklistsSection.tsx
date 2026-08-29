@@ -89,6 +89,9 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
     const to = window.prompt("לאיזה מייל לשלוח את רשימת התיוג כ-PDF?");
     if (!to) return;
 
+    const customMessage = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "");
+    if (customMessage === null) return;
+
     setEmailSending(true);
     try {
       const html = buildChecklistPdfHtml();
@@ -142,7 +145,8 @@ export function ChecklistsSection(props: ChecklistsSectionProps) {
         body: JSON.stringify({
           to,
           subject: `${props.checklistForm.title || "רשימת תיוג"} - PDF`,
-          text: "מצורפת רשימת תיוג בפורמט PDF ובצירוף המסמכים שהועלו למערכת.",
+          html: `<div dir="rtl">${customMessage.trim() ? `<div style="margin:0 0 14px;white-space:pre-line">${escapeHtml(customMessage.trim())}</div>` : ""}<div>מצורפת רשימת תיוג בפורמט PDF ובצירוף המסמכים שהועלו למערכת.</div></div>`,
+          text: `${customMessage.trim() ? `${customMessage.trim()}\n\n` : ""}מצורפת רשימת תיוג בפורמט PDF ובצירוף המסמכים שהועלו למערכת.`,
           attachments,
         }),
       });
