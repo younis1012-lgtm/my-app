@@ -34,6 +34,7 @@ import {
 } from "./components/HoldPointsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
+import { QualityDocumentsSection } from "./components/QualityDocumentsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 import { extractEarthworksDensityFromFile, parseEarthworksDensityText } from "./components/densityCertificateParser";
 const STORAGE_KEY = "yk-quality-stage4-multifile";
@@ -91,7 +92,8 @@ type AppSection =
   | "supervisionReports"
   | "controlProcesses"
   | "checklistTracking"
-  | "holdPoints";
+  | "holdPoints"
+  | "qualityDocuments";
 
 
 type ProjectEmailUser = {
@@ -24230,6 +24232,7 @@ ${invalidRecipients.join("\n")}`);
         ["projectUsers", "משתמשים"],
         ["projects", "פרויקטים"],
         ["projectStructure", "עץ מבנה פרויקט"],
+        ["qualityDocuments", "תוכנית ב״א ונהלים"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
@@ -24248,6 +24251,7 @@ ${invalidRecipients.join("\n")}`);
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
         ["projectStructure", "עץ מבנה פרויקט"],
+        ["qualityDocuments", "תוכנית ב״א ונהלים"],
         ["controlProcesses", "בקרה מקדימה / תעודות ייחוס"],
         ["rfi", "RFI"],
         ["supervisionReports", "דוחות פיקוח עליון"],
@@ -25455,6 +25459,13 @@ ${invalidRecipients.join("\n")}`);
               onNew={resetPlanForm}
               onLoad={loadPlan}
               onDelete={deletePlan}
+            />
+          )}
+          {section === "qualityDocuments" && currentProjectIdNormalized && (
+            <QualityDocumentsSection
+              projectId={currentProjectIdNormalized}
+              canWrite={canWriteAccess(projectAccess)}
+              supabase={isSupabaseConfigured ? supabase : null}
             />
           )}
           {section === "account" && (
