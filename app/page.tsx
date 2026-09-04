@@ -20278,7 +20278,7 @@ export default function Page() {
   };
   const loadChecklist = async (record: ChecklistRecord) => {
     let fullRecord = record;
-    if (cloudEnabled && supabase && !(record.items?.length)) {
+    if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from("checklists").select("*").eq("id", record.id).maybeSingle();
       if (!error && data) fullRecord = checklistRowToRecord(data);
     }
@@ -20619,7 +20619,7 @@ export default function Page() {
     resetNonconformanceEditor();
   };
   const loadNonconformance = async (record: NonconformanceRecord) => {
-    if (cloudEnabled && supabase && !(record as any).images?.length) {
+    if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from(NONCONFORMANCE_TABLE).select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
         const details = data.details && typeof data.details === "object" ? data.details : {};
@@ -20905,7 +20905,7 @@ export default function Page() {
     resetTrialSectionEditor();
   };
   const loadTrialSection = async (record: TrialSectionRecord) => {
-    if (cloudEnabled && supabase && !(record as any).details) {
+    if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from("trial_sections").select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
         const details = data.details && typeof data.details === "object" ? data.details : {};
@@ -21058,7 +21058,7 @@ export default function Page() {
     resetPreliminaryEditor();
   };
   const loadPreliminary = async (record: PreliminaryRecord) => {
-    if (cloudEnabled && supabase && !record.supplier && !record.subcontractor && !record.material) {
+    if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from("preliminary_records").select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
         record = {
