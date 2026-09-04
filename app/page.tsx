@@ -5099,22 +5099,24 @@ async function selectProjectTable(
         .filter(Boolean);
       if (!ids.length) return empty;
 
-      const rows: any[] = [];
-      const batchSize = 4;
-      for (let index = 0; index < ids.length; index += batchSize) {
-        const batch = ids.slice(index, index + batchSize);
-        const batchResults = await Promise.all(
-          batch.map(async (id) => {
-            const query = new URLSearchParams({ select: "*", id: `eq.${id}` });
-            const response = await fetch(
-              `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
-              { headers, cache: "no-store" },
-            );
-            if (!response.ok) return null;
+      const fetchRecord = async (id: string) => {
+        const query = new URLSearchParams({ select: "*", id: `eq.${id}` });
+        const url = `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const response = await fetch(url, { headers, cache: "no-store" });
+          if (response.ok) {
             const data = await response.json();
             return Array.isArray(data) ? data[0] ?? null : null;
-          }),
-        );
+          }
+        }
+        return null;
+      };
+
+      const rows: any[] = [];
+      const batchSize = 10;
+      for (let index = 0; index < ids.length; index += batchSize) {
+        const batch = ids.slice(index, index + batchSize);
+        const batchResults = await Promise.all(batch.map(fetchRecord));
         if (batchResults.some((row) => row === null)) return null;
         rows.push(...batchResults);
       }
@@ -16680,6 +16682,26 @@ export default function Page() {
         // Unscoped authenticated reads are filtered inconsistently by the
         // production RLS policies and can replace whole modules with [].
         const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
+        const preliminaryRequest = selectProjectTable("preliminary_records", "saved_at", scopedProjectIds);
+        void preliminaryRequest.then((result) => {
+          if (cancelled || loadGeneration !== cloudLoadGenerationRef.current || result.error) return;
+          setSavedPreliminary(
+            (result.data ?? []).map((row: any) => ({
+              id: row.id,
+              projectId: normalizeStoredProjectId(row.project_id),
+              subtype: row.subtype,
+              structureNodeId: row.structure_node_id ?? "",
+              title: row.title ?? "",
+              date: row.date ?? "",
+              status: row.status ?? "טיוטה",
+              supplier: row.supplier ?? undefined,
+              subcontractor: row.subcontractor ?? undefined,
+              material: row.material ?? undefined,
+              approval: normalizeApproval(row.approval),
+              savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+            })),
+          );
+        });
         const [
           projectsRes,
           checklistsRes,
@@ -16696,7 +16718,7 @@ export default function Page() {
           selectProjectTable("checklists", "saved_at", scopedProjectIds),
           selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
           selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+          preliminaryRequest,
           selectProjectTable("rfi_records", "created_at", scopedProjectIds),
           selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
           selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
