@@ -5074,6 +5074,64 @@ async function selectProjectTable(
   if (!scopedProjectIds.length) return selectTable(table, orderColumn);
 
   const empty = { data: [], error: null } as any;
+  const selectHeavyTableInBatches = async () => {
+    if (!["checklists", NONCONFORMANCE_TABLE].includes(table)) return null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) return null;
+
+    const headers = { apikey: anonKey, Authorization: `Bearer ${anonKey}` };
+    try {
+      const idQuery = new URLSearchParams({
+        select: "id",
+        project_id: `in.(${scopedProjectIds.join(",")})`,
+      });
+      if (orderColumn) idQuery.set("order", `${orderColumn}.desc`);
+      const idResponse = await fetch(
+        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${idQuery.toString()}`,
+        { headers, cache: "no-store" },
+      );
+      if (!idResponse.ok) return null;
+
+      const idRows = await idResponse.json();
+      const ids = (Array.isArray(idRows) ? idRows : [])
+        .map((row: any) => String(row?.id ?? "").trim())
+        .filter(Boolean);
+      if (!ids.length) return empty;
+
+      const rows: any[] = [];
+      const batchSize = 4;
+      for (let index = 0; index < ids.length; index += batchSize) {
+        const batch = ids.slice(index, index + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (id) => {
+            const query = new URLSearchParams({ select: "*", id: `eq.${id}` });
+            const response = await fetch(
+              `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+              { headers, cache: "no-store" },
+            );
+            if (!response.ok) return null;
+            const data = await response.json();
+            return Array.isArray(data) ? data[0] ?? null : null;
+          }),
+        );
+        if (batchResults.some((row) => row === null)) return null;
+        rows.push(...batchResults);
+      }
+
+      return { data: rows, error: null } as any;
+    } catch (error) {
+      console.warn(`Batched cloud load failed for ${table}`, error);
+      return null;
+    }
+  };
+
+  // Rows in these modules can contain large inline photos and PDFs. Loading the
+  // entire project in one SELECT can exceed the database statement timeout, so
+  // fetch the small id list first and then load records in bounded batches.
+  const batchedResult = await selectHeavyTableInBatches();
+  if (batchedResult) return batchedResult;
+
   // Some production RLS policies still compare project_members against a
   // historical project UUID. In that state an authenticated SELECT succeeds
   // but returns zero rows, while the table's existing public read policy can
