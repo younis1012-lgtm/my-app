@@ -5077,9 +5077,13 @@ async function selectProjectTable(
   const selectHeavyTableSummaries = async () => {
     const summarySelect: Record<string, string> = {
       checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
-      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,raised_by:details->>raisedBy",
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
       trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id",
-      preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id",
+      preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier_name:supplier->>supplierName,supplied_material:supplier->>suppliedMaterial,subcontractor_name:subcontractor->>subcontractorName,contractor_field:subcontractor->>field,material_name:material->>materialName,material_usage:material->>usage,material_source:material->>source",
+      rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
+      [CONTROL_PROCESS_TABLE]: "id,project_id,process_no,title,work_type,spec_section,location,from_section,to_section,status,checklist_ids,rfi_ids,nonconformance_ids,audit_log,approval,locked_at,saved_at,created_at,structure_node_id",
+      [SUPERVISION_REPORTS_TABLE]: "id,project_id,title,report_no,date,structure_node_id,location,author,status,treatment_date,saved_at",
+      [PLANS_TABLE]: "id,project_id,plan_no,revision,title,discipline,date,status,saved_at",
     };
     const select = summarySelect[table];
     if (!select) return null;
@@ -8848,6 +8852,16 @@ function SupervisionReportsSection({
   onSendEmail: (record: SupervisionReportRecord) => void;
 }) {
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
+  const [recordsPage, setRecordsPage] = useState(1);
+  const recordsPageSize = 10;
+  const recordsTotalPages = Math.max(1, Math.ceil(records.length / recordsPageSize));
+  const safeRecordsPage = Math.min(recordsPage, recordsTotalPages);
+  const visibleRecords = records.slice((safeRecordsPage - 1) * recordsPageSize, safeRecordsPage * recordsPageSize);
+  const firstVisibleRecord = visibleRecords.length ? (safeRecordsPage - 1) * recordsPageSize + 1 : 0;
+  const lastVisibleRecord = Math.min(safeRecordsPage * recordsPageSize, records.length);
+  useEffect(() => {
+    if (recordsPage > recordsTotalPages) setRecordsPage(recordsTotalPages);
+  }, [recordsPage, recordsTotalPages]);
   const input: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -8990,9 +9004,9 @@ function SupervisionReportsSection({
                 </tr>
               </thead>
               <tbody>
-                {records.map((record, index) => (
+                {visibleRecords.map((record, index) => (
                   <tr key={record.id}>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{index + 1}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{(safeRecordsPage - 1) * recordsPageSize + index + 1}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
@@ -9017,6 +9031,21 @@ function SupervisionReportsSection({
                 ))}
               </tbody>
             </table>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", paddingTop: 12 }}>
+              <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisibleRecord}–{lastVisibleRecord} מתוך {records.length}</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <button type="button" style={styles.secondaryBtn} disabled={safeRecordsPage === 1} onClick={() => setRecordsPage((value) => Math.max(1, value - 1))}>הקודם</button>
+                {Array.from({ length: recordsTotalPages }, (_, index) => index + 1)
+                  .filter((value) => recordsTotalPages <= 7 || value === 1 || value === recordsTotalPages || Math.abs(value - safeRecordsPage) <= 2)
+                  .map((value, index, values) => (
+                    <Fragment key={value}>
+                      {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                      <button type="button" onClick={() => setRecordsPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safeRecordsPage ? "#0f172a" : "#fff", color: value === safeRecordsPage ? "#fff" : "#0f172a" }}>{value}</button>
+                    </Fragment>
+                  ))}
+                <button type="button" style={styles.secondaryBtn} disabled={safeRecordsPage === recordsTotalPages} onClick={() => setRecordsPage((value) => Math.min(recordsTotalPages, value + 1))}>הבא</button>
+              </div>
+            </div>
           </div>
         ) : (
           <div style={styles.emptyBox}>אין עדיין דוחות פיקוח עליון. לחץ הוספה, מלא פרטים ולחץ שמירה.</div>
@@ -10229,6 +10258,14 @@ function TrialSectionsRecordsTable({
       return left.originalIndex - right.originalIndex;
     })
     .map((item) => item.record);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(safeRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRecords = safeRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const cellValue = (record: any, ...keys: string[]) =>
     pickTrialValue(record, ...keys) || "-";
   const rawCellValue = (record: any, ...keys: string[]) =>
@@ -10395,7 +10432,7 @@ function TrialSectionsRecordsTable({
         }}
       >
         <div style={{ fontWeight: 900, color: "#374151" }}>
-          1-{Math.min(10, safeRecords.length)} / {safeRecords.length || 0}
+          {visibleRecords.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, safeRecords.length)} / {safeRecords.length || 0}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
@@ -10473,8 +10510,9 @@ function TrialSectionsRecordsTable({
             </tr>
           </thead>
           <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
+            {visibleRecords.length ? (
+              visibleRecords.map((record, index) => {
+                const absoluteIndex = (safePage - 1) * pageSize + index;
                 const id = String(record?.id ?? index);
                 return (
                   <tr
@@ -10544,7 +10582,7 @@ function TrialSectionsRecordsTable({
                           lineHeight: 1.5,
                         }}
                       >
-                        {column.value(record, index) || "-"}
+                        {column.value(record, absoluteIndex) || "-"}
                       </td>
                     ))}
                   </tr>
@@ -10569,6 +10607,11 @@ function TrialSectionsRecordsTable({
           </tbody>
         </table>
       </div>
+      {safeRecords.length ? (
+        <div style={{ padding: "0 16px 14px" }}>
+          <PaginationControls page={safePage} totalPages={totalPages} totalItems={safeRecords.length} pageSize={pageSize} onPageChange={setPage} />
+        </div>
+      ) : null}
       <div
         style={{
           height: 14,
@@ -10679,6 +10722,34 @@ function FormGrid({
   );
 }
 
+function PaginationControls({ page, totalPages, totalItems, pageSize, onPageChange }: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const first = totalItems ? (page - 1) * pageSize + 1 : 0;
+  const last = Math.min(page * pageSize, totalItems);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+      <span style={{ color: "#64748b", fontWeight: 850 }}>{first}–{last} מתוך {totalItems}</span>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" style={styles.secondaryBtn} disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))}>הקודם</button>
+        {Array.from({ length: totalPages }, (_, index) => index + 1)
+          .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - page) <= 2)
+          .map((value, index, values) => (
+            <Fragment key={value}>
+              {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+              <button type="button" onClick={() => onPageChange(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === page ? "#0f172a" : "#fff", color: value === page ? "#fff" : "#0f172a" }}>{value}</button>
+            </Fragment>
+          ))}
+        <button type="button" style={styles.secondaryBtn} disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))}>הבא</button>
+      </div>
+    </div>
+  );
+}
+
 const RFI_FIELDS: FieldDef[] = [
   { key: "title", label: "מספר RFI", required: true },
   { key: "referenceNo", label: "מספר יחוס" },
@@ -10754,6 +10825,14 @@ function RfiSection({
   sendRfiEmail: (record: RfiRecord) => void | Promise<void>;
   projectMeta: ProjectLegend;
 }) {
+  const [savedRfiPage, setSavedRfiPage] = useState(1);
+  const savedRfiPageSize = 10;
+  const savedRfiTotalPages = Math.max(1, Math.ceil(savedRfis.length / savedRfiPageSize));
+  const safeSavedRfiPage = Math.min(savedRfiPage, savedRfiTotalPages);
+  const visibleSavedRfis = savedRfis.slice((safeSavedRfiPage - 1) * savedRfiPageSize, safeSavedRfiPage * savedRfiPageSize);
+  useEffect(() => {
+    if (savedRfiPage > savedRfiTotalPages) setSavedRfiPage(savedRfiTotalPages);
+  }, [savedRfiPage, savedRfiTotalPages]);
   if (guardedBody) return <>{guardedBody}</>;
   const metaStyle: CSSProperties = {
     border: "1px solid #e2e8f0",
@@ -10979,7 +11058,7 @@ function RfiSection({
         <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
         {savedRfis.length ? (
           <div style={{ display: "grid", gap: 10 }}>
-            {savedRfis.map((item) => (
+            {visibleSavedRfis.map((item) => (
               <div
                 key={item.id}
                 style={{
@@ -11049,6 +11128,9 @@ function RfiSection({
         ) : (
           <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>
         )}
+        {savedRfis.length ? (
+          <PaginationControls page={safeSavedRfiPage} totalPages={savedRfiTotalPages} totalItems={savedRfis.length} pageSize={savedRfiPageSize} onPageChange={setSavedRfiPage} />
+        ) : null}
       </div>
       {editingRfiId &&
       normalizeRfiRecord({
@@ -13467,6 +13549,14 @@ function ControlProcessesSection({
   onDelete: (id: string) => void | Promise<void>;
   onLock: () => void | Promise<void>;
 }) {
+  const [savedProcessPage, setSavedProcessPage] = useState(1);
+  const savedProcessPageSize = 10;
+  const savedProcessTotalPages = Math.max(1, Math.ceil(savedProcesses.length / savedProcessPageSize));
+  const safeSavedProcessPage = Math.min(savedProcessPage, savedProcessTotalPages);
+  const visibleSavedProcesses = savedProcesses.slice((safeSavedProcessPage - 1) * savedProcessPageSize, safeSavedProcessPage * savedProcessPageSize);
+  useEffect(() => {
+    if (savedProcessPage > savedProcessTotalPages) setSavedProcessPage(savedProcessTotalPages);
+  }, [savedProcessPage, savedProcessTotalPages]);
   if (guardedBody) return <>{guardedBody}</>;
 
   const readOnly = form.status === "נעול";
@@ -14611,7 +14701,7 @@ function ControlProcessesSection({
         </h3>
         <div style={{ display: "grid", gap: 8 }}>
           {savedProcesses.length ? (
-            savedProcesses.map((process) => (
+            visibleSavedProcesses.map((process) => (
               <div
                 key={process.id}
                 style={{
@@ -14657,6 +14747,9 @@ function ControlProcessesSection({
             <div style={styles.emptyBox}>טרם נשמרו תעודות ייחוס בפרויקט.</div>
           )}
         </div>
+        {savedProcesses.length ? (
+          <PaginationControls page={safeSavedProcessPage} totalPages={savedProcessTotalPages} totalItems={savedProcesses.length} pageSize={savedProcessPageSize} onPageChange={setSavedProcessPage} />
+        ) : null}
       </div>
     </section>
   );
@@ -16574,11 +16667,11 @@ export default function Page() {
           date: row.date ?? details.date ?? "",
           location: row.location ?? details.location ?? "",
           building: details.building ?? "",
-          element: details.element ?? "",
-          subElement: details.subElement ?? details.sub_element ?? "",
-          fromSection: details.fromSection ?? details.from_section ?? "",
-          toSection: details.toSection ?? details.to_section ?? "",
-          offset: details.offset ?? "",
+          element: row.element ?? details.element ?? "",
+          subElement: row.sub_element ?? details.subElement ?? details.sub_element ?? "",
+          fromSection: row.from_section ?? details.fromSection ?? details.from_section ?? "",
+          toSection: row.to_section ?? details.toSection ?? details.to_section ?? "",
+          offset: row.offset ?? details.offset ?? "",
           grade: details.grade ?? "",
           expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
           updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
@@ -16644,9 +16737,19 @@ export default function Page() {
         title: row.title ?? "",
         date: row.date ?? "",
         status: row.status ?? "טיוטה",
-        supplier: row.supplier ?? undefined,
-        subcontractor: row.subcontractor ?? undefined,
-        material: row.material ?? undefined,
+        supplier: row.supplier ?? (row.supplier_name || row.supplied_material ? {
+          supplierName: row.supplier_name ?? "",
+          suppliedMaterial: row.supplied_material ?? "",
+        } : undefined),
+        subcontractor: row.subcontractor ?? (row.subcontractor_name || row.contractor_field ? {
+          subcontractorName: row.subcontractor_name ?? "",
+          field: row.contractor_field ?? "",
+        } : undefined),
+        material: row.material ?? (row.material_name || row.material_usage || row.material_source ? {
+          materialName: row.material_name ?? "",
+          usage: row.material_usage ?? "",
+          source: row.material_source ?? "",
+        } : undefined),
         approval: normalizeApproval(row.approval),
         savedAt: row.saved_at
           ? new Date(row.saved_at).toLocaleString("he-IL")
@@ -20091,35 +20194,41 @@ export default function Page() {
     return newSampleRows.length;
   };
 
-  const loadControlProcess = (record: ControlProcessRecord) => {
+  const loadControlProcess = async (record: ControlProcessRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(CONTROL_PROCESS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? normalizeControlProcess(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
     setSection("controlProcesses");
-    setEditingControlProcessId(record.id);
+    setEditingControlProcessId(fullRecord.id);
     setControlProcessForm({
-      processNo: record.processNo,
-      title: record.title,
-      workType: record.workType,
-      specSection: record.specSection,
-      structureNodeId: record.structureNodeId,
-      location: record.location,
-      date: record.date,
-      fromSection: record.fromSection,
-      toSection: record.toSection,
-      status: record.status,
-      checklistIds: record.checklistIds,
-      rfiIds: record.rfiIds,
-      nonconformanceIds: record.nonconformanceIds,
-      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      processNo: fullRecord.processNo,
+      title: fullRecord.title,
+      workType: fullRecord.workType,
+      specSection: fullRecord.specSection,
+      structureNodeId: fullRecord.structureNodeId,
+      location: fullRecord.location,
+      date: fullRecord.date,
+      fromSection: fullRecord.fromSection,
+      toSection: fullRecord.toSection,
+      status: fullRecord.status,
+      checklistIds: fullRecord.checklistIds,
+      rfiIds: fullRecord.rfiIds,
+      nonconformanceIds: fullRecord.nonconformanceIds,
+      requiredDocuments: normalizeRequiredDocuments(fullRecord.requiredDocuments),
       referenceResults: ensureReferenceResultsForMaterial(
-        isGradingLineReferenceRecord(record) &&
-        !isSelectedMaterialReference(record.workType) &&
-        !isMatzeaAReference(record.workType)
+        isGradingLineReferenceRecord(fullRecord) &&
+        !isSelectedMaterialReference(fullRecord.workType) &&
+        !isMatzeaAReference(fullRecord.workType)
           ? "קו דירוג"
-          : record.workType,
-        record.referenceResults,
+          : fullRecord.workType,
+        fullRecord.referenceResults,
       ),
-      auditTrail: record.auditTrail,
-      approval: normalizeApproval(record.approval),
-      lockedAt: record.lockedAt,
+      auditTrail: fullRecord.auditTrail,
+      approval: normalizeApproval(fullRecord.approval),
+      lockedAt: fullRecord.lockedAt,
     });
   };
 
@@ -20472,10 +20581,20 @@ export default function Page() {
     resetRfiForm();
   };
 
-  const loadRfi = (record: RfiRecord) => {
+  const hydrateRfiRecord = async (record: RfiRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from("rfi_records").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) fullRecord = rfiRowToRecord(data);
+    }
+    return fullRecord;
+  };
+
+  const loadRfi = async (record: RfiRecord) => {
+    const fullRecord = await hydrateRfiRecord(record);
     setSection("rfi");
-    setEditingRfiId(record.id);
-    const { id, projectId, savedAt, ...form } = record;
+    setEditingRfiId(fullRecord.id);
+    const { id, projectId, savedAt, ...form } = fullRecord;
     setRfiForm(form);
   };
 
@@ -21417,17 +21536,23 @@ export default function Page() {
     setEditingPlanId(id);
   };
 
-  const loadPlan = (record: PlanRecord) => {
-    setEditingPlanId(record.id);
+  const loadPlan = async (record: PlanRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(PLANS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? planRowToRecord(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
+    setEditingPlanId(fullRecord.id);
     setPlanForm({
-      planNo: record.planNo,
-      revision: record.revision,
-      title: record.title,
-      discipline: record.discipline,
-      date: record.date,
-      status: record.status,
-      notes: record.notes,
-      attachments: normalizeAttachments(record.attachments),
+      planNo: fullRecord.planNo,
+      revision: fullRecord.revision,
+      title: fullRecord.title,
+      discipline: fullRecord.discipline,
+      date: fullRecord.date,
+      status: fullRecord.status,
+      notes: fullRecord.notes,
+      attachments: normalizeAttachments(fullRecord.attachments),
     });
     setSection("plans");
   };
@@ -23999,21 +24124,32 @@ ${invalidRecipients.join("\n")}`);
     alert("דוח פיקוח עליון נשמר בהצלחה.");
   };
 
-  const loadSupervisionReport = (record: SupervisionReportRecord) => {
-    setEditingSupervisionReportId(record.id);
+  const hydrateSupervisionReport = async (record: SupervisionReportRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(SUPERVISION_REPORTS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? supervisionReportRowToRecord(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
+    return fullRecord;
+  };
+
+  const loadSupervisionReport = async (record: SupervisionReportRecord) => {
+    const fullRecord = await hydrateSupervisionReport(record);
+    setEditingSupervisionReportId(fullRecord.id);
     setSupervisionReportForm({
-      title: record.title,
-      reportNo: record.reportNo,
-      date: record.date,
-      structureNodeId: record.structureNodeId,
-      location: record.location,
-      author: record.author,
-      status: record.status,
-      treatment: record.treatment,
-      treatmentDate: record.treatmentDate,
-      notes: record.notes,
-      attachment: (record.attachments ?? (record.attachment ? [record.attachment] : [])).at(0) ?? null,
-      attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
+      title: fullRecord.title,
+      reportNo: fullRecord.reportNo,
+      date: fullRecord.date,
+      structureNodeId: fullRecord.structureNodeId,
+      location: fullRecord.location,
+      author: fullRecord.author,
+      status: fullRecord.status,
+      treatment: fullRecord.treatment,
+      treatmentDate: fullRecord.treatmentDate,
+      notes: fullRecord.notes,
+      attachment: (fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])).at(0) ?? null,
+      attachments: normalizeAttachments(fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])),
     });
   };
 
@@ -24102,6 +24238,7 @@ ${invalidRecipients.join("\n")}`);
 
   const downloadSupervisionReportPdf = async (record: SupervisionReportRecord) => {
     try {
+      record = await hydrateSupervisionReport(record);
       const blob = await buildSupervisionReportMergedPdfBlob(record);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -24117,6 +24254,7 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
+    record = await hydrateSupervisionReport(record);
     if (!ensureQualityControllerEmailSender()) return;
     const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
     const recipients = normalizeEmailList(recipientInput);
@@ -24260,6 +24398,7 @@ ${invalidRecipients.join("\n")}`);
 
   const downloadRfiPdf = async (record: RfiRecord) => {
     try {
+      record = await hydrateRfiRecord(record);
       const blob = await buildRfiMergedPdfBlob(record);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -24274,7 +24413,8 @@ ${invalidRecipients.join("\n")}`);
     }
   };
 
-  const downloadRfiExcel = (record: RfiRecord) => {
+  const downloadRfiExcel = async (record: RfiRecord) => {
+    record = await hydrateRfiRecord(record);
     const docs = normalizeAttachments(record.documents);
     const detailRows = rfiExportRows(record)
       .map(([label, value]) => `<tr><th>${safeText(label)}</th><td>${safeText(value)}</td></tr>`)
@@ -24359,6 +24499,7 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendRfiEmail = async (record: RfiRecord) => {
+    record = await hydrateRfiRecord(record);
     if (emailRecipientOptions.length) {
       setEmailRecipientDialogMode("rfi");
       setPendingRfiEmailRecord(record);
