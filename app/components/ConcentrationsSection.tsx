@@ -1729,6 +1729,8 @@ const referenceDocNo = (record: any): string => {
   const docs = Array.isArray(record?.requiredDocuments) ? record.requiredDocuments : [];
   return firstText(
     metricValue(record, ["מספר תעודת מעבדה", "מס תעודת מעבדה", "מספר תעודה", "תעודה"]),
+    record?.processNo,
+    record?.referenceNo,
     docs.map((d: any) => certificateNumberFromAttachment(d)).find(Boolean),
     docs.map((d: any) => firstText(d?.certificateNo, d?.certificateNumber, d?.documentNo, d?.documentNumber, d?.referenceNo, d?.attachmentName, d?.name)).find(Boolean),
   );
@@ -1857,23 +1859,23 @@ const matzeaAChecklistRow = (row: Row, index: number): Row => ({
   "הערות": firstText(row["תוצאות/הערות"]),
 });
 
-const buildMatzeaAConcentrationRows = (checklists: any[], _processes: any[], preliminary: any[] = []): Row[] => {
-  // הערה: אין שילוב עוד של רשומות מתוך processes (בדיקות שדה/צפיפות) בריכוז האפיון.
-  // רשומות אלה הן בדיקות שדה (לא בדיקות מעבדה/אפיון), ומכילות בתוכן טקסט חופשי
-  // שמזכיר את מספר תעודת הייחוס (24403) ואת סיווג ה-AASHTO של מצע א' רק כמטא-דאטה,
-  // מה שגרם להן להיכנס בטעות לריכוז כשורות "סלט" עם JSON גולמי בעמודת ההערות.
-  // מקור הנתונים האמין היחיד לריכוז אפיון מצע א' הוא רשימות התיוג (checklists) עם
-  // קובץ תעודת מעבדה מצורף בפועל.
+const buildMatzeaAConcentrationRows = (checklists: any[], processes: any[], preliminary: any[] = []): Row[] => {
+  // תעודות ייחוס נשמרות ב-control_processes, בעוד בדיקות צפיפות שדה נשמרות שם גם כן.
+  // הסינון להלן דורש גם זיהוי מפורש של מצע א׳ וגם שדות אפיון מעבדה, ולכן מחזיר את
+  // תעודות הייחוס לריכוז בלי להחזיר את שורות בדיקות השדה שזיהמו אותו בעבר.
   const checklist = checklistRows(
     checklists,
     ["מצע א", "מצע א׳", "אפיון מצע", "24403"],
     "אפיון מצע א׳",
     ["A-2-4", "a-2-4", "נברר", "חומר נברר", "מילוי נברר", "אפיון נברר"],
   ).map((row, index) => matzeaAChecklistRow(row, index));
-  const references = preliminaryReferenceRecords(preliminary)
+  const processReferences = processes
     .filter(isMatzeaAProcess)
     .map((record, index) => matzeaAProcessRow(record, checklist.length + index));
-  return [...checklist, ...references].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
+  const references = preliminaryReferenceRecords(preliminary)
+    .filter(isMatzeaAProcess)
+    .map((record, index) => matzeaAProcessRow(record, checklist.length + processReferences.length + index));
+  return [...checklist, ...processReferences, ...references].map((row, index) => ({ ...row, "מס׳ סדורי": index + 1 }));
 };
 
 const selectedMaterialColumns = matzeaAColumns;
