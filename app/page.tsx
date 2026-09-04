@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
@@ -5074,65 +5074,43 @@ async function selectProjectTable(
   if (!scopedProjectIds.length) return selectTable(table, orderColumn);
 
   const empty = { data: [], error: null } as any;
-  const selectHeavyTableInBatches = async () => {
-    if (!["checklists", NONCONFORMANCE_TABLE].includes(table)) return null;
+  const selectHeavyTableSummaries = async () => {
+    const summarySelect: Record<string, string> = {
+      checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,raised_by:details->>raisedBy",
+      trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id",
+      preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id",
+    };
+    const select = summarySelect[table];
+    if (!select) return null;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !anonKey) return null;
 
     const headers = { apikey: anonKey, Authorization: `Bearer ${anonKey}` };
     try {
-      const idQuery = new URLSearchParams({
-        select: "id",
+      const query = new URLSearchParams({
+        select,
         project_id: `in.(${scopedProjectIds.join(",")})`,
       });
-      if (orderColumn) idQuery.set("order", `${orderColumn}.desc`);
-      const idResponse = await fetch(
-        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${idQuery.toString()}`,
+      if (orderColumn) query.set("order", `${orderColumn}.desc`);
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
         { headers, cache: "no-store" },
       );
-      if (!idResponse.ok) return null;
-
-      const idRows = await idResponse.json();
-      const ids = (Array.isArray(idRows) ? idRows : [])
-        .map((row: any) => String(row?.id ?? "").trim())
-        .filter(Boolean);
-      if (!ids.length) return empty;
-
-      const fetchRecord = async (id: string) => {
-        const query = new URLSearchParams({ select: "*", id: `eq.${id}` });
-        const url = `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const response = await fetch(url, { headers, cache: "no-store" });
-          if (response.ok) {
-            const data = await response.json();
-            return Array.isArray(data) ? data[0] ?? null : null;
-          }
-        }
-        return null;
-      };
-
-      const rows: any[] = [];
-      const batchSize = 10;
-      for (let index = 0; index < ids.length; index += batchSize) {
-        const batch = ids.slice(index, index + batchSize);
-        const batchResults = await Promise.all(batch.map(fetchRecord));
-        if (batchResults.some((row) => row === null)) return null;
-        rows.push(...batchResults);
-      }
-
-      return { data: rows, error: null } as any;
+      if (!response.ok) return null;
+      const rows = await response.json();
+      return { data: Array.isArray(rows) ? rows : [], error: null } as any;
     } catch (error) {
-      console.warn(`Batched cloud load failed for ${table}`, error);
+      console.warn(`Summary cloud load failed for ${table}`, error);
       return null;
     }
   };
 
-  // Rows in these modules can contain large inline photos and PDFs. Loading the
-  // entire project in one SELECT can exceed the database statement timeout, so
-  // fetch the small id list first and then load records in bounded batches.
-  const batchedResult = await selectHeavyTableInBatches();
-  if (batchedResult) return batchedResult;
+  // Folder views need metadata only. Full forms and attachments are fetched
+  // on demand when the user opens a record.
+  const summaryResult = await selectHeavyTableSummaries();
+  if (summaryResult) return summaryResult;
 
   // Some production RLS policies still compare project_members against a
   // historical project UUID. In that state an authenticated SELECT succeeds
@@ -9750,9 +9728,16 @@ function FolderRecordsTable({
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(safeRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRecords = safeRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const firstVisible = pageRecords.length ? (safePage - 1) * pageSize + 1 : 0;
+  const lastVisible = Math.min(safePage * pageSize, safeRecords.length);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const canSelectRecords = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
-  const visibleRecordIds = safeRecords.map((record, index) => String(record?.id ?? index));
+  const visibleRecordIds = pageRecords.map((record, index) => String(record?.id ?? (safePage - 1) * pageSize + index));
   const selectedRecords = safeRecords.filter((record, index) =>
     selectedRecordIds.includes(String(record?.id ?? index)),
   );
@@ -9784,6 +9769,10 @@ function FolderRecordsTable({
   useEffect(() => {
     setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
   }, [visibleRecordIds.join("|")]);
+  useEffect(() => setPage(1), [title]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const toggleRecordSelection = (id: string, checked: boolean) => {
     setSelectedRecordIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id)));
@@ -9869,8 +9858,9 @@ function FolderRecordsTable({
       </div>
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
-          {safeRecords.length ? (
-            safeRecords.map((record, index) => {
+          {pageRecords.length ? (
+            pageRecords.map((record, index) => {
+              const absoluteIndex = (safePage - 1) * pageSize + index;
               const id = String(record?.id ?? index);
               return (
                 <article
@@ -9894,7 +9884,7 @@ function FolderRecordsTable({
                           aria-label={`בחר רשומה ${serialFor(record, index)}`}
                         />
                       ) : null}
-                      #{serialFor(record, index)}
+                      #{serialFor(record, absoluteIndex)}
                     </span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
@@ -9923,7 +9913,7 @@ function FolderRecordsTable({
                         }}
                       >
                         <span style={{ color: "#64748b", fontWeight: 850, fontSize: 12 }}>{column.label}</span>
-                        <span style={{ color: "#0f172a", fontWeight: 800, overflowWrap: "anywhere" }}>{column.value(record, index) || "-"}</span>
+                        <span style={{ color: "#0f172a", fontWeight: 800, overflowWrap: "anywhere" }}>{column.value(record, absoluteIndex) || "-"}</span>
                       </div>
                     ))}
                   </div>
@@ -9972,8 +9962,9 @@ function FolderRecordsTable({
             </tr>
           </thead>
           <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
+            {pageRecords.length ? (
+              pageRecords.map((record, index) => {
+                const absoluteIndex = (safePage - 1) * pageSize + index;
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
@@ -9989,11 +9980,11 @@ function FolderRecordsTable({
                       </td>
                     ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {serialFor(record, index)}
+                      {serialFor(record, absoluteIndex)}
                     </td>
                     {displayColumns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        {column.value(record, index) || "-"}
+                        {column.value(record, absoluteIndex) || "-"}
                       </td>
                     ))}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
@@ -10024,6 +10015,21 @@ function FolderRecordsTable({
         </table>
       </div>
       )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: "1px solid #e2e8f0", background: "#f8fafc" }}>
+        <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisible}–{lastVisible} מתוך {safeRecords.length}</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button type="button" style={styles.secondaryBtn} disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>הקודם</button>
+          {Array.from({ length: totalPages }, (_, index) => index + 1)
+            .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - safePage) <= 2)
+            .map((value, index, values) => (
+              <Fragment key={value}>
+                {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                <button type="button" onClick={() => setPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safePage ? "#0f172a" : "#fff", color: value === safePage ? "#fff" : "#0f172a" }}>{value}</button>
+              </Fragment>
+            ))}
+          <button type="button" style={styles.secondaryBtn} disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>הבא</button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -15480,7 +15486,14 @@ function ChecklistTrackingSection({
             </select>
           </label>
           <button type="button" style={styles.secondaryBtn} disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>הקודם</button>
-          <span style={{ minWidth: 76, textAlign: "center", fontWeight: 900 }}>{safePage} / {totalPages}</span>
+          {Array.from({ length: totalPages }, (_, index) => index + 1)
+            .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - safePage) <= 2)
+            .map((value, index, values) => (
+              <Fragment key={value}>
+                {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                <button type="button" onClick={() => setPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safePage ? "#0f172a" : "#fff", color: value === safePage ? "#fff" : "#0f172a" }}>{value}</button>
+              </Fragment>
+            ))}
           <button type="button" style={styles.secondaryBtn} disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>הבא</button>
         </div>
       </div>
@@ -20263,22 +20276,27 @@ export default function Page() {
     setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt }));
     alert("רשימת התיוג נשמרה בהצלחה");
   };
-  const loadChecklist = (record: ChecklistRecord) => {
+  const loadChecklist = async (record: ChecklistRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase && !(record.items?.length)) {
+      const { data, error } = await supabase.from("checklists").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) fullRecord = checklistRowToRecord(data);
+    }
     setSection("checklists");
-    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(record.templateKey));
-    setEditingChecklistId(record.id);
+    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(fullRecord.templateKey));
+    setEditingChecklistId(fullRecord.id);
     setChecklistForm({
-      ...(record as any),
-      checklistNo: record.checklistNo,
-      templateKey: record.templateKey,
-      title: record.title,
-      category: record.category,
-      location: record.location,
-      date: record.date,
-      contractor: record.contractor,
-      notes: record.notes,
-      items: normalizeChecklistItems(record.items),
-      approval: normalizeApproval(record.approval),
+      ...(fullRecord as any),
+      checklistNo: fullRecord.checklistNo,
+      templateKey: fullRecord.templateKey,
+      title: fullRecord.title,
+      category: fullRecord.category,
+      location: fullRecord.location,
+      date: fullRecord.date,
+      contractor: fullRecord.contractor,
+      notes: fullRecord.notes,
+      items: normalizeChecklistItems(fullRecord.items),
+      approval: normalizeApproval(fullRecord.approval),
     });
   };
   useEffect(() => {
@@ -20600,7 +20618,31 @@ export default function Page() {
     });
     resetNonconformanceEditor();
   };
-  const loadNonconformance = (record: NonconformanceRecord) => {
+  const loadNonconformance = async (record: NonconformanceRecord) => {
+    if (cloudEnabled && supabase && !(record as any).images?.length) {
+      const { data, error } = await supabase.from(NONCONFORMANCE_TABLE).select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        const details = data.details && typeof data.details === "object" ? data.details : {};
+        record = {
+          ...details,
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          structureNodeId: data.structure_node_id ?? details.structureNodeId ?? "",
+          title: details.title ?? "",
+          raisedBy: details.raisedBy ?? data.raised_by ?? "",
+          date: details.date ?? data.date ?? "",
+          location: details.location ?? data.location ?? "",
+          severity: details.severity ?? data.severity ?? "בינונית",
+          status: details.status ?? data.status ?? "פתוח",
+          description: data.description ?? details.description ?? "",
+          actionRequired: data.action_required ?? details.actionRequired ?? "",
+          notes: details.notes ?? data.notes ?? "",
+          images: normalizeAttachments(data.images ?? details.images),
+          approval: normalizeApproval(data.approval ?? details.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+        } as NonconformanceRecord;
+      }
+    }
     setSection("nonconformances");
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
@@ -20862,7 +20904,31 @@ export default function Page() {
     });
     resetTrialSectionEditor();
   };
-  const loadTrialSection = (record: TrialSectionRecord) => {
+  const loadTrialSection = async (record: TrialSectionRecord) => {
+    if (cloudEnabled && supabase && !(record as any).details) {
+      const { data, error } = await supabase.from("trial_sections").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        const details = data.details && typeof data.details === "object" ? data.details : {};
+        record = {
+          ...details,
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          structureNodeId: data.structure_node_id ?? details.structureNodeId ?? "",
+          title: details.title ?? data.title ?? "",
+          location: details.location ?? data.location ?? "",
+          date: details.date ?? data.date ?? "",
+          spec: details.spec ?? data.spec ?? "",
+          result: details.result ?? data.result ?? "",
+          approvedBy: details.approvedBy ?? data.approved_by ?? "",
+          status: details.status ?? data.status ?? "טיוטה",
+          notes: details.notes ?? data.notes ?? "",
+          images: normalizeAttachments(details.images ?? data.images),
+          approval: normalizeApproval(details.approval ?? data.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+          details,
+        } as TrialSectionRecord;
+      }
+    }
     setSection("trialSections");
     setEditingTrialSectionId(record.id);
     const details = ((record as any).details && typeof (record as any).details === "object") ? (record as any).details : {};
@@ -20991,7 +21057,26 @@ export default function Page() {
     });
     resetPreliminaryEditor();
   };
-  const loadPreliminary = (record: PreliminaryRecord) => {
+  const loadPreliminary = async (record: PreliminaryRecord) => {
+    if (cloudEnabled && supabase && !record.supplier && !record.subcontractor && !record.material) {
+      const { data, error } = await supabase.from("preliminary_records").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        record = {
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          subtype: data.subtype,
+          structureNodeId: data.structure_node_id ?? "",
+          title: data.title ?? "",
+          date: data.date ?? "",
+          status: data.status ?? "טיוטה",
+          supplier: data.supplier ?? undefined,
+          subcontractor: data.subcontractor ?? undefined,
+          material: data.material ?? undefined,
+          approval: normalizeApproval(data.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+        } as PreliminaryRecord;
+      }
+    }
     setSection("preliminary");
     setPreliminaryTab(record.subtype);
     setEditingPreliminaryId(record.id);
