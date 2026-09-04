@@ -649,6 +649,12 @@ const recordText = (record: any): string => {
   const parts: unknown[] = [
     record?.title,
     record?.category,
+    record?.workType,
+    record?.work_type,
+    record?.processNo,
+    record?.process_no,
+    record?.specSection,
+    record?.spec_section,
     record?.location,
     record?.contractor,
     record?.status,
