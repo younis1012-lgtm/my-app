@@ -1171,18 +1171,24 @@ const concreteStrengthStatusForConcentration = (
 };
 
 const approvedConcreteSupplierName = (savedPreliminary: any[]): string => {
-  const approvedConcreteSuppliers = preliminaryBySubtype(savedPreliminary, "suppliers")
+  const approvedSuppliers = preliminaryBySubtype(savedPreliminary, "suppliers")
     .filter(preliminaryRecordIsApproved)
     .map((record, index) => ({ record, row: supplierRow(record, index) }))
-    .filter(({ record, row }) =>
-      includesAny(
-        `${row["חומר/מוצר מסופק"] ?? ""} ${recordText(record)}`,
-        ["בטון", "concrete"],
-      ),
+    .map(({ record, row }) => ({
+      name: cleanText(row["שם ספק"]),
+      material: cleanText(`${row["חומר/מוצר מסופק"] ?? ""} ${recordText(record)}`),
+    }))
+    .filter(({ name }) => Boolean(name));
+  const readyMixSupplier = approvedSuppliers
+    .filter(({ material }) => includesAny(material, ["בטון מובא", "בטון מוכן", "תערובות בטון", "ready mix", "readymix"]))
+    .at(-1)?.name;
+  if (readyMixSupplier) return readyMixSupplier;
+  return approvedSuppliers
+    .filter(({ material }) =>
+      includesAny(material, ["בטון", "concrete"]) &&
+      !includesAny(material, ["בטון טרום", "מוצרי בטון", "זיון בטון", "עמודי בטון"]),
     )
-    .map(({ row }) => cleanText(row["שם ספק"]))
-    .filter(Boolean);
-  return approvedConcreteSuppliers.at(-1) ?? "";
+    .at(-1)?.name ?? "";
 };
 
 const buildConcreteConcentrationRows = (

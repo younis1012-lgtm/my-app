@@ -5059,6 +5059,7 @@ async function selectProjectTable(
   table: string,
   orderColumn: string | undefined,
   projectIds: string[],
+  summariesOnly = true,
 ) {
   // Keep legacy cloud ids intact here. projectCloudIdsForCanonicalId deliberately
   // returns both the canonical id and historical aliases; normalizing this list
@@ -5113,8 +5114,10 @@ async function selectProjectTable(
 
   // Folder views need metadata only. Full forms and attachments are fetched
   // on demand when the user opens a record.
-  const summaryResult = await selectHeavyTableSummaries();
-  if (summaryResult) return summaryResult;
+  if (summariesOnly) {
+    const summaryResult = await selectHeavyTableSummaries();
+    if (summaryResult) return summaryResult;
+  }
 
   // Some production RLS policies still compare project_members against a
   // historical project UUID. In that state an authenticated SELECT succeeds
@@ -15670,6 +15673,8 @@ export default function Page() {
   >(null);
   const [recordsSearchTerm, setRecordsSearchTerm] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [concentrationsLoading, setConcentrationsLoading] = useState(false);
+  const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
   const [authReady, setAuthReady] = useState(false);
@@ -16884,6 +16889,60 @@ export default function Page() {
       cancelled = true;
     };
   }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
+
+  useEffect(() => {
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    if (
+      section !== "concentrations" ||
+      !loaded ||
+      !cloudEnabled ||
+      !supabase ||
+      !normalizedProjectId ||
+      hydratedConcentrationsProjectId === normalizedProjectId
+    ) return;
+
+    let cancelled = false;
+    setConcentrationsLoading(true);
+    const projectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
+    (async () => {
+      try {
+        const [checklistsResult, preliminaryResult] = await Promise.all([
+          selectProjectTable("checklists", "saved_at", projectIds, false),
+          selectProjectTable("preliminary_records", "saved_at", projectIds, false),
+        ]);
+        if (cancelled) return;
+        if (!checklistsResult.error) {
+          setSavedChecklists((checklistsResult.data ?? []).map(checklistRowToRecord));
+        }
+        if (!preliminaryResult.error) {
+          setSavedPreliminary(
+            (preliminaryResult.data ?? []).map((row: any) => ({
+              id: row.id,
+              projectId: normalizeStoredProjectId(row.project_id),
+              subtype: row.subtype,
+              structureNodeId: row.structure_node_id ?? "",
+              title: row.title ?? "",
+              date: row.date ?? "",
+              status: row.status ?? "טיוטה",
+              supplier: row.supplier ?? undefined,
+              subcontractor: row.subcontractor ?? undefined,
+              material: row.material ?? undefined,
+              approval: normalizeApproval(row.approval),
+              savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+            })),
+          );
+        }
+        setHydratedConcentrationsProjectId(normalizedProjectId);
+      } catch (error) {
+        console.error("Failed loading full concentration source data", error);
+      } finally {
+        if (!cancelled) setConcentrationsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [section, loaded, cloudEnabled, currentProjectId, hydratedConcentrationsProjectId]);
 
   useEffect(() => {
     if (!loaded || typeof window === "undefined") return;
@@ -26222,6 +26281,9 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "concentrations" && (
             <>
+              {concentrationsLoading ? (
+                <div style={styles.emptyBox}>טוען את נתוני הריכוז המלאים והתוצאות השמורות…</div>
+              ) : (
               <ConcentrationsSection
                 currentProjectId={currentProjectIdNormalized}
                 savedChecklists={projectChecklists}
@@ -26246,6 +26308,7 @@ ${invalidRecipients.join("\n")}`);
                   } as any
                 }
               />
+              )}
             </>
           )}
         </main>
