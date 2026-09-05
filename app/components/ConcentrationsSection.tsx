@@ -28,6 +28,7 @@ type Props = {
   currentProjectName?: string;
   projectMeta?: ProjectConcentrationMeta;
   onImportSoilSurvey?: (file: File) => Promise<number> | number;
+  sourceDataLoading?: boolean;
 };
 
 type ConcentrationId =
@@ -6156,7 +6157,7 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey }: Props) {
+export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
@@ -6332,6 +6333,11 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
 
   return (
     <section dir="rtl" style={{ display: "grid", gap: 16 }}>
+      {sourceDataLoading ? (
+        <div style={{ border: "1px solid #bfdbfe", borderRadius: 14, padding: "10px 14px", background: "#eff6ff", color: "#1e40af", fontWeight: 800 }}>
+          המסך זמין לעבודה. תוצאות הבדיקות מתעדכנות ברקע ללא טעינת הקבצים המצורפים הכבדים.
+        </div>
+      ) : null}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>

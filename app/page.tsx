@@ -5060,6 +5060,7 @@ async function selectProjectTable(
   orderColumn: string | undefined,
   projectIds: string[],
   summariesOnly = true,
+  selectedColumns = "*",
 ) {
   // Keep legacy cloud ids intact here. projectCloudIdsForCanonicalId deliberately
   // returns both the canonical id and historical aliases; normalizing this list
@@ -5130,7 +5131,7 @@ async function selectProjectTable(
     if (!supabaseUrl || !anonKey) return empty;
     try {
       const query = new URLSearchParams({
-        select: "*",
+        select: selectedColumns,
         project_id: `in.(${scopedProjectIds.join(",")})`,
       });
       if (orderColumn) query.set("order", `${orderColumn}.desc`);
@@ -5151,7 +5152,7 @@ async function selectProjectTable(
       return empty;
     }
   };
-  const buildQuery = () => supabase!.from(table).select("*").in("project_id", scopedProjectIds);
+  const buildQuery = () => supabase!.from(table).select(selectedColumns).in("project_id", scopedProjectIds);
   const baseQuery = buildQuery();
   if (!orderColumn) {
     const result = await baseQuery;
@@ -16907,8 +16908,20 @@ export default function Page() {
     (async () => {
       try {
         const [checklistsResult, preliminaryResult] = await Promise.all([
-          selectProjectTable("checklists", "saved_at", projectIds, false),
-          selectProjectTable("preliminary_records", "saved_at", projectIds, false),
+          selectProjectTable(
+            "checklists",
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details,items",
+          ),
+          selectProjectTable(
+            "preliminary_records",
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
+          ),
         ]);
         if (cancelled) return;
         if (!checklistsResult.error) {
@@ -26281,9 +26294,6 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "concentrations" && (
             <>
-              {concentrationsLoading ? (
-                <div style={styles.emptyBox}>טוען את נתוני הריכוז המלאים והתוצאות השמורות…</div>
-              ) : (
               <ConcentrationsSection
                 currentProjectId={currentProjectIdNormalized}
                 savedChecklists={projectChecklists}
@@ -26295,6 +26305,7 @@ ${invalidRecipients.join("\n")}`);
                 savedSupervisionReports={projectSupervisionReports}
                 currentProjectName={projectName}
                 onImportSoilSurvey={importSoilSurveyToEarthworksConcentration}
+                sourceDataLoading={concentrationsLoading}
                 projectMeta={
                   {
                     projectName: currentProjectLegend.projectName,
@@ -26308,7 +26319,6 @@ ${invalidRecipients.join("\n")}`);
                   } as any
                 }
               />
-              )}
             </>
           )}
         </main>
