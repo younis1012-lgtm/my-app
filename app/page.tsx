@@ -15794,6 +15794,7 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [concentrationsLoading, setConcentrationsLoading] = useState(false);
   const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
+  const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
   const [authReady, setAuthReady] = useState(false);
@@ -17022,6 +17023,7 @@ export default function Page() {
 
     let cancelled = false;
     setConcentrationsLoading(true);
+    setConcentrationsLoadError("");
     const projectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
     (async () => {
       try {
@@ -17042,6 +17044,9 @@ export default function Page() {
           ),
         ]);
         if (cancelled) return;
+        if (checklistsResult.error || preliminaryResult.error) {
+          throw checklistsResult.error || preliminaryResult.error;
+        }
         if (!checklistsResult.error) {
           setSavedChecklists((checklistsResult.data ?? []).map(checklistRowToRecord));
         }
@@ -17066,6 +17071,7 @@ export default function Page() {
         setHydratedConcentrationsProjectId(normalizedProjectId);
       } catch (error) {
         console.error("Failed loading full concentration source data", error);
+        if (!cancelled) setConcentrationsLoadError("טעינת נתוני התעודות המלאים לא הושלמה.");
       } finally {
         if (!cancelled) setConcentrationsLoading(false);
       }
@@ -26425,6 +26431,8 @@ ${invalidRecipients.join("\n")}`);
                 currentProjectName={projectName}
                 onImportSoilSurvey={importSoilSurveyToEarthworksConcentration}
                 sourceDataLoading={concentrationsLoading}
+                sourceDataReady={!cloudEnabled || hydratedConcentrationsProjectId === currentProjectIdNormalized}
+                sourceDataError={concentrationsLoadError}
                 projectMeta={
                   {
                     projectName: currentProjectLegend.projectName,

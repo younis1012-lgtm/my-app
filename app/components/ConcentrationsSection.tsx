@@ -29,6 +29,8 @@ type Props = {
   projectMeta?: ProjectConcentrationMeta;
   onImportSoilSurvey?: (file: File) => Promise<number> | number;
   sourceDataLoading?: boolean;
+  sourceDataReady?: boolean;
+  sourceDataError?: string;
 };
 
 type ConcentrationId =
@@ -6157,7 +6159,7 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false }: Props) {
+export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false, sourceDataReady = true, sourceDataError = "" }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
@@ -6231,6 +6233,10 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
     });
 
   const exportOne = async (definition: ConcentrationDefinition) => {
+    if (!sourceDataReady) {
+      alert(sourceDataError || "נתוני התעודות עדיין נטענים. יש להמתין להשלמת הטעינה כדי למנוע הפקת ריכוז חלקי.");
+      return;
+    }
     setBusyId(definition.id);
     try {
       let selectedMix = "";
@@ -6258,6 +6264,10 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
   };
 
   const exportSelected = async () => {
+    if (!sourceDataReady) {
+      alert(sourceDataError || "נתוני התעודות עדיין נטענים. יש להמתין להשלמת הטעינה כדי למנוע הפקת ריכוז חלקי.");
+      return;
+    }
     const selectedDefinitions = definitions.filter((definition) =>
       selectedIds.includes(definition.id),
     );
@@ -6338,6 +6348,11 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
           המסך זמין לעבודה. תוצאות הבדיקות מתעדכנות ברקע ללא טעינת הקבצים המצורפים הכבדים.
         </div>
       ) : null}
+      {!sourceDataLoading && sourceDataError ? (
+        <div style={{ border: "1px solid #fecaca", borderRadius: 14, padding: "10px 14px", background: "#fef2f2", color: "#991b1b", fontWeight: 800 }}>
+          {sourceDataError} יש לרענן את המסך לפני הפקת הריכוז, כדי שלא ייווצר קובץ חלקי.
+        </div>
+      ) : null}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>ריכוזים</h2>
@@ -6372,12 +6387,12 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
         </label>
         <button
           type="button"
-          disabled={!selectedIds.length || bulkDownloading}
+          disabled={!selectedIds.length || bulkDownloading || !sourceDataReady}
           onClick={exportSelected}
           style={{
             ...btnStyle,
-            opacity: !selectedIds.length || bulkDownloading ? 0.55 : 1,
-            cursor: !selectedIds.length || bulkDownloading ? "not-allowed" : "pointer",
+            opacity: !selectedIds.length || bulkDownloading || !sourceDataReady ? 0.55 : 1,
+            cursor: !selectedIds.length || bulkDownloading || !sourceDataReady ? "not-allowed" : "pointer",
           }}
         >
           {bulkDownloading
@@ -6434,8 +6449,8 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
               </div>
 
               <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-                <button type="button" disabled={busyId === definition.id} onClick={() => exportOne(definition)} style={{ ...btnStyle, cursor: busyId === definition.id ? "wait" : "pointer" }}>
-                  {busyId === definition.id ? "מפיק Excel..." : "הורד Excel חדש"}
+                <button type="button" disabled={busyId === definition.id || !sourceDataReady} onClick={() => exportOne(definition)} style={{ ...btnStyle, opacity: sourceDataReady ? 1 : 0.55, cursor: busyId === definition.id ? "wait" : sourceDataReady ? "pointer" : "not-allowed" }}>
+                  {busyId === definition.id ? "מפיק Excel..." : !sourceDataReady ? "ממתין לנתוני התעודות..." : "הורד Excel חדש"}
                 </button>
                 {definition.id === "earthworks-material-results" && onImportSoilSurvey && (
                   <>
@@ -6456,7 +6471,7 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
                     </button>
                   </>
                 )}
-                <button type="button" onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: "pointer" }}>
+                <button type="button" disabled={!sourceDataReady && !isOpen} onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", opacity: sourceDataReady || isOpen ? 1 : 0.55, cursor: sourceDataReady || isOpen ? "pointer" : "not-allowed" }}>
                   {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
                 </button>
               </div>
