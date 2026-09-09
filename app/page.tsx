@@ -8857,12 +8857,30 @@ function SupervisionReportsSection({
 }) {
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
   const [recordsPage, setRecordsPage] = useState(1);
+  const [recordFilters, setRecordFilters] = useState<Record<string, string>>({});
   const recordsPageSize = 10;
-  const recordsTotalPages = Math.max(1, Math.ceil(records.length / recordsPageSize));
+  const supervisionFilterColumns = [
+    { key: "serial", label: "מס׳", value: (_record: SupervisionReportRecord, index: number) => index + 1 },
+    { key: "title", label: "נושא", value: (record: SupervisionReportRecord) => record.title || "דוח פיקוח" },
+    { key: "reportNo", label: "מספר", value: (record: SupervisionReportRecord) => record.reportNo },
+    { key: "date", label: "תאריך", value: (record: SupervisionReportRecord) => record.date },
+    { key: "treatmentDate", label: "תאריך טיפול", value: (record: SupervisionReportRecord) => record.treatmentDate },
+    { key: "location", label: "מיקום", value: (record: SupervisionReportRecord) => record.location },
+    { key: "author", label: "עורך", value: (record: SupervisionReportRecord) => record.author },
+    { key: "status", label: "סטטוס", value: (record: SupervisionReportRecord) => record.status },
+    { key: "files", label: "קבצים", value: (record: SupervisionReportRecord) => (record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file) => file.name).join(" ") },
+  ];
+  const filteredSupervisionRecords = records.filter((record, index) =>
+    supervisionFilterColumns.every((column) => {
+      const query = normalizeTableFilter(recordFilters[column.key]);
+      return !query || normalizeTableFilter(column.value(record, index)).includes(query);
+    }),
+  );
+  const recordsTotalPages = Math.max(1, Math.ceil(filteredSupervisionRecords.length / recordsPageSize));
   const safeRecordsPage = Math.min(recordsPage, recordsTotalPages);
-  const visibleRecords = records.slice((safeRecordsPage - 1) * recordsPageSize, safeRecordsPage * recordsPageSize);
+  const visibleRecords = filteredSupervisionRecords.slice((safeRecordsPage - 1) * recordsPageSize, safeRecordsPage * recordsPageSize);
   const firstVisibleRecord = visibleRecords.length ? (safeRecordsPage - 1) * recordsPageSize + 1 : 0;
-  const lastVisibleRecord = Math.min(safeRecordsPage * recordsPageSize, records.length);
+  const lastVisibleRecord = Math.min(safeRecordsPage * recordsPageSize, filteredSupervisionRecords.length);
   useEffect(() => {
     if (recordsPage > recordsTotalPages) setRecordsPage(recordsTotalPages);
   }, [recordsPage, recordsTotalPages]);
@@ -9006,6 +9024,16 @@ function SupervisionReportsSection({
                     <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
                   ))}
                 </tr>
+                <tr style={{ background: "#f8fafc" }}>
+                  {supervisionFilterColumns.map((column) => (
+                    <th key={column.key} style={{ padding: 6, border: "1px solid #cbd5e1" }}>
+                      <input aria-label={`סינון לפי ${column.label}`} value={recordFilters[column.key] || ""} onChange={(event) => { setRecordFilters((current) => ({ ...current, [column.key]: event.target.value })); setRecordsPage(1); }} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
+                    </th>
+                  ))}
+                  <th style={{ padding: 6, border: "1px solid #cbd5e1" }}>
+                    {Object.values(recordFilters).some((value) => normalizeTableFilter(value)) ? <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 9px" }} onClick={() => { setRecordFilters({}); setRecordsPage(1); }}>נקה</button> : null}
+                  </th>
+                </tr>
               </thead>
               <tbody>
                 {visibleRecords.map((record, index) => (
@@ -9036,7 +9064,7 @@ function SupervisionReportsSection({
               </tbody>
             </table>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", paddingTop: 12 }}>
-              <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisibleRecord}–{lastVisibleRecord} מתוך {records.length}</span>
+              <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisibleRecord}–{lastVisibleRecord} מתוך {filteredSupervisionRecords.length}{filteredSupervisionRecords.length !== records.length ? ` (סה״כ ${records.length})` : ""}</span>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <button type="button" style={styles.secondaryBtn} disabled={safeRecordsPage === 1} onClick={() => setRecordsPage((value) => Math.max(1, value - 1))}>הקודם</button>
                 {Array.from({ length: recordsTotalPages }, (_, index) => index + 1)
