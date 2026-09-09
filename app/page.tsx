@@ -16747,6 +16747,48 @@ export default function Page() {
     } as ChecklistRecord;
   };
 
+  const nonconformanceRowToRecord = (row: any): NonconformanceRecord => {
+    const details = (row?.details ?? {}) as Record<string, any>;
+    return {
+      id: row.id,
+      projectId: normalizeStoredProjectId(row.project_id),
+      title: row.title ?? details.title ?? "",
+      structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
+      openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
+      openedRole: row.opened_role ?? details.openedRole ?? details.opened_role ?? "בקרת איכות",
+      raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
+      date: row.date ?? details.date ?? "",
+      location: row.location ?? details.location ?? "",
+      building: details.building ?? "",
+      element: row.element ?? details.element ?? "",
+      subElement: row.sub_element ?? details.subElement ?? details.sub_element ?? "",
+      fromSection: row.from_section ?? details.fromSection ?? details.from_section ?? "",
+      toSection: row.to_section ?? details.toSection ?? details.to_section ?? "",
+      offset: row.offset ?? details.offset ?? "",
+      grade: details.grade ?? "",
+      expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
+      updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
+      delayDays: details.delayDays ?? details.delay_days ?? "",
+      breakage: details.breakage ?? "",
+      qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
+      severity: row.severity ?? details.severity ?? "בינונית",
+      status: row.status ?? details.status ?? "פתוח",
+      description: row.description ?? details.description ?? "",
+      responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
+      actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
+      handler: details.handler ?? "",
+      correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
+      notes: row.notes ?? details.notes ?? "",
+      closedBy: details.closedBy ?? details.closed_by ?? "",
+      closingRole: details.closingRole ?? details.closing_role ?? "",
+      closedName: details.closedName ?? details.closed_name ?? "",
+      closingDate: details.closingDate ?? details.closing_date ?? "",
+      images: normalizeAttachments(row.images ?? details.images),
+      approval: normalizeApproval(row.approval ?? details.approval),
+      savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+    } as NonconformanceRecord;
+  };
+
   const loadFromCloudResults = (
     projectsRows: any[] | null,
     checklistRows: any[] | null,
@@ -16778,51 +16820,7 @@ export default function Page() {
       active?.id ? normalizeStoredProjectId(active.id) : null,
     );
     setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
-    setSavedNonconformances(
-      (nonconRows ?? []).map((row) => {
-        const details = (row.details ?? {}) as Record<string, any>;
-        return {
-          id: row.id,
-          projectId: normalizeStoredProjectId(row.project_id),
-          title: row.title ?? details.title ?? "",
-          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-          openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
-          openedRole: row.opened_role ?? details.openedRole ?? details.opened_role ?? "בקרת איכות",
-          raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
-          date: row.date ?? details.date ?? "",
-          location: row.location ?? details.location ?? "",
-          building: details.building ?? "",
-          element: row.element ?? details.element ?? "",
-          subElement: row.sub_element ?? details.subElement ?? details.sub_element ?? "",
-          fromSection: row.from_section ?? details.fromSection ?? details.from_section ?? "",
-          toSection: row.to_section ?? details.toSection ?? details.to_section ?? "",
-          offset: row.offset ?? details.offset ?? "",
-          grade: details.grade ?? "",
-          expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
-          updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
-          delayDays: details.delayDays ?? details.delay_days ?? "",
-          breakage: details.breakage ?? "",
-          qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
-          severity: row.severity ?? details.severity ?? "בינונית",
-          status: row.status ?? details.status ?? "פתוח",
-          description: row.description ?? details.description ?? "",
-          responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
-          actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
-          handler: details.handler ?? "",
-          correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
-          notes: row.notes ?? details.notes ?? "",
-          closedBy: details.closedBy ?? details.closed_by ?? "",
-          closingRole: details.closingRole ?? details.closing_role ?? "",
-          closedName: details.closedName ?? details.closed_name ?? "",
-          closingDate: details.closingDate ?? details.closing_date ?? "",
-          images: normalizeAttachments(row.images ?? details.images),
-          approval: normalizeApproval(row.approval ?? details.approval),
-          savedAt: row.saved_at
-            ? new Date(row.saved_at).toLocaleString("he-IL")
-            : "",
-        };
-      }),
-    );
+    setSavedNonconformances((nonconRows ?? []).map(nonconformanceRowToRecord));
     setSavedTrialSections(
       (trialRows ?? []).map((row) => {
         const details = row.details ?? {};
@@ -17027,7 +17025,7 @@ export default function Page() {
     const projectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
     (async () => {
       try {
-        const [checklistsResult, preliminaryResult] = await Promise.all([
+        const [checklistsResult, preliminaryResult, nonconformancesResult] = await Promise.all([
           selectProjectTable(
             "checklists",
             "saved_at",
@@ -17042,10 +17040,17 @@ export default function Page() {
             false,
             "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
           ),
+          selectProjectTable(
+            NONCONFORMANCE_TABLE,
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,details",
+          ),
         ]);
         if (cancelled) return;
-        if (checklistsResult.error || preliminaryResult.error) {
-          throw checklistsResult.error || preliminaryResult.error;
+        if (checklistsResult.error || preliminaryResult.error || nonconformancesResult.error) {
+          throw checklistsResult.error || preliminaryResult.error || nonconformancesResult.error;
         }
         if (!checklistsResult.error) {
           setSavedChecklists((checklistsResult.data ?? []).map(checklistRowToRecord));
@@ -17067,6 +17072,9 @@ export default function Page() {
               savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
             })),
           );
+        }
+        if (!nonconformancesResult.error) {
+          setSavedNonconformances((nonconformancesResult.data ?? []).map(nonconformanceRowToRecord));
         }
         setHydratedConcentrationsProjectId(normalizedProjectId);
       } catch (error) {
