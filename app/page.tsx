@@ -5079,7 +5079,7 @@ async function selectProjectTable(
   const selectHeavyTableSummaries = async () => {
     const summarySelect: Record<string, string> = {
       checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
-      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
       trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id",
       preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier_name:supplier->>supplierName,supplied_material:supplier->>suppliedMaterial,subcontractor_name:subcontractor->>subcontractorName,contractor_field:subcontractor->>field,material_name:material->>materialName,material_usage:material->>usage,material_source:material->>source",
       rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
@@ -9065,6 +9065,29 @@ type FolderColumn = {
   value: (record: any, index: number) => React.ReactNode;
 };
 
+const tableCellSearchText = (value: React.ReactNode): string => {
+  if (value == null || typeof value === "boolean") return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(tableCellSearchText).join(" ");
+  if (typeof value === "object" && "props" in value) {
+    return tableCellSearchText((value as any).props?.children);
+  }
+  return String(value);
+};
+
+const normalizeTableFilter = (value: unknown) =>
+  normalizeLooseText(value).toLocaleLowerCase("he-IL");
+
+const nonconformanceOpeningParty = (record: any) => {
+  const details = record?.details && typeof record.details === "object" ? record.details : {};
+  const role = normalizeTableFilter(
+    record?.openedRole || record?.opened_role || details.openedRole || details.opened_role,
+  );
+  if (role.includes("qa") || role.includes("אבטחת")) return "QA";
+  if (role.includes("qc") || role.includes("בקרת")) return "QC";
+  return "QC";
+};
+
 function getRecordTitle(record: any) {
   return (
     record?.title ||
@@ -9762,24 +9785,10 @@ function FolderRecordsTable({
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
   const [page, setPage] = useState(1);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(safeRecords.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pageRecords = safeRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const firstVisible = pageRecords.length ? (safePage - 1) * pageSize + 1 : 0;
-  const lastVisible = Math.min(safePage * pageSize, safeRecords.length);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const canSelectRecords = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
-  const visibleRecordIds = pageRecords.map((record, index) => String(record?.id ?? (safePage - 1) * pageSize + index));
-  const selectedRecords = safeRecords.filter((record, index) =>
-    selectedRecordIds.includes(String(record?.id ?? index)),
-  );
-  const actionRecords = selectedRecords.length ? selectedRecords : safeRecords;
-  const allVisibleSelected = Boolean(
-    canSelectRecords &&
-      visibleRecordIds.length &&
-      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
-  );
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
   const existingColumnLabels = new Set(columns.map((column) => String(column.label).trim()));
@@ -9798,11 +9807,40 @@ function FolderRecordsTable({
     locationInsertIndex >= 0
       ? [...columns.slice(0, locationInsertIndex + 1), ...locationColumns, ...columns.slice(locationInsertIndex + 1)]
       : [...columns, ...locationColumns];
+  const filteredRecords = safeRecords.filter((record, index) => {
+    const serialQuery = normalizeTableFilter(columnFilters.__serial);
+    if (serialQuery && !normalizeTableFilter(serialFor(record, index)).includes(serialQuery)) return false;
+    return displayColumns.every((column) => {
+      const query = normalizeTableFilter(columnFilters[column.label]);
+      return !query || normalizeTableFilter(tableCellSearchText(column.value(record, index))).includes(query);
+    });
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRecords = filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const firstVisible = pageRecords.length ? (safePage - 1) * pageSize + 1 : 0;
+  const lastVisible = Math.min(safePage * pageSize, filteredRecords.length);
+  const visibleRecordIds = pageRecords.map((record, index) => String(record?.id ?? (safePage - 1) * pageSize + index));
+  const selectedRecords = filteredRecords.filter((record, index) =>
+    selectedRecordIds.includes(String(record?.id ?? index)),
+  );
+  const actionRecords = selectedRecords.length ? selectedRecords : filteredRecords;
+  const allVisibleSelected = Boolean(
+    canSelectRecords &&
+      visibleRecordIds.length &&
+      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
+  );
+  const activeFilterCount = Object.values(columnFilters).filter((value) => normalizeTableFilter(value)).length;
+  const updateColumnFilter = (key: string, value: string) => {
+    setColumnFilters((current) => ({ ...current, [key]: value }));
+    setPage(1);
+  };
 
   useEffect(() => {
     setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
   }, [visibleRecordIds.join("|")]);
   useEffect(() => setPage(1), [title]);
+  useEffect(() => setColumnFilters({}), [title]);
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -9889,8 +9927,20 @@ function FolderRecordsTable({
           ) : null}
         </div>
       </div>
+      {activeFilterCount ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 14px", background: "#eff6ff", borderBottom: "1px solid #bfdbfe", color: "#1e40af", fontWeight: 850 }}>
+          <span>{activeFilterCount} מסנני עמודות פעילים · נמצאו {filteredRecords.length} רשומות</span>
+          <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 10px" }} onClick={() => { setColumnFilters({}); setPage(1); }}>נקה מסננים</button>
+        </div>
+      ) : null}
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+            <input style={styles.input} value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון מספר" />
+            {displayColumns.map((column) => (
+              <input key={column.label} style={styles.input} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder={`סינון ${column.label}`} />
+            ))}
+          </div>
           {pageRecords.length ? (
             pageRecords.map((record, index) => {
               const absoluteIndex = (safePage - 1) * pageSize + index;
@@ -9993,6 +10043,18 @@ function FolderRecordsTable({
               ))}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעולות</th>
             </tr>
+            <tr style={{ background: "#f8fafc" }}>
+              {canSelectRecords ? <th style={{ padding: 6, border: "1px solid #d7dee8" }} /> : null}
+              <th style={{ padding: 6, border: "1px solid #d7dee8" }}>
+                <input aria-label="סינון לפי מספר" value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
+              </th>
+              {displayColumns.map((column) => (
+                <th key={column.label} style={{ padding: 6, border: "1px solid #d7dee8" }}>
+                  <input aria-label={`סינון לפי ${column.label}`} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 110, padding: "7px 8px" }} />
+                </th>
+              ))}
+              <th style={{ padding: 6, border: "1px solid #d7dee8" }} />
+            </tr>
           </thead>
           <tbody>
             {pageRecords.length ? (
@@ -10049,7 +10111,7 @@ function FolderRecordsTable({
       </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: "1px solid #e2e8f0", background: "#f8fafc" }}>
-        <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisible}–{lastVisible} מתוך {safeRecords.length}</span>
+        <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisible}–{lastVisible} מתוך {filteredRecords.length}{filteredRecords.length !== safeRecords.length ? ` (סה״כ ${safeRecords.length})` : ""}</span>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" style={styles.secondaryBtn} disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>הקודם</button>
           {Array.from({ length: totalPages }, (_, index) => index + 1)
@@ -10254,7 +10316,7 @@ function TrialSectionsRecordsTable({
     const parsed = Date.parse(normalized);
     return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
   };
-  const safeRecords = (Array.isArray(records) ? records : [])
+  const sortedRecords = (Array.isArray(records) ? records : [])
     .map((record, originalIndex) => ({ record, originalIndex }))
     .sort((left, right) => {
       const byDate = trialDateValue(left.record) - trialDateValue(right.record);
@@ -10263,13 +10325,8 @@ function TrialSectionsRecordsTable({
     })
     .map((item) => item.record);
   const [page, setPage] = useState(1);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(safeRecords.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const visibleRecords = safeRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
   const cellValue = (record: any, ...keys: string[]) =>
     pickTrialValue(record, ...keys) || "-";
   const rawCellValue = (record: any, ...keys: string[]) =>
@@ -10412,6 +10469,24 @@ function TrialSectionsRecordsTable({
     },
   ];
 
+  const filteredRecords = sortedRecords.filter((record, index) =>
+    columns.every((column) => {
+      const query = normalizeTableFilter(columnFilters[column.label]);
+      return !query || normalizeTableFilter(tableCellSearchText(column.value(record, index))).includes(query);
+    }),
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRecords = filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const activeFilterCount = Object.values(columnFilters).filter((value) => normalizeTableFilter(value)).length;
+  const updateColumnFilter = (label: string, value: string) => {
+    setColumnFilters((current) => ({ ...current, [label]: value }));
+    setPage(1);
+  };
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   return (
     <section
       style={{
@@ -10436,7 +10511,8 @@ function TrialSectionsRecordsTable({
         }}
       >
         <div style={{ fontWeight: 900, color: "#374151" }}>
-          {visibleRecords.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, safeRecords.length)} / {safeRecords.length || 0}
+          {visibleRecords.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filteredRecords.length)} / {filteredRecords.length || 0}
+          {filteredRecords.length !== sortedRecords.length ? ` (סה״כ ${sortedRecords.length})` : ""}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
@@ -10471,6 +10547,12 @@ function TrialSectionsRecordsTable({
           </button>
         </div>
       </div>
+      {activeFilterCount ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 14px", background: "#eff6ff", borderBottom: "1px solid #bfdbfe", color: "#1e40af", fontWeight: 850 }}>
+          <span>{activeFilterCount} מסנני עמודות פעילים</span>
+          <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 10px" }} onClick={() => { setColumnFilters({}); setPage(1); }}>נקה מסננים</button>
+        </div>
+      ) : null}
       <div style={{ overflowX: "auto" }}>
         <table
           style={{
@@ -10509,6 +10591,14 @@ function TrialSectionsRecordsTable({
                 >
                   <span>{column.label}</span>
                   <span style={{ color: "#9ca3af", marginInlineStart: 8 }}>↕</span>
+                </th>
+              ))}
+            </tr>
+            <tr style={{ background: "#f8fafc" }}>
+              <th style={{ width: 128, padding: 6, border: "1px solid #e5e7eb" }} />
+              {columns.map((column) => (
+                <th key={column.label} style={{ width: column.width, padding: 6, border: "1px solid #e5e7eb" }}>
+                  <input aria-label={`סינון לפי ${column.label}`} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 90, padding: "7px 8px" }} />
                 </th>
               ))}
             </tr>
@@ -10611,9 +10701,9 @@ function TrialSectionsRecordsTable({
           </tbody>
         </table>
       </div>
-      {safeRecords.length ? (
+      {filteredRecords.length ? (
         <div style={{ padding: "0 16px 14px" }}>
-          <PaginationControls page={safePage} totalPages={totalPages} totalItems={safeRecords.length} pageSize={pageSize} onPageChange={setPage} />
+          <PaginationControls page={safePage} totalPages={totalPages} totalItems={filteredRecords.length} pageSize={pageSize} onPageChange={setPage} />
         </div>
       ) : null}
       <div
@@ -16668,7 +16758,7 @@ export default function Page() {
           title: row.title ?? details.title ?? "",
           structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
           openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
-          openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
+          openedRole: row.opened_role ?? details.openedRole ?? details.opened_role ?? "בקרת איכות",
           raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
           date: row.date ?? details.date ?? "",
           location: row.location ?? details.location ?? "",
@@ -26166,6 +26256,7 @@ ${invalidRecipients.join("\n")}`);
                 description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות."
                 records={projectNonconformances as any[]}
                 columns={[
+                  { label: "גורם פותח (QC/QA)", value: (record) => nonconformanceOpeningParty(record) },
                   { label: "אלמנט", value: (record) => record.element || record.details?.element },
                   { label: "תת אלמנט", value: (record) => record.subElement || record.details?.subElement || record.details?.sub_element },
                   { label: "תיאור אי התאמה", value: (record) => record.description || record.details?.description },
