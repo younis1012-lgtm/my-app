@@ -16313,11 +16313,11 @@ export default function Page() {
     const selectedProjectId = selectInitialProjectIdForAccess(
       projectList,
       access,
-      readLocalCurrentProjectId(matched),
+      readLocalCurrentProjectId(access),
     );
     if (selectedProjectId) {
       setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId, matched);
+      writeLocalCurrentProjectId(selectedProjectId, access);
     }
     setProjectAccess(access);
     setShowProjectPicker(true);
