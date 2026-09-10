@@ -294,6 +294,27 @@ const preliminaryApprovalDateText = (record: any) => {
   );
 };
 
+const preliminaryExpiryDateText = (record: any) => {
+  const nested = record?.supplier ?? record?.subcontractor ?? record?.material ?? {};
+  const docs = getAttachments(record);
+  const expiryFrom = (value: any) => firstDateText(
+    value?.expiryDate,
+    value?.expiry_date,
+    value?.validUntil,
+    value?.valid_until,
+    value?.expirationDate,
+    value?.certificateExpiryDate,
+    value?.licenseExpiryDate,
+  );
+  return firstDateText(
+    expiryFrom(nested),
+    expiryFrom(record),
+    docs.map(expiryFrom).find(Boolean),
+    valueByKeyOrLabel(record, ["expiryDate", "expiry_date", "validUntil", "valid_until", "expirationDate", "certificateExpiryDate", "licenseExpiryDate"]),
+    valueByLabel(record, ["תאריך תפוגה", "תאריך פג תוקף", "תוקף", "בתוקף עד", "תאריך תוקף", "תוקף תעודה", "תוקף רישיון", "תוקף רשיון"]),
+  );
+};
+
 const preliminaryOrderTime = (record: any, fallbackIndex: number) => {
   const raw = preliminaryApprovalDateText(record);
   return parseDateOrderTime(raw) ?? recordOrderTime(record, fallbackIndex);
@@ -781,24 +802,7 @@ const supplierRow = (record: any, index: number): Row => {
     valueByLabel(record, ["תאריך אישור", "תאריך אישור תעודה", "תאריך אישור רישיון", "תאריך אישור רשיון"])
   );
 
-  const expiryDate = firstDateText(
-    supplier?.expiryDate,
-    supplier?.validUntil,
-    supplier?.certificateExpiryDate,
-    supplier?.licenseExpiryDate,
-    supplier?.expirationDate,
-    record?.expiryDate,
-    record?.validUntil,
-    record?.certificateExpiryDate,
-    record?.licenseExpiryDate,
-    firstDoc?.expiryDate,
-    firstDoc?.validUntil,
-    firstDoc?.certificateExpiryDate,
-    firstDoc?.licenseExpiryDate,
-    firstDoc?.expirationDate,
-    valueByKeyOrLabel(record, ["expiryDate", "validUntil", "certificateExpiryDate", "licenseExpiryDate", "expirationDate"]),
-    valueByLabel(record, ["תוקף", "בתוקף עד", "תאריך תוקף", "תוקף תעודה", "תוקף רישיון", "תוקף רשיון", "תאריך פג תוקף"])
-  );
+  const expiryDate = preliminaryExpiryDateText(record);
 
   return {
     "מס׳": index + 1,
@@ -840,6 +844,7 @@ const contractorRow = (record: any, index: number): Row => {
     "מס׳ מסמכים": docs.length || "",
     "סטטוס": firstText(record?.status, record?.approval?.status),
     "תאריך אישור": approvalDate,
+    "תאריך תפוגה": preliminaryExpiryDateText(record),
     "הערות": firstText(contractor?.notes, record?.notes),
   };
 };
@@ -856,6 +861,7 @@ const materialRow = (record: any, index: number): Row => {
     "מספר תעודה / אישור": firstText(docs.map((d) => attachmentCertificateNo(d)).find(Boolean), material?.certificateNo, material?.approvalNo, record?.certificateNo),
     "סטטוס": firstText(record?.status, record?.approval?.status),
     "תאריך אישור": approvalDate,
+    "תאריך תפוגה": preliminaryExpiryDateText(record),
     "הערות": firstText(material?.notes, record?.notes),
   };
 };
@@ -4407,7 +4413,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז קבלנים.xlsx",
     description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה",
     sourceLabel: "בקרה מקדימה / קבלנים",
-    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "הערות"],
+    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "תאריך תפוגה", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "subcontractors").map(contractorRow),
   },
   {
@@ -4463,7 +4469,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז חומרים.xlsx",
     description: "ריכוז אישורי חומרים מתוך בקרה מקדימה",
     sourceLabel: "בקרה מקדימה / חומרים",
-    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך אישור", "הערות"],
+    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך אישור", "תאריך תפוגה", "הערות"],
     buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "materials").map(materialRow),
   },
   {

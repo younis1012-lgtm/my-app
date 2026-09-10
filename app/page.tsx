@@ -9381,11 +9381,37 @@ function collectCertificateRows(record: any): any[] {
 }
 
 function getPreliminaryExpiryDate(record: any) {
-  const direct = normalizeDateValue(record?.expiryDate || record?.validUntil);
+  const nested = record?.supplier || record?.subcontractor || record?.material || {};
+  const direct = normalizeDateValue(
+    nested?.expiryDate ||
+      nested?.expiry_date ||
+      nested?.validUntil ||
+      nested?.valid_until ||
+      nested?.expirationDate ||
+      nested?.certificateExpiryDate ||
+      nested?.licenseExpiryDate ||
+      record?.expiryDate ||
+      record?.expiry_date ||
+      record?.validUntil ||
+      record?.valid_until ||
+      record?.expirationDate ||
+      record?.certificateExpiryDate ||
+      record?.licenseExpiryDate,
+  );
   if (direct) return direct;
   const rows = collectCertificateRows(record);
-  const withExpiry = rows.find((row: any) => normalizeDateValue(row?.expiryDate || row?.expiry_date || row?.validUntil));
-  return normalizeDateValue(withExpiry?.expiryDate || withExpiry?.expiry_date || withExpiry?.validUntil) || "";
+  const rowExpiry = (row: any) =>
+    normalizeDateValue(
+      row?.expiryDate ||
+        row?.expiry_date ||
+        row?.validUntil ||
+        row?.valid_until ||
+        row?.expirationDate ||
+        row?.certificateExpiryDate ||
+        row?.licenseExpiryDate,
+    );
+  const withExpiry = rows.find((row: any) => rowExpiry(row));
+  return rowExpiry(withExpiry) || "";
 }
 
 function getPreliminaryApprovalDate(record: any) {
@@ -9452,7 +9478,7 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
   const expired = isExpiredDate(date);
   return (
     <span style={{ color: expired ? "#dc2626" : undefined, fontWeight: expired ? 900 : 700 }}>
-      {date || "-"}{expired ? " ✖" : ""}
+      {date}{expired ? " ✖" : ""}
     </span>
   );
 }
