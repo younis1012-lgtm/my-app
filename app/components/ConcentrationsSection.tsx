@@ -1200,6 +1200,23 @@ const approvedConcreteSupplierName = (savedPreliminary: any[]): string => {
     .at(-1)?.name ?? "";
 };
 
+// A preparation, lab test, upload or checklist opening date is not a pour date.
+const concreteCastingItem = (item: any): boolean => {
+  const description = cleanText(item?.description);
+  return !item?.excludedFromPrint &&
+    !/לא רלוונטי/.test(cleanText(item?.status)) &&
+    /^(?:ביצוע\s+)?יציק[הת](?:\s|$)/.test(description);
+};
+
+const concreteChecklistCastDate = (checklist: any, sourceItem?: any): string => {
+  if (concreteCastingItem(sourceItem)) return dateText(sourceItem?.executionDate);
+  const items = Array.isArray(checklist?.items) ? checklist.items : [];
+  const dates = [...new Set<string>(items.filter(concreteCastingItem)
+    .map((item: any) => dateText(item?.executionDate)).filter(Boolean))];
+  // Do not attach a certificate to an arbitrary pour if a checklist has several dates.
+  return dates.length === 1 ? dates[0] : "";
+};
+
 const buildConcreteConcentrationRows = (
   savedChecklists: any[],
   savedPreliminary: any[] = [],
@@ -1247,15 +1264,7 @@ const buildConcreteConcentrationRows = (
             ? "QA"
             : "QC",
           "מס׳ סדורי": rows.length + 1,
-          "תאריך יציקה": firstDateText(
-            result.castDate,
-            result.sampleDate,
-            result.samplingDate,
-            item?.executionDate,
-            checklist?.date,
-            result.testDate,
-            attachment?.uploadedAt,
-          ),
+          "תאריך יציקה": concreteChecklistCastDate(checklist, item),
         "מבנה": firstText(
           checklist?.location,
           checklist?.structure,
@@ -1315,15 +1324,12 @@ const buildConcreteConcentrationRows = (
       });
     });
 
-    // A concrete checklist represents a pour even before its lab certificate
-    // arrives. Keep one base row visible and enrich it later when results are
-    // attached, instead of hiding the checklist completely.
-    if (rows.length === checklistRowStart) {
-      const representativeItem =
-        items.find((item: any) => cleanText(item?.executionDate)) ??
-        items.find((item: any) => cleanText(item?.notes)) ??
-        items[0] ??
-        {};
+    // Show a pour without a certificate only after its casting step has a date.
+    const checklistCastDate = concreteChecklistCastDate(checklist);
+    if (rows.length === checklistRowStart && checklistCastDate) {
+      const representativeItem = items.find((item: any) =>
+        concreteCastingItem(item) && dateText(item?.executionDate) === checklistCastDate,
+      ) ?? {};
       rows.push({
         'ביצוע ע"י QC/QA': /QA|הבטחת איכות/i.test(
           firstText(representativeItem?.responsible, checklist?.qualityRole),
@@ -1331,9 +1337,7 @@ const buildConcreteConcentrationRows = (
           ? "QA"
           : "QC",
         "מס׳ סדורי": rows.length + 1,
-        "תאריך יציקה": dateText(
-          representativeItem?.executionDate ?? checklist?.date,
-        ),
+        "תאריך יציקה": checklistCastDate,
         "מבנה": firstText(
           checklist?.location,
           checklist?.element,
