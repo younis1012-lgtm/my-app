@@ -21406,11 +21406,11 @@ export default function Page() {
     });
     resetPreliminaryEditor();
   };
-  const loadPreliminary = async (record: PreliminaryRecord) => {
+  const hydratePreliminaryRecord = async (record: PreliminaryRecord): Promise<PreliminaryRecord> => {
     if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from("preliminary_records").select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
-        record = {
+        return {
           id: data.id,
           projectId: normalizeStoredProjectId(data.project_id),
           subtype: data.subtype,
@@ -21425,7 +21425,12 @@ export default function Page() {
           savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
         } as PreliminaryRecord;
       }
+      if (error) throw error;
     }
+    return record;
+  };
+  const loadPreliminary = async (record: PreliminaryRecord) => {
+    record = await hydratePreliminaryRecord(record);
     setSection("preliminary");
     setPreliminaryTab(record.subtype);
     setEditingPreliminaryId(record.id);
@@ -23818,8 +23823,8 @@ ${invalidRecipients.join("\n")}`);
     customMessage = "",
   ) => {
     if (!ensureQualityControllerEmailSender()) return;
-    const records = recordsToSend.filter(Boolean);
-    if (!records.length) {
+    const selectedRecords = recordsToSend.filter(Boolean) as PreliminaryRecord[];
+    if (!selectedRecords.length) {
       alert("יש לסמן לפחות רשומה אחת לשליחה");
       return;
     }
@@ -23831,6 +23836,7 @@ ${invalidRecipients.join("\n")}`);
       return;
     }
     try {
+      const records = await Promise.all(selectedRecords.map(hydratePreliminaryRecord));
       const uniqueRecipients = Array.from(new Set(recipients));
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
       const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
@@ -23895,12 +23901,13 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const downloadPreliminaryRecordsPdf = async (recordsToDownload: any[]) => {
-    const records = recordsToDownload.filter(Boolean);
-    if (!records.length) {
+    const selectedRecords = recordsToDownload.filter(Boolean) as PreliminaryRecord[];
+    if (!selectedRecords.length) {
       alert("יש לסמן לפחות רשומה אחת להורדה");
       return;
     }
     try {
+      const records = await Promise.all(selectedRecords.map(hydratePreliminaryRecord));
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
       if (records.length > 1) {
         const JSZip = (await import("jszip")).default;
