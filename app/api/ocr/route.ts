@@ -1,3 +1,4 @@
+import { readSystemConcreteStrength, type ConcretePdfItem } from '../../lib/systemConcreteStrength';
 import { NextRequest, NextResponse } from 'next/server';
 
 import * as canvasRuntime from '@napi-rs/canvas';
@@ -520,6 +521,26 @@ async function renderPdfPagesToPngDataUrls(
   } catch (error) {
     console.error('Reference PDF visual render failed', error);
     return [];
+  }
+}
+
+// Only the recognized SYSTEM text-table template overrides the existing OCR.
+async function readSystemConcretePdf(dataUrl: string, mimeType: string) {
+  if (!/pdf/i.test(mimeType)) return null;
+  try {
+    ensurePdfCanvasPolyfills();
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const doc = await pdfjs.getDocument({ data: dataUrlToBytes(dataUrl), useWorkerFetch: false }).promise;
+    try {
+      // Multiple certificates/pages need visual interpretation; do not mix their results.
+      if (doc.numPages !== 1) return null;
+      const content = await (await doc.getPage(1)).getTextContent();
+      return readSystemConcreteStrength(content.items.filter((item): item is typeof item & ConcretePdfItem => 'str' in item));
+    } finally {
+      await doc.destroy();
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -1065,6 +1086,7 @@ export async function POST(req: NextRequest) {
 
     if (subtype === 'concrete-strength') {
       const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
+      const systemStrength = await readSystemConcretePdf(normalizedFileData, mimeType);
       const prompt = `אתה מחלץ תוצאות חוזק לחיצה מתעודת מעבדת בטון עבור בקרת איכות.
 קרא את כל הקובץ חזותית, כולל PDF סרוק, והחזר JSON בלבד.
 
@@ -1092,7 +1114,13 @@ export async function POST(req: NextRequest) {
 - אם גיל 28 ימים טרם הגיע או אין תוצאה, השאר strength28Days ריק.
 - אם אין מספר תעודת סומך מפורש, השאר slumpCertificateNo, slumpRequirement ו-slumpResult ריקים.
 - אין להחזיר גיל בדיקה, טווח ימים, מספר מדגם, שם מבצע או תיאור אלמנט בתור סוג אשפרה או סומך.
-- confidence בין 0 ל-1.`;
+- confidence בין 0 ל-1.${systemStrength ? `
+הוראות ייעודיות רק כאשר המעבדה היא SYSTEM / סיסטם:
+- בעמודות 7 ימים ו-28 ימים קרא רק תוצאות מדגמים או את שורת "חוזק לחיצה ממוצע" באותה עמודה.
+- שורות "חוזק לחיצה מינימלי לדוגמא הנדרש בגיל" ו"חוזק לחיצה מינימלי ממוצע נדרש בגיל" הן דרישות בלבד, לעולם לא תוצאות.
+- תאריך בכותרת של עמודת 28 ימים אינו הוכחה שיש תוצאה. עמודה ריקה מחייבת strength28Days ריק.
+- אין להעביר ממוצע בין עמודות. קרא castDate משדה תאריך היציקה, לא מתאריך הבדיקה בכותרת.
+- כללים ייעודיים אלה אינם חלים על מעבדות אחרות.` : ''}`;
       const content: any[] = [{ type: 'input_text', text: prompt }];
       if (isImage(mimeType)) {
         content.push({ type: 'input_image', image_url: normalizedFileData, detail: 'high' });
@@ -1137,7 +1165,7 @@ export async function POST(req: NextRequest) {
       }
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       return NextResponse.json({
-        data: { ...concreteStrengthEmptyData, ...(safeJsonParse(outputText) ?? {}) },
+        data: { ...concreteStrengthEmptyData, ...(safeJsonParse(outputText) ?? {}), ...(systemStrength ?? {}) },
       });
     }
 

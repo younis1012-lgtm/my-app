@@ -1,0 +1,1618 @@
+[
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "1",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "715",
+    "dir": "ltr",
+    "width": 11.853920000000036,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      428.11,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "7883",
+    "dir": "ltr",
+    "width": 15.813960000000053,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      377.35,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "8:25",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      328.75,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:00",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      286.61,
+      411.43
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "22.0",
+    "dir": "ltr",
+    "width": 14.003759999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      245.09,
+      411.43
+    ],
+    "fontName": "g_d0_f1",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "2",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "713",
+    "dir": "ltr",
+    "width": 11.853920000000036,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      428.11,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "7884",
+    "dir": "ltr",
+    "width": 15.813960000000053,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      377.35,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "8:28",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      328.75,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:19",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      286.61,
+      400.39
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "24.9",
+    "dir": "ltr",
+    "width": 14.003759999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      245.09,
+      400.39
+    ],
+    "fontName": "g_d0_f1",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "3",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "910",
+    "dir": "ltr",
+    "width": 11.853920000000036,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      428.11,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "7887",
+    "dir": "ltr",
+    "width": 15.813960000000053,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      377.35,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:00",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      328.75,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:57",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      286.61,
+      389.35
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "26.1",
+    "dir": "ltr",
+    "width": 14.003759999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      245.09,
+      389.35
+    ],
+    "fontName": "g_d0_f1",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "4",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "715",
+    "dir": "ltr",
+    "width": 11.853920000000036,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      428.11,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "7888",
+    "dir": "ltr",
+    "width": 15.813960000000053,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      377.35,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:38",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      328.75,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "10:15",
+    "dir": "ltr",
+    "width": 19.25184000000002,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      284.57,
+      378.29
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "23.1",
+    "dir": "ltr",
+    "width": 14.003759999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      245.09,
+      378.29
+    ],
+    "fontName": "g_d0_f1",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "5",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      474.94,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "399",
+    "dir": "ltr",
+    "width": 11.853920000000036,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      428.11,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "7890",
+    "dir": "ltr",
+    "width": 15.813960000000053,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      377.35,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "9:57",
+    "dir": "ltr",
+    "width": 15.300240000000008,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      328.75,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "10:30",
+    "dir": "ltr",
+    "width": 19.25184000000002,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      284.57,
+      367.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "21.1",
+    "dir": "ltr",
+    "width": 14.003759999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      245.09,
+      367.25
+    ],
+    "fontName": "g_d0_f1",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      244.97,
+      345.17
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "23.5",
+    "dir": "ltr",
+    "width": 14.243519999999991,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      244.97,
+      345.17
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      318.8036,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "שעת יציאת",
+    "dir": "rtl",
+    "width": 37.66896000000002,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      318.8036,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "הערבל",
+    "dir": "rtl",
+    "width": 21.676080000000006,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      325.87,
+      429.67
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      439.51,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "מס",
+    "dir": "rtl",
+    "width": 10.576080000000035,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      439.51,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "'",
+    "dir": "ltr",
+    "width": 2.45976,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      437.1436,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "ערבל",
+    "dir": "rtl",
+    "width": 16.516800000000007,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      418.63,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      371.6236,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "חוזק לחיצה מינימלי ממוצע נדרש בגיל",
+    "dir": "rtl",
+    "width": 125.7674400000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      371.6236,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "28",
+    "dir": "ltr",
+    "width": 7.893880000000018,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      361.75,
+      323.21
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "יום",
+    "dir": "rtl",
+    "width": 10.762560000000029,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      349.0636,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "(",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      344.35,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "מגפ",
+    "dir": "rtl",
+    "width": 12.79608000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      331.51,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "\"",
+    "dir": "ltr",
+    "width": 4.42224,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      327.07,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "ס",
+    "dir": "rtl",
+    "width": 5.407920000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      321.67,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ")",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      318.89,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ":",
+    "dir": "ltr",
+    "width": 3.4365600000000005,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      313.49,
+      323.21
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "33.0",
+    "dir": "ltr",
+    "width": 14.243519999999991,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      223.61,
+      323.21
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      463.18,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "מדגם מס",
+    "dir": "rtl",
+    "width": 30.46728000000003,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      463.18,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "'",
+    "dir": "ltr",
+    "width": 2.45976,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      460.78,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      223.61,
+      334.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "27.0",
+    "dir": "ltr",
+    "width": 14.243519999999991,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      223.61,
+      334.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      225.53,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "חוזק לחיצה",
+    "dir": "rtl",
+    "width": 38.65464,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      225.53,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "(",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      222.77,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "מגפ",
+    "dir": "rtl",
+    "width": 12.79608000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      209.93,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "\"",
+    "dir": "ltr",
+    "width": 4.42224,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      205.49,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "ס",
+    "dir": "rtl",
+    "width": 5.407920000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      200.09,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ")",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      197.33,
+      445.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      260.69,
+      434.11
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "7",
+    "dir": "ltr",
+    "width": 3.9338400000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      260.69,
+      434.11
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "ימים",
+    "dir": "rtl",
+    "width": 16.534560000000013,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      242.2436,
+      434.11
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      237.29,
+      424.15
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "17/08/26",
+    "dir": "ltr",
+    "width": 30.156480000000006,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      237.29,
+      424.15
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      275.57,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "שעת נטילה",
+    "dir": "rtl",
+    "width": 38.024160000000045,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      275.57,
+      434.71
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "28",
+    "dir": "ltr",
+    "width": 7.89387999999999,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      215.81,
+      434.11
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "ימים",
+    "dir": "rtl",
+    "width": 16.534560000000013,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      197.3636,
+      434.11
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      194.45,
+      424.15
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": true
+  },
+  {
+    "str": "07/09/26",
+    "dir": "ltr",
+    "width": 30.156479999999977,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      194.45,
+      424.15
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      435.5836,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "חוזק לחיצה ממוצע",
+    "dir": "rtl",
+    "width": 61.65383999999996,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      435.5836,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "(",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      430.87,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "מגפ",
+    "dir": "rtl",
+    "width": 12.79608000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      416.11,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "\"",
+    "dir": "ltr",
+    "width": 4.42224,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      411.67,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "ס",
+    "dir": "rtl",
+    "width": 5.407920000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      406.3036,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ")",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      401.59,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ":",
+    "dir": "ltr",
+    "width": 3.4365600000000005,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      396.19,
+      345.29
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      363.7036,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "חוזק לחיצה מינימלי לדוגמא הנדרש בגיל",
+    "dir": "rtl",
+    "width": 133.6706400000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      363.7036,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "28",
+    "dir": "ltr",
+    "width": 7.893880000000018,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      353.83,
+      334.25
+    ],
+    "fontName": "g_d0_f5",
+    "hasEOL": false
+  },
+  {
+    "str": "יום",
+    "dir": "rtl",
+    "width": 10.762560000000029,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      341.1436,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "(",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      336.43,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "מגפ",
+    "dir": "rtl",
+    "width": 12.79608000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      323.59,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "\"",
+    "dir": "ltr",
+    "width": 4.42224,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      319.13,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "ס",
+    "dir": "rtl",
+    "width": 5.407920000000001,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      313.73,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ")",
+    "dir": "ltr",
+    "width": 2.69952,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      310.97,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": ":",
+    "dir": "ltr",
+    "width": 3.4365600000000005,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      305.57,
+      334.25
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "",
+    "dir": "ltr",
+    "width": 0,
+    "height": 0,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      393.91,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "מס",
+    "dir": "rtl",
+    "width": 10.576080000000035,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      393.91,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "'",
+    "dir": "ltr",
+    "width": 2.45976,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      391.54359999999997,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  },
+  {
+    "str": "תעודת",
+    "dir": "rtl",
+    "width": 21.054479999999963,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      368.5036,
+      439.63
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": true
+  },
+  {
+    "str": "משלוח",
+    "dir": "rtl",
+    "width": 22.564080000000004,
+    "height": 8.88,
+    "transform": [
+      8.88,
+      0,
+      0,
+      8.88,
+      374.23,
+      429.67
+    ],
+    "fontName": "g_d0_f2",
+    "hasEOL": false
+  }
+]
