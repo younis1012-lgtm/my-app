@@ -23855,11 +23855,25 @@ ${invalidRecipients.join("\n")}`);
     try {
       const records = await Promise.all(selectedRecords.map(hydratePreliminaryRecord));
       const uniqueRecipients = Array.from(new Set(recipients));
-      const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
-      const mergedResult = await buildMergedPreliminaryRecordsPdfBlob(records, sectionTitle);
-      const groupedPdfFilename = `${sectionTitle} - כולל נספחים.pdf`;
-      const groupedPdfAttachment = await pdfBlobToEmailAttachment(groupedPdfFilename, mergedResult.blob);
-      const attachments = uniqueEmailAttachments([groupedPdfAttachment]);
+      const sectionTitle = `בקרה מקדימה - ${records.length} רשומות`;
+      const recordAttachments: OutgoingEmailAttachment[] = [];
+      let totalPages = 0;
+      let totalAppendices = 0;
+      for (const [index, record] of records.entries()) {
+        const subtype = (record.subtype || preliminaryTab) as PreliminaryTab;
+        const typeLabel = labelForPreliminary(subtype);
+        const recordTitle = String(record.title || `${typeLabel} ${index + 1}`);
+        const recordResult = await buildMergedPreliminaryRecordsPdfBlob([record], recordTitle);
+        recordAttachments.push(
+          await pdfBlobToEmailAttachment(
+            `${typeLabel} - ${recordTitle} - כולל נספחים.pdf`,
+            recordResult.blob,
+          ),
+        );
+        totalPages += recordResult.pageCount;
+        totalAppendices += recordResult.appendixCount;
+      }
+      const attachments = uniqueEmailAttachments(recordAttachments);
       const messageText = customMessage.trim();
       const messageHtml = messageText
         ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
@@ -23871,8 +23885,8 @@ ${invalidRecipients.join("\n")}`);
         body: JSON.stringify({
           to: uniqueRecipients.join(", "),
           subject: `${sectionTitle} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${safeText(projectName)}.</div></div>`,
-          text: `${messagePlain}מצורף PDF מרוכז הכולל ${records.length} רשומות בקרה מקדימה מהפרויקט ${projectName}.`,
+          html: `<div dir="rtl">${messageHtml}<div>מצורפים ${attachments.length} קובצי PDF נפרדים עבור ${records.length} רשומות בקרה מקדימה מהפרויקט ${safeText(projectName)}. כל קובץ כולל רק את הטופס ואת המסמכים המשויכים אליו.</div></div>`,
+          text: `${messagePlain}מצורפים ${attachments.length} קובצי PDF נפרדים עבור ${records.length} רשומות בקרה מקדימה מהפרויקט ${projectName}. כל קובץ כולל רק את הטופס ואת המסמכים המשויכים אליו.`,
           attachments,
           projectId: currentProject?.id || projectName || "806",
           ...currentEmailSender,
@@ -23889,7 +23903,7 @@ ${invalidRecipients.join("\n")}`);
         );
       }
       alert(
-        `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} אישורים מסומנים, ${mergedResult.pageCount} עמודי PDF ו-${mergedResult.appendixCount} מסמכים מצורפים.`,
+        `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${attachments.length} קובצי PDF נפרדים, ${totalPages} עמודים ו-${totalAppendices} מסמכים מצורפים.`,
       );
       setPreliminaryEmailSelectionIds([]);
     } catch (error) {
