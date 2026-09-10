@@ -9823,6 +9823,9 @@ function FolderRecordsTable({
   onDownloadSelectedPdf,
   sendSelectedLabel = "שלח מסומנים במייל",
   downloadSelectedLabel = "הורד מסומנים כ-PDF",
+  selectedRecordIds: controlledSelectedRecordIds,
+  onSelectedRecordIdsChange,
+  selectedActionCount,
 }: {
   title: string;
   description?: string;
@@ -9835,13 +9838,22 @@ function FolderRecordsTable({
   onDownloadSelectedPdf?: (records: any[]) => void | Promise<void>;
   sendSelectedLabel?: string;
   downloadSelectedLabel?: string;
+  selectedRecordIds?: string[];
+  onSelectedRecordIdsChange?: (ids: string[]) => void;
+  selectedActionCount?: number;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
   const [page, setPage] = useState(1);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const pageSize = 10;
-  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [localSelectedRecordIds, setLocalSelectedRecordIds] = useState<string[]>([]);
+  const selectedRecordIds = controlledSelectedRecordIds ?? localSelectedRecordIds;
+  const setSelectedRecordIds = (update: (previous: string[]) => string[]) => {
+    const next = update(selectedRecordIds);
+    if (onSelectedRecordIdsChange) onSelectedRecordIdsChange(next);
+    else setLocalSelectedRecordIds(next);
+  };
   const canSelectRecords = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
@@ -9891,8 +9903,9 @@ function FolderRecordsTable({
   };
 
   useEffect(() => {
+    if (controlledSelectedRecordIds) return;
     setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
-  }, [visibleRecordIds.join("|")]);
+  }, [visibleRecordIds.join("|"), Boolean(controlledSelectedRecordIds)]);
   useEffect(() => setPage(1), [title]);
   useEffect(() => setColumnFilters({}), [title]);
   useEffect(() => {
@@ -9970,7 +9983,9 @@ function FolderRecordsTable({
               disabled={!actionRecords.length}
             >
               {selectedRecords.length
-                ? `${sendSelectedLabel} (${selectedRecords.length})`
+                ? `${sendSelectedLabel} (${selectedActionCount ?? selectedRecords.length})`
+                : selectedActionCount
+                  ? `${sendSelectedLabel} (${selectedActionCount})`
                 : `שלח את כל הרשומות במייל (${safeRecords.length})`}
             </button>
           ) : null}
@@ -15768,10 +15783,12 @@ export default function Page() {
     useState<ChecklistTemplateKey>(() => normalizeChecklistTemplateKey(undefined));
   const [preliminaryTab, setPreliminaryTab] =
     useState<PreliminaryTab>("suppliers");
+  const [preliminaryEmailSelectionIds, setPreliminaryEmailSelectionIds] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(
     readLocalCurrentProjectId(),
   );
+  useEffect(() => setPreliminaryEmailSelectionIds([]), [currentProjectId]);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectManager, setNewProjectManager] = useState("");
@@ -23874,6 +23891,7 @@ ${invalidRecipients.join("\n")}`);
       alert(
         `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${records.length} אישורים מסומנים, ${mergedResult.pageCount} עמודי PDF ו-${mergedResult.appendixCount} מסמכים מצורפים.`,
       );
+      setPreliminaryEmailSelectionIds([]);
     } catch (error) {
       alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
     }
@@ -26419,16 +26437,23 @@ ${invalidRecipients.join("\n")}`);
             <>
               <FolderRecordsTable
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
-                description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
+                description="ניתן לסמן רשומות, לעבור בין ספקים, חומרים וקבלני משנה, ואז לשלוח את כולן יחד במייל אחד."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
                 columns={preliminaryFolderColumns(preliminaryTab)}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
-                onSendSelectedEmail={sendPreliminaryRecordsEmail}
+                onSendSelectedEmail={(records) => sendPreliminaryRecordsEmail(
+                  preliminaryEmailSelectionIds.length
+                    ? projectPreliminary.filter((record) => preliminaryEmailSelectionIds.includes(String(record.id)))
+                    : records,
+                )}
                 onDownloadSelectedPdf={downloadPreliminaryRecordsPdf}
                 sendSelectedLabel="שלח מסומנים במייל"
                 downloadSelectedLabel="הורד מסומנים כ-PDF"
+                selectedRecordIds={preliminaryEmailSelectionIds}
+                onSelectedRecordIdsChange={setPreliminaryEmailSelectionIds}
+                selectedActionCount={preliminaryEmailSelectionIds.length}
               />
             <PreliminarySection
               guardedBody={guardedBody}
