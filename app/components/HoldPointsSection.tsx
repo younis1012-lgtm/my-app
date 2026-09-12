@@ -57,6 +57,7 @@ type Props = {
   currentUserName: string;
   canWrite: boolean;
   onSave: (record: HoldPointRecord) => Promise<void> | void;
+  onEmail?: (record: HoldPointRecord) => void;
   onDelete: (id: string) => Promise<void> | void;
   projectId: string;
 };
@@ -219,6 +220,7 @@ export function HoldPointsSection({
   canWrite,
   onSave,
   onDelete,
+  onEmail,
   projectId,
 }: Props) {
   const nextSerial = Math.max(0, ...records.map((record) => Number(record.serialNo) || 0)) + 1;
@@ -363,6 +365,7 @@ export function HoldPointsSection({
                     <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>
                       <button style={secondary} onClick={() => setExpandedId(expanded ? "" : record.id)}>{expanded ? "סגור" : "פתח"}</button>{" "}
                       <button style={secondary} disabled={!canWrite} onClick={() => { setDraft(record); setShowForm(true); }}>ערוך</button>{" "}
+                      {onEmail && <button style={secondary} onClick={() => onEmail(record)}>שליחה במייל</button>}
                       <button style={{ ...secondary, color: "#b91c1c" }} disabled={!canWrite} onClick={() => { if (confirm("למחוק את נקודת העצירה?")) void onDelete(record.id); }}>מחק</button>
                     </td>
                   </tr>,

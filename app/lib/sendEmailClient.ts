@@ -1,3 +1,5 @@
+import { supabase } from '../../lib/supabaseClient';
+
 export type EmailAttachment = {
   filename: string;
   mimeType: string;
@@ -5,12 +7,15 @@ export type EmailAttachment = {
 };
 
 export type SendEmailPayload = {
+  projectId: string;
+  module: string;
+  recordId: string;
+  requestId: string;
   to: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
   replyTo?: string;
   senderEmail?: string;
-  senderAppPassword?: string;
   senderName?: string;
   subject: string;
   text?: string;
@@ -28,10 +33,13 @@ export async function fileToDataUrl(file: File) {
 }
 
 export async function sendEmail(payload: SendEmailPayload) {
+  const session = await supabase?.auth.getSession();
+  const token = session?.data.session?.access_token;
+  if (!token) throw new Error('יש להתחבר באמצעות חשבון Supabase');
   const response = await fetch("/api/send-email", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ ...payload, attachments: payload.attachments || [] }),
   });
 
   const result = await response.json().catch(() => ({}));
@@ -39,5 +47,5 @@ export async function sendEmail(payload: SendEmailPayload) {
     throw new Error(result?.error || "שליחת המייל נכשלה");
   }
 
-  return result as { success: true };
+  return result as { success: true; status: 'sent' | 'partial'; messageId: string; rejected: string[]; warning?: string };
 }

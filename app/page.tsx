@@ -3,6 +3,8 @@
 import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
 import { ColumnFilter } from "./components/ColumnFilter";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { EmailComposer } from "./components/EmailComposer";
+import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
@@ -23753,12 +23755,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return attachment;
   };
 
-  const [emailRecipientDialogOpen, setEmailRecipientDialogOpen] = useState(false);
-  const [selectedEmailRecipientIds, setSelectedEmailRecipientIds] = useState<string[]>([]);
-  const [emailRecipientDialogMode, setEmailRecipientDialogMode] = useState<"form" | "rfi" | "preliminaryRecords">("form");
-  const [emailCustomMessage, setEmailCustomMessage] = useState("");
-  const [pendingRfiEmailRecord, setPendingRfiEmailRecord] = useState<RfiRecord | null>(null);
-  const [pendingPreliminaryEmailRecords, setPendingPreliminaryEmailRecords] = useState<any[]>([]);
+  const [centralMailContext, setCentralMailContext] = useState<MailContext | null>(null);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -23788,174 +23785,32 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     currentProjectEmailUsers,
   ]);
 
-  const ensureQualityControllerEmailSender = () => {
-    if (currentEmailSender.senderEmail && currentEmailSender.senderAppPassword) return true;
-    alert(
-      "לא ניתן לשלוח מייל מהפרויקט. יש להגדיר בפרויקט משתמש פעיל בתפקיד בקר איכות, עם כתובת Gmail תקינה ועם סיסמת אפליקציה Gmail.",
-    );
-    return false;
-  };
-
-  const sendEmailToRecipients = async (recipientEmails: string[], customMessage = "") => {
-    if (!ensureQualityControllerEmailSender()) return;
-    try {
-      const uniqueRecipients = Array.from(new Set(recipientEmails.map((email) => email.trim()).filter(Boolean)));
-      const invalidRecipients = uniqueRecipients.filter((email) => !isValidEmailAddress(email));
-      if (invalidRecipients.length) {
-        alert(`כתובות המייל הבאות אינן תקינות:
-${invalidRecipients.join("\n")}`);
-        return;
-      }
-      if (!uniqueRecipients.length) {
-        alert("יש לסמן לפחות משתמש אחד בריבוע הבחירה");
-        return;
-      }
-      const normalizedRecipient = uniqueRecipients.join(", ");
-
-      const exportChecklistNo = getExportChecklistNo();
-      const title = recordTitleForExport();
-      const html = exportHtml(exportChecklistNo);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
-
-      const formAppendices = collectCurrentFormPdfAppendices();
-      const mergedPdfBlob = await buildMergedPdfBlob(title, html, formAppendices);
-      const formPdfAttachment = await pdfBlobToEmailAttachment(
-        `${title} - כולל נספחים.pdf`,
-        mergedPdfBlob,
-      );
-
-      const attachments = uniqueEmailAttachments([formPdfAttachment]);
-
-      const response = await fetch("/api/send-checklist-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: normalizedRecipient,
-          subject: `${title} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}</div></div>`,
-          text: `${messagePlain}מצורף קובץ PDF עבור ${title} מפרויקט ${projectName}`,
-          attachments,
-          projectId: currentProject?.id || projectName || "806",
-          ...currentEmailSender,
-        }),
-      });
-
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
-      }
-
-      alert(
-        `המייל נשלח בהצלחה אל ${normalizedRecipient}. צורף PDF הכולל את הטופס` +
-          (formAppendices.length
-            ? ` ואת ${formAppendices.length} הנספחים שנבדקו בפועל.`
-            : ". לא נמצאו נספחים מצורפים בטופס זה."),
-      );
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
-    }
-  };
-
-  const sendPreliminaryRecordsEmailToRecipients = async (
-    recordsToSend: any[],
-    recipientEmails: string[],
-    customMessage = "",
+  const openRecordEmail = (
+    moduleName: string, record: Record<string, any>, recordId: string | null,
+    title: string, generateDocuments?: () => Promise<MailAttachment[]>,
   ) => {
-    if (!ensureQualityControllerEmailSender()) return;
-    const selectedRecords = recordsToSend.filter(Boolean) as PreliminaryRecord[];
-    if (!selectedRecords.length) {
-      alert("יש לסמן לפחות רשומה אחת לשליחה");
-      return;
-    }
-    const recipients = normalizeEmailList(recipientEmails.join(","));
-    if (!recipients.length) return;
-    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
-    if (invalidRecipients.length) {
-      alert(`כתובות המייל הבאות אינן תקינות:\n${invalidRecipients.join("\n")}`);
-      return;
-    }
-    try {
-      const records = await Promise.all(selectedRecords.map(hydratePreliminaryRecord));
-      const uniqueRecipients = Array.from(new Set(recipients));
-      const sectionTitle = `בקרה מקדימה - ${records.length} רשומות`;
-      const recordAttachments: OutgoingEmailAttachment[] = [];
-      let totalPages = 0;
-      let totalAppendices = 0;
-      for (const [index, record] of records.entries()) {
-        const subtype = (record.subtype || preliminaryTab) as PreliminaryTab;
-        const typeLabel = labelForPreliminary(subtype);
-        const recordTitle = String(record.title || `${typeLabel} ${index + 1}`);
-        const recordResult = await buildMergedPreliminaryRecordsPdfBlob([record], recordTitle);
-        recordAttachments.push(
-          await pdfBlobToEmailAttachment(
-            `${typeLabel} - ${recordTitle} - כולל נספחים.pdf`,
-            recordResult.blob,
-          ),
-        );
-        totalPages += recordResult.pageCount;
-        totalAppendices += recordResult.appendixCount;
-      }
-      const attachments = uniqueEmailAttachments(recordAttachments);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
-      const response = await fetch("/api/send-checklist-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: uniqueRecipients.join(", "),
-          subject: `${sectionTitle} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורפים ${attachments.length} קובצי PDF נפרדים עבור ${records.length} רשומות בקרה מקדימה מהפרויקט ${safeText(projectName)}. כל קובץ כולל רק את הטופס ואת המסמכים המשויכים אליו.</div></div>`,
-          text: `${messagePlain}מצורפים ${attachments.length} קובצי PDF נפרדים עבור ${records.length} רשומות בקרה מקדימה מהפרויקט ${projectName}. כל קובץ כולל רק את הטופס ואת המסמכים המשויכים אליו.`,
-          attachments,
-          projectId: currentProject?.id || projectName || "806",
-          ...currentEmailSender,
-        }),
-      });
-      if (!response.ok) {
-        const responseText = await response.text();
-        let result: any = {};
-        try { result = responseText ? JSON.parse(responseText) : {}; } catch {}
-        throw new Error(
-          result?.error ||
-          result?.details?.error_description ||
-          `שליחת המייל נכשלה (HTTP ${response.status}${responseText ? `: ${responseText.slice(0, 180)}` : ""})`,
-        );
-      }
-      alert(
-        `המייל נשלח בהצלחה אל ${uniqueRecipients.join(", ")} עם ${attachments.length} קובצי PDF נפרדים, ${totalPages} עמודים ו-${totalAppendices} מסמכים מצורפים.`,
-      );
-      setPreliminaryEmailSelectionIds([]);
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
-    }
+    if (!currentProject?.id) return alert("יש לבחור פרויקט");
+    const snapshot = structuredClone(record);
+    setCentralMailContext({
+      projectId: currentProject.id, module: moduleName,
+      recordId: recordId || `draft-${crypto.randomUUID()}`, recordIds: Array.isArray(snapshot.records) ? snapshot.records.map((item: any) => String(item.id || "")).filter(Boolean) : undefined, title,
+      data: { ...snapshot, title, projectName },
+      attachments: collectMailAttachments(snapshot), generateDocuments,
+    });
+  };
+
+  const documentForEmail = async (html: string, title: string): Promise<MailAttachment> => {
+    const bytes = await buildFormOnlyPdfBytes(html, title);
+    return { id: crypto.randomUUID(), filename: `${title}.pdf`, mimeType: "application/pdf", contentBase64: arrayBufferToBase64(bytes) };
   };
 
   const sendPreliminaryRecordsEmail = async (recordsToSend: any[]) => {
-    if (!recordsToSend.length) {
-      alert("יש לסמן לפחות רשומה אחת לשליחה");
-      return;
-    }
-    if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("preliminaryRecords");
-      setPendingRfiEmailRecord(null);
-      setPendingPreliminaryEmailRecords(recordsToSend);
-      setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const rawRecipients = normalizeEmailList(recipientInput);
-    if (!rawRecipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendPreliminaryRecordsEmailToRecipients(recordsToSend, rawRecipients, message);
+    if (!recordsToSend.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
+    const records = await Promise.all(structuredClone(recordsToSend).map(hydratePreliminaryRecord));
+    const title = records.length === 1 ? records[0].title || "בקרה מקדימה" : `בקרה מקדימה (${records.length})`;
+    const documents = records.map((record: any) => ({ title: record.title || title, html: archivePrintableHtml(record.title || title, preliminaryRecordArchiveBody(record)) }));
+    openRecordEmail("preliminary", { records, status: records[0]?.status }, records.length === 1 ? records[0].id : `batch-${crypto.randomUUID()}`, title,
+      async () => { const result: MailAttachment[] = []; for (const doc of documents) result.push(await documentForEmail(doc.html, doc.title)); return result; });
   };
 
   const downloadPreliminaryRecordsPdf = async (recordsToDownload: any[]) => {
@@ -24022,49 +23877,18 @@ ${invalidRecipients.join("\n")}`);
   };
 
   const sendCurrentFormEmail = async () => {
-    if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("form");
-      setPendingRfiEmailRecord(null);
-      setPendingPreliminaryEmailRecords([]);
-      setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-
-    const recipientInput = window.prompt("לא הוגדרו משתמשים לפרויקט. הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const rawRecipients = normalizeEmailList(recipientInput);
-    if (!rawRecipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendEmailToRecipients(rawRecipients, message);
-  };
-
-  const confirmSelectedEmailRecipients = async () => {
-    const recipientEmails = emailRecipientOptions
-      .filter((user) => selectedEmailRecipientIds.includes(user.id))
-      .map((user) => user.email);
-    if (!recipientEmails.length) {
-      alert("יש לסמן לפחות משתמש אחד בריבוע הבחירה");
-      return;
-    }
-    const mode = emailRecipientDialogMode;
-    const message = emailCustomMessage;
-    const rfiRecord = pendingRfiEmailRecord;
-    setEmailRecipientDialogOpen(false);
-    if (mode === "rfi" && rfiRecord) {
-      await sendRfiEmailToRecipients(rfiRecord, recipientEmails, message);
-      setPendingRfiEmailRecord(null);
-      setEmailCustomMessage("");
-      return;
-    }
-    if (mode === "preliminaryRecords") {
-      await sendPreliminaryRecordsEmailToRecipients(pendingPreliminaryEmailRecords, recipientEmails, message);
-      setPendingPreliminaryEmailRecords([]);
-      setEmailCustomMessage("");
-      return;
-    }
-    await sendEmailToRecipients(recipientEmails, message);
-    setEmailCustomMessage("");
+    if (section === "rfi") return sendRfiEmail({ ...rfiForm, id: editingRfiId || "" } as RfiRecord);
+    if (section === "supervisionReports") return sendSupervisionReportEmail({ ...supervisionReportForm, id: editingSupervisionReportId || "" } as SupervisionReportRecord);
+    if (section === "preliminary") return sendPreliminaryRecordsEmail([{ ...currentPreliminaryForm, id: editingPreliminaryId }]);
+    const current: Record<string, [Record<string, any>, string | null]> = {
+      checklists: [checklistForm, editingChecklistId], nonconformances: [nonconformanceForm, editingNonconformanceId],
+      trialSections: [trialSectionForm, editingTrialSectionId], controlProcesses: [controlProcessForm, editingControlProcessId],
+      plans: [planForm, editingPlanId], projectDetails: [currentProject || {}, currentProject?.id || null],
+    };
+    const [record, recordId] = current[section] || [currentProject || {}, currentProject?.id || null];
+    const title = String(record.title || record.name || recordTitleForExport());
+    const html = ["checklists", "nonconformances", "trialSections", "controlProcesses"].includes(section) ? exportHtml(getExportChecklistNo()) : null;
+    openRecordEmail(section, record, recordId, title, html ? async () => [await documentForEmail(html, title)] : undefined);
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -24550,44 +24374,9 @@ ${invalidRecipients.join("\n")}`);
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
     record = await hydrateSupervisionReport(record);
-    if (!ensureQualityControllerEmailSender()) return;
-    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const recipients = normalizeEmailList(recipientInput);
-    if (!recipients.length) return;
-    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
-    if (invalidRecipients.length) {
-      alert(`כתובות המייל הבאות אינן תקינות:
-${invalidRecipients.join("\n")}`);
-      return;
-    }
-    try {
-      const blob = await buildSupervisionReportMergedPdfBlob(record);
-      const pdfDataUrl = await blobToDataUrl(blob);
-      const attachments = uniqueEmailAttachments([
-        dataUrlToEmailAttachment(`${record.title || "דוח פיקוח עליון"} - כולל נספחים.pdf`, pdfDataUrl, "application/pdf"),
-      ]);
-      const response = await fetch("/api/send-checklist-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: Array.from(new Set(recipients)).join(", "),
-          subject: `${record.title || "דוח פיקוח עליון"} - ${projectName}`,
-          html: `<div dir="rtl">מצורף PDF מאוחד הכולל דוח פיקוח עליון וכל הקבצים/התמונות מפרויקט ${projectName}</div>`,
-          text: `מצורף PDF מאוחד הכולל דוח פיקוח עליון וכל הקבצים/התמונות מפרויקט ${projectName}`,
-          attachments,
-          projectId: currentProject?.id || projectName || "806",
-          ...currentEmailSender,
-        }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
-        return;
-      }
-      alert("המייל נשלח בהצלחה עם PDF מאוחד הכולל את הדוח והנספחים.");
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
-    }
+    const title = record.title || "דוח פיקוח עליון";
+    const html = supervisionReportHtml(record);
+    openRecordEmail("supervisionReports", record, record.id, title, async () => [await documentForEmail(html, title)]);
   };
 
   const rfiExportTitle = (record: RfiRecord) => record.title || "RFI";
@@ -24736,80 +24525,10 @@ ${invalidRecipients.join("\n")}`);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const sendRfiEmailToRecipients = async (
-    record: RfiRecord,
-    recipientEmails: string[],
-    customMessage = "",
-  ) => {
-    if (!ensureQualityControllerEmailSender()) return;
-    const recipientInput = recipientEmails.join(",");
-    const recipients = normalizeEmailList(recipientInput);
-    if (!recipients.length) return;
-    const invalidRecipients = recipients.filter((email) => !isValidEmailAddress(email));
-    if (invalidRecipients.length) {
-      alert(`כתובות המייל הבאות אינן תקינות:
-${invalidRecipients.join("\n")}`);
-      return;
-    }
-    try {
-      const formPdfBytes = await buildFormOnlyPdfBytes(
-        rfiExportHtml(record),
-        rfiExportTitle(record),
-      );
-      const blob = new Blob([formPdfBytes], { type: "application/pdf" });
-      const pdfDataUrl = await blobToDataUrl(blob);
-      const attachments = uniqueEmailAttachments([
-        dataUrlToEmailAttachment(`${rfiExportTitle(record)} - טופס.pdf`, pdfDataUrl, "application/pdf"),
-        ...normalizeAttachments(record.documents).map((document) =>
-          dataUrlToEmailAttachment(document.name, document.dataUrl, document.type),
-        ),
-      ]);
-      const messageText = customMessage.trim();
-      const messageHtml = messageText
-        ? `<div style="margin:0 0 14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;white-space:pre-line">${safeText(messageText)}</div>`
-        : "";
-      const messagePlain = messageText ? `${messageText}\n\n` : "";
-      const response = await fetch("/api/send-checklist-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: Array.from(new Set(recipients)).join(", "),
-          subject: `${rfiExportTitle(record)} - ${projectName}`,
-          html: `<div dir="rtl">${messageHtml}<div>מצורפים טופס ה-RFI וכל המסמכים הנלווים בפרויקט ${safeText(projectName)}</div></div>`,
-          text: `${messagePlain}מצורפים טופס ה-RFI וכל המסמכים הנלווים בפרויקט ${projectName}`,
-          attachments,
-          projectId: currentProject?.id || projectName || "806",
-          ...currentEmailSender,
-        }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        alert(result?.error || result?.details?.error_description || "שליחת המייל נכשלה");
-        return;
-      }
-      alert("המייל נשלח בהצלחה עם טופס ה-RFI וכל הנספחים.");
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "שליחת המייל נכשלה");
-    }
-  };
-
   const sendRfiEmail = async (record: RfiRecord) => {
     record = await hydrateRfiRecord(record);
-    if (emailRecipientOptions.length) {
-      setEmailRecipientDialogMode("rfi");
-      setPendingRfiEmailRecord(record);
-      setPendingPreliminaryEmailRecords([]);
-      setSelectedEmailRecipientIds([]);
-      setEmailCustomMessage("");
-      setEmailRecipientDialogOpen(true);
-      return;
-    }
-
-    const recipientInput = window.prompt("הקלד כתובות מייל מופרדות בפסיק:", FIXED_EMAIL_RECIPIENT);
-    const recipients = normalizeEmailList(recipientInput);
-    if (!recipients.length) return;
-    const message = window.prompt("הודעה שתופיע בגוף המייל (לא חובה):", "") ?? "";
-    await sendRfiEmailToRecipients(record, recipients, message);
+    const title = rfiExportTitle(record), html = rfiExportHtml(record);
+    openRecordEmail("rfi", record, record.id, title, async () => [await documentForEmail(html, title)]);
   };
 
   const showExportButtons = [
@@ -25472,115 +25191,13 @@ ${invalidRecipients.join("\n")}`);
           </div>
         );
       })()}
-      {emailRecipientDialogOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            background: "rgba(15, 23, 42, 0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            style={{
-              width: "min(720px, 96vw)",
-              maxHeight: "82vh",
-              overflow: "auto",
-              background: "#fff",
-              borderRadius: 18,
-              padding: 20,
-              boxShadow: "0 20px 60px rgba(15, 23, 42, 0.35)",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 950 }}>בחירת נמענים לשליחת מייל</h3>
-            <div style={{ color: "#64748b", marginBottom: 14 }}>
-              סמן בריבוע ליד כל משתמש שצריך לקבל את המייל. אין צורך להקליד מספרים.
-            </div>
-            <label style={{ display: "block", marginBottom: 14 }}>
-              <span style={{ display: "block", fontWeight: 900, marginBottom: 6 }}>
-                הודעה שתופיע בגוף המייל
-              </span>
-              <textarea
-                value={emailCustomMessage}
-                onChange={(event) => setEmailCustomMessage(event.target.value)}
-                placeholder="לדוגמה: מצורפים מסמכים לבדיקה/התייחסות."
-                rows={4}
-                style={{
-                  width: "100%",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 12,
-                  padding: 12,
-                  font: "inherit",
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                }}
-              />
-            </label>
-            <div style={{ display: "grid", gap: 8 }}>
-              {emailRecipientOptions.map((user) => {
-                const checked = selectedEmailRecipientIds.includes(user.id);
-                return (
-                  <label
-                    key={user.id}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "auto 1fr",
-                      gap: 10,
-                      alignItems: "center",
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      border: checked ? "1px solid #8b3d72" : "1px solid #e2e8f0",
-                      background: checked ? "#fdf2f8" : "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(event) => {
-                        const isChecked = event.target.checked;
-                        setSelectedEmailRecipientIds((prev) =>
-                          isChecked ? Array.from(new Set([...prev, user.id])) : prev.filter((id) => id !== user.id),
-                        );
-                      }}
-                      style={{ width: 18, height: 18 }}
-                    />
-                    <span style={{ fontWeight: 800 }}>
-                      {user.name || "משתמש"}
-                      {user.role ? ` - ${user.role}` : ""}
-                      {user.company ? ` - ${user.company}` : ""}
-                      <span style={{ display: "block", color: "#475569", fontWeight: 600, marginTop: 2 }}>
-                        {user.email}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-start", marginTop: 18, flexWrap: "wrap" }}>
-              <button type="button" style={styles.primaryBtn} onClick={confirmSelectedEmailRecipients}>
-                שלח לנמענים שסומנו
-              </button>
-              <button type="button" style={styles.secondaryBtn} onClick={() => setSelectedEmailRecipientIds(emailRecipientOptions.map((user) => user.id))}>
-                סמן הכל
-              </button>
-              <button type="button" style={styles.secondaryBtn} onClick={() => setSelectedEmailRecipientIds([])}>
-                נקה בחירה
-              </button>
-              <button type="button" style={styles.dangerBtn} onClick={() => setEmailRecipientDialogOpen(false)}>
-                ביטול
-              </button>
-            </div>
-          </div>
-        </div>
+      {centralMailContext && (
+        <EmailComposer key={`${centralMailContext.module}:${centralMailContext.recordId}`}
+          context={centralMailContext} senderEmail={currentEmailSender.senderEmail}
+          contacts={emailRecipientOptions} canSend={canWriteAccess(projectAccess) && projectAccess?.authProvider === "supabase"}
+          onClose={() => setCentralMailContext(null)} />
       )}
+
       <header style={styles.header}>
         <div style={styles.headerCard}>
           <div style={{ fontWeight: 900, fontSize: 24 }}>Y.K QUALITY</div>
@@ -25864,6 +25481,11 @@ ${invalidRecipients.join("\n")}`);
 
       <div style={styles.layout}>
         <main style={styles.mainCard}>
+          {currentProject && !guardedBody && (
+            <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
+              <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>שליחה במייל / היסטוריה</button>
+            </div>
+          )}
           {showExportButtons && section !== "preliminary" && !guardedBody && (
             <div
               style={{
@@ -25879,13 +25501,7 @@ ${invalidRecipients.join("\n")}`);
               >
                 הורד PDF
               </button>
-              <button
-                type="button"
-                style={styles.secondaryBtn}
-                onClick={sendCurrentFormEmail}
-              >
-                שלח מייל
-              </button>
+
             </div>
           )}
           {section === "preliminary" && !guardedBody && (
@@ -26064,6 +25680,7 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "qualityDocuments" && currentProjectIdNormalized && (
             <QualityDocumentsSection
+              onEmail={(record) => openRecordEmail("qualityDocuments", record, record.id, record.title)}
               projectId={currentProjectIdNormalized}
               canWrite={canWriteAccess(projectAccess)}
               supabase={isSupabaseConfigured ? supabase : null}
@@ -26228,6 +25845,7 @@ ${invalidRecipients.join("\n")}`);
           )}
           {section === "holdPoints" && currentProjectId && (
             <HoldPointsSection
+              onEmail={(record) => openRecordEmail("holdPoints", record, record.id, record.name)}
               records={projectHoldPoints}
               checklists={projectChecklists as any[]}
               nonconformances={projectNonconformances as any[]}
