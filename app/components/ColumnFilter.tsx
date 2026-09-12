@@ -26,4 +26,3 @@ export function ColumnFilter({ options, style, onChange, ...props }: Omit<InputH
     </div>
   );
 }
-

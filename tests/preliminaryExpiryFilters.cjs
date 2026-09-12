@@ -17,4 +17,3 @@ const projection=source.match(/preliminary_records: "([^"]+)"/)[1];
 for(const field of ['supplier','subcontractor','material'])assert.ok(projection.split(',').includes(field));
 console.log('PASS: summary contains certificate data; three preliminary types, rendered dates, missing/expired dates, and expiry filtering.');
 
-
