@@ -31,6 +31,7 @@ type Props = {
   sourceDataLoading?: boolean;
   sourceDataReady?: boolean;
   sourceDataError?: string;
+  loadPreliminaryForExport?: () => Promise<any[]>;
 };
 
 type ConcentrationId =
@@ -865,6 +866,82 @@ const materialRow = (record: any, index: number): Row => {
     "הערות": firstText(material?.notes, record?.notes),
   };
 };
+
+// Certificate rows are records in their own right. An attached file or an
+// expiry date remains useful even when OCR did not find a certificate number.
+const preliminaryCertificateEntries = (record: any): any[] => {
+  const key = ({ suppliers: "supplier", subcontractors: "subcontractor", materials: "material" } as Record<string, string>)[record?.subtype];
+  const nested = (key && record?.[key]) || record?.supplier || record?.subcontractor || record?.material || {};
+  const entries: any[] = [];
+  const seen = new Set<any>();
+  for (const owner of [nested, record]) {
+    for (const field of ["certificates", "documents", "requiredDocuments"]) {
+      for (const doc of Array.isArray(owner?.[field]) ? owner[field] : []) {
+        if (!doc || typeof doc !== "object" || doc.exists === false || doc.attached === false) continue;
+        const hasContent = isRealAttachment(doc) || firstText(doc.details, doc.description, doc.type, doc.certificateType, doc.expiryDate, doc.expiry_date, doc.validUntil, doc.valid_until, doc.expirationDate, doc.certificateExpiryDate, doc.licenseExpiryDate, doc.certificate_no) ||
+          (Array.isArray(doc.attachments) && doc.attachments.some(isRealAttachment));
+        if (!hasContent) continue;
+        const identity = doc.id || doc;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        entries.push(doc);
+      }
+    }
+  }
+  if (!entries.length) {
+    for (const owner of [nested, record]) {
+      for (const doc of Array.isArray(owner?.attachments) ? owner.attachments : []) {
+        if (!isRealAttachment(doc) || seen.has(doc.id || doc)) continue;
+        seen.add(doc.id || doc);
+        entries.push(doc);
+      }
+    }
+  }
+  return entries;
+};
+
+const preliminaryDocumentNumber = (doc: any): string => firstText(
+  doc?.certificateNo, doc?.certificate_no, doc?.certificateNumber,
+  doc?.documentNo, doc?.documentNumber, doc?.licenseNo, doc?.licenseNumber,
+);
+
+const preliminaryDocumentFiles = (doc: any): string => uniqueJoin([
+  doc?.attachmentName, doc?.fileName, doc?.name,
+  ...["attachments", "files"].flatMap((key) => Array.isArray(doc?.[key])
+    ? doc[key].filter((file: any) => file?.attached !== false).map((file: any) => firstText(file?.name, file?.fileName, file?.attachmentName)) : []),
+], "\n");
+
+const buildPreliminaryConcentrationRows = (records: any[], subtype: string): Row[] => {
+  const kind = subtype === "suppliers" ? "supplier" : subtype === "subcontractors" ? "subcontractor" : "material";
+  const rowBuilder = subtype === "suppliers" ? supplierRow : subtype === "subcontractors" ? contractorRow : materialRow;
+  return preliminaryBySubtype(records, subtype).flatMap((record, index) => {
+    const base = rowBuilder(record, index);
+    const entries = preliminaryCertificateEntries(record);
+    const direct = record?.[kind] || record;
+    // Legacy forms can store certificate metadata directly on the entity.
+    const documents = entries.length ? entries : [direct];
+    return documents.map((doc) => {
+      const row = { ...base };
+      const hasCertificate = entries.length > 0 || Boolean(preliminaryDocumentNumber(doc) || firstText(doc?.expiryDate, doc?.validUntil, doc?.certificateType) || preliminaryDocumentFiles(doc));
+      const number = preliminaryDocumentNumber(doc) || "לא הוזן";
+      const type = firstText(doc?.details, doc?.description, doc?.certificateType, doc?.documentType, inferDocumentType(doc)) || (hasCertificate ? "לא הוזן" : "לא צורפה תעודה");
+      const expiry = firstDateText(doc?.expiryDate, doc?.expiry_date, doc?.validUntil, doc?.valid_until, doc?.expirationDate, doc?.certificateExpiryDate, doc?.licenseExpiryDate);
+      row[subtype === "materials" ? "מספר תעודה / אישור" : "מספר תעודה / רישיון / אישור"] = number;
+      row[subtype === "suppliers" ? "סוג תעודה /ISO/ת״ת/רישיון" : "שם / סוג תעודה"] = type;
+      row[subtype === "suppliers" ? "תוקף" : "תאריך תפוגה"] = expiry || "לא הוזן";
+      row["תאריך אישור"] = preliminaryApprovalDateText(record);
+      row["תאריך הנפקת תעודה"] = firstDateText(doc?.issueDate, doc?.issue_date, doc?.issuedAt);
+      row["קבצים מצורפים"] = preliminaryDocumentFiles(doc);
+      row["הערות"] = uniqueJoin([base["הערות"], doc?.notes], "\n");
+      if (subtype === "subcontractors") {
+        row["סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור"] = firstText(direct?.classification, direct?.contractorClassification, direct?.registrationNo, direct?.classificationNo);
+        row["מס׳ מסמכים"] = hasCertificate ? 1 : "";
+      }
+      return row;
+    });
+  });
+};
+
 
 const extractNonconformanceNumber = (record: any, index: number): string => {
   const raw = firstText(record?.ncrNumber, record?.number, record?.title, record?.subject);
@@ -4406,19 +4483,19 @@ const definitions: ConcentrationDefinition[] = [
     id: "suppliers",
     title: "ריכוז ספקים",
     fileName: "ריכוז ספקים.xlsx",
-    description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה",
+    description: "ריכוז מתוך אישורי ספקים בבקרה מקדימה — שורה לכל תעודה",
     sourceLabel: "בקרה מקדימה / ספקים",
-    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת״ת/רישיון", "סטטוס", "תוקף", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "suppliers").map(supplierRow),
+    columns: ["מס׳", "שם ספק", "חומר/מוצר מסופק", "תאריך אישור", "מספר תעודה / רישיון / אישור", "סוג תעודה /ISO/ת״ת/רישיון", "סטטוס", "תוקף", "תאריך הנפקת תעודה", "קבצים מצורפים", "הערות"],
+    buildRows: ({ savedPreliminary }) => buildPreliminaryConcentrationRows(savedPreliminary, "suppliers"),
   },
   {
     id: "contractors",
     title: "ריכוז קבלנים",
     fileName: "ריכוז קבלנים.xlsx",
-    description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה",
+    description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה — שורה לכל תעודה",
     sourceLabel: "בקרה מקדימה / קבלנים",
-    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "תאריך תפוגה", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "subcontractors").map(contractorRow),
+    columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "תאריך תפוגה", "תאריך הנפקת תעודה", "קבצים מצורפים", "הערות"],
+    buildRows: ({ savedPreliminary }) => buildPreliminaryConcentrationRows(savedPreliminary, "subcontractors"),
   },
   {
     id: "asphalt",
@@ -4471,10 +4548,10 @@ const definitions: ConcentrationDefinition[] = [
     id: "materials",
     title: "ריכוז חומרים",
     fileName: "ריכוז חומרים.xlsx",
-    description: "ריכוז אישורי חומרים מתוך בקרה מקדימה",
+    description: "ריכוז אישורי חומרים מתוך בקרה מקדימה — שורה לכל תעודה",
     sourceLabel: "בקרה מקדימה / חומרים",
-    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "סטטוס", "תאריך אישור", "תאריך תפוגה", "הערות"],
-    buildRows: ({ savedPreliminary }) => preliminaryBySubtype(savedPreliminary, "materials").map(materialRow),
+    columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "שם / סוג תעודה", "סטטוס", "תאריך אישור", "תאריך תפוגה", "תאריך הנפקת תעודה", "קבצים מצורפים", "הערות"],
+    buildRows: ({ savedPreliminary }) => buildPreliminaryConcentrationRows(savedPreliminary, "materials"),
   },
   {
     id: "trial-sections",
@@ -6169,7 +6246,7 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
-export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false, sourceDataReady = true, sourceDataError = "" }: Props) {
+export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false, sourceDataReady = true, sourceDataError = "", loadPreliminaryForExport }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
@@ -6208,11 +6285,11 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
     return result;
   }, [ctx]);
 
-  const buildRowsForDefinition = (definition: ConcentrationDefinition, selectedMix = ""): Row[] => {
+  const buildRowsForDefinition = (definition: ConcentrationDefinition, selectedMix = "", exportCtx = ctx): Row[] => {
     const rows =
       definition.id === "asphalt"
-        ? buildAsphaltConcentrationRows(ctx, selectedMix)
-        : definition.buildRows(ctx);
+        ? buildAsphaltConcentrationRows(exportCtx, selectedMix)
+        : definition.buildRows(exportCtx);
     return normalizeConcentrationRows(definition, rows);
   };
 
@@ -6249,6 +6326,8 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
     }
     setBusyId(definition.id);
     try {
+      const exportCtx = loadPreliminaryForExport && ["suppliers", "contractors", "materials"].includes(definition.id)
+        ? { ...ctx, savedPreliminary: scopeProjectRecords(await loadPreliminaryForExport(), currentProjectId) } : ctx;
       let selectedMix = "";
       let rows: Row[] = [];
       let fileName = definition.fileName;
@@ -6261,7 +6340,7 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
         rows = selectedMixes.flatMap((mix) => buildRowsForDefinition(definition, mix));
         fileName = `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`;
       } else {
-        rows = buildRowsForDefinition(definition);
+        rows = buildRowsForDefinition(definition, "", exportCtx);
       }
       const blob = await buildWorkbookBlob(definition, rows, meta, selectedMix);
       downloadBlob(blob, fileName);
@@ -6287,6 +6366,8 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
     }
     setBulkDownloading(true);
     try {
+      const exportCtx = loadPreliminaryForExport && selectedDefinitions.some((item) => ["suppliers", "contractors", "materials"].includes(item.id))
+        ? { ...ctx, savedPreliminary: scopeProjectRecords(await loadPreliminaryForExport(), currentProjectId) } : ctx;
       let asphaltMix = "";
       let asphaltMixes: string[] = [];
       if (selectedDefinitions.some((definition) => definition.id === "asphalt")) {
@@ -6302,7 +6383,7 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
         const selectedMix = definition.id === "asphalt" ? asphaltMix : "";
         const rows = definition.id === "asphalt"
           ? asphaltMixes.flatMap((mix) => buildRowsForDefinition(definition, mix))
-          : buildRowsForDefinition(definition, selectedMix);
+          : buildRowsForDefinition(definition, selectedMix, exportCtx);
         const fileName =
           definition.id === "asphalt"
             ? `ריכוז בדיקות אספלט - ${selectedMix}.xlsx`

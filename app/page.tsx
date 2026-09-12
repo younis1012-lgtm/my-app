@@ -26511,6 +26511,18 @@ ${invalidRecipients.join("\n")}`);
                 savedSupervisionReports={projectSupervisionReports}
                 currentProjectName={projectName}
                 onImportSoilSurvey={importSoilSurveyToEarthworksConcentration}
+                loadPreliminaryForExport={async () => {
+                  if (!cloudEnabled || !supabase) return projectPreliminary;
+                  const result = await selectProjectTable(
+                    "preliminary_records", "saved_at", projectCloudIdsForCanonicalId(currentProjectIdNormalized), false,
+                    "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
+                  );
+                  if (result.error) throw new Error("לא ניתן לטעון את פרטי התעודות העדכניים. נסה להוריד שוב.");
+                  return (result.data ?? []).map((row: any) => ({
+                    ...row, projectId: normalizeStoredProjectId(row.project_id),
+                    structureNodeId: row.structure_node_id ?? "", savedAt: row.saved_at ?? "",
+                  }));
+                }}
                 sourceDataLoading={concentrationsLoading}
                 sourceDataReady={!cloudEnabled || hydratedConcentrationsProjectId === currentProjectIdNormalized}
                 sourceDataError={concentrationsLoadError}
