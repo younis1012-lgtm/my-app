@@ -1,5 +1,6 @@
 "use client";
 
+import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
 import { ColumnFilter } from "./components/ColumnFilter";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -2053,6 +2054,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
 });
 
 const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null => {
+  if (isLegacyHoldPoint(value)) return null;
   if (!value || typeof value !== "object") return null;
   const status = SUPERVISION_REPORT_STATUS_OPTIONS.includes(value.status)
     ? value.status
@@ -5192,6 +5194,43 @@ async function selectProjectTable(
     if (recovered.data?.length) return recovered;
   }
   return ordered;
+}
+
+async function loadProjectHoldPoints(projectIds: string[]): Promise<HoldPointRecord[]> {
+  const [modern, legacy] = await Promise.all([
+    selectProjectTable(HOLD_POINTS_TABLE, "serial_no", projectIds, false),
+    selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", projectIds, false,
+      "id,project_id,title,report_no,date,structure_node_id,location,author,status,notes,saved_at"),
+  ]);
+  if (modern.error && !isMissingHoldPointsTable(modern.error)) throw modern.error;
+  if (legacy.error) throw legacy.error;
+        const modernRecords = (modern.data ?? []).map((row: any) => {
+          const details = row.details && typeof row.details === "object" ? row.details : {};
+          return {
+            ...details,
+            id: row.id,
+            projectId: normalizeStoredProjectId(row.project_id),
+            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
+            referenceNo: row.reference_no ?? details.referenceNo ?? "",
+            name: row.name ?? details.name ?? "",
+            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
+            element: row.element ?? details.element ?? "",
+            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
+            checklistIds: details.checklistIds ?? [],
+            nonconformanceIds: details.nonconformanceIds ?? [],
+            trialSectionIds: details.trialSectionIds ?? [],
+            documents: details.documents ?? [],
+            createdAt: row.created_at ?? details.createdAt ?? "",
+            updatedAt: row.updated_at ?? details.updatedAt ?? "",
+          } as HoldPointRecord;
+        });
+  const records = new Map<string, HoldPointRecord>();
+  for (const row of legacy.data ?? []) {
+    const record = legacyHoldPointToRecord(row);
+    if (record) records.set(record.id, { ...record, projectId: normalizeStoredProjectId(record.projectId) });
+  }
+  for (const record of modernRecords) records.set(record.id, record);
+  return [...records.values()];
 }
 
 function cloudRowsOrFallback<T = any>(
@@ -16237,40 +16276,16 @@ export default function Page() {
     if (!authReady || !projectAccess || !cloudEnabled || !supabase || !currentProjectId) return;
     let cancelled = false;
     const projectIds = projectCloudIdsForCanonicalId(currentProjectId);
-    void supabase
-      .from(HOLD_POINTS_TABLE)
-      .select("*")
-      .in("project_id", projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
-      .order("serial_no", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled || error || !Array.isArray(data)) return;
-        const cloudRecords = data.map((row: any) => {
-          const details = row.details && typeof row.details === "object" ? row.details : {};
-          return {
-            ...details,
-            id: row.id,
-            projectId: normalizeStoredProjectId(row.project_id),
-            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
-            referenceNo: row.reference_no ?? details.referenceNo ?? "",
-            name: row.name ?? details.name ?? "",
-            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
-            element: row.element ?? details.element ?? "",
-            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
-            checklistIds: details.checklistIds ?? [],
-            nonconformanceIds: details.nonconformanceIds ?? [],
-            trialSectionIds: details.trialSectionIds ?? [],
-            documents: details.documents ?? [],
-            createdAt: row.created_at ?? details.createdAt ?? "",
-            updatedAt: row.updated_at ?? details.updatedAt ?? "",
-          } as HoldPointRecord;
-        });
+    void loadProjectHoldPoints(projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
+      .then((cloudRecords) => {
+        if (cancelled) return;
         setSavedHoldPoints((current) => {
           const otherProjects = current.filter(
             (item) => normalizeStoredProjectId(item.projectId) !== normalizeStoredProjectId(currentProjectId),
           );
           return [...cloudRecords, ...otherProjects];
         });
-      });
+      }).catch((error) => { if (!cancelled) console.error("Failed loading hold points", error); });
     return () => {
       cancelled = true;
     };
@@ -16285,11 +16300,17 @@ export default function Page() {
     const loadReports = async () => {
       try {
         const reports = await readSupervisionReportsFromBrowser();
+        const legacyPoints = (reports ?? []).map(legacyHoldPointToRecord).filter(Boolean) as HoldPointRecord[];
+        if (legacyPoints.length) setSavedHoldPoints((current) => {
+          const byId = new Map(legacyPoints.map((record) => [record.id, { ...record, projectId: normalizeStoredProjectId(record.projectId) }]));
+          current.forEach((record) => byId.set(record.id, record));
+          return [...byId.values()];
+        });
 
         if (Array.isArray(reports) && reports.length > 0) {
           setSavedSupervisionReports(
             reports
-              .map((r) => normalizeSupervisionReport(r))
+              .map((r) => isLegacyHoldPoint(r) ? r : normalizeSupervisionReport(r))
               .filter(Boolean) as SupervisionReportRecord[],
           );
         } else {
@@ -18439,6 +18460,7 @@ export default function Page() {
   const projectSupervisionReports = useMemo(
     () =>
       savedSupervisionReports
+        .filter((item) => !isLegacyHoldPoint(item))
         .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
@@ -21857,10 +21879,12 @@ export default function Page() {
           },
           { onConflict: "id" },
         );
-        if (result.error && !shouldIgnoreCloudError(result.error)) {
-          const message = String(result.error.message || "");
-          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
-            throw result.error;
+        if (result.error) {
+          if (!isMissingHoldPointsTable(result.error)) throw result.error;
+          const legacy = await supabase.from(SUPERVISION_REPORTS_TABLE).upsert(
+            legacyHoldPointToRow({ ...record, projectId: normalizeStoredProjectId(record.projectId) }), { onConflict: "id" },
+          );
+          if (legacy.error) throw legacy.error;
         }
       }
       setSavedHoldPoints((current) =>
@@ -21877,13 +21901,13 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled && supabase) {
         const result = await supabase.from(HOLD_POINTS_TABLE).delete().eq("id", id);
-        if (result.error && !shouldIgnoreCloudError(result.error)) {
-          const message = String(result.error.message || "");
-          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
-            throw result.error;
-        }
+        if (result.error && !isMissingHoldPointsTable(result.error)) throw result.error;
+        const legacy = await supabase.from(SUPERVISION_REPORTS_TABLE).delete().eq("id", id)
+          .like("title", `${LEGACY_HOLD_POINT_PREFIX}%`);
+        if (legacy.error) throw legacy.error;
       }
       setSavedHoldPoints((current) => current.filter((item) => item.id !== id));
+      if (!cloudEnabled) setSavedSupervisionReports((current) => current.filter((item) => item.id !== id || !isLegacyHoldPoint(item)));
     });
   };
 
@@ -22835,6 +22859,7 @@ export default function Page() {
         }
         if (rfiCloudRows) allProjectRfis = rfiCloudRows.map(rfiRowToRecord);
         if (controlCloudRows) allProjectControlProcesses = controlCloudRows.map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[];
+        if (sectionEnabled("holdPoints")) allProjectHoldPoints = await loadProjectHoldPoints(projectCloudIdsForCanonicalId(currentProjectIdNormalized));
         if (supervisionCloudRows) allProjectSupervisionReports = supervisionCloudRows.map(supervisionReportRowToRecord).filter(Boolean) as SupervisionReportRecord[];
         if (planCloudRows) allProjectPlans = planCloudRows.map(planRowToRecord).filter(Boolean) as PlanRecord[];
       }
