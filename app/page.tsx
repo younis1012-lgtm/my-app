@@ -26521,7 +26521,8 @@ ${invalidRecipients.join("\n")}`);
                   return (result.data ?? []).map((row: any) => ({
                     ...row, projectId: normalizeStoredProjectId(row.project_id),
                     structureNodeId: row.structure_node_id ?? "", savedAt: row.saved_at ?? "",
-                  }));
+                  })).filter((row: any) => !normalizedSearchTerm ||
+                    [row.title, row.subtype, row.status].join(" ").toLowerCase().includes(normalizedSearchTerm));
                 }}
                 sourceDataLoading={concentrationsLoading}
                 sourceDataReady={!cloudEnabled || hydratedConcentrationsProjectId === currentProjectIdNormalized}
