@@ -28,8 +28,9 @@ function setup(options = {}) {
       if (table === 'project_members' && fields==='project_id,role,active') return {data:options.members || []};
       if (table === 'project_email_users' && fields.startsWith('project_id,')) return {data:options.assignments || []};
       if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite',active:options.active !== false}};
+      if (table === 'project_email_users' && fields==='name,email,role') return {data:options.projectEmailRows || [{email:'sender@example.com',name:'Approved sender',role:'בקר איכות'}]};
       if (table === 'project_email_users' && !fields.includes('smtp_app_password')) return {data:options.personnel || null};
-      if (table === 'project_email_users' && fields.includes('id,')) return {data:[{id:'one',email:'sender@example.com',name:'Approved sender',smtp_app_password:'SERVER_SECRET'}]};
+      if (table === 'project_email_users' && fields.includes('id,')) return {data:options.projectEmailRows || [{id:'one',email:'sender@example.com',name:'Approved sender',smtp_app_password:'SERVER_SECRET'}]};
       if (table === 'project_email_users') return {data:options.noSender ? null : {email:'sender@example.com', name:'Sender', smtp_app_password:'SERVER_SECRET'}};
       if (table !== 'email_history') throw new Error('Unexpected table');
       if (operation === 'insert') { if (options.failHistory) return {error:{code:'other'}}; if(history.has(payload.id))return {error:{code:'23505'}}; history.set(payload.id, {...payload}); return {data:{id:payload.id}}; }
@@ -41,7 +42,7 @@ function setup(options = {}) {
   }
   const server = load('app/lib/emailServer.ts', {
     './email':email,
-    '@supabase/supabase-js':{createClient:()=>({auth:{getUser:async()=>({data:{user:options.badToken ? null : {id:'user',email:'user@example.com'}}})},from:query})},
+    '@supabase/supabase-js':{createClient:()=>({auth:{getUser:async()=>({data:{user:options.badToken ? null : options.authUser || {id:'user',email:'user@example.com'}}})},from:query})},
     nodemailer:{createTransport:()=>({close(){},async sendMail(message){sent++;sentMessage=message;if(options.smtpError)throw {code:options.smtpError};return {messageId:'message',accepted:options.accepted || ['to@example.com'],rejected:options.rejected || []};}})},
   }, {NEXT_PUBLIC_SUPABASE_URL:'https://example.supabase.co',NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon',SUPABASE_SERVICE_ROLE_KEY:'service'});
   const payload = {projectId:'project',module:'any-future-module',recordId:'record',requestId:'11111111-1111-1111-1111-111111111111',senderEmail:'sender@example.com',to:'to@example.com',cc:[],bcc:[],subject:'Subject',text:'Text <script>alert(1)</script>',attachments:[{filename:'test.txt',mimeType:'text/plain',contentBase64:'aGVsbG8='}]};
@@ -80,11 +81,13 @@ test('SMTP timeout is persisted as unknown to avoid unsafe retries',async()=>{co
 test('audit update failure preserves send result and warns against retries',async()=>{const s=setup({failUpdate:true});const data=await(await s.send()).json();assert.equal(data.status,'sent');assert.ok(data.warning);assert.equal((await s.send()).status,409);assert.equal(s.sent,1);});
 
 test('existing active QC personnel can send without a duplicate membership',async()=>{const s=setup({noMember:true,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
-test('readonly personnel may send using their existing project assignment',async()=>{const s=setup({noMember:true,personnel:{role:'צופה'}});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
-test('readonly project member may send without editing access',async()=>{const s=setup({role:'readonly'});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
+test('readonly personnel may send nonconformance forms using the system mailbox',async()=>{const s=setup({noMember:true,personnel:{role:'צופה'}});assert.equal((await s.send({module:'nonconformances'})).status,200);assert.equal(s.sent,1);});
+test('readonly project member may send nonconformance forms without editing access',async()=>{const s=setup({role:'readonly'});assert.equal((await s.send({module:'nonconformances'})).status,200);assert.equal(s.sent,1);});
+test('readonly project member cannot send other form types',async()=>{const s=setup({role:'readonly'});assert.equal((await s.send({module:'preliminary'})).status,403);assert.equal(s.sent,0);});
 test('revoked membership overrides personnel assignment',async()=>{const s=setup({active:false,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
 test('approved directory never exposes mailbox passwords',async()=>{const s=setup();const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.equal(data.contacts[0].email,'sender@example.com');assert.equal(data.senders[0].email,'sender@example.com');assert.ok(!JSON.stringify(data).includes('SERVER_SECRET'));assert.ok(!JSON.stringify(data).includes('smtp_app_password'));});
 test('authorized legacy viewer email is offered as an approved recipient',async()=>{const s=setup({accessUsers:[{username:'shbat.adnan.1991@gmail.com',display_name:'ה״א',project_ids:['project']}]});const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.ok(data.contacts.some(x=>x.email==='shbat.adnan.1991@gmail.com'));});
+test('legacy viewer is identified for reply-to without mailbox credentials',async()=>{const s=setup({authUser:{id:'user',email:'legacy-user@users.yk-quality.invalid',app_metadata:{legacy_username:'ה״א'},user_metadata:{name:'ה״א'}},accessUsers:[{username:'ה״א',display_name:'עדנאן שבת',project_ids:['project']}],projectEmailRows:[{id:'one',email:'shbat.adnan.1991@gmail.com',name:'עדנאן שבת',role:'ה״א',smtp_app_password:''},{id:'system',email:'sender@example.com',name:'חשבון מערכת',role:'בקר איכות',smtp_app_password:'SERVER_SECRET'}],role:'readonly'});const response=await s.directory();const data=await response.json();assert.equal(data.operator.email,'shbat.adnan.1991@gmail.com');assert.equal(data.operator.name,'עדנאן שבת');await s.send({module:'nonconformances',senderEmail:'sender@example.com'});assert.equal(s.message.replyTo,'shbat.adnan.1991@gmail.com');assert.match(s.message.from.name,/עדנאן שבת/);});
 
 test('project picker recovers established personnel project assignments',async()=>{
  const s=setup({assignments:[{project_id:'majd',role:'בקר איכות'}],projects:[{id:'majd',name:'מגד אלכרום'}]});

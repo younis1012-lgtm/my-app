@@ -29,7 +29,26 @@ async function authorize(request: Request, projectId: string, write: boolean) {
     if (personnel.data) role = personnelRole(personnel.data);
   }
   if (!role || (write && !['admin','readwrite'].includes(role))) throw new MailError('אין הרשאה לפעולה בפרויקט זה',403);
-  return {db,userId:user.id};
+  return {db,userId:user.id,user,role};
+}
+const normalizedIdentity = (value: unknown) => String(value || '').replace(/[\u05f3`\u2019']/g,'').replace(/\s+/g,'').trim().toLowerCase();
+async function operatorIdentity(db: any, user: any, projectId: string, personnel: any[]) {
+  const legacyUsername = String(user.app_metadata?.legacy_username || '').trim();
+  let name = String(user.user_metadata?.full_name || user.user_metadata?.name || legacyUsername || '').trim();
+  let email = [user.email, legacyUsername].map((value)=>String(value || '').trim().toLowerCase()).find((value)=>validMailAddress(value) && !value.endsWith('@users.yk-quality.invalid')) || '';
+  let access: any = null;
+  if (legacyUsername) {
+    const result = await db.from('project_access_users').select('*');
+    if (!result.error) access = (result.data || []).find((row: any)=>[row.username,row.code].some(value=>normalizedIdentity(value)===normalizedIdentity(legacyUsername)));
+    name = String(access?.display_name || name).trim();
+    email = [access?.email, access?.username, email].map((value)=>String(value || '').trim().toLowerCase()).find(validMailAddress) || '';
+  }
+  if (!email) {
+    const keys = [name,legacyUsername,access?.username,access?.code].map(normalizedIdentity).filter(Boolean);
+    const match = personnel.find((row: any)=>validMailAddress(row.email) && [row.name,row.role].map(normalizedIdentity).some(value=>keys.includes(value)));
+    if (match) { email = String(match.email).trim().toLowerCase(); name = name || String(match.name || '').trim(); }
+  }
+  return {name:name || 'משתמש מערכת',email:validMailAddress(email) ? email : ''};
 }
 export async function readMailDirectory(request: Request) {
   try {
@@ -50,7 +69,7 @@ export async function readMailDirectory(request: Request) {
       return Response.json({memberships:(projects.data || []).map(p=>({projectId:p.id,projectName:p.name,role:assigned.get(p.id)})),projects:projects.data || []},{headers:{'Cache-Control':'no-store'}});
     }
     const projectId = field(params.get('projectId'),100);
-    const {db} = await authorize(request,projectId,false);
+    const {db,user} = await authorize(request,projectId,false);
     const result = await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
     const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
@@ -69,7 +88,8 @@ export async function readMailDirectory(request: Request) {
     const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
     const systemEmail = process.env.EMAIL_USER?.trim();
     if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:'חשבון המערכת',email:systemEmail});
-    return Response.json({contacts,senders},{headers:{'Cache-Control':'no-store'}});
+    const operator = await operatorIdentity(db,user,projectId,result.data || []);
+    return Response.json({contacts,senders,operator},{headers:{'Cache-Control':'no-store'}});
   } catch (error) {return errorResponse(error);}
 }
 function errorResponse(error: unknown) {
@@ -107,7 +127,8 @@ export async function postMail(request: Request) {
     const projectId = field(body.projectId, 100), moduleName = field(body.module, 100), recordId = field(body.recordId, 200);
     const recordIds = [...new Set([recordId, ...(Array.isArray(body.recordIds) ? body.recordIds.map((id: unknown) => field(id, 200)) : [])])];
     if (recordIds.length > 100) throw new MailError('ניתן לשלוח עד 100 רשומות יחד');
-    const { db, userId } = await authorize(request, projectId, false);
+    const { db, userId, user, role } = await authorize(request, projectId, false);
+    if (role === 'readonly' && moduleName !== 'nonconformances') throw new MailError('משתמש צופה רשאי לשלוח מהמערכת טפסי אי־התאמה בלבד',403);
     const requestId = field(body.requestId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) throw new MailError('מזהה בקשה אינו תקין');
     const to = mailRecipients(body.to), cc = mailRecipients(body.cc), bcc = mailRecipients(body.bcc);
@@ -133,6 +154,8 @@ export async function postMail(request: Request) {
     const sender = await db.from('project_email_users').select('email,name,smtp_app_password').eq('project_id', projectId).eq('active', true).ilike('email', senderEmail).limit(1).maybeSingle();
     if (!sender.error && !sender.data?.smtp_app_password && senderEmail === process.env.EMAIL_USER?.trim().toLowerCase() && process.env.EMAIL_APP_PASSWORD) sender.data = {email:process.env.EMAIL_USER.trim(),name:'חשבון המערכת',smtp_app_password:process.env.EMAIL_APP_PASSWORD};
     if (sender.error || !sender.data?.smtp_app_password) throw new MailError('יש להגדיר חשבון מייל פעיל וסיסמת אפליקציה בפרויקט', 409);
+    const personnel = await db.from('project_email_users').select('name,email,role').eq('project_id',projectId).eq('active',true);
+    const operator = await operatorIdentity(db,user,projectId,personnel.error ? [] : personnel.data || []);
     const created = await db.from('email_history').insert({ id: requestId, project_id: projectId, module: moduleName, record_id: recordId, record_ids: recordIds, user_id: userId, subject, body: text, to_addresses: to, cc_addresses: cc, bcc_addresses: bcc, sender_email: senderEmail, attachment_names: attachments.map((a: {filename: string}) => a.filename), status: 'sending' }).select('id').single();
     if (created.error) {
       if (created.error.code === '23505') {
@@ -145,7 +168,8 @@ export async function postMail(request: Request) {
     let accepted: string[] = [], rejected: string[] = [];
     const transport = nodemailer.createTransport({service: 'gmail', auth: {user: sender.data.email, pass: sender.data.smtp_app_password}, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000, disableFileAccess: true, disableUrlAccess: true});
     try {
-      const result = await transport.sendMail({from: {name: sender.data.name || 'RND QUALITY', address: sender.data.email}, to, cc, bcc, subject, text: text + MAIL_SIGNATURE, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(text + MAIL_SIGNATURE)}</div>`, attachments});
+      const senderName = operator.email ? `${operator.name} באמצעות ${sender.data.name || 'Y.K QUALITY'}` : sender.data.name || 'Y.K QUALITY';
+      const result = await transport.sendMail({from: {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc, bcc, subject, text: text + MAIL_SIGNATURE, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(text + MAIL_SIGNATURE)}</div>`, attachments});
       messageId = result.messageId;
       accepted = (result.accepted || []).map(String); rejected = (result.rejected || []).map(String);
       status = accepted.length ? (rejected.length ? 'partial' : 'sent') : 'failed';

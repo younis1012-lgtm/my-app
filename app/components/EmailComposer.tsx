@@ -34,6 +34,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
 }) {
   const [directoryContacts,setDirectoryContacts] = useState(contacts);
   const [senders,setSenders] = useState<{id:string;name:string;email:string}[]>([]);
+  const [operator,setOperator] = useState<{name:string;email:string}>({name:'',email:''});
   const [selectedSender,setSelectedSender] = useState(senderEmail);
   const [directoryError,setDirectoryError] = useState('');
   const [directoryLoading,setDirectoryLoading] = useState(true);
@@ -42,7 +43,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     try {
       const response = await fetch(`/api/email-directory?projectId=${encodeURIComponent(context.projectId)}`, {headers:await authHeaders(),cache:'no-store'});
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
-      setDirectoryContacts(result.contacts);setSenders(result.senders);
+      setDirectoryContacts(result.contacts);setSenders(result.senders);setOperator(result.operator || {name:'',email:''});
       setSelectedSender(previous => result.senders.some((x: {email:string})=>x.email===previous) ? previous : result.senders[0]?.email || '');
     } catch(error) {setDirectoryError(error instanceof Error ? error.message : 'טעינת כתובות המייל נכשלה');}
     finally {setDirectoryLoading(false);}
@@ -117,7 +118,8 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       if (event.key === 'Tab') { const nodes = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]'); if (nodes?.length) { const first=nodes[0], last=nodes[nodes.length-1]; if (event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();} else if (!event.shiftKey && document.activeElement===last) {event.preventDefault();first.focus();} } }
     }}>
       <h2 id="email-title" style={{fontSize:22,fontWeight:700,marginBottom:12}}>שליחה במייל — {context.title}</h2>
-      <label>מאת — חשבון מייל מאושר בפרויקט<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבונות מייל…' : 'בחירת שולח'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
+      <div style={{padding:12,background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:10}}><strong>מאת: {operator.name || 'משתמש המערכת'}</strong>{operator.email ? <div dir="ltr" style={{textAlign:'right'}}>{operator.email}</div> : <div>המייל יישלח מחשבון המערכת; תשובות יגיעו לחשבון המערכת.</div>}<small>השליחה מתבצעת באמצעות חשבון המערכת ואין צורך בסיסמת Google של המשתמש.</small></div>
+      <label>חשבון המערכת המבצע את השליחה<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבון מערכת…' : 'בחירת חשבון מערכת'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
       {directoryError && <p role="alert">{directoryError} <button style={buttonStyle} onClick={()=>void loadDirectory()}>נסה שוב</button></p>}
       {!directoryLoading && !directoryError && !senders.length && <p role="alert">לא נמצא חשבון שליחה פעיל ברשימת משתמשי הפרויקט. יש לשמור לחשבון המאושר סיסמת אפליקציה במסך משתמשי הפרויקט.</p>}
       {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת התחברות לחשבון המערכת והרשאת גישה לפרויקט.</p>}
@@ -145,7 +147,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
         <small>ביטול סימון מסיר את הקובץ מהמייל בלבד.</small>
       </fieldset>
       {preview && <section aria-label="תצוגה מקדימה" style={{marginTop:16,padding:16,background:'#f1f5f9',borderRadius:10}}>
-        <h3>תצוגה מקדימה</h3><p>מאת: {selectedSender || 'לא נבחר שולח'}</p><p>אל: {to} | CC: {cc || '—'} | BCC: {bcc || '—'}</p><strong>{renderedSubject}</strong><p style={{whiteSpace:'pre-wrap'}}>{renderedText + MAIL_SIGNATURE}</p><p>קבצים: {chosen.map(x=>x.filename).join(', ') || 'ללא קבצים'}</p>
+        <h3>תצוגה מקדימה</h3><p>מאת: {operator.name || 'משתמש המערכת'}{operator.email ? ` — ${operator.email}` : ''}</p><p>נשלח באמצעות: {selectedSender || 'לא נבחר חשבון מערכת'}</p><p>אל: {to} | CC: {cc || '—'} | BCC: {bcc || '—'}</p><strong>{renderedSubject}</strong><p style={{whiteSpace:'pre-wrap'}}>{renderedText + MAIL_SIGNATURE}</p><p>קבצים: {chosen.map(x=>x.filename).join(', ') || 'ללא קבצים'}</p>
       </section>}
       <p role="status" aria-live="polite">{notice}</p>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
