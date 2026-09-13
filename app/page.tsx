@@ -23841,7 +23841,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const documentForEmail = async (html: string, title: string): Promise<MailAttachment> => {
     const bytes = await buildFormOnlyPdfBytes(html, title);
-    return { id: crypto.randomUUID(), filename: `${title}.pdf`, mimeType: "application/pdf", contentBase64: arrayBufferToBase64(bytes) };
+    return {
+      id: crypto.randomUUID(),
+      ...(await pdfBlobToEmailAttachment(
+        `${title}.pdf`,
+        new Blob([bytes], { type: "application/pdf" }),
+      )),
+    };
   };
 
   const sendPreliminaryRecordsEmail = async (
@@ -23869,7 +23875,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           const typeLabel = labelForPreliminary(record.subtype || preliminaryTab);
           const documentTitle = `${typeLabel} - ${record.title || index + 1} - כולל נספחים`;
           const result = await buildMergedPreliminaryRecordsPdfBlob([record], documentTitle);
-          documents.push({id:crypto.randomUUID(),filename:`${documentTitle}.pdf`,mimeType:'application/pdf',contentBase64:arrayBufferToBase64(await result.blob.arrayBuffer())});
+          documents.push({
+            id: crypto.randomUUID(),
+            ...(await pdfBlobToEmailAttachment(`${documentTitle}.pdf`, result.blob)),
+          });
         }
         return documents;
       },
