@@ -16356,20 +16356,51 @@ export default function Page() {
       );
       return;
     }
+    let authenticatedAccess = access;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const upgradeResponse = await fetch("/api/auth/legacy-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: loginCode, password: loginPassword }),
+        });
+        const upgrade = await upgradeResponse.json();
+        if (!upgradeResponse.ok) throw new Error(upgrade.error || "הפעלת שירותי המייל נכשלה");
+        const signIn = await supabase.auth.signInWithPassword({
+          email: upgrade.email,
+          password: upgrade.password,
+        });
+        if (signIn.error) throw signIn.error;
+        const cloudAccess = await loadSupabaseAuthAccess();
+        authenticatedAccess = cloudAccess
+          ? {
+              ...cloudAccess,
+              username: access.username,
+              code: access.code,
+              displayName: access.displayName,
+              aliases: access.aliases,
+              projectName: access.projectName,
+            }
+          : access;
+      } catch (error) {
+        setLoginError(errorText(error));
+        return;
+      }
+    }
     setLoginError("");
     const projectList = projects.length ? projects : getDefaultProjectList();
     const selectedProjectId = selectInitialProjectIdForAccess(
       projectList,
-      access,
-      readLocalCurrentProjectId(access),
+      authenticatedAccess,
+      readLocalCurrentProjectId(authenticatedAccess),
     );
     if (selectedProjectId) {
       setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId, access);
+      writeLocalCurrentProjectId(selectedProjectId, authenticatedAccess);
     }
-    setProjectAccess(access);
+    setProjectAccess(authenticatedAccess);
     setShowProjectPicker(true);
-    writeAuthSession(access);
+    writeAuthSession(authenticatedAccess);
     setSection("home");
   };
 
