@@ -8,7 +8,7 @@ const ts = require('typescript');
 function load(file, imports, env = {}) {
   const output = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
   const exports = {};
-  vm.runInNewContext(output, {exports, require: name => {if (!(name in imports)) throw new Error(`Unexpected dependency ${name}`); return imports[name];}, Buffer, Response, Request, URL, process:{env}, console});
+  vm.runInNewContext(output, {exports, require: name => {if (!(name in imports)) throw new Error(`Unexpected dependency ${name}`); return imports[name];}, Buffer, Response, Request, URL, AbortSignal, fetch:async()=>new Response(Buffer.from('stored-pdf'),{status:200,headers:{'content-type':'application/pdf'}}), process:{env}, console});
   return exports;
 }
 const email = load('app/lib/email.ts', {});
@@ -74,6 +74,11 @@ test('success uses server credentials, escapes HTML, records context and prevent
   assert.equal(result.status,'sent');assert.equal(s.sent,1);assert.match(s.message.html,/&lt;script&gt;/);assert.equal(s.message.attachments[0].content.toString(),'hello');
   assert.equal([...s.history.values()][0].module,'any-future-module');assert.equal([...s.history.values()][0].status,'sent');assert.doesNotMatch(JSON.stringify([...s.history.values()]),/SECRET|UNTRUSTED/);
   assert.equal((await s.send()).status,409);assert.equal(s.sent,1);
+});
+test('trusted Supabase storage attachments are fetched server-side for larger mail',async()=>{
+  const s=setup();
+  const response=await s.send({attachments:[{filename:'stored.pdf',mimeType:'application/pdf',url:'https://example.supabase.co/storage/v1/object/public/attachments/email-exports/project/stored.pdf'}]});
+  assert.equal(response.status,200);assert.equal(s.message.attachments[0].content.toString(),'stored-pdf');
 });
 test('partial recipient acceptance is not reported as complete success',async()=>{const s=setup({rejected:['bad@example.com']});const data=await(await s.send()).json();assert.equal(data.status,'partial');assert.deepEqual(data.rejected,['bad@example.com']);});
 test('SMTP rejection is persisted as failure',async()=>{const s=setup({smtpError:'EAUTH'});const data=await(await s.send()).json();assert.equal(data.success,false);assert.equal([...s.history.values()][0].status,'failed');});

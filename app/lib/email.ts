@@ -4,7 +4,8 @@ export type MailContext = {
   data: Record<string, unknown>; attachments: MailAttachment[];
   generateDocuments?: () => Promise<MailAttachment[]>;
 };
-export const MAIL_MAX_BYTES = 3 * 1024 * 1024;
+export const MAIL_MAX_BYTES = 20 * 1024 * 1024;
+export const MAIL_INLINE_MAX_BYTES = 3 * 1024 * 1024;
 export const MAIL_SIGNATURE = '\n\n--\nנשלח באמצעות מערכת RND QUALITY\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.';
 export const mailTemplates = [
   { id: 'document', name: 'שליחת מסמכים', subject: '{{title}} — {{projectName}}', text: 'שלום,\nמצורפים מסמכים עבור {{title}} בפרויקט {{projectName}}.\nבברכה' },

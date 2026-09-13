@@ -140,15 +140,40 @@ export async function postMail(request: Request) {
     if (/\{\{[\w.]+\}\}/.test(subject + text)) throw new MailError('יש להשלים את השדות החסרים בתבנית');
     if (!Array.isArray(body.attachments) || body.attachments.length > 30) throw new MailError('ניתן לצרף עד 30 קבצים');
     let total = 0;
-    const attachments = body.attachments.map((item: {filename?: unknown; mimeType?: unknown; contentBase64?: unknown; url?: unknown}) => {
-      if (!item || item.url || typeof item.contentBase64 !== 'string') throw new MailError('קובץ מצורף לא הוכן לשליחה');
+    const attachments = [];
+    for (const item of body.attachments as Array<{filename?: unknown; mimeType?: unknown; contentBase64?: unknown; url?: unknown}>) {
+      if (!item) throw new MailError('קובץ מצורף לא הוכן לשליחה');
       const filename = field(item.filename, 240).replace(/[\\/\r\n\x00]/g, '_');
-      const content = item.contentBase64.replace(/\s/g, '');
-      if (!content || content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new MailError('תוכן קובץ אינו תקין');
-      const buffer = Buffer.from(content, 'base64'); total += buffer.length;
-      if (total > MAIL_MAX_BYTES) throw new MailError('ניתן לצרף עד 3MB בסך הכול', 413);
-      return { filename, content: buffer, contentType: typeof item.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(item.mimeType) ? item.mimeType : 'application/octet-stream' };
-    });
+      let buffer: Buffer;
+      let responseType = '';
+      if (typeof item.contentBase64 === 'string') {
+        const content = item.contentBase64.replace(/\s/g, '');
+        if (!content || content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new MailError('תוכן קובץ אינו תקין');
+        buffer = Buffer.from(content, 'base64');
+      } else if (typeof item.url === 'string') {
+        let attachmentUrl: URL, storageUrl: URL;
+        try { attachmentUrl = new URL(item.url); storageUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!); }
+        catch { throw new MailError('כתובת הקובץ המצורף אינה תקינה'); }
+        if (attachmentUrl.protocol !== 'https:' || attachmentUrl.origin !== storageUrl.origin || !attachmentUrl.pathname.startsWith('/storage/v1/object/public/attachments/')) throw new MailError('ניתן לצרף קישור רק מאחסון הקבצים של המערכת');
+        let response: Response;
+        try { response = await fetch(attachmentUrl, {redirect:'error',signal:AbortSignal.timeout(30000)}); }
+        catch { throw new MailError(`טעינת הקובץ ${filename} נכשלה`, 502); }
+        if (!response.ok || !response.body) throw new MailError(`טעינת הקובץ ${filename} נכשלה`, 502);
+        responseType = response.headers.get('content-type')?.split(';')[0] || '';
+        const chunks: Uint8Array[] = []; let fileSize = 0;
+        const reader = response.body.getReader();
+        while (true) {
+          const {done,value} = await reader.read(); if (done) break;
+          fileSize += value.length;
+          if (total + fileSize > MAIL_MAX_BYTES) { await reader.cancel(); throw new MailError('ניתן לצרף עד 20MB בסך הכול',413); }
+          chunks.push(value);
+        }
+        buffer = Buffer.concat(chunks);
+      } else throw new MailError('קובץ מצורף לא הוכן לשליחה');
+      total += buffer.length;
+      if (total > MAIL_MAX_BYTES) throw new MailError('ניתן לצרף עד 20MB בסך הכול', 413);
+      attachments.push({ filename, content: buffer, contentType: typeof item.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(item.mimeType) ? item.mimeType : responseType || 'application/octet-stream' });
+    }
     const senderEmail = field(body.senderEmail, 254).toLowerCase();
     if (!validMailAddress(senderEmail)) throw new MailError('כתובת השולח אינה תקינה');
     // Credentials are resolved server-side from the selected project's configured mailbox.

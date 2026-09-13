@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { MAIL_MAX_BYTES, MAIL_SIGNATURE, MailAttachment, MailContext, mailRecipients, mailTemplates, mergeMailData, validMailAddress } from '../lib/email';
+import { MAIL_INLINE_MAX_BYTES, MAIL_MAX_BYTES, MAIL_SIGNATURE, MailAttachment, MailContext, mailRecipients, mailTemplates, mergeMailData, validMailAddress } from '../lib/email';
 
 type History = {id: string; subject: string; status: string; created_at: string; error?: string; attachment_names: string[]; to_addresses: string[]};
 const statusLabels: Record<string, string> = {sending:'בטיפול — אין לשלוח שוב לפני בדיקה', sent:'התקבל בשרת הדואר', partial:'התקבל עבור חלק מהנמענים', failed:'נכשל', unknown:'תוצאת השליחה אינה ודאית'};
@@ -21,13 +21,7 @@ async function prepareAttachment(file: MailAttachment): Promise<MailAttachment> 
   const url = new URL(file.url);
   const storage = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!storage || url.origin !== new URL(storage).origin || !url.pathname.startsWith('/storage/v1/object/')) throw new Error(`מקור הקובץ ${file.filename} אינו אחסון הפרויקט. ניתן להוריד ולהוסיף אותו ידנית`);
-  const response = await fetch(url, {signal: AbortSignal.timeout(30000), redirect: 'error', credentials: 'omit'});
-  if (!response.ok) throw new Error(`טעינת הקובץ ${file.filename} נכשלה`);
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error(`טעינת הקובץ ${file.filename} נכשלה`);
-  const chunks: ArrayBuffer[] = []; let total = 0;
-  while (true) { const {done, value} = await reader.read(); if (done) break; total += value.length; if (total > MAIL_MAX_BYTES) { await reader.cancel(); throw new Error('הקובץ גדול מ-3MB'); } chunks.push(value.slice().buffer); }
-  return {...file, url: undefined, contentBase64: await blobBase64(new Blob(chunks))};
+  return {...file, contentBase64: undefined, url: url.toString()};
 }
 export function EmailComposer({context, senderEmail, contacts, canSend, onClose}: {
   context: MailContext; senderEmail: string; contacts: {id:string;name:string;email:string}[]; canSend: boolean; onClose: () => void;
@@ -97,8 +91,13 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     sending.current = true; setBusy(true); setNotice(''); let dispatched = false;
     try {
       const headers = await authHeaders();
-      const attachments: MailAttachment[] = []; let total = 0;
-      for (const file of chosen) { const ready = await prepareAttachment(file); total += atob(ready.contentBase64!).length; if (total > MAIL_MAX_BYTES) throw new Error('ניתן לצרף עד 3MB בסך הכול'); attachments.push(ready); }
+      const attachments: MailAttachment[] = []; let inlineTotal = 0;
+      for (const file of chosen) {
+        const ready = await prepareAttachment(file);
+        if (ready.contentBase64) inlineTotal += atob(ready.contentBase64).length;
+        if (inlineTotal > MAIL_INLINE_MAX_BYTES) throw new Error('קבצים שנוספו ישירות בחלון השליחה מוגבלים ל-3MB. קבצים השמורים בטופס יכולים להגיע יחד עד 20MB.');
+        attachments.push(ready);
+      }
       dispatched = true;
       const response = await fetch('/api/send-email', {method:'POST', headers, body: JSON.stringify({projectId: context.projectId, module: context.module, recordId: context.recordId, recordIds: context.recordIds, requestId: requestId.current, senderEmail: selectedSender, to, cc, bcc, subject: renderedSubject, text: renderedText, attachments})});
       const result = await response.json();
@@ -135,13 +134,13 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
         <label>נושא<input style={inputStyle} value={subject} onChange={e=>{setSubject(e.target.value);setPreview(false);}} /></label>
         <label>תוכן<textarea rows={6} style={inputStyle} value={text} onChange={e=>{setText(e.target.value);setPreview(false);}} /></label>
         <small>ניתן לשלב שדות כגון {'{{title}}, {{projectName}}, {{status}}, {{location}}'}. שדות חסרים יש להשלים לפני השליחה.</small>
-        <strong>קבצים מצורפים — עד 30 קבצים ועד 3MB יחד</strong>
+        <strong>קבצים מצורפים — עד 30 קבצים ועד 20MB יחד</strong>
         {context.generateDocuments && <button type="button" style={buttonStyle} disabled={generating || generated} onClick={()=>void generate()}>{generating ? 'מכין את הטפסים לשליחה…' : generated ? 'הטפסים הוכנו ונוספו למייל' : 'הכנת הטפסים מחדש'}</button>}
         {files.map(file=><label key={file.id}><input type="checkbox" checked={selected.includes(file.id)} onChange={e=>{setSelected(prev=>e.target.checked ? [...prev,file.id] : prev.filter(x=>x!==file.id));setPreview(false);}} /> {file.filename}</label>)}
         {!files.length && <p>לא נמצאו קבצים משויכים לרשומה.</p>}
         <label>הוספת קבצים<input type="file" multiple onChange={async e=>{
           const added = Array.from(e.target.files || []); e.target.value=''; setPreview(false);
-          if (files.length + added.length > 30 || added.some(f=>f.size > MAIL_MAX_BYTES)) {setNotice('עד 30 קבצים, וכל קובץ עד 3MB');return;}
+          if (files.length + added.length > 30 || added.some(f=>f.size > MAIL_INLINE_MAX_BYTES)) {setNotice('עד 30 קבצים. קובץ שמוסיפים ישירות כאן מוגבל ל-3MB; קבצים השמורים בטופס יכולים להגיע יחד עד 20MB.');return;}
           setGenerating(true);
           try {const docs = await Promise.all(added.map(async file=>({id:crypto.randomUUID(),filename:file.name,mimeType:file.type || 'application/octet-stream',contentBase64:await blobBase64(file)})));setFiles(prev=>[...prev,...docs]);setSelected(prev=>[...prev,...docs.map(x=>x.id)]);} catch {setNotice('קריאת הקבצים נכשלה');} finally {setGenerating(false);}
         }} /></label>
