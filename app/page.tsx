@@ -5,6 +5,7 @@ import { ColumnFilter } from "./components/ColumnFilter";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
+import { NCR_HANDLER_OPTIONS, NCR_RESPONSIBLE_OPTIONS, canManageNonconformances, nonconformanceActor } from "./lib/nonconformanceWorkflow";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
@@ -4491,8 +4492,8 @@ const createDefaultNonconformance = (): Omit<
     contractor: "",
     qualityAssurance: "",
     qualityControl: "",
-    openedBy: "QA / QC",
-    openedRole: "בקרת איכות",
+    openedBy: "",
+    openedRole: "",
     raisedBy: "",
     date: "",
     structureNodeId: "",
@@ -10887,7 +10888,7 @@ function FormGrid({
               onChange={(e) => set(field.key, e.target.value)}
               style={inputStyle}
             >
-              {(field.options ?? []).map((option) => (
+              {([...(field.options ?? []), ...((form[field.key] ?? '') && !(field.options ?? []).includes(form[field.key]) ? [form[field.key]] : [])]).map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -11412,10 +11413,11 @@ const NCR_FIELDS: FieldDef[] = [
   {
     key: "responsibleParty",
     label: "גורם אחראי לליקוי תכנון, ביצוע, ספק",
-    type: "textarea",
+    type: "select",
+    options: NCR_RESPONSIBLE_OPTIONS,
   },
   { key: "actionRequired", label: "טיפול נדרש", type: "textarea" },
-  { key: "handler", label: "גורם המטפל" },
+  { key: "handler", label: "גורם המטפל", type: "select", options: NCR_HANDLER_OPTIONS },
   {
     key: "correctiveActionDetails",
     label: "פירוט ביצוע פעולה מתקנת",
@@ -17318,8 +17320,11 @@ export default function Page() {
     );
   };
 
-  const withSaving = async (action: () => Promise<void>) => {
-    if (!canWriteAccess(projectAccess)) {
+  const withSaving = async (
+    action: () => Promise<void>,
+    permitted = canWriteAccess(projectAccess),
+  ) => {
+    if (!permitted) {
       alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור, לעדכן או למחוק.");
       return;
     }
@@ -17670,6 +17675,11 @@ export default function Page() {
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
 
+  const currentNonconformanceActor = useMemo(
+    () => nonconformanceActor(projectAccess, currentProjectEmailUsers),
+    [projectAccess, currentProjectEmailUsers],
+  );
+
   const qualityControlApproverName = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
     const accessIdentities = [
@@ -17794,11 +17804,9 @@ export default function Page() {
   const applyProjectDefaultsToNonconformance = (form: any) => {
     const filled = fillOnlyEmptyFields(form, {
       ...projectDefaultFieldValues(),
-      raisedBy: currentProjectDefaults.qualityControl,
-      responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
-      handler: currentProjectDefaults.workManager || currentProjectDefaults.contractor,
-      openedBy: form.openedBy || "QA / QC",
-      openedRole: form.openedRole || "בקרת איכות",
+      raisedBy: currentNonconformanceActor.personalName,
+      openedBy: currentNonconformanceActor.openedBy,
+      openedRole: currentNonconformanceActor.roleLabel,
     });
 
     // פרטי הפרויקט בטופס אי התאמה נמשכים תמיד ממסך "פרטי הפרויקט".
@@ -18778,6 +18786,9 @@ export default function Page() {
     currentProjectDefaults.workManager,
     currentProjectDefaults.surveyor,
     currentProjectDefaults.supervisor,
+    currentNonconformanceActor.openedBy,
+    currentNonconformanceActor.roleLabel,
+    currentNonconformanceActor.personalName,
     editingChecklistId,
     editingNonconformanceId,
     editingTrialSectionId,
@@ -18808,8 +18819,9 @@ export default function Page() {
     setNonconformanceForm(applyProjectDefaultsToNonconformance({
       ...createDefaultNonconformance(),
       title: nextNonconformanceTitle(),
-      openedBy: "QA / QC",
-      openedRole: "בקרת איכות",
+      openedBy: currentNonconformanceActor.openedBy,
+      openedRole: currentNonconformanceActor.roleLabel,
+      raisedBy: currentNonconformanceActor.personalName,
       status: "פתוח",
     } as any));
   };
@@ -20923,8 +20935,8 @@ export default function Page() {
   };
 
   const saveNonconformance = async () => {
-    if (!canWriteAccess(projectAccess))
-      return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור אי-התאמות.");
+    if (!canManageNonconformances(projectAccess))
+      return alert("אין למשתמש הנוכחי הרשאה לפתוח או לעדכן אי־התאמות.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     if (!String((nonconformanceForm as any).structureNodeId ?? "").trim())
       return alert("יש לשייך את אי ההתאמה לאלמנט בעץ הפרויקט.");
@@ -21003,12 +21015,25 @@ export default function Page() {
             closingDate: (record as any).closingDate,
           },
         };
-        await saveWithApprovalFallback(
-          NONCONFORMANCE_TABLE,
-          payload,
-          editingNonconformanceId ? "update" : "insert",
-          editingNonconformanceId ?? undefined,
-        );
+        if (!canWriteAccess(projectAccess) && canManageNonconformances(projectAccess)) {
+          const session = await supabase!.auth.getSession();
+          const token = session.data.session?.access_token;
+          if (!token) throw new Error("ההתחברות פגה. יש להתחבר שוב.");
+          const result = await fetch('/api/nonconformances', {
+            method:'POST',
+            headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+            body:JSON.stringify({projectId:normalizedProjectId,mode:editingNonconformanceId ? 'update' : 'insert',record:payload}),
+          });
+          const data = await result.json().catch(()=>({}));
+          if (!result.ok) throw new Error(data.error || "שמירת אי־ההתאמה נכשלה");
+        } else {
+          await saveWithApprovalFallback(
+            NONCONFORMANCE_TABLE,
+            payload,
+            editingNonconformanceId ? "update" : "insert",
+            editingNonconformanceId ?? undefined,
+          );
+        }
         await refreshCloudData();
       } else
         setSavedNonconformances((prev) =>
@@ -21018,7 +21043,7 @@ export default function Page() {
               )
             : [record, ...prev],
         );
-    });
+    }, canManageNonconformances(projectAccess));
     resetNonconformanceEditor();
   };
   const loadNonconformance = async (record: NonconformanceRecord) => {
@@ -21174,6 +21199,8 @@ export default function Page() {
   };
 
   const closeNonconformance = () => {
+    if (!canManageNonconformances(projectAccess))
+      return alert("אין למשתמש הנוכחי הרשאה לסגור אי־התאמות.");
     if (
       !String((nonconformanceForm as any).correctiveActionDetails ?? "").trim()
     )
@@ -21183,9 +21210,9 @@ export default function Page() {
       ...prev,
       status: "סגור",
       closingDate: prev.closingDate || today,
-      closedBy: prev.closedBy || "QA / QC",
-      closingRole: prev.closingRole || "QC",
-      closedName: prev.closedName || projectAccess?.displayName || "",
+      closedBy: currentNonconformanceActor.roleLabel,
+      closingRole: currentNonconformanceActor.roleLabel,
+      closedName: currentNonconformanceActor.personalName,
     }));
     setTimeout(
       () =>
