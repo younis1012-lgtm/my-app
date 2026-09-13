@@ -32,6 +32,22 @@ async function prepareAttachment(file: MailAttachment): Promise<MailAttachment> 
 export function EmailComposer({context, senderEmail, contacts, canSend, onClose}: {
   context: MailContext; senderEmail: string; contacts: {id:string;name:string;email:string}[]; canSend: boolean; onClose: () => void;
 }) {
+  const [directoryContacts,setDirectoryContacts] = useState(contacts);
+  const [senders,setSenders] = useState<{id:string;name:string;email:string}[]>([]);
+  const [selectedSender,setSelectedSender] = useState(senderEmail);
+  const [directoryError,setDirectoryError] = useState('');
+  const [directoryLoading,setDirectoryLoading] = useState(true);
+  async function loadDirectory() {
+    setDirectoryLoading(true); setDirectoryError('');
+    try {
+      const response = await fetch(`/api/email-directory?projectId=${encodeURIComponent(context.projectId)}`, {headers:await authHeaders(),cache:'no-store'});
+      const result = await response.json(); if (!response.ok) throw new Error(result.error);
+      setDirectoryContacts(result.contacts);setSenders(result.senders);
+      setSelectedSender(previous => result.senders.some((x: {email:string})=>x.email===previous) ? previous : result.senders[0]?.email || '');
+    } catch(error) {setDirectoryError(error instanceof Error ? error.message : 'טעינת כתובות המייל נכשלה');}
+    finally {setDirectoryLoading(false);}
+  }
+  useEffect(()=>{void loadDirectory();},[]);
   const [to, setTo] = useState(''), [cc, setCc] = useState(''), [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(mergeMailData(mailTemplates[0].subject, context.data));
   const [text, setText] = useState(mergeMailData(mailTemplates[0].text, context.data));
@@ -63,7 +79,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     finally { setGenerating(false); }
   }
   async function send() {
-    if (sending.current || !canSend || finished || locked) return;
+    if (sending.current || !canSend || finished || locked || directoryLoading || directoryError || !selectedSender) return;
     if (!mailRecipients(to).length || [...mailRecipients(to),...mailRecipients(cc),...mailRecipients(bcc)].some(x => !validMailAddress(x))) { setNotice('יש להזין כתובות מייל תקינות'); return; }
     if (!renderedSubject.trim() || !renderedText.trim() || /\{\{[\w.]+\}\}/.test(renderedSubject + renderedText)) { setNotice('יש להשלים נושא, תוכן ושדות חסרים בתבנית'); return; }
     sending.current = true; setBusy(true); setNotice(''); let dispatched = false;
@@ -72,7 +88,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       const attachments: MailAttachment[] = []; let total = 0;
       for (const file of chosen) { const ready = await prepareAttachment(file); total += atob(ready.contentBase64!).length; if (total > MAIL_MAX_BYTES) throw new Error('ניתן לצרף עד 3MB בסך הכול'); attachments.push(ready); }
       dispatched = true;
-      const response = await fetch('/api/send-email', {method:'POST', headers, body: JSON.stringify({projectId: context.projectId, module: context.module, recordId: context.recordId, recordIds: context.recordIds, requestId: requestId.current, senderEmail, to, cc, bcc, subject: renderedSubject, text: renderedText, attachments})});
+      const response = await fetch('/api/send-email', {method:'POST', headers, body: JSON.stringify({projectId: context.projectId, module: context.module, recordId: context.recordId, recordIds: context.recordIds, requestId: requestId.current, senderEmail: selectedSender, to, cc, bcc, subject: renderedSubject, text: renderedText, attachments})});
       const result = await response.json();
       if (!response.ok) { if (response.status === 409) setLocked(true); throw new Error(result.error || 'השליחה נכשלה'); }
       setNotice([statusLabels[result.status] || result.error, result.error, result.warning, result.rejected?.length ? `נמענים שנדחו: ${result.rejected.join(', ')}` : ''].filter(Boolean).join(' · '));
@@ -91,12 +107,16 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       if (event.key === 'Tab') { const nodes = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]'); if (nodes?.length) { const first=nodes[0], last=nodes[nodes.length-1]; if (event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();} else if (!event.shiftKey && document.activeElement===last) {event.preventDefault();first.focus();} } }
     }}>
       <h2 id="email-title" style={{fontSize:22,fontWeight:700,marginBottom:12}}>שליחה במייל — {context.title}</h2>
-      <p>מאת: {senderEmail || 'לא הוגדר שולח בפרויקט'}</p>
+      <label>מאת — חשבון מייל מאושר בפרויקט<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>setSelectedSender(e.target.value)}><option value="">{directoryLoading ? 'טוען חשבונות מייל…' : 'בחירת שולח'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
+      {directoryError && <p role="alert">{directoryError} <button style={buttonStyle} onClick={()=>void loadDirectory()}>נסה שוב</button></p>}
+      {!directoryLoading && !directoryError && !senders.length && <p role="alert">לא נמצא חשבון שליחה פעיל ברשימת משתמשי הפרויקט. יש לשמור לחשבון המאושר סיסמת אפליקציה במסך משתמשי הפרויקט.</p>}
       {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת כניסת Supabase והרשאת כתיבה בפרויקט.</p>}
       <fieldset disabled={busy || finished || locked || generating} style={{border:0, padding:0, display:'grid', gap:12}}>
         <label>תבנית<select style={inputStyle} defaultValue="document" onChange={e => { const template = mailTemplates.find(x => x.id === e.target.value)!; setSubject(mergeMailData(template.subject, context.data)); setText(mergeMailData(template.text, context.data)); setPreview(false); }}>{mailTemplates.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>אל<input ref={initialFocus} dir="ltr" style={inputStyle} value={to} onChange={e=>{setTo(e.target.value);setPreview(false);}} placeholder="name@example.com, name2@example.com" /></label>
-        {!!contacts.length && <label>הוספת נמען ממשתמשי הפרויקט<select value="" style={inputStyle} onChange={e=>{setTo(mailRecipients([to,e.target.value]).join(', '));setPreview(false);}}><option value="">בחירת נמען</option>{contacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>}
+        <label>בחירה מהמיילים המאושרים במערכת<select value="" style={inputStyle} disabled={directoryLoading} onChange={e=>{setTo(mailRecipients([to,e.target.value]).join(', '));setPreview(false);}}><option value="">{directoryLoading ? 'טוען נמענים…' : 'הוספת נמען מאושר'}</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
+        {!directoryLoading && !directoryError && !directoryContacts.length && <p>לא נמצאו כתובות פעילות ברשימת משתמשי הפרויקט.</p>}
+        {(['CC','BCC'] as const).map(kind=><label key={kind}>הוספת נמען מאושר ל-{kind}<select value="" style={inputStyle} onChange={e=>{const update=kind==='CC'?setCc:setBcc;update(prev=>mailRecipients([prev,e.target.value]).join(', '));setPreview(false);}}><option value="">בחירת כתובת</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>)}
         <label>עותק CC<input dir="ltr" style={inputStyle} value={cc} onChange={e=>{setCc(e.target.value);setPreview(false);}} /></label>
         <label>עותק מוסתר BCC<input dir="ltr" style={inputStyle} value={bcc} onChange={e=>{setBcc(e.target.value);setPreview(false);}} /></label>
         <label>נושא<input style={inputStyle} value={subject} onChange={e=>{setSubject(e.target.value);setPreview(false);}} /></label>
@@ -120,7 +140,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       <p role="status" aria-live="polite">{notice}</p>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
         <button style={buttonStyle} disabled={busy || generating} onClick={()=>setPreview(true)}>תצוגה מקדימה</button>
-        <button style={{...buttonStyle,background:'#0f766e',color:'white'}} disabled={!canSend || !senderEmail || !preview || busy || generating || finished || locked} onClick={()=>void send()}>{busy?'שולח…':'שליחת המייל'}</button>
+        <button style={{...buttonStyle,background:'#0f766e',color:'white'}} disabled={!canSend || !selectedSender || directoryLoading || !!directoryError || !preview || busy || generating || finished || locked} onClick={()=>void send()}>{busy?'שולח…':'שליחת המייל'}</button>
         <button style={buttonStyle} disabled={busy || generating} onClick={onClose}>סגירה</button>
       </div>
       <details style={{marginTop:20}}><summary>היסטוריית שליחה</summary>

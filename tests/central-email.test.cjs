@@ -16,14 +16,19 @@ const normalize = value => JSON.parse(JSON.stringify(value));
 function setup(options = {}) {
   const history = new Map(); let sent = 0, sentMessage;
   function query(table) {
-    let operation='select', payload, conditions=[];
+    let operation='select', payload, conditions=[], fields='';
     const q = {
-      select(){return q}, eq(key,value){conditions.push([key,value]);return q}, ilike(){return q}, limit(){return q}, order(){return q},
+      select(value){fields=value;return q}, eq(key,value){conditions.push([key,value]);return q}, ilike(key,value){conditions.push([key,value]);return q}, in(){return q}, limit(){return q}, order(){return q},
       insert(value){operation='insert';payload=value;return q}, update(value){operation='update';payload=value;return q},
       async single(){return execute()}, async maybeSingle(){return execute()}, then(resolve,reject){return Promise.resolve(execute()).then(resolve,reject)},
     };
     function execute() {
-      if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite'}};
+      if (table === 'projects') return {data:options.projects || []};
+      if (table === 'project_members' && fields==='project_id,role,active') return {data:options.members || []};
+      if (table === 'project_email_users' && fields.startsWith('project_id,')) return {data:options.assignments || []};
+      if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite',active:options.active !== false}};
+      if (table === 'project_email_users' && !fields.includes('smtp_app_password')) return {data:options.personnel || null};
+      if (table === 'project_email_users' && fields.includes('id,')) return {data:[{id:'one',email:'sender@example.com',name:'Approved sender',smtp_app_password:'SERVER_SECRET'}]};
       if (table === 'project_email_users') return {data:options.noSender ? null : {email:'sender@example.com', name:'Sender', smtp_app_password:'SERVER_SECRET'}};
       if (table !== 'email_history') throw new Error('Unexpected table');
       if (operation === 'insert') { if (options.failHistory) return {error:{code:'other'}}; if(history.has(payload.id))return {error:{code:'23505'}}; history.set(payload.id, {...payload}); return {data:{id:payload.id}}; }
@@ -35,12 +40,12 @@ function setup(options = {}) {
   }
   const server = load('app/lib/emailServer.ts', {
     './email':email,
-    '@supabase/supabase-js':{createClient:()=>({auth:{getUser:async()=>({data:{user:options.badToken ? null : {id:'user'}}})},from:query})},
+    '@supabase/supabase-js':{createClient:()=>({auth:{getUser:async()=>({data:{user:options.badToken ? null : {id:'user',email:'user@example.com'}}})},from:query})},
     nodemailer:{createTransport:()=>({close(){},async sendMail(message){sent++;sentMessage=message;if(options.smtpError)throw {code:options.smtpError};return {messageId:'message',accepted:options.accepted || ['to@example.com'],rejected:options.rejected || []};}})},
   }, {NEXT_PUBLIC_SUPABASE_URL:'https://example.supabase.co',NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon',SUPABASE_SERVICE_ROLE_KEY:'service'});
   const payload = {projectId:'project',module:'any-future-module',recordId:'record',requestId:'11111111-1111-1111-1111-111111111111',senderEmail:'sender@example.com',to:'to@example.com',cc:[],bcc:[],subject:'Subject',text:'Text <script>alert(1)</script>',attachments:[{filename:'test.txt',mimeType:'text/plain',contentBase64:'aGVsbG8='}]};
   async function send(changes={}, authenticated=true) { return server.postMail(new Request('https://app.example/api/send-email',{method:'POST',headers:authenticated?{Authorization:'Bearer token'}:{},body:JSON.stringify({...payload,...changes})})); }
-  return {send,history,get sent(){return sent},get message(){return sentMessage}};
+  return {send,history,directory:(mode='projectId=project')=>server.readMailDirectory(new Request('https://app.example/api/email-directory?'+mode,{headers:{Authorization:'Bearer token'}})),get sent(){return sent},get message(){return sentMessage}};
 }
 test('nested attachments include quality documents and deduplicate without mutating the source',()=>{
   const record={items:[{attachments:[{name:'a.txt',dataUrl:'data:text/plain;base64,aGVsbG8='}]}],documents:[{fileName:'b.pdf',fileUrl:'https://example.supabase.co/storage/v1/object/public/b.pdf',fileType:'application/pdf'}],copy:{name:'a.txt',dataUrl:'data:text/plain;base64,aGVsbG8='}};
@@ -72,3 +77,13 @@ test('partial recipient acceptance is not reported as complete success',async()=
 test('SMTP rejection is persisted as failure',async()=>{const s=setup({smtpError:'EAUTH'});const data=await(await s.send()).json();assert.equal(data.success,false);assert.equal([...s.history.values()][0].status,'failed');});
 test('SMTP timeout is persisted as unknown to avoid unsafe retries',async()=>{const s=setup({smtpError:'ETIMEDOUT'});const data=await(await s.send()).json();assert.equal(data.status,'unknown');assert.equal((await s.send()).status,409);assert.equal(s.sent,1);});
 test('audit update failure preserves send result and warns against retries',async()=>{const s=setup({failUpdate:true});const data=await(await s.send()).json();assert.equal(data.status,'sent');assert.ok(data.warning);assert.equal((await s.send()).status,409);assert.equal(s.sent,1);});
+
+test('existing active QC personnel can send without a duplicate membership',async()=>{const s=setup({noMember:true,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
+test('readonly personnel cannot send',async()=>{const s=setup({noMember:true,personnel:{role:'צופה'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
+test('revoked membership overrides personnel assignment',async()=>{const s=setup({active:false,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
+test('approved directory never exposes mailbox passwords',async()=>{const s=setup();const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.equal(data.contacts[0].email,'sender@example.com');assert.equal(data.senders[0].email,'sender@example.com');assert.ok(!JSON.stringify(data).includes('SERVER_SECRET'));assert.ok(!JSON.stringify(data).includes('smtp_app_password'));});
+
+test('project picker recovers established personnel project assignments',async()=>{
+ const s=setup({assignments:[{project_id:'majd',role:'בקר איכות'}],projects:[{id:'majd',name:'מגד אלכרום'}]});
+ const response=await s.directory('mode=memberships');assert.equal(response.status,200);const data=await response.json();assert.equal(data.memberships[0].projectId,'majd');assert.equal(data.memberships[0].role,'readwrite');
+});

@@ -3,21 +3,62 @@ import nodemailer from 'nodemailer';
 import { MAIL_MAX_BYTES, MAIL_SIGNATURE, escapeMailHtml, mailRecipients, validMailAddress } from './email';
 
 class MailError extends Error { constructor(message: string, public status = 400) { super(message); } }
-async function authorize(request: Request, projectId: string, write: boolean) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function personnelRole(row: {role?: string; name?: string; company?: string}) {
+  const label = `${row.role || ''} ${row.name || ''} ${row.company || ''}`.toLowerCase();
+  return /quality control|quality controller|qc|electrical inspector|בקרת? איכות|בקר.*(חשמל|גינון|תנועה|תשתיות|תקשורת|תאורה)/.test(label) ? 'readwrite' : 'readonly';
+}
+async function identity(request: Request) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key || !serviceKey) throw new MailError('שירות המייל דורש הגדרת שרת Supabase', 503);
   const token = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
-  if (!token) throw new MailError('יש להתחבר באמצעות חשבון Supabase כדי לשלוח ולצפות בהיסטוריה', 401);
-  const auth = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await auth.auth.getUser(token);
-  if (error || !data.user) throw new MailError('ההתחברות פגה. יש להתחבר שוב', 401);
-  const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const member = await db.from('project_members').select('role').eq('project_id', projectId).eq('user_id', data.user.id).eq('active', true).maybeSingle();
-  if (member.error) throw new MailError('בדיקת הרשאות הפרויקט נכשלה', 503);
-  if (!member.data || (write && !['admin', 'readwrite'].includes(member.data.role))) throw new MailError('אין הרשאה לפעולה בפרויקט זה', 403);
-  return { db, userId: data.user.id };
+  if (!token) throw new MailError('יש להתחבר לחשבון המערכת', 401);
+  const auth = createClient(url, key, {auth:{persistSession:false,autoRefreshToken:false}});
+  const {data,error} = await auth.auth.getUser(token);
+  if (error || !data.user) throw new MailError('ההתחברות פגה. יש להתחבר שוב',401);
+  return {db:createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}}),user:data.user};
+}
+async function authorize(request: Request, projectId: string, write: boolean) {
+  const {db,user} = await identity(request);
+  const member = await db.from('project_members').select('role,active').eq('project_id',projectId).eq('user_id',user.id).maybeSingle();
+  if (member.error) throw new MailError('בדיקת הרשאות הפרויקט נכשלה',503);
+  let role = member.data?.active === false ? null : member.data?.role;
+  // Preserve established personnel assignments, but never override an explicit membership/revocation.
+  if (!member.data && user.email) {
+    const personnel = await db.from('project_email_users').select('role,name,company').eq('project_id',projectId).eq('active',true).ilike('email',user.email).limit(1).maybeSingle();
+    if (personnel.error) throw new MailError('בדיקת שיוך המשתמש נכשלה',503);
+    if (personnel.data) role = personnelRole(personnel.data);
+  }
+  if (!role || (write && !['admin','readwrite'].includes(role))) throw new MailError('אין הרשאה לפעולה בפרויקט זה',403);
+  return {db,userId:user.id};
+}
+export async function readMailDirectory(request: Request) {
+  try {
+    const params = new URL(request.url).searchParams;
+    if (params.get('mode') === 'memberships') {
+      const {db,user} = await identity(request);
+      const members = await db.from('project_members').select('project_id,role,active').eq('user_id',user.id);
+      if (members.error) throw new MailError('טעינת שיוכי הפרויקטים נכשלה',503);
+      const personnel = user.email ? await db.from('project_email_users').select('project_id,role,name,company').eq('active',true).ilike('email',user.email) : {data:[],error:null};
+      if (personnel.error) throw new MailError('טעינת שיוכי אנשי הצוות נכשלה',503);
+      const assigned = new Map<string,string>();
+      const explicit = new Set((members.data || []).map(x=>String(x.project_id)));
+      for (const row of members.data || []) if (row.active) assigned.set(String(row.project_id),row.role);
+      for (const row of personnel.data || []) if (!explicit.has(String(row.project_id))) assigned.set(String(row.project_id),personnelRole(row));
+      const ids = [...assigned.keys()];
+      const projects = ids.length ? await db.from('projects').select('id,name').in('id',ids) : {data:[],error:null};
+      if (projects.error) throw new MailError('טעינת הפרויקטים נכשלה',503);
+      return Response.json({memberships:(projects.data || []).map(p=>({projectId:p.id,projectName:p.name,role:assigned.get(p.id)})),projects:projects.data || []},{headers:{'Cache-Control':'no-store'}});
+    }
+    const projectId = field(params.get('projectId'),100);
+    const {db} = await authorize(request,projectId,false);
+    const result = await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
+    if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
+    const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
+    const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
+    const systemEmail = process.env.EMAIL_USER?.trim();
+    if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:'חשבון המערכת',email:systemEmail});
+    return Response.json({contacts,senders},{headers:{'Cache-Control':'no-store'}});
+  } catch (error) {return errorResponse(error);}
 }
 function errorResponse(error: unknown) {
   return Response.json({ success: false, error: error instanceof MailError ? error.message : 'שירות המייל אינו זמין כרגע' }, { status: error instanceof MailError ? error.status : 500 });
@@ -78,6 +119,7 @@ export async function postMail(request: Request) {
     if (!validMailAddress(senderEmail)) throw new MailError('כתובת השולח אינה תקינה');
     // Credentials are resolved server-side from the selected project's configured mailbox.
     const sender = await db.from('project_email_users').select('email,name,smtp_app_password').eq('project_id', projectId).eq('active', true).ilike('email', senderEmail).limit(1).maybeSingle();
+    if (!sender.error && !sender.data?.smtp_app_password && senderEmail === process.env.EMAIL_USER?.trim().toLowerCase() && process.env.EMAIL_APP_PASSWORD) sender.data = {email:process.env.EMAIL_USER.trim(),name:'חשבון המערכת',smtp_app_password:process.env.EMAIL_APP_PASSWORD};
     if (sender.error || !sender.data?.smtp_app_password) throw new MailError('יש להגדיר חשבון מייל פעיל וסיסמת אפליקציה בפרויקט', 409);
     const created = await db.from('email_history').insert({ id: requestId, project_id: projectId, module: moduleName, record_id: recordId, record_ids: recordIds, user_id: userId, subject, body: text, to_addresses: to, cc_addresses: cc, bcc_addresses: bcc, sender_email: senderEmail, attachment_names: attachments.map((a: {filename: string}) => a.filename), status: 'sending' }).select('id').single();
     if (created.error) {

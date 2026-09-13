@@ -2690,33 +2690,14 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     }))
     .filter((row) => row.projectId);
 
-  // project_members contains older, incomplete assignments for some users.
-  // Project personnel are also assigned in project_email_users; include those
-  // active assignments so a QC user can actually open every project shown in
-  // the project picker (notably Road 806 for q.controling@gmail.com).
+  // Read personnel assignments through the authenticated server; mailbox secrets remain private.
   let personnelMemberships: Array<{ projectId: string; role: ProjectAccess["role"]; projectName: string }> = [];
-  if (email) {
-    const { data: personnelRows, error: personnelError } = await supabase
-      .from(PROJECT_EMAIL_USERS_TABLE)
-      .select("project_id, role, active")
-      .ilike("email", email)
-      .eq("active", true);
-    if (!personnelError) {
-      personnelMemberships = (Array.isArray(personnelRows) ? personnelRows : [])
-        .map((row: any) => ({
-          projectId: normalizeStoredProjectId(row?.project_id),
-          role: isQualityControlProjectUser({
-            name: "",
-            role: String(row?.role ?? ""),
-            company: "",
-            active: row?.active !== false,
-          })
-            ? ("readwrite" as const)
-            : ("readonly" as const),
-          projectName: "",
-        }))
-        .filter((row) => row.projectId);
-    }
+  const session = await supabase.auth.getSession();
+  if (session.data.session?.access_token) {
+    const result = await fetch('/api/email-directory?mode=memberships', {headers:{Authorization:`Bearer ${session.data.session.access_token}`},cache:'no-store'});
+    if (!result.ok) throw new Error('טעינת שיוכי הפרויקטים נכשלה. יש לנסות שוב');
+    const directory = await result.json();
+    personnelMemberships = directory.memberships;
   }
 
   const membershipRoleRank: Record<ProjectAccess["role"], number> = {
@@ -17461,7 +17442,7 @@ export default function Page() {
       })
       .catch((error) => console.warn("טעינת משתמשי הפרויקט מהענן נכשלה", error));
     return () => { active = false; };
-  }, []);
+  }, [projectAccess?.authUserId]);
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     const base = projectEmailUsersRef.current;
