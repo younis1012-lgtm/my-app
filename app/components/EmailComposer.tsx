@@ -79,9 +79,14 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     finally { setGenerating(false); }
   }
   async function send() {
-    if (sending.current || !canSend || finished || locked || directoryLoading || directoryError || !selectedSender) return;
+    if (sending.current || finished || locked || generating) return;
+    if (!canSend) {setNotice('אין הרשאת שליחה. יש להתחבר לחשבון המערכת עם הרשאת כתיבה בפרויקט.');return;}
+    if (directoryLoading) {setNotice('רשימת חשבונות המייל עדיין נטענת. יש להמתין לסיום הטעינה.');return;}
+    if (directoryError) {setNotice(directoryError + ' — לחצו על נסה שוב ליד בחירת השולח.');return;}
+    if (!selectedSender) {setNotice('יש לבחור חשבון שולח בשדה מאת בראש החלון.');return;}
     if (!mailRecipients(to).length || [...mailRecipients(to),...mailRecipients(cc),...mailRecipients(bcc)].some(x => !validMailAddress(x))) { setNotice('יש להזין כתובות מייל תקינות'); return; }
     if (!renderedSubject.trim() || !renderedText.trim() || /\{\{[\w.]+\}\}/.test(renderedSubject + renderedText)) { setNotice('יש להשלים נושא, תוכן ושדות חסרים בתבנית'); return; }
+    if (!preview) {setPreview(true);setNotice('בדקו את פרטי המייל בתצוגה המקדימה, ואז לחצו על אישור ושליחה.');return;}
     sending.current = true; setBusy(true); setNotice(''); let dispatched = false;
     try {
       const headers = await authHeaders();
@@ -107,7 +112,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       if (event.key === 'Tab') { const nodes = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]'); if (nodes?.length) { const first=nodes[0], last=nodes[nodes.length-1]; if (event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();} else if (!event.shiftKey && document.activeElement===last) {event.preventDefault();first.focus();} } }
     }}>
       <h2 id="email-title" style={{fontSize:22,fontWeight:700,marginBottom:12}}>שליחה במייל — {context.title}</h2>
-      <label>מאת — חשבון מייל מאושר בפרויקט<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>setSelectedSender(e.target.value)}><option value="">{directoryLoading ? 'טוען חשבונות מייל…' : 'בחירת שולח'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
+      <label>מאת — חשבון מייל מאושר בפרויקט<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבונות מייל…' : 'בחירת שולח'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
       {directoryError && <p role="alert">{directoryError} <button style={buttonStyle} onClick={()=>void loadDirectory()}>נסה שוב</button></p>}
       {!directoryLoading && !directoryError && !senders.length && <p role="alert">לא נמצא חשבון שליחה פעיל ברשימת משתמשי הפרויקט. יש לשמור לחשבון המאושר סיסמת אפליקציה במסך משתמשי הפרויקט.</p>}
       {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת כניסת Supabase והרשאת כתיבה בפרויקט.</p>}
@@ -135,12 +140,12 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
         <small>ביטול סימון מסיר את הקובץ מהמייל בלבד.</small>
       </fieldset>
       {preview && <section aria-label="תצוגה מקדימה" style={{marginTop:16,padding:16,background:'#f1f5f9',borderRadius:10}}>
-        <h3>תצוגה מקדימה</h3><p>אל: {to} | CC: {cc || '—'} | BCC: {bcc || '—'}</p><strong>{renderedSubject}</strong><p style={{whiteSpace:'pre-wrap'}}>{renderedText + MAIL_SIGNATURE}</p><p>קבצים: {chosen.map(x=>x.filename).join(', ') || 'ללא קבצים'}</p>
+        <h3>תצוגה מקדימה</h3><p>מאת: {selectedSender || 'לא נבחר שולח'}</p><p>אל: {to} | CC: {cc || '—'} | BCC: {bcc || '—'}</p><strong>{renderedSubject}</strong><p style={{whiteSpace:'pre-wrap'}}>{renderedText + MAIL_SIGNATURE}</p><p>קבצים: {chosen.map(x=>x.filename).join(', ') || 'ללא קבצים'}</p>
       </section>}
       <p role="status" aria-live="polite">{notice}</p>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
         <button style={buttonStyle} disabled={busy || generating} onClick={()=>setPreview(true)}>תצוגה מקדימה</button>
-        <button style={{...buttonStyle,background:'#0f766e',color:'white'}} disabled={!canSend || !selectedSender || directoryLoading || !!directoryError || !preview || busy || generating || finished || locked} onClick={()=>void send()}>{busy?'שולח…':'שליחת המייל'}</button>
+        <button style={{...buttonStyle,background:busy || generating || finished || locked ? '#64748b' : '#0f766e',color:'white',cursor:busy || generating || finished || locked ? 'not-allowed' : 'pointer'}} disabled={busy || generating || finished || locked} onClick={()=>void send()}>{busy?'שולח…':finished?'המייל נשלח':locked?'יש לבדוק את היסטוריית השליחה':preview?'אישור ושליחה':'המשך לשליחה'}</button>
         <button style={buttonStyle} disabled={busy || generating} onClick={onClose}>סגירה</button>
       </div>
       <details style={{marginTop:20}}><summary>היסטוריית שליחה</summary>
