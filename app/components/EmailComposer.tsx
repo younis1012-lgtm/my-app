@@ -71,15 +71,19 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
   useEffect(() => { const previous = document.activeElement as HTMLElement | null; initialFocus.current?.focus(); void loadHistory(false); return () => previous?.focus(); }, []); // Context is mounted with a unique key.
   const renderedSubject = mergeMailData(subject, context.data), renderedText = mergeMailData(text, context.data);
   const chosen = files.filter(x => selected.includes(x.id));
+  const generatingRef = useRef(false);
+  useEffect(()=>{if(context.generateDocuments) void generate();},[]);
   async function generate() {
-    if (!context.generateDocuments || generating || generated) return;
+    if (!context.generateDocuments || generatingRef.current || generated) return;
+    generatingRef.current = true;
     setGenerating(true); setNotice('');
-    try { const docs = await context.generateDocuments(); setFiles(prev => [...prev, ...docs]); setSelected(prev => [...prev, ...docs.map(x => x.id)]); setGenerated(true); }
+    try { const docs = await context.generateDocuments(); if (!docs.length) throw new Error('לא הופקו טפסים. השליחה נעצרה כדי למנוע שליחת נספחים בלבד.'); setFiles(prev => [...prev, ...docs]); setSelected(prev => [...prev, ...docs.map(x => x.id)]); setGenerated(true); }
     catch (error) { setNotice(error instanceof Error ? error.message : 'יצירת המסמך נכשלה'); }
-    finally { setGenerating(false); }
+    finally { generatingRef.current = false; setGenerating(false); }
   }
   async function send() {
     if (sending.current || finished || locked || generating) return;
+    if (context.generateDocuments && !generated) {setNotice('הטפסים עדיין לא הופקו. יש ללחוץ על הכנת הטפסים מחדש לפני השליחה.');return;}
     if (!canSend) {setNotice('אין הרשאת שליחה. יש להתחבר לחשבון המערכת עם הרשאת כתיבה בפרויקט.');return;}
     if (directoryLoading) {setNotice('רשימת חשבונות המייל עדיין נטענת. יש להמתין לסיום הטעינה.');return;}
     if (directoryError) {setNotice(directoryError + ' — לחצו על נסה שוב ליד בחירת השולח.');return;}
@@ -128,7 +132,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
         <label>תוכן<textarea rows={6} style={inputStyle} value={text} onChange={e=>{setText(e.target.value);setPreview(false);}} /></label>
         <small>ניתן לשלב שדות כגון {'{{title}}, {{projectName}}, {{status}}, {{location}}'}. שדות חסרים יש להשלים לפני השליחה.</small>
         <strong>קבצים מצורפים — עד 30 קבצים ועד 3MB יחד</strong>
-        {context.generateDocuments && <button type="button" style={buttonStyle} disabled={generating || generated} onClick={()=>void generate()}>{generating ? 'מכין PDF…' : generated ? 'PDF נוסף לרשימה' : 'הוספת PDF של הטופס'}</button>}
+        {context.generateDocuments && <button type="button" style={buttonStyle} disabled={generating || generated} onClick={()=>void generate()}>{generating ? 'מכין את הטפסים לשליחה…' : generated ? 'הטפסים הוכנו ונוספו למייל' : 'הכנת הטפסים מחדש'}</button>}
         {files.map(file=><label key={file.id}><input type="checkbox" checked={selected.includes(file.id)} onChange={e=>{setSelected(prev=>e.target.checked ? [...prev,file.id] : prev.filter(x=>x!==file.id));setPreview(false);}} /> {file.filename}</label>)}
         {!files.length && <p>לא נמצאו קבצים משויכים לרשומה.</p>}
         <label>הוספת קבצים<input type="file" multiple onChange={async e=>{
@@ -144,7 +148,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       </section>}
       <p role="status" aria-live="polite">{notice}</p>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-        <button style={buttonStyle} disabled={busy || generating} onClick={()=>setPreview(true)}>תצוגה מקדימה</button>
+        <button style={buttonStyle} disabled={busy || generating} onClick={()=>{if(context.generateDocuments && !generated){setNotice('יש להשלים את הכנת הטפסים לפני התצוגה המקדימה.');return;}setPreview(true);}}>תצוגה מקדימה</button>
         <button style={{...buttonStyle,background:busy || generating || finished || locked ? '#64748b' : '#0f766e',color:'white',cursor:busy || generating || finished || locked ? 'not-allowed' : 'pointer'}} disabled={busy || generating || finished || locked} onClick={()=>void send()}>{busy?'שולח…':finished?'המייל נשלח':locked?'יש לבדוק את היסטוריית השליחה':preview?'אישור ושליחה':'המשך לשליחה'}</button>
         <button style={buttonStyle} disabled={busy || generating} onClick={onClose}>סגירה</button>
       </div>

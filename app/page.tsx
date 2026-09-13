@@ -23789,9 +23789,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     if (!recordsToSend.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
     const records = await Promise.all(structuredClone(recordsToSend).map(hydratePreliminaryRecord));
     const title = records.length === 1 ? records[0].title || "בקרה מקדימה" : `בקרה מקדימה (${records.length})`;
-    const documents = records.map((record: any) => ({ title: record.title || title, html: archivePrintableHtml(record.title || title, preliminaryRecordArchiveBody(record)) }));
-    openRecordEmail("preliminary", { records, status: records[0]?.status }, records.length === 1 ? records[0].id : `batch-${crypto.randomUUID()}`, title,
-      async () => { const result: MailAttachment[] = []; for (const doc of documents) result.push(await documentForEmail(doc.html, doc.title)); return result; });
+    setCentralMailContext({
+      projectId: currentProject.id, module: 'preliminary',
+      recordId: records.length === 1 ? records[0].id || `draft-${crypto.randomUUID()}` : `batch-${crypto.randomUUID()}`,
+      recordIds: records.map((record: any)=>String(record.id || '')).filter(Boolean), title,
+      data: {records, title, projectName, status: records[0]?.status}, attachments: [],
+      generateDocuments: async () => {
+        const documents: MailAttachment[] = [];
+        for (const [index,record] of records.entries()) {
+          const typeLabel = labelForPreliminary(record.subtype || preliminaryTab);
+          const documentTitle = `${typeLabel} - ${record.title || index + 1} - כולל נספחים`;
+          const result = await buildMergedPreliminaryRecordsPdfBlob([record], documentTitle);
+          documents.push({id:crypto.randomUUID(),filename:`${documentTitle}.pdf`,mimeType:'application/pdf',contentBase64:arrayBufferToBase64(await result.blob.arrayBuffer())});
+        }
+        return documents;
+      },
+    });
   };
 
   const downloadPreliminaryRecordsPdf = async (recordsToDownload: any[]) => {
