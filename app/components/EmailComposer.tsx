@@ -41,7 +41,8 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
   async function loadDirectory() {
     setDirectoryLoading(true); setDirectoryError('');
     try {
-      const response = await fetch(`/api/email-directory?projectId=${encodeURIComponent(context.projectId)}`, {headers:await authHeaders(),cache:'no-store'});
+      const params = new URLSearchParams({projectId: context.projectId, module: context.module});
+      const response = await fetch(`/api/email-directory?${params}`, {headers:await authHeaders(),cache:'no-store'});
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
       setDirectoryContacts(result.contacts);setSenders(result.senders);setOperator(result.operator || {name:'',email:''});
       setSelectedSender(previous => result.senders.some((x: {email:string})=>x.email===previous) ? previous : result.senders[0]?.email || '');
@@ -119,7 +120,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     }}>
       <h2 id="email-title" style={{fontSize:22,fontWeight:700,marginBottom:12}}>שליחה במייל — {context.title}</h2>
       <div style={{padding:12,background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:10}}><strong>מאת: {operator.name || 'משתמש המערכת'}</strong>{operator.email ? <div dir="ltr" style={{textAlign:'right'}}>{operator.email}</div> : <div>המייל יישלח מחשבון המערכת; תשובות יגיעו לחשבון המערכת.</div>}<small>השליחה מתבצעת באמצעות חשבון המערכת ואין צורך בסיסמת Google של המשתמש.</small></div>
-      <label>חשבון המערכת המבצע את השליחה<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבון מערכת…' : 'בחירת חשבון מערכת'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
+      <label>חשבון המערכת המבצע את השליחה<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבון מערכת…' : 'בחירת חשבון מערכת'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name === x.email ? x.email : `${x.name} — ${x.email}`}</option>)}</select></label>
       {directoryError && <p role="alert">{directoryError} <button style={buttonStyle} onClick={()=>void loadDirectory()}>נסה שוב</button></p>}
       {!directoryLoading && !directoryError && !senders.length && <p role="alert">לא נמצא חשבון שליחה פעיל ברשימת משתמשי הפרויקט. יש לשמור לחשבון המאושר סיסמת אפליקציה במסך משתמשי הפרויקט.</p>}
       {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת התחברות לחשבון המערכת והרשאת גישה לפרויקט.</p>}

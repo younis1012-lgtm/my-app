@@ -69,7 +69,7 @@ export async function readMailDirectory(request: Request) {
       return Response.json({memberships:(projects.data || []).map(p=>({projectId:p.id,projectName:p.name,role:assigned.get(p.id)})),projects:projects.data || []},{headers:{'Cache-Control':'no-store'}});
     }
     const projectId = field(params.get('projectId'),100);
-    const {db,user} = await authorize(request,projectId,false);
+    const {db,user,role} = await authorize(request,projectId,false);
     const result = await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
     const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
@@ -85,9 +85,10 @@ export async function readMailDirectory(request: Request) {
           contacts.push({id:`access-${email}`,name:user.display_name || email,email});
       }
     }
-    const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
+    const qualityAssuranceNcr = role === 'readonly' && params.get('module') === 'nonconformances';
+    const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email}));
     const systemEmail = process.env.EMAIL_USER?.trim();
-    if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:'חשבון המערכת',email:systemEmail});
+    if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:qualityAssuranceNcr ? systemEmail : 'חשבון המערכת',email:systemEmail});
     const operator = await operatorIdentity(db,user,projectId,result.data || []);
     return Response.json({contacts,senders,operator},{headers:{'Cache-Control':'no-store'}});
   } catch (error) {return errorResponse(error);}
@@ -156,7 +157,10 @@ export async function postMail(request: Request) {
     if (sender.error || !sender.data?.smtp_app_password) throw new MailError('יש להגדיר חשבון מייל פעיל וסיסמת אפליקציה בפרויקט', 409);
     const personnel = await db.from('project_email_users').select('name,email,role').eq('project_id',projectId).eq('active',true);
     const operator = await operatorIdentity(db,user,projectId,personnel.error ? [] : personnel.data || []);
-    const created = await db.from('email_history').insert({ id: requestId, project_id: projectId, module: moduleName, record_id: recordId, record_ids: recordIds, user_id: userId, subject, body: text, to_addresses: to, cc_addresses: cc, bcc_addresses: bcc, sender_email: senderEmail, attachment_names: attachments.map((a: {filename: string}) => a.filename), status: 'sending' }).select('id').single();
+    const qualityAssuranceNcr = role === 'readonly' && moduleName === 'nonconformances';
+    const qualityAssuranceNotice = qualityAssuranceNcr ? `\n\nהודעה זו נשלחה על ידי הבטחת איכות${operator.name && operator.name !== 'משתמש מערכת' ? ` — ${operator.name}` : ''}.` : '';
+    const outgoingText = text + qualityAssuranceNotice + MAIL_SIGNATURE;
+    const created = await db.from('email_history').insert({ id: requestId, project_id: projectId, module: moduleName, record_id: recordId, record_ids: recordIds, user_id: userId, subject, body: outgoingText, to_addresses: to, cc_addresses: cc, bcc_addresses: bcc, sender_email: senderEmail, attachment_names: attachments.map((a: {filename: string}) => a.filename), status: 'sending' }).select('id').single();
     if (created.error) {
       if (created.error.code === '23505') {
         const prior = await db.from('email_history').select('status').eq('id', requestId).eq('project_id', projectId).eq('user_id', userId).maybeSingle();
@@ -169,7 +173,7 @@ export async function postMail(request: Request) {
     const transport = nodemailer.createTransport({service: 'gmail', auth: {user: sender.data.email, pass: sender.data.smtp_app_password}, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000, disableFileAccess: true, disableUrlAccess: true});
     try {
       const senderName = operator.email ? `${operator.name} באמצעות ${sender.data.name || 'Y.K QUALITY'}` : sender.data.name || 'Y.K QUALITY';
-      const result = await transport.sendMail({from: {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc, bcc, subject, text: text + MAIL_SIGNATURE, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(text + MAIL_SIGNATURE)}</div>`, attachments});
+      const result = await transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc, bcc, subject, text: outgoingText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(outgoingText)}</div>`, attachments});
       messageId = result.messageId;
       accepted = (result.accepted || []).map(String); rejected = (result.rejected || []).map(String);
       status = accepted.length ? (rejected.length ? 'partial' : 'sent') : 'failed';
