@@ -112,6 +112,28 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
   }
   const inputStyle = {width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:8, background:'#fff', color:'#0f172a'};
   const buttonStyle = {padding:'10px 16px', border:'1px solid #cbd5e1', borderRadius:8, cursor:'pointer'};
+  const approvedRecipientPicker = (kind: 'TO' | 'CC' | 'BCC', value: string, update: (value: string) => void) => {
+    const chosenAddresses = mailRecipients(value);
+    const chosenSet = new Set(chosenAddresses.map(address => address.toLowerCase()));
+    const toggle = (email: string, checked: boolean) => {
+      const next = checked
+        ? mailRecipients([...chosenAddresses, email]).join(', ')
+        : chosenAddresses.filter(address => address.toLowerCase() !== email.toLowerCase()).join(', ');
+      update(next); setNotice(''); setPreview(false);
+    };
+    const label = kind === 'TO' ? 'בחירת נמענים מהמיילים המאושרים במערכת' : `בחירת נמענים מאושרים ל-${kind}`;
+    return <details style={{border:'1px solid #cbd5e1',borderRadius:8,background:'#fff'}}>
+      <summary style={{padding:10,cursor:'pointer',fontWeight:600}}>{label} — {chosenAddresses.length ? `${chosenAddresses.length} נבחרו` : 'לחצו לבחירה'}</summary>
+      <div style={{display:'grid',gap:8,maxHeight:220,overflow:'auto',padding:'4px 12px 12px'}}>
+        {directoryLoading && <span>טוען נמענים…</span>}
+        {!directoryLoading && directoryContacts.map(contact => <label key={`${kind}-${contact.id}`} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',cursor:'pointer'}}>
+          <input type="checkbox" aria-label={`${kind}-${contact.email}`} checked={chosenSet.has(contact.email.toLowerCase())} onChange={event=>toggle(contact.email,event.target.checked)} />
+          <span>{contact.name} — <span dir="ltr">{contact.email}</span></span>
+        </label>)}
+        {!directoryLoading && !directoryContacts.length && <span>לא נמצאו כתובות פעילות ברשימת משתמשי הפרויקט.</span>}
+      </div>
+    </details>;
+  };
   return <div style={{position:'fixed', inset:0, zIndex:10000, background:'#0f172a88', display:'grid', placeItems:'center', padding:16}}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="email-title" dir="rtl" style={{width:'min(850px,100%)', maxHeight:'92vh', overflow:'auto', background:'white', color:'#0f172a', padding:24, borderRadius:16}} onKeyDown={event => {
       if (event.key === 'Escape' && !busy && !generating) onClose();
@@ -126,9 +148,9 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       <fieldset disabled={busy || finished || locked || generating} style={{border:0, padding:0, display:'grid', gap:12}}>
         <label>תבנית<select style={inputStyle} defaultValue="document" onChange={e => { const template = mailTemplates.find(x => x.id === e.target.value)!; setSubject(mergeMailData(template.subject, context.data)); setText(mergeMailData(template.text, context.data)); setPreview(false); }}>{mailTemplates.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>אל — שדה חובה<input ref={initialFocus} dir="ltr" aria-invalid={recipientMissing} style={{...inputStyle,borderColor:recipientMissing?'#dc2626':'#cbd5e1'}} value={to} onChange={e=>{setTo(e.target.value);setNotice('');setPreview(false);}} placeholder="יש לבחור או להזין לפחות כתובת אחת" />{recipientMissing && <small style={{color:'#b91c1c',fontWeight:700}}>לא ניתן לשלוח לפני בחירת נמען.</small>}</label>
-        <label>בחירה מהמיילים המאושרים במערכת<select value="" style={inputStyle} disabled={directoryLoading} onChange={e=>{setTo(mailRecipients([to,e.target.value]).join(', '));setPreview(false);}}><option value="">{directoryLoading ? 'טוען נמענים…' : 'הוספת נמען מאושר'}</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
-        {!directoryLoading && !directoryError && !directoryContacts.length && <p>לא נמצאו כתובות פעילות ברשימת משתמשי הפרויקט.</p>}
-        {(['CC','BCC'] as const).map(kind=><label key={kind}>הוספת נמען מאושר ל-{kind}<select value="" style={inputStyle} onChange={e=>{const update=kind==='CC'?setCc:setBcc;update(prev=>mailRecipients([prev,e.target.value]).join(', '));setPreview(false);}}><option value="">בחירת כתובת</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>)}
+        {approvedRecipientPicker('TO',to,setTo)}
+        {approvedRecipientPicker('CC',cc,setCc)}
+        {approvedRecipientPicker('BCC',bcc,setBcc)}
         <label>עותק CC<input dir="ltr" style={inputStyle} value={cc} onChange={e=>{setCc(e.target.value);setPreview(false);}} /></label>
         <label>עותק מוסתר BCC<input dir="ltr" style={inputStyle} value={bcc} onChange={e=>{setBcc(e.target.value);setPreview(false);}} /></label>
         <label>נושא<input style={inputStyle} value={subject} onChange={e=>{setSubject(e.target.value);setPreview(false);}} /></label>
