@@ -16,6 +16,7 @@ function loadServer(accessRows) {
     } },
     from(table) {
       if (table === "project_access_users") return { select: async () => ({ data: accessRows, error: null }) };
+      if (table === "projects") return { select: async () => ({ data: [{ id: "cb3f4c8e-8b7f-4af2-ac92-a2da69f2dc7c", name: "מגד אלכרום", description: "" }], error: null }) };
       if (table === "project_members") return { upsert: async (value) => { memberships = value; return { error: null }; } };
       throw new Error(`unexpected table ${table}`);
     },
@@ -58,4 +59,11 @@ test("cross-origin legacy session requests are rejected", async () => {
   const server = loadServer([]);
   const response = await server.handler(new Request("https://app.example/api/auth/legacy-session", { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ login: "user", password: "pass" }) }));
   assert.equal(response.status, 403);
+});
+
+test("legacy project name is resolved when the newer project_ids column is absent", async () => {
+  const server = loadServer([{ username: 'ה"א', password: "pass", display_name: 'ה"א', role: "readonly", project_name: "מגד אלכרום" }]);
+  const response = await server.handler(new Request("https://app.example/api/auth/legacy-session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ login: 'ה"א', password: "pass" }) }));
+  assert.equal(response.status, 200);
+  assert.equal(server.memberships[0].project_id, "cb3f4c8e-8b7f-4af2-ac92-a2da69f2dc7c");
 });

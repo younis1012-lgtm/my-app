@@ -43,7 +43,7 @@ export async function createLegacySupabaseSession(request: Request) {
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const accessRows = await db
       .from("project_access_users")
-      .select("username,password,display_name,role,code,project_name,project_ids");
+      .select("*");
     if (accessRows.error) return Response.json({ error: "בדיקת המשתמש נכשלה" }, { status: 503 });
     const loginKey = normalize(login);
     const access = (accessRows.data ?? []).find(
@@ -51,12 +51,30 @@ export async function createLegacySupabaseSession(request: Request) {
     );
     if (!access) return Response.json({ error: "שם משתמש או סיסמה אינם נכונים" }, { status: 401 });
 
-    let projectIds = Array.isArray(access.project_ids) ? access.project_ids.filter(Boolean) : [];
+    let projectIds = Array.isArray(access.project_ids)
+      ? access.project_ids.filter(Boolean)
+      : access.project_id
+        ? [access.project_id]
+        : [];
     const role = accessRole(access.role);
-    if (role === "admin") {
-      const projects = await db.from("projects").select("id");
+    if (role === "admin" || !projectIds.length) {
+      const projects = await db.from("projects").select("id,name,description");
       if (projects.error) return Response.json({ error: "טעינת הפרויקטים נכשלה" }, { status: 503 });
-      projectIds = (projects.data ?? []).map((project) => project.id);
+      if (role === "admin") projectIds = (projects.data ?? []).map((project) => project.id);
+      else {
+        const expectedName = normalize(access.project_name);
+        const expectedCode = normalize(access.code);
+        projectIds = (projects.data ?? [])
+          .filter((project) => {
+            const projectName = normalize(project.name);
+            const searchable = normalize(`${project.id} ${project.name} ${project.description ?? ""}`);
+            return (
+              (expectedName && (projectName === expectedName || projectName.includes(expectedName) || expectedName.includes(projectName))) ||
+              (expectedCode && searchable.includes(expectedCode))
+            );
+          })
+          .map((project) => project.id);
+      }
     }
     if (!projectIds.length)
       return Response.json({ error: "למשתמש לא הוגדר שיוך לפרויקט. מנהל המערכת צריך לשמור את שיוכי המשתמש" }, { status: 409 });
