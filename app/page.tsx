@@ -6,6 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
 import { NCR_HANDLER_OPTIONS, NCR_RESPONSIBLE_OPTIONS, canManageNonconformances, nonconformanceActor } from "./lib/nonconformanceWorkflow";
+import { preparePreliminaryEmailRecords } from "./lib/preliminaryEmail";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
@@ -23843,9 +23844,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return { id: crypto.randomUUID(), filename: `${title}.pdf`, mimeType: "application/pdf", contentBase64: arrayBufferToBase64(bytes) };
   };
 
-  const sendPreliminaryRecordsEmail = async (recordsToSend: any[]) => {
+  const sendPreliminaryRecordsEmail = async (
+    recordsToSend: any[],
+    useCurrentDraft = false,
+  ) => {
     if (!recordsToSend.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
-    const records = await Promise.all(structuredClone(recordsToSend).map(hydratePreliminaryRecord));
+    // A form that is currently open can contain newly attached files that have not
+    // been saved yet. Hydrating it from the database would replace those files with
+    // the older saved copy immediately before generating the email.
+    const records = await preparePreliminaryEmailRecords(
+      recordsToSend,
+      hydratePreliminaryRecord,
+      useCurrentDraft,
+    );
     const title = records.length === 1 ? records[0].title || "בקרה מקדימה" : `בקרה מקדימה (${records.length})`;
     setCentralMailContext({
       projectId: currentProject.id, module: 'preliminary',
@@ -23931,7 +23942,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const sendCurrentFormEmail = async () => {
     if (section === "rfi") return sendRfiEmail({ ...rfiForm, id: editingRfiId || "" } as RfiRecord);
     if (section === "supervisionReports") return sendSupervisionReportEmail({ ...supervisionReportForm, id: editingSupervisionReportId || "" } as SupervisionReportRecord);
-    if (section === "preliminary") return sendPreliminaryRecordsEmail([{ ...currentPreliminaryForm, id: editingPreliminaryId }]);
+    if (section === "preliminary")
+      return sendPreliminaryRecordsEmail(
+        [{ ...currentPreliminaryForm, id: editingPreliminaryId }],
+        true,
+      );
     const current: Record<string, [Record<string, any>, string | null]> = {
       checklists: [checklistForm, editingChecklistId], nonconformances: [nonconformanceForm, editingNonconformanceId],
       trialSections: [trialSectionForm, editingTrialSectionId], controlProcesses: [controlProcessForm, editingControlProcessId],

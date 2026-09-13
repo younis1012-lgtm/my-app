@@ -264,14 +264,32 @@ export function PreliminarySection(props: PreliminarySectionProps) {
 
     setForm(fillApprovalFromProjectUsers);
 
+    // Vercel rejects oversized JSON requests before the OCR route runs. The file
+    // itself remains attached and must still be saved/exported/emailed normally.
+    if (file.size > 3 * 1024 * 1024) {
+      setForm((prev) => {
+        const activeNested = getNestedData(prev, props.preliminaryTab);
+        const activeRows = normalizeRows(activeNested.certificates);
+        const nextRows = activeRows.map((row) => row.id === targetId ? {
+          ...row,
+          ocrMessage: '✅ הקובץ צורף. הוא גדול מדי לסריקה אוטומטית; ניתן למלא את הפרטים ידנית.',
+        } : row);
+        return patchNestedData(prev, props.preliminaryTab, { certificates: nextRows });
+      });
+      return;
+    }
+
     try {
       const res = await fetch('/api/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/octet-stream', dataUrl, subtype: props.preliminaryTab }),
       });
-      const payload = await res.json();
+      const responseText = await res.text();
+      let payload: any = null;
+      try { payload = responseText ? JSON.parse(responseText) : null; } catch { /* The platform can return a plain-text error. */ }
       if (!res.ok) throw new Error(payload?.error || 'OCR failed');
+      if (!payload) throw new Error('לא התקבלה תשובת סריקה תקינה');
       const data = payload?.data ?? {};
       const extractedCertificates = Array.isArray(data.certificates) ? data.certificates : [];
       const certificateNo = cleanDocNo(data.certificateNo ?? data.documentNo ?? data.licenseNo);
@@ -355,7 +373,10 @@ export function PreliminarySection(props: PreliminarySectionProps) {
       setForm((prev) => {
         const activeNested = getNestedData(prev, props.preliminaryTab);
         const activeRows = normalizeRows(activeNested.certificates);
-        const nextRows = activeRows.map((row) => row.id === targetId ? { ...row, ocrMessage: `שגיאת OCR: ${error?.message || error}` } : row);
+        const nextRows = activeRows.map((row) => row.id === targetId ? {
+          ...row,
+          ocrMessage: `✅ הקובץ צורף. הסריקה האוטומטית לא הושלמה: ${error?.message || error}`,
+        } : row);
         return patchNestedData(prev, props.preliminaryTab, { certificates: nextRows });
       });
     }
@@ -476,7 +497,7 @@ export function PreliminarySection(props: PreliminarySectionProps) {
                       helperText="גרור לכאן מסמך לשורה זו"
                       onFiles={(files) => Array.from(files).forEach((file) => handleFile(row.id, file))}
                     />
-                    <div style={{ fontSize: 12, color: row.ocrMessage?.startsWith('שגיאת') ? '#b91c1c' : '#475569', marginTop: 6 }}>{row.ocrMessage || ''}</div>
+                    <div style={{ fontSize: 12, color: row.ocrMessage?.startsWith('✅') ? '#047857' : '#475569', marginTop: 6 }}>{row.ocrMessage || ''}</div>
                     <div style={{ fontSize: 12, color: '#0f766e', marginTop: 4 }}>{row.attachments.map((a) => `✅ ${a.name}`).join(' | ')}</div>
                   </td>
                   <td style={td}><button type="button" style={styles.dangerBtn} onClick={() => removeRow(row.id)}>מחיקה</button></td>
