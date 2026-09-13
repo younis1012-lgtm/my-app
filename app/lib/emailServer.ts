@@ -54,6 +54,18 @@ export async function readMailDirectory(request: Request) {
     const result = await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
     const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
+    const accessUsers = await db.from('project_access_users').select('*');
+    if (!accessUsers.error) {
+      const project = await db.from('projects').select('name').eq('id',projectId).maybeSingle();
+      const projectName = String(project.data?.name || '').replace(/\s+/g,'').toLowerCase();
+      for (const user of accessUsers.data || []) {
+        const email = String(user.username || '').trim().toLowerCase();
+        const ids = Array.isArray(user.project_ids) ? user.project_ids.map(String) : user.project_id ? [String(user.project_id)] : [];
+        const assignedByName = projectName && String(user.project_name || '').replace(/\s+/g,'').toLowerCase() === projectName;
+        if (validMailAddress(email) && (ids.includes(projectId) || assignedByName) && !contacts.some(x=>x.email.toLowerCase()===email))
+          contacts.push({id:`access-${email}`,name:user.display_name || email,email});
+      }
+    }
     const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
     const systemEmail = process.env.EMAIL_USER?.trim();
     if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:'חשבון המערכת',email:systemEmail});

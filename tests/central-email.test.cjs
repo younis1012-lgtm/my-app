@@ -24,6 +24,7 @@ function setup(options = {}) {
     };
     function execute() {
       if (table === 'projects') return {data:options.projects || []};
+      if (table === 'project_access_users') return {data:options.accessUsers || []};
       if (table === 'project_members' && fields==='project_id,role,active') return {data:options.members || []};
       if (table === 'project_email_users' && fields.startsWith('project_id,')) return {data:options.assignments || []};
       if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite',active:options.active !== false}};
@@ -83,6 +84,7 @@ test('readonly personnel may send using their existing project assignment',async
 test('readonly project member may send without editing access',async()=>{const s=setup({role:'readonly'});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
 test('revoked membership overrides personnel assignment',async()=>{const s=setup({active:false,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
 test('approved directory never exposes mailbox passwords',async()=>{const s=setup();const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.equal(data.contacts[0].email,'sender@example.com');assert.equal(data.senders[0].email,'sender@example.com');assert.ok(!JSON.stringify(data).includes('SERVER_SECRET'));assert.ok(!JSON.stringify(data).includes('smtp_app_password'));});
+test('authorized legacy viewer email is offered as an approved recipient',async()=>{const s=setup({accessUsers:[{username:'shbat.adnan.1991@gmail.com',display_name:'ה״א',project_ids:['project']}]});const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.ok(data.contacts.some(x=>x.email==='shbat.adnan.1991@gmail.com'));});
 
 test('project picker recovers established personnel project assignments',async()=>{
  const s=setup({assignments:[{project_id:'majd',role:'בקר איכות'}],projects:[{id:'majd',name:'מגד אלכרום'}]});

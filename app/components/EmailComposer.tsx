@@ -58,6 +58,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
   const [history, setHistory] = useState<History[]>([]);
   const [finished, setFinished] = useState(false), [locked, setLocked] = useState(false);
   const [projectHistory, setProjectHistory] = useState(false);
+  const recipientMissing = !mailRecipients(to).length;
   const requestId = useRef(crypto.randomUUID()), sending = useRef(false);
   const dialog = useRef<HTMLDivElement>(null), initialFocus = useRef<HTMLInputElement>(null);
   async function loadHistory(all = projectHistory) {
@@ -122,7 +123,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת התחברות לחשבון המערכת והרשאת גישה לפרויקט.</p>}
       <fieldset disabled={busy || finished || locked || generating} style={{border:0, padding:0, display:'grid', gap:12}}>
         <label>תבנית<select style={inputStyle} defaultValue="document" onChange={e => { const template = mailTemplates.find(x => x.id === e.target.value)!; setSubject(mergeMailData(template.subject, context.data)); setText(mergeMailData(template.text, context.data)); setPreview(false); }}>{mailTemplates.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-        <label>אל<input ref={initialFocus} dir="ltr" style={inputStyle} value={to} onChange={e=>{setTo(e.target.value);setPreview(false);}} placeholder="name@example.com, name2@example.com" /></label>
+        <label>אל — שדה חובה<input ref={initialFocus} dir="ltr" aria-invalid={recipientMissing} style={{...inputStyle,borderColor:recipientMissing?'#dc2626':'#cbd5e1'}} value={to} onChange={e=>{setTo(e.target.value);setNotice('');setPreview(false);}} placeholder="יש לבחור או להזין לפחות כתובת אחת" />{recipientMissing && <small style={{color:'#b91c1c',fontWeight:700}}>לא ניתן לשלוח לפני בחירת נמען.</small>}</label>
         <label>בחירה מהמיילים המאושרים במערכת<select value="" style={inputStyle} disabled={directoryLoading} onChange={e=>{setTo(mailRecipients([to,e.target.value]).join(', '));setPreview(false);}}><option value="">{directoryLoading ? 'טוען נמענים…' : 'הוספת נמען מאושר'}</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
         {!directoryLoading && !directoryError && !directoryContacts.length && <p>לא נמצאו כתובות פעילות ברשימת משתמשי הפרויקט.</p>}
         {(['CC','BCC'] as const).map(kind=><label key={kind}>הוספת נמען מאושר ל-{kind}<select value="" style={inputStyle} onChange={e=>{const update=kind==='CC'?setCc:setBcc;update(prev=>mailRecipients([prev,e.target.value]).join(', '));setPreview(false);}}><option value="">בחירת כתובת</option>{directoryContacts.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>)}

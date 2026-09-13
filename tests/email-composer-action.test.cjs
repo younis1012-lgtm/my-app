@@ -22,6 +22,9 @@ test('send action opens preview and dispatches only after confirmation',async()=
 test('missing permission explains why instead of an inert button',async()=>{
  const h=harness(false);await h.mount();let tree=h.render();await h.button(tree,'המשך לשליחה').props.onClick();tree=h.render();assert.ok(h.all(tree).some(n=>n.props.role==='status'&&String(n.props.children).includes('אין הרשאת שליחה')));assert.equal(h.posts,0);
 });
+test('empty recipient is marked next to the required field',async()=>{
+ const h=harness();await h.mount();const tree=h.render();const input=h.all(tree).find(n=>n.type==='input'&&n.props.placeholder);assert.equal(input.props['aria-invalid'],true);assert.ok(h.all(tree).some(n=>String(n.props?.children).includes('לא ניתן לשלוח לפני בחירת נמען')));
+});
 
 
 test('generated supplier and material documents are attached automatically',async()=>{
