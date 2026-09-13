@@ -25188,7 +25188,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       {centralMailContext && (
         <EmailComposer key={`${centralMailContext.module}:${centralMailContext.recordId}`}
           context={centralMailContext} senderEmail={currentEmailSender.senderEmail}
-          contacts={emailRecipientOptions} canSend={canWriteAccess(projectAccess) && projectAccess?.authProvider === "supabase"}
+          contacts={emailRecipientOptions} canSend={projectAccess?.authProvider === "supabase"}
           onClose={() => setCentralMailContext(null)} />
       )}
 

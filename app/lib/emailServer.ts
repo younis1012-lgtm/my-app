@@ -95,7 +95,7 @@ export async function postMail(request: Request) {
     const projectId = field(body.projectId, 100), moduleName = field(body.module, 100), recordId = field(body.recordId, 200);
     const recordIds = [...new Set([recordId, ...(Array.isArray(body.recordIds) ? body.recordIds.map((id: unknown) => field(id, 200)) : [])])];
     if (recordIds.length > 100) throw new MailError('ניתן לשלוח עד 100 רשומות יחד');
-    const { db, userId } = await authorize(request, projectId, true);
+    const { db, userId } = await authorize(request, projectId, false);
     const requestId = field(body.requestId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) throw new MailError('מזהה בקשה אינו תקין');
     const to = mailRecipients(body.to), cc = mailRecipients(body.cc), bcc = mailRecipients(body.bcc);

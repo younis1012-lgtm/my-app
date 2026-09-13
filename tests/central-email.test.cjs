@@ -59,7 +59,7 @@ test('recipient parsing normalizes lists and rejects header injection',()=>{
   assert.deepEqual(normalize(email.mailRecipients(['A@x.com; b@x.com','a@x.com'])),['a@x.com','b@x.com']);
   assert.equal(email.validMailAddress('a@x.com\r\nBcc: b@x.com'),false);
 });
-for (const [name, options, auth, status] of [['anonymous',{},false,401],['expired',{badToken:true},true,401],['readonly',{role:'readonly'},true,403],['nonmember',{noMember:true},true,403]]) {
+for (const [name, options, auth, status] of [['anonymous',{},false,401],['expired',{badToken:true},true,401],['nonmember',{noMember:true},true,403]]) {
   test(`${name} cannot send`,async()=>{const s=setup(options);const response=await s.send({},auth);assert.equal(response.status,status);assert.equal(s.sent,0);});
 }
 for (const [name, changes] of [['invalid address',{to:'invalid'}],['missing template data',{text:'{{missing}}'}],['header injection',{subject:'subject\r\nBcc: a@b.com'}],['remote URL',{attachments:[{filename:'a',url:'http://127.0.0.1/secret'}]}],['malformed base64',{attachments:[{filename:'a',contentBase64:'!!!='}]}]]) {
@@ -79,7 +79,8 @@ test('SMTP timeout is persisted as unknown to avoid unsafe retries',async()=>{co
 test('audit update failure preserves send result and warns against retries',async()=>{const s=setup({failUpdate:true});const data=await(await s.send()).json();assert.equal(data.status,'sent');assert.ok(data.warning);assert.equal((await s.send()).status,409);assert.equal(s.sent,1);});
 
 test('existing active QC personnel can send without a duplicate membership',async()=>{const s=setup({noMember:true,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
-test('readonly personnel cannot send',async()=>{const s=setup({noMember:true,personnel:{role:'צופה'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
+test('readonly personnel may send using their existing project assignment',async()=>{const s=setup({noMember:true,personnel:{role:'צופה'}});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
+test('readonly project member may send without editing access',async()=>{const s=setup({role:'readonly'});assert.equal((await s.send()).status,200);assert.equal(s.sent,1);});
 test('revoked membership overrides personnel assignment',async()=>{const s=setup({active:false,personnel:{role:'בקר איכות'}});assert.equal((await s.send()).status,403);assert.equal(s.sent,0);});
 test('approved directory never exposes mailbox passwords',async()=>{const s=setup();const response=await s.directory();assert.equal(response.status,200);const data=await response.json();assert.equal(data.contacts[0].email,'sender@example.com');assert.equal(data.senders[0].email,'sender@example.com');assert.ok(!JSON.stringify(data).includes('SERVER_SECRET'));assert.ok(!JSON.stringify(data).includes('smtp_app_password'));});
 

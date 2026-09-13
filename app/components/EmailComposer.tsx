@@ -84,7 +84,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
   async function send() {
     if (sending.current || finished || locked || generating) return;
     if (context.generateDocuments && !generated) {setNotice('הטפסים עדיין לא הופקו. יש ללחוץ על הכנת הטפסים מחדש לפני השליחה.');return;}
-    if (!canSend) {setNotice('אין הרשאת שליחה. יש להתחבר לחשבון המערכת עם הרשאת כתיבה בפרויקט.');return;}
+    if (!canSend) {setNotice('אין הרשאת שליחה. יש להתחבר לחשבון המערכת עם הרשאת גישה לפרויקט.');return;}
     if (directoryLoading) {setNotice('רשימת חשבונות המייל עדיין נטענת. יש להמתין לסיום הטעינה.');return;}
     if (directoryError) {setNotice(directoryError + ' — לחצו על נסה שוב ליד בחירת השולח.');return;}
     if (!selectedSender) {setNotice('יש לבחור חשבון שולח בשדה מאת בראש החלון.');return;}
@@ -119,7 +119,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       <label>מאת — חשבון מייל מאושר בפרויקט<select style={inputStyle} value={selectedSender} disabled={busy || directoryLoading || finished || locked} onChange={e=>{setSelectedSender(e.target.value);setPreview(false);}}><option value="">{directoryLoading ? 'טוען חשבונות מייל…' : 'בחירת שולח'}</option>{senders.map(x=><option key={x.id} value={x.email}>{x.name} — {x.email}</option>)}</select></label>
       {directoryError && <p role="alert">{directoryError} <button style={buttonStyle} onClick={()=>void loadDirectory()}>נסה שוב</button></p>}
       {!directoryLoading && !directoryError && !senders.length && <p role="alert">לא נמצא חשבון שליחה פעיל ברשימת משתמשי הפרויקט. יש לשמור לחשבון המאושר סיסמת אפליקציה במסך משתמשי הפרויקט.</p>}
-      {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת כניסת Supabase והרשאת כתיבה בפרויקט.</p>}
+      {!canSend && <p role="alert">אין הרשאת שליחה. נדרשת התחברות לחשבון המערכת והרשאת גישה לפרויקט.</p>}
       <fieldset disabled={busy || finished || locked || generating} style={{border:0, padding:0, display:'grid', gap:12}}>
         <label>תבנית<select style={inputStyle} defaultValue="document" onChange={e => { const template = mailTemplates.find(x => x.id === e.target.value)!; setSubject(mergeMailData(template.subject, context.data)); setText(mergeMailData(template.text, context.data)); setPreview(false); }}>{mailTemplates.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>אל<input ref={initialFocus} dir="ltr" style={inputStyle} value={to} onChange={e=>{setTo(e.target.value);setPreview(false);}} placeholder="name@example.com, name2@example.com" /></label>
