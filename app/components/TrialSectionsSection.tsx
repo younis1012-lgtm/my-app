@@ -1,6 +1,7 @@
 type TrialSectionRecord = any;
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 import { FileDropZone } from './FileDropZone';
+import { trialStructureOptions, trialStructureSelectionPatch } from '../lib/trialStructure';
 
 type ProjectStructureNode = {
   id: string;
@@ -203,34 +204,6 @@ const updateTrialField = (setTrialSectionForm: any, key: string, value: string) 
   }));
 };
 
-const descendantsOf = (nodes: ProjectStructureNode[], parentId: string) => {
-  const descendantIds = new Set<string>();
-  let changed = true;
-  while (changed) {
-    changed = false;
-    nodes.forEach((node) => {
-      if ((node.parentId === parentId || descendantIds.has(node.parentId)) && !descendantIds.has(node.id)) {
-        descendantIds.add(node.id);
-        changed = true;
-      }
-    });
-  }
-  return nodes.filter((node) => descendantIds.has(node.id));
-};
-
-const ancestorPath = (nodes: ProjectStructureNode[], nodeId: string) => {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const path: ProjectStructureNode[] = [];
-  const visited = new Set<string>();
-  let current = byId.get(nodeId);
-  while (current && !visited.has(current.id)) {
-    path.unshift(current);
-    visited.add(current.id);
-    current = byId.get(current.parentId);
-  }
-  return path;
-};
-
 function TrialStructureFields({
   nodes,
   form,
@@ -240,85 +213,27 @@ function TrialStructureFields({
   form: any;
   setForm: React.Dispatch<React.SetStateAction<any>>;
 }) {
-  const trialNodes = nodes.filter((node) => node.nodeType === 'section');
-  const linkedPath = ancestorPath(nodes, String(form?.structureNodeId || ''));
-  const selectedTrialId = String(form?.trialSectionNodeId || linkedPath.find((node) => node.nodeType === 'section')?.id || '');
-  const selectedElementId = String(form?.elementNodeId || [...linkedPath].reverse().find((node) => node.nodeType === 'element')?.id || '');
-  const selectedSubElementId = String(form?.subElementNodeId || [...linkedPath].reverse().find((node) => node.nodeType === 'activity')?.id || '');
-  const elementNodes = selectedTrialId
-    ? descendantsOf(nodes, selectedTrialId).filter((node) => node.nodeType === 'element')
-    : [];
-  const subElementNodes = selectedElementId
-    ? descendantsOf(nodes, selectedElementId).filter((node) => node.nodeType === 'activity' || node.nodeType === 'element')
-    : [];
-
+  const selectedNodeId = String(form?.structureNodeId || '');
+  const options = trialStructureOptions(nodes);
   const selectStyle = { ...styles.input, background: '#fff' };
   return (
     <>
-      <Field label="שם קטע ניסוי">
+      <Field label="שיוך לעץ הפרויקט — חובה">
         <select
           style={selectStyle}
-          value={selectedTrialId}
+          value={selectedNodeId}
           onChange={(event) => {
-            const node = nodes.find((item) => item.id === event.target.value);
             setForm((prev: any) => ({
               ...prev,
-              trialSectionNodeId: node?.id || '',
-              structureNodeId: node?.id || '',
-              title: node?.name || '',
-              elementNodeId: '',
-              elementName: '',
-              element: '',
-              subElementNodeId: '',
-              subElement: '',
+              ...trialStructureSelectionPatch(nodes, event.target.value),
             }));
           }}
         >
-          <option value="">בחר קטע מתוך עץ הפרויקט</option>
-          {trialNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+          <option value="">בחר כביש, מבנה, אלמנט או פעילות מתוך העץ</option>
+          {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
       </Field>
-      <Field label="שם האלמנט">
-        <select
-          style={selectStyle}
-          value={selectedElementId}
-          disabled={!selectedTrialId}
-          onChange={(event) => {
-            const node = nodes.find((item) => item.id === event.target.value);
-            setForm((prev: any) => ({
-              ...prev,
-              elementNodeId: node?.id || '',
-              structureNodeId: node?.id || prev.trialSectionNodeId || '',
-              elementName: node?.name || '',
-              element: node?.name || '',
-              subElementNodeId: '',
-              subElement: '',
-            }));
-          }}
-        >
-          <option value="">בחר אלמנט</option>
-          {elementNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-        </select>
-      </Field>
-      <Field label="תת אלמנט">
-        <select
-          style={selectStyle}
-          value={selectedSubElementId}
-          disabled={!selectedElementId}
-          onChange={(event) => {
-            const node = nodes.find((item) => item.id === event.target.value);
-            setForm((prev: any) => ({
-              ...prev,
-              subElementNodeId: node?.id || '',
-              structureNodeId: node?.id || prev.elementNodeId || prev.trialSectionNodeId || '',
-              subElement: node?.name || '',
-            }));
-          }}
-        >
-          <option value="">בחר תת אלמנט</option>
-          {subElementNodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-        </select>
-      </Field>
+      {selectedNodeId ? <div style={{ color: '#166534', fontWeight: 800, alignSelf: 'end' }}>קטע הניסוי ישויך לפריט שנבחר בעץ.</div> : null}
       {!nodes.length ? (
         <div style={{ color: '#64748b', fontWeight: 700, alignSelf: 'end' }}>
           עדיין לא הוגדר עץ פרויקט.
@@ -437,7 +352,7 @@ export function TrialSectionsSection(props: {
                   />
                 ) : null}
                 {group.fields.filter(([key]) => !(
-                  group.title === 'פרטי קטע הניסוי' && ['title', 'elementName', 'subElement'].includes(key)
+                  group.title === 'פרטי קטע הניסוי' && ['elementName', 'subElement'].includes(key)
                 )).map(([key, label, kind]) => (
                   <Field key={key} label={label} full={kind === 'textarea'}>
                     {kind === 'textarea' ? (
