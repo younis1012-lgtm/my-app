@@ -2,6 +2,8 @@
 
 import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
 import { ColumnFilter } from "./components/ColumnFilter";
+import { assignmentProjectIds, matchesProjectAssignment } from "./lib/projectAssignments";
+import { saveProjectUserRows } from "./lib/projectUserStorage";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
@@ -111,6 +113,7 @@ type ProjectEmailUser = {
   email: string;
   phone?: string;
   smtpAppPassword?: string;
+  directoryOnly?: boolean;
   active: boolean;
   createdAt: string;
 };
@@ -179,6 +182,7 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
         email: String(item?.email || "").trim(),
         phone: String(item?.phone || ""),
         smtpAppPassword: String(item?.smtpAppPassword || item?.smtp_app_password || ""),
+        directoryOnly: item?.directoryOnly === true,
         active: item?.active !== false,
         createdAt: String(item?.createdAt || new Date().toISOString()),
       }))
@@ -194,10 +198,9 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(dedupeProjectEmailUsers(users)));
 };
 
-const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
-  if (!isSupabaseConfigured || !supabase) return;
-  const normalized = dedupeProjectEmailUsers(users).map((user) => ({
-    id: uuidFromProjectEmailUser(user),
+const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId: string) => {
+  const normalized = dedupeProjectEmailUsers(users).filter(user => !user.directoryOnly && normalizeStoredProjectId(user.projectId) === projectId).map((user) => ({
+    id: user.id,
     project_id: normalizeStoredProjectId(user.projectId),
     name: user.name,
     role: user.role,
@@ -208,15 +211,19 @@ const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
     active: user.active !== false,
     created_at: toSupabaseTimestamp(user.createdAt),
   }));
-  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
-  if (error) throw error;
+  await saveProjectUserRows(supabase, projectId, normalized);
 };
 
-const loadProjectEmailUsersFromCloud = async () => {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
-  if (error) throw error;
-  const users = (Array.isArray(data) ? data : []).map((item: any) => ({
+const loadProjectEmailUsersFromCloud = async (projectId: string) => {
+  const session = await supabase?.auth.getSession();
+  const token = session?.data.session?.access_token;
+  if (!token) throw new Error("יש לצאת ולהתחבר שוב כדי לטעון את משתמשי הפרויקט");
+  const params = new URLSearchParams({projectId, mode: "manage-users"});
+  const response = await fetch('/api/email-directory?' + params, {headers:{Authorization: 'Bearer ' + token}, cache:'no-store'});
+  const directory = await response.json();
+  if (!response.ok) throw new Error(directory.error || "טעינת משתמשי הפרויקט נכשלה");
+  const data = directory.users || [];
+  const users: ProjectEmailUser[] = (Array.isArray(data) ? data : []).map((item: any) => ({
     id: String(item?.id || crypto.randomUUID()),
     projectId: normalizeStoredProjectId(item?.project_id || item?.projectId),
     name: String(item?.name || ""),
@@ -228,7 +235,11 @@ const loadProjectEmailUsersFromCloud = async () => {
     active: item?.active !== false,
     createdAt: String(item?.created_at || item?.createdAt || new Date().toISOString()),
   })).filter((item: ProjectEmailUser) => item.projectId && item.email);
-  return dedupeProjectEmailUsers(users);
+  for (const contact of directory.contacts || []) {
+    if (!users.some(user => user.email.toLowerCase() === String(contact.email).toLowerCase()))
+      users.push({id: crypto.randomUUID(), projectId, name: contact.name, email: contact.email, role: "", company: "", phone: "", smtpAppPassword: "", active: true, createdAt: new Date().toISOString(), directoryOnly: true});
+  }
+  return {users: dedupeProjectEmailUsers(users), canManage: directory.canManageUsers === true};
 };
 
 type ProjectProfile = {
@@ -2501,19 +2512,12 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
               .map((alias: unknown) => String(alias ?? "").trim())
               .filter(Boolean)
           : undefined,
-        projectIds: Array.isArray(item.projectIds ?? item.project_ids)
-          ? (item.projectIds ?? item.project_ids)
-              .map(normalizeStoredProjectId)
-              .filter(Boolean)
-          : item.projectId || item.project_id
-            ? [normalizeStoredProjectId(item.projectId ?? item.project_id)].filter(Boolean)
-            : item.code && normalizeStoredProjectId(item.code).includes("-")
-              ? [normalizeStoredProjectId(item.code)].filter(Boolean)
-              : undefined,
+        projectIds: assignmentProjectIds(item).length ? assignmentProjectIds(item).map(normalizeStoredProjectId)
+          : item.code && normalizeStoredProjectId(item.code).includes("-") ? [normalizeStoredProjectId(item.code)] : undefined,
         projectName:
           normalizeAccessRole(item.role) === "admin"
             ? null
-            : String(item.projectName ?? "").trim(),
+            : String(item.projectName ?? item.project_name ?? "").trim(),
         signatureDataUrl: String(item.signatureDataUrl ?? ""),
         signatureFileName: String(item.signatureFileName ?? ""),
       }),
@@ -2547,13 +2551,8 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   ).trim(),
   role: normalizeAccessRole(row?.role),
   code: row?.code ? String(row.code).trim() : undefined,
-  projectIds: Array.isArray(row?.project_ids ?? row?.projectIds)
-    ? (row.project_ids ?? row.projectIds).map(normalizeStoredProjectId).filter(Boolean)
-    : row?.project_id
-      ? [normalizeStoredProjectId(row.project_id)].filter(Boolean)
-      : row?.code && normalizeStoredProjectId(row.code).includes("-")
-        ? [normalizeStoredProjectId(row.code)].filter(Boolean)
-        : undefined,
+  projectIds: assignmentProjectIds(row).length ? assignmentProjectIds(row).map(normalizeStoredProjectId)
+    : row?.code && normalizeStoredProjectId(row.code).includes("-") ? [normalizeStoredProjectId(row.code)] : undefined,
   projectName:
     normalizeAccessRole(row?.role) === "admin"
       ? null
@@ -11658,17 +11657,11 @@ function UserAccessPanel({
   hasUnsavedChanges: boolean;
 }) {
   const normalizedProjectId = normalizeStoredProjectId(projectId);
-  const normalizedProjectName = normalizeHebrewProjectName(projectName);
   const projectUsers = users
     .map((user, sourceIndex) => ({ user, sourceIndex }))
     .filter(({ user }) => {
       if (user.role === "admin") return false;
-      const ids = accessProjectIds(user);
-      if (ids.length) return ids.includes(normalizedProjectId);
-      return Boolean(
-        normalizedProjectName &&
-          normalizeHebrewProjectName(user.projectName ?? "") === normalizedProjectName,
-      );
+      return matchesProjectAssignment({...user, projectIds: accessProjectIds(user)}, normalizedProjectId, projectName);
     });
   return (
     <div
@@ -17468,18 +17461,26 @@ export default function Page() {
   const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
   const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
 
+  const [projectUsersLoad, setProjectUsersLoad] = useState({projectId:"", canManage:false, error:""});
+  const selectedUsersProjectId = normalizeStoredProjectId(currentProject?.id);
+  const canEditProjectEmailUsers = projectUsersLoad.projectId === selectedUsersProjectId && projectUsersLoad.canManage;
   useEffect(() => {
     let active = true;
-    loadProjectEmailUsersFromCloud()
-      .then((cloudUsers) => {
-        if (!active || !cloudUsers?.length) return;
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
+    const projectId = selectedUsersProjectId;
+    setProjectUsersLoad({projectId:"", canManage:false, error:""});
+    if (!projectId || !projectAccess) return;
+    loadProjectEmailUsersFromCloud(projectId)
+      .then((result) => {
+        if (!active) return;
+        const next = [...projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) !== projectId), ...result.users];
+        projectEmailUsersRef.current = next;
+        setProjectEmailUsers(next);
+        writeProjectEmailUsers(next);
+        setProjectUsersLoad({projectId, canManage:result.canManage, error:""});
       })
-      .catch((error) => console.warn("טעינת משתמשי הפרויקט מהענן נכשלה", error));
+      .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, error: errorText(error)}); });
     return () => { active = false; };
-  }, [projectAccess?.authUserId]);
+  }, [projectAccess?.authUserId, selectedUsersProjectId]);
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     const base = projectEmailUsersRef.current;
@@ -17530,7 +17531,7 @@ export default function Page() {
   }, [currentProjectEmailUsers, projectAccess]);
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר כמנהל הפרויקט לפני עריכה.");
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
       ...prev,
@@ -17539,30 +17540,26 @@ export default function Page() {
   };
 
   const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר כמנהל הפרויקט לפני עריכה.");
     saveProjectEmailUsers((prev) =>
-      prev.map((user) => (user.id === id ? { ...user, ...patch, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
+      prev.map((user) => (user.id === id ? { ...user, ...patch, directoryOnly: false, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
     );
   };
 
   const deleteProjectEmailUser = (id: string) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return;
+    if (projectEmailUsersRef.current.find(user => user.id === id)?.directoryOnly) return alert("משתמש זה משויך דרך רשימת ההרשאות. יש לעדכן את השיוך במסך ההרשאות.");
     if (!window.confirm("למחוק משתמש מרשימת הנמענים של הפרויקט?")) return;
     saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("השמירה דורשת טעינה תקינה והרשאת מנהל בפרויקט הנבחר.");
+    const projectId = selectedUsersProjectId;
     const usersToSave = projectEmailUsersRef.current;
     try {
       writeProjectEmailUsers(usersToSave);
-      await saveProjectEmailUsersToCloud(usersToSave);
-      const cloudUsers = await loadProjectEmailUsersFromCloud();
-      if (cloudUsers) {
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
-      }
+      await saveProjectEmailUsersToCloud(usersToSave, projectId);
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
@@ -17574,12 +17571,9 @@ export default function Page() {
         [
           "המשתמשים נשמרו בדפדפן הנוכחי, אך לא נשמרו בענן.",
           "",
-          "כדי לשמור משתמשי פרויקט וסיסמת Gmail לכל פרויקט, יש להריץ פעם אחת ב-Supabase SQL Editor את הקובץ:",
-          "app/supabase/09_project_email_users.sql",
-          "",
-          details ? `Supabase error: ${details}` : "Supabase error: no details returned",
-          "",
-          "לאחר הרצת ה-SQL לחץ שוב על שמור משתמשים.",
+          "יש לוודא שההתחברות בתוקף ושיש לך הרשאת מנהל בפרויקט הנבחר.",
+          details,
+          "אם הבעיה נמשכת, יש להעביר הודעה זו לאחראי המערכת לבדיקת הרשאות. אין ליצור את המשתמשים מחדש.",
         ].join("\n"),
       );
     }
@@ -25903,6 +25897,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             />
           )}
           {section === "projectUsers" && (
+            <div>
+            {projectUsersLoad.error && <p role="alert">{projectUsersLoad.error}</p>}
+            {!projectUsersLoad.error && projectUsersLoad.projectId !== selectedUsersProjectId && <p>טוען משתמשי פרויקט…</p>}
+            {projectUsersLoad.projectId === selectedUsersProjectId && !projectUsersLoad.canManage && <p>הרשימה זמינה לצפייה. עריכה ושמירה דורשות הרשאת מנהל בפרויקט.</p>}
+            <fieldset disabled={!canEditProjectEmailUsers} style={{border:0, padding:0, minWidth:0}}>
             <ProjectUsersSection
               guardedBody={guardedBody}
               projectName={projectName}
@@ -25912,6 +25911,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onDeleteUser={deleteProjectEmailUser}
               onSaveUsers={saveCurrentProjectEmailUsers}
             />
+            </fieldset>
+            </div>
           )}
           {section === "checklistTracking" && (
             <ChecklistTrackingSection

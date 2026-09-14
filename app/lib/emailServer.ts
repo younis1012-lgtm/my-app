@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
+import { matchesProjectAssignment } from './projectAssignments';
 import { MAIL_MAX_BYTES, MAIL_SIGNATURE, escapeMailHtml, mailRecipients, validMailAddress } from './email';
 
 class MailError extends Error { constructor(message: string, public status = 400) { super(message); } }
@@ -70,18 +71,21 @@ export async function readMailDirectory(request: Request) {
     }
     const projectId = field(params.get('projectId'),100);
     const {db,user,role} = await authorize(request,projectId,false);
-    const result = await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
+    const managingUsers = params.get('mode') === 'manage-users' && role === 'admin';
+    const result = managingUsers
+      ? await db.from('project_email_users').select('*').eq('project_id',projectId)
+      : await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
     const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
     const accessUsers = await db.from('project_access_users').select('*');
+    if (managingUsers && accessUsers.error) throw new MailError('טעינת שיוכי המשתמשים נכשלה. נסה שוב לפני שמירה',503);
     if (!accessUsers.error) {
       const project = await db.from('projects').select('name').eq('id',projectId).maybeSingle();
+      if (managingUsers && project.error) throw new MailError('טעינת הפרויקט נכשלה. נסה שוב לפני שמירה',503);
       const projectName = String(project.data?.name || '').replace(/\s+/g,'').toLowerCase();
       for (const user of accessUsers.data || []) {
         const email = String(user.username || '').trim().toLowerCase();
-        const ids = Array.isArray(user.project_ids) ? user.project_ids.map(String) : user.project_id ? [String(user.project_id)] : [];
-        const assignedByName = projectName && String(user.project_name || '').replace(/\s+/g,'').toLowerCase() === projectName;
-        if (validMailAddress(email) && (ids.includes(projectId) || assignedByName) && !contacts.some(x=>x.email.toLowerCase()===email))
+        if (user.active !== false && validMailAddress(email) && matchesProjectAssignment(user,projectId,projectName) && !contacts.some(x=>x.email.toLowerCase()===email))
           contacts.push({id:`access-${email}`,name:user.display_name || email,email});
       }
     }
@@ -90,7 +94,7 @@ export async function readMailDirectory(request: Request) {
     const systemEmail = process.env.EMAIL_USER?.trim();
     if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:qualityAssuranceNcr ? systemEmail : 'חשבון המערכת',email:systemEmail});
     const operator = await operatorIdentity(db,user,projectId,result.data || []);
-    return Response.json({contacts,senders,operator},{headers:{'Cache-Control':'no-store'}});
+    return Response.json({contacts,senders,operator,canManageUsers:role === 'admin',...(managingUsers ? {users:result.data || []} : {})},{headers:{'Cache-Control':'no-store'}});
   } catch (error) {return errorResponse(error);}
 }
 function errorResponse(error: unknown) {

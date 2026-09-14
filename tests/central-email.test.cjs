@@ -13,6 +13,37 @@ function load(file, imports, env = {}) {
 }
 const email = load('app/lib/email.ts', {});
 const normalize = value => JSON.parse(JSON.stringify(value));
+
+test('management directory and mail include legacy names and scalar IDs without duplicate contacts',async()=>{
+  const s=setup({role:'admin',project:{name:'מגד אלכרום'},projectEmailRows:[{id:'existing',project_id:'project',email:'existing@example.com',smtp_app_password:'SECRET',active:true}],accessUsers:[
+    {username:'existing@example.com',project_name:'מגד אלכרום'},
+    {username:'legacy@example.com',project_name:'מגד אלכרום',project_ids:['old']},
+    {username:'scalar@example.com',project_id:'project',project_ids:[]},
+    {username:'other@example.com',project_ids:['other']},
+    {username:'inactive@example.com',project_id:'project',active:false},
+  ]});
+  const mail=await (await s.directory()).json();
+  const management=await (await s.directory('projectId=project&mode=manage-users')).json();
+  assert.deepEqual(management.contacts,mail.contacts);
+  assert.equal(management.contacts.length,3);
+  assert.equal(management.users[0].id,'existing');
+  assert.equal(management.users[0].smtp_app_password,'SECRET');
+  assert.equal(mail.users,undefined);
+  assert.equal(JSON.stringify(mail).includes('SECRET'),false);
+});
+test('management mode never exposes mailbox rows to non-admin or revoked members',async()=>{
+  for(const role of ['readonly','readwrite']) {
+    const response=await setup({role}).directory('projectId=project&mode=manage-users');
+    const body=await response.json();
+    assert.equal(body.canManageUsers,false);
+    assert.equal(body.users,undefined);
+    assert.equal(JSON.stringify(body).includes('SERVER_SECRET'),false);
+  }
+  assert.equal((await setup({role:'admin',active:false}).directory('projectId=project&mode=manage-users')).status,403);
+});
+test('management load fails rather than silently hiding an unavailable legacy directory',async()=>{
+  assert.equal((await setup({role:'admin',accessError:{message:'unavailable'}}).directory('projectId=project&mode=manage-users')).status,503);
+});
 function setup(options = {}) {
   const history = new Map(); let sent = 0, sentMessage;
   function query(table) {
@@ -23,8 +54,9 @@ function setup(options = {}) {
       async single(){return execute()}, async maybeSingle(){return execute()}, then(resolve,reject){return Promise.resolve(execute()).then(resolve,reject)},
     };
     function execute() {
-      if (table === 'projects') return {data:options.projects || []};
-      if (table === 'project_access_users') return {data:options.accessUsers || []};
+      if (table === 'projects') return {data:options.project || options.projects || []};
+      if (table === 'project_access_users') return {data:options.accessUsers || [],error:options.accessError};
+      if (table === 'project_email_users' && fields==='*') return {data:options.projectEmailRows || []};
       if (table === 'project_members' && fields==='project_id,role,active') return {data:options.members || []};
       if (table === 'project_email_users' && fields.startsWith('project_id,')) return {data:options.assignments || []};
       if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite',active:options.active !== false}};
@@ -41,6 +73,7 @@ function setup(options = {}) {
     return q;
   }
   const server = load('app/lib/emailServer.ts', {
+    './projectAssignments':load('app/lib/projectAssignments.ts', {}),
     './email':email,
     '@supabase/supabase-js':{createClient:()=>({auth:{getUser:async()=>({data:{user:options.badToken ? null : options.authUser || {id:'user',email:'user@example.com'}}})},from:query})},
     nodemailer:{createTransport:()=>({close(){},async sendMail(message){sent++;sentMessage=message;if(options.smtpError)throw {code:options.smtpError};return {messageId:'message',accepted:options.accepted || ['to@example.com'],rejected:options.rejected || []};}})},
