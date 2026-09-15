@@ -9520,6 +9520,7 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
 
 
 type HomeDashboardProps = {
+  projectName: string;
   projects: Project[];
   projectChecklists: any[];
   projectNonconformances: any[];
@@ -9547,7 +9548,7 @@ const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
   return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
-function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
+function HomeSection({ projectName, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const isClosed = (value: unknown) => {
@@ -9597,12 +9598,6 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { icon: "📋", label: "רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
     { icon: "🧪", label: "קטעי ניסוי", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "פתוחים", section: "trialSections" as AppSection },
   ] as const;
-  const quickActions = [
-    { label: "אי התאמה", icon: "⚠️", section: "nonconformances" as AppSection },
-    { label: "RFI", icon: "📨", section: "rfi" as AppSection },
-    { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
-    { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
-  ];
   const highlightedModules = ["projectStructure", "holdPoints", "checklists", "trialSections"]
     .map((key) => homeModules.find((module) => module.key === key))
     .filter(Boolean) as HomeDashboardProps["homeModules"];
@@ -9631,6 +9626,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
           ...dashboardCardStyle,
           direction: "rtl",
           padding: 12,
+          order: 2,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
@@ -9683,14 +9679,14 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
         </div>
       </aside>
 
-      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl" }}>
-        <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
+      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl", order: 1 }}>
+        <div style={{ ...dashboardCardStyle, padding: 18, background: "#fff" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 950 }}>תמונת מצב לפרויקט</div>
-              <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
+              <div style={{ fontSize: 28, fontWeight: 950, color: "#0f172a" }}>תמונת מצב לפרויקט</div>
+              <div style={{ color: "#64748b", marginTop: 4, fontSize: 15 }}>{projectName}</div>
             </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
+            <div style={{ borderRadius: 14, background: "#eff6ff", color: "#1d4ed8", padding: "10px 14px", fontWeight: 900 }}>🏗️ פרויקט פעיל</div>
           </div>
         </div>
 
@@ -9707,7 +9703,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
             {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
           </div>
           <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
+            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>התקדמות ובקרה</h3>
             <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
           </div>
         </div>
@@ -24741,6 +24737,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     ...group,
     items: navItems.filter(([key]) => group.keys.includes(key)),
   })).filter((group) => group.items.length);
+  const navIcons: Partial<Record<AppSection, string>> = {
+    home: "⌂", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
+    checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
+    plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
+  };
 
   if (!authReady) {
     return (
@@ -25517,7 +25518,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           <div className="project-navigation-title">{group.title}</div>
           {group.items.map(([key, label]) => (
             <button key={key} style={{ ...styles.navBtn, borderColor: section === key ? "#3b82f6" : "transparent", background: section === key ? "#1d4ed8" : "transparent", color: "#fff", padding: "9px 10px" }} onClick={() => setSection(key)}>
-              {label}
+              <span aria-hidden="true" style={{ display: "inline-block", width: 24, marginInlineEnd: 7, textAlign: "center" }}>{navIcons[key] ?? "•"}</span>{label}
             </button>
           ))}
         </div>)}
@@ -25949,6 +25950,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           )}
           {section === "home" && (
             <HomeSection
+              projectName={currentProject?.name ?? projectName}
               projects={accessibleProjects}
               projectChecklists={projectChecklists}
               projectNonconformances={projectNonconformances}
