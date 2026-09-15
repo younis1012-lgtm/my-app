@@ -9611,105 +9611,43 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
     { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr)",
-        gap: 14,
-        alignItems: "start",
-        direction: "rtl",
-      }}
-    >
-      <aside
-        style={{
-          ...dashboardCardStyle,
-          direction: "rtl",
-          padding: 12,
-          order: 2,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>גישה מהירה</h3>
-          <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>כלי עבודה מרכזיים</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
-          {highlightedModules.map((module) => (
-            <button
-              key={String(module.key)}
-              type="button"
-              onClick={() => setSection(module.key as AppSection)}
-              style={{
-                border: "1px solid #e2e8f0",
-                background: "#fff",
-                borderRadius: 14,
-                padding: "9px 10px",
-                minHeight: 62,
-                textAlign: "right",
-                cursor: "pointer",
-                boxShadow: "0 5px 14px rgba(15,23,42,0.025)",
-                display: "grid",
-                gridTemplateColumns: "auto 1fr auto",
-                gap: 9,
-                alignItems: "center",
-                direction: "rtl",
-              }}
-            >
-              <span
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
-                  background: "#f1f5f9",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 19,
-                }}
-              >
-                {module.icon}
-              </span>
-              <span style={{ minWidth: 0 }}>
-                <span style={{ display: "block", fontWeight: 950, color: "#0f172a", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.title}</span>
-                <span style={{ display: "block", color: "#64748b", marginTop: 2, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.description}</span>
-              </span>
-              <span style={{ borderRadius: 999, background: "#f8fafc", border: "1px solid #e2e8f0", minWidth: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 950, fontSize: 12, color: "#0f172a" }}>{module.count}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
+  const dashboardKpis = kpis.filter((item) => !["באיחור"].includes(item.label));
+  const accent = ["blue", "green", "amber", "red"];
+  return <div className="yk-dashboard" dir="rtl">
+    <section className="yk-dashboard-hero">
+      <div><h1>תמונת מצב לפרויקט</h1><p>{projectName}</p></div>
+      <div className="yk-dashboard-date">📅 {new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long" }).format(today)}</div>
+    </section>
 
-      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl", order: 1 }}>
-        <div style={{ ...dashboardCardStyle, padding: 18, background: "#fff" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 28, fontWeight: 950, color: "#0f172a" }}>תמונת מצב לפרויקט</div>
-              <div style={{ color: "#64748b", marginTop: 4, fontSize: 15 }}>{projectName}</div>
-            </div>
-            <div style={{ borderRadius: 14, background: "#eff6ff", color: "#1d4ed8", padding: "10px 14px", fontWeight: 900 }}>🏗️ פרויקט פעיל</div>
-          </div>
-        </div>
+    <section className="yk-kpi-grid">
+      {dashboardKpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} onClick={() => setSection(item.section)} style={{ background: tone.bg, borderColor: tone.border }}>
+        <span className="yk-kpi-icon" style={{ background: tone.soft }}>{item.icon}</span><strong>{item.value}</strong><span>{item.label}</span><small style={{ color: tone.text }}>{item.help}</small>
+      </button>; })}
+    </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
-          {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 88, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
-            <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
-          </button>; })}
-        </div>
+    <section className="yk-dashboard-middle">
+      <article className="yk-panel yk-hold-panel">
+        <h2>⚑ נקודות עצירה</h2>
+        <div className="yk-hold-stats"><span className="open"><b>{homeModules.find((m) => m.key === "holdPoints")?.count ?? 0}</b> פתוחות</span><span className="late"><b>{metrics.overdue}</b> באיחור</span><span className="done"><b>0</b> הושלמו</span></div>
+        <button onClick={() => setSection("holdPoints")}>מעבר לכל נקודות העצירה ←</button>
+      </article>
+      <article className="yk-panel yk-urgent-panel">
+        <h2>⚠ דורש טיפול עכשיו</h2>
+        <div className="yk-task-list">{urgentTasks.length ? urgentTasks.slice(0, 3).map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} onClick={() => setSection(task.section)} style={{ background: tone.bg, borderColor: tone.border }}><span>{task.icon}</span><b>{task.title}</b><small style={{ color: tone.text }}>{task.meta}</small></button>; }) : <p>✅ אין כרגע משימות דחופות פתוחות</p>}</div>
+      </article>
+      <article className="yk-panel yk-progress-panel">
+        <h2>▥ התקדמות ובקרה</h2>
+        {distribution.slice(0, 5).map((row) => <button key={row.label} onClick={() => setSection(row.section)}><span>{row.label}</span><b>{row.value}</b><i><em style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%` }} /></i></button>)}
+      </article>
+    </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
-          <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-            {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
-          </div>
-          <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>התקדמות ובקרה</h3>
-            <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+    <section className="yk-panel yk-quick-section">
+      <h2>⚡ גישה מהירה</h2>
+      <div className="yk-quick-grid">{highlightedModules.map((module, index) => <button className={`accent-${accent[index]}`} key={String(module.key)} onClick={() => setSection(module.key as AppSection)}>
+        <span className="yk-quick-icon">{module.icon}</span><div><strong>{module.title}</strong><small>{module.description}</small></div><b>{module.count}</b><span className="yk-quick-link">מעבר למסך ←</span>
+      </button>)}</div>
+    </section>
+  </div>;
 }
 
 
