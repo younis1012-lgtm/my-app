@@ -378,7 +378,7 @@ export function TrialSectionsSection(props: {
 
           <Field label="סטטוס">
             <select style={styles.input} value={props.trialSectionForm.status} onChange={(e) => props.setTrialSectionForm((prev) => ({ ...prev, status: e.target.value as any }))}>
-              <option value="טיוטה">בהליך</option>
+              <option value="טיוטה">בתהליך / בטיפול</option>
               <option value="אושר">אושר</option>
               <option value="נדחה">נדחה</option>
             </select>
