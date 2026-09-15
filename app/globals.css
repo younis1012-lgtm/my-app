@@ -38,3 +38,38 @@ body {
 }
 
 @media (max-width:560px) { .project-navigation { grid-template-columns:1fr; } }
+
+.yk-dashboard { display:grid; gap:14px; color:#0f2344; }
+.yk-dashboard button { font:inherit; }
+.yk-dashboard-hero { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:22px 26px; border:1px solid #dbe5f1; border-radius:18px; background:#fff; box-shadow:0 10px 28px rgba(15,35,68,.06); }
+.yk-dashboard-hero h1 { margin:0; font-size:clamp(24px,2.3vw,36px); font-weight:950; }
+.yk-dashboard-hero p { margin:5px 0 0; color:#64748b; font-size:17px; font-weight:750; }
+.yk-dashboard-date { padding:12px 16px; border-right:1px solid #dbe5f1; color:#334e77; font-weight:850; }
+.yk-kpi-grid { display:grid; grid-template-columns:repeat(5,minmax(125px,1fr)); gap:12px; }
+.yk-kpi-grid button { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:2px 12px; min-height:112px; padding:16px; text-align:right; border:1px solid; border-radius:16px; cursor:pointer; box-shadow:0 8px 22px rgba(15,35,68,.04); }
+.yk-kpi-icon { grid-row:1/4; display:grid; place-items:center; width:52px; height:52px; border-radius:50%; font-size:25px; }
+.yk-kpi-grid strong { font-size:32px; line-height:1; }
+.yk-kpi-grid button>span:not(.yk-kpi-icon) { font-weight:900; }
+.yk-kpi-grid small { font-weight:750; }
+.yk-dashboard-middle { display:grid; grid-template-columns:minmax(210px,.72fr) minmax(320px,1.18fr) minmax(290px,1fr); gap:14px; }
+.yk-panel { padding:18px; border:1px solid #dbe5f1; border-radius:18px; background:#fff; box-shadow:0 10px 28px rgba(15,35,68,.055); }
+.yk-panel h2 { margin:0 0 14px; font-size:21px; font-weight:950; }
+.yk-hold-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.yk-hold-stats span { display:grid; gap:5px; padding:13px 6px; text-align:center; border-radius:13px; font-weight:800; }
+.yk-hold-stats b { font-size:27px; }
+.yk-hold-stats .open { color:#a16207; background:#fffbeb; }.yk-hold-stats .late { color:#b91c1c; background:#fef2f2; }.yk-hold-stats .done { color:#15803d; background:#f0fdf4; }
+.yk-hold-panel>button { width:100%; margin-top:14px; padding:9px; border:0; background:transparent; color:#2563eb; font-weight:900; cursor:pointer; }
+.yk-task-list { display:grid; gap:9px; }
+.yk-task-list button { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; padding:13px; border:1px solid; border-radius:13px; text-align:right; cursor:pointer; }
+.yk-task-list small { font-weight:900; }.yk-task-list p { padding:18px; text-align:center; color:#15803d; background:#f0fdf4; border-radius:13px; font-weight:900; }
+.yk-progress-panel>button { display:grid; grid-template-columns:1fr auto; gap:4px 12px; width:100%; padding:7px 0; border:0; background:transparent; text-align:right; cursor:pointer; font-weight:850; }
+.yk-progress-panel i { grid-column:1/3; height:8px; overflow:hidden; border-radius:10px; background:#e7edf5; }.yk-progress-panel em { display:block; height:100%; border-radius:10px; background:#2583f7; }
+.yk-quick-section h2 { text-align:right; }
+.yk-quick-grid { display:grid; grid-template-columns:repeat(4,minmax(170px,1fr)); gap:14px; }
+.yk-quick-grid>button { display:grid; grid-template-columns:auto 1fr auto; gap:8px 12px; align-items:center; min-height:150px; padding:18px; border:1px solid; border-radius:16px; text-align:right; cursor:pointer; }
+.yk-quick-grid .accent-blue { background:#eff6ff;border-color:#bfdbfe}.yk-quick-grid .accent-green { background:#f0fdf4;border-color:#bbf7d0}.yk-quick-grid .accent-amber { background:#fffbeb;border-color:#fde68a}.yk-quick-grid .accent-red { background:#faf5ff;border-color:#e9d5ff}
+.yk-quick-icon { display:grid; place-items:center; width:50px; height:50px; border-radius:14px; background:rgba(255,255,255,.72); font-size:25px; }
+.yk-quick-grid strong { display:block; font-size:18px; }.yk-quick-grid small { display:block; margin-top:4px; color:#64748b; }.yk-quick-grid>button>b { font-size:28px; }.yk-quick-link { grid-column:2/4; color:#2563eb; font-weight:900; }
+
+@media (max-width:1200px) { .yk-kpi-grid { grid-template-columns:repeat(3,1fr); }.yk-dashboard-middle { grid-template-columns:1fr 1fr; }.yk-progress-panel { grid-column:1/3; }.yk-quick-grid { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:700px) { .yk-dashboard-hero { align-items:flex-start; flex-direction:column; }.yk-dashboard-date { border-right:0; padding:0; }.yk-kpi-grid,.yk-dashboard-middle,.yk-quick-grid { grid-template-columns:1fr; }.yk-progress-panel { grid-column:auto; } }
