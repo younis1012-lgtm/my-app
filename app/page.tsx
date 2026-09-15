@@ -5067,7 +5067,7 @@ async function selectProjectTable(
     const summarySelect: Record<string, string> = {
       checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
       [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
-      trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id",
+      trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id,details",
       preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
       rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
       [CONTROL_PROCESS_TABLE]: "id,project_id,process_no,title,work_type,spec_section,location,from_section,to_section,status,checklist_ids,rfi_ids,nonconformance_ids,audit_log,approval,locked_at,saved_at,created_at,structure_node_id",
@@ -10338,7 +10338,7 @@ function PlansSection({
         <Field label="תאריך"><input type="date" style={styles.input} value={form.date} onChange={(e) => onChange("date", e.target.value)} /></Field>
         <Field label="סטטוס">
           <select style={styles.input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
-            <option>טיוטה</option>
+            <option value="טיוטה">בהליך</option>
             <option>בתוקף</option>
             <option>לביצוע</option>
             <option>מבוטל</option>
@@ -10466,8 +10466,10 @@ function TrialSectionsRecordsTable({
       combined,
     };
   };
-  const statusText = (record: any) =>
-    cellValue(record, "status", "approvalStatus", "result");
+  const statusText = (record: any) => {
+    const status = cellValue(record, "status", "approvalStatus", "result");
+    return status === "טיוטה" || status === "draft" ? "בהליך" : status;
+  };
   const statusStyle = (status: string): CSSProperties => {
     const normalized = normalizeLooseText(status).toLowerCase();
     if (
@@ -10607,7 +10609,7 @@ function TrialSectionsRecordsTable({
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
           {[
             ["סה״כ", trackingCounts.total, "#0f172a", "#fff"],
-            ["בטיפול / טיוטה", trackingCounts.open, "#d97706", "#fffbeb"],
+            ["בהליך", trackingCounts.open, "#d97706", "#fffbeb"],
             ["אושרו", trackingCounts.approved, "#15803d", "#f0fdf4"],
             ["נדחו", trackingCounts.rejected, "#dc2626", "#fef2f2"],
           ].map(([label, value, color, background]) => (
@@ -14383,7 +14385,7 @@ function ControlProcessesSection({
             >
               {CONTROL_PROCESS_STATUS_OPTIONS.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {status === "טיוטה" ? "בהליך" : status}
                 </option>
               ))}
             </select>
