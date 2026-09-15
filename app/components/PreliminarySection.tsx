@@ -414,7 +414,7 @@ export function PreliminarySection(props: PreliminarySectionProps) {
         <Field label="חברת בקרת איכות"><input style={styles.input} value={projectMeta.qualityControl || ''} readOnly /></Field>
         <Field label="כותרת"><input style={styles.input} value={form.title ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
         <Field label="תאריך"><input type="date" style={styles.input} value={form.date ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
-        <Field label="סטטוס"><select style={styles.input} value={form.status ?? 'טיוטה'} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">טיוטה</option><option value="מאושר">מאושר</option><option value="לא מאושר">לא מאושר</option></select></Field>
+        <Field label="סטטוס"><select style={styles.input} value={form.status ?? 'טיוטה'} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">בהליך</option><option value="מאושר">מאושר</option><option value="לא מאושר">לא מאושר</option></select></Field>
       </div>
 
       <div style={styles.formGrid}>
