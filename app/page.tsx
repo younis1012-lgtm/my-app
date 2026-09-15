@@ -3,7 +3,7 @@
 import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
 import { ColumnFilter } from "./components/ColumnFilter";
 import { assignmentProjectIds, matchesProjectAssignment } from "./lib/projectAssignments";
-import { saveProjectUserRows } from "./lib/projectUserStorage";
+import { restoreProjectUserDetails, saveProjectUserRows } from "./lib/projectUserStorage";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
@@ -198,7 +198,7 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(dedupeProjectEmailUsers(users)));
 };
 
-const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId: string) => {
+const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId: string, canManageCredentials = false) => {
   const normalized = dedupeProjectEmailUsers(users).filter(user => !user.directoryOnly && normalizeStoredProjectId(user.projectId) === projectId).map((user) => ({
     id: user.id,
     project_id: normalizeStoredProjectId(user.projectId),
@@ -207,7 +207,7 @@ const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId
     company: user.company,
     email: user.email,
     phone: user.phone || "",
-    smtp_app_password: user.smtpAppPassword || "",
+    ...(canManageCredentials ? { smtp_app_password: user.smtpAppPassword || "" } : {}),
     active: user.active !== false,
     created_at: toSupabaseTimestamp(user.createdAt),
   }));
@@ -237,9 +237,9 @@ const loadProjectEmailUsersFromCloud = async (projectId: string) => {
   })).filter((item: ProjectEmailUser) => item.projectId && item.email);
   for (const contact of directory.contacts || []) {
     if (!users.some(user => user.email.toLowerCase() === String(contact.email).toLowerCase()))
-      users.push({id: crypto.randomUUID(), projectId, name: contact.name, email: contact.email, role: "", company: "", phone: "", smtpAppPassword: "", active: true, createdAt: new Date().toISOString(), directoryOnly: true});
+      users.push({id: crypto.randomUUID(), projectId, name: contact.name, email: contact.email, role: contact.role || "", company: contact.company || "", phone: contact.phone || "", smtpAppPassword: "", active: true, createdAt: new Date().toISOString(), directoryOnly: true});
   }
-  return {users: dedupeProjectEmailUsers(users), canManage: directory.canManageUsers === true};
+  return {users: dedupeProjectEmailUsers(users), canManage: directory.canManageUsers === true, canManageCredentials: directory.canManageCredentials === true};
 };
 
 type ProjectProfile = {
@@ -10417,6 +10417,17 @@ function TrialSectionsRecordsTable({
       return left.originalIndex - right.originalIndex;
     })
     .map((item) => item.record);
+  const trackingCounts = sortedRecords.reduce(
+    (counts, record) => {
+      const status = normalizeLooseText(pickTrialValue(record, "status", "approvalStatus", "result")).toLowerCase();
+      counts.total += 1;
+      if (status.includes("אושר") || status.includes("מאושר") || status.includes("approved")) counts.approved += 1;
+      else if (status.includes("נדחה") || status.includes("rejected")) counts.rejected += 1;
+      else counts.open += 1;
+      return counts;
+    },
+    { total: 0, approved: 0, rejected: 0, open: 0 },
+  );
   const [page, setPage] = useState(1);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const pageSize = 10;
@@ -10591,6 +10602,22 @@ function TrialSectionsRecordsTable({
         boxShadow: "0 8px 22px rgba(15, 23, 42, 0.04)",
       }}
     >
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid #e5e7eb", background: "#f8fafc" }}>
+        <div style={{ fontWeight: 950, marginBottom: 10 }}>מעקב קטעי ניסוי</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+          {[
+            ["סה״כ", trackingCounts.total, "#0f172a", "#fff"],
+            ["בטיפול / טיוטה", trackingCounts.open, "#d97706", "#fffbeb"],
+            ["אושרו", trackingCounts.approved, "#15803d", "#f0fdf4"],
+            ["נדחו", trackingCounts.rejected, "#dc2626", "#fef2f2"],
+          ].map(([label, value, color, background]) => (
+            <div key={String(label)} style={{ border: `1px solid ${color}33`, borderRadius: 10, padding: "10px 12px", color: String(color), background: String(background) }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{label}</div>
+              <div style={{ fontSize: 24, fontWeight: 950 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
       <div
         style={{
           display: "flex",
@@ -14945,10 +14972,11 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
+  canManageCredentials: boolean;
   onSaveUsers: () => void;
 };
 
-function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
+function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers, canManageCredentials }: ProjectUsersSectionProps) {
   const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
   const inputStyle: CSSProperties = {
     width: "100%",
@@ -15003,7 +15031,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
             <input placeholder="חברה" value={draft.company} onChange={(e) => setDraft((p) => ({ ...p, company: e.target.value }))} style={inputStyle} />
             <input placeholder="מייל" value={draft.email} onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))} style={inputStyle} />
             <input placeholder="טלפון" value={draft.phone} onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))} style={inputStyle} />
-            <input type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
+            <input disabled={!canManageCredentials} title={!canManageCredentials ? "סיסמת המייל מנוהלת על ידי מנהל הפרויקט" : undefined} type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
             <button type="button" onClick={add} style={styles.primaryBtn}>הוסף משתמש</button>
           </div>
           <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16 }}>
@@ -15024,7 +15052,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.company} onChange={(e) => onUpdateUser(user.id, { company: e.target.value })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.email} onChange={(e) => onUpdateUser(user.id, { email: e.target.value.trim() })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.phone || ""} onChange={(e) => onUpdateUser(user.id, { phone: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input disabled={!canManageCredentials} title={!canManageCredentials ? "סיסמת המייל מנוהלת על ידי מנהל הפרויקט" : undefined} type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><button type="button" style={styles.dangerBtn} onClick={() => onDeleteUser(user.id)}>מחק</button></td>
                   </tr>
                 )) : (
@@ -17461,24 +17489,26 @@ export default function Page() {
   const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
   const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
 
-  const [projectUsersLoad, setProjectUsersLoad] = useState({projectId:"", canManage:false, error:""});
+  const [projectUsersLoad, setProjectUsersLoad] = useState({projectId:"", canManage:false, canManageCredentials:false, error:""});
   const selectedUsersProjectId = normalizeStoredProjectId(currentProject?.id);
   const canEditProjectEmailUsers = projectUsersLoad.projectId === selectedUsersProjectId && projectUsersLoad.canManage;
   useEffect(() => {
     let active = true;
     const projectId = selectedUsersProjectId;
-    setProjectUsersLoad({projectId:"", canManage:false, error:""});
+    setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error:""});
     if (!projectId || !projectAccess) return;
     loadProjectEmailUsersFromCloud(projectId)
       .then((result) => {
         if (!active) return;
-        const next = [...projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) !== projectId), ...result.users];
+        const cachedProjectUsers = projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) === projectId);
+        const restoredUsers = restoreProjectUserDetails(result.users, cachedProjectUsers, result.canManageCredentials);
+        const next = [...projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) !== projectId), ...restoredUsers];
         projectEmailUsersRef.current = next;
         setProjectEmailUsers(next);
         writeProjectEmailUsers(next);
-        setProjectUsersLoad({projectId, canManage:result.canManage, error:""});
+        setProjectUsersLoad({projectId, canManage:result.canManage, canManageCredentials:result.canManageCredentials, error:""});
       })
-      .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, error: errorText(error)}); });
+      .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error: errorText(error)}); });
     return () => { active = false; };
   }, [projectAccess?.authUserId, selectedUsersProjectId]);
 
@@ -17531,7 +17561,7 @@ export default function Page() {
   }, [currentProjectEmailUsers, projectAccess]);
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
-    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר כמנהל הפרויקט לפני עריכה.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר עם הרשאת עריכה בפרויקט.");
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
       ...prev,
@@ -17540,7 +17570,7 @@ export default function Page() {
   };
 
   const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
-    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר כמנהל הפרויקט לפני עריכה.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר עם הרשאת עריכה בפרויקט.");
     saveProjectEmailUsers((prev) =>
       prev.map((user) => (user.id === id ? { ...user, ...patch, directoryOnly: false, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
     );
@@ -17554,12 +17584,12 @@ export default function Page() {
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    if (!canEditProjectEmailUsers) return alert("השמירה דורשת טעינה תקינה והרשאת מנהל בפרויקט הנבחר.");
+    if (!canEditProjectEmailUsers) return alert("השמירה דורשת טעינה תקינה והרשאת עריכה בפרויקט הנבחר.");
     const projectId = selectedUsersProjectId;
     const usersToSave = projectEmailUsersRef.current;
     try {
       writeProjectEmailUsers(usersToSave);
-      await saveProjectEmailUsersToCloud(usersToSave, projectId);
+      await saveProjectEmailUsersToCloud(usersToSave, projectId, projectUsersLoad.canManageCredentials);
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
@@ -17571,7 +17601,7 @@ export default function Page() {
         [
           "המשתמשים נשמרו בדפדפן הנוכחי, אך לא נשמרו בענן.",
           "",
-          "יש לוודא שההתחברות בתוקף ושיש לך הרשאת מנהל בפרויקט הנבחר.",
+          "יש לוודא שההתחברות בתוקף ושיש לך הרשאת עריכה בפרויקט הנבחר.",
           details,
           "אם הבעיה נמשכת, יש להעביר הודעה זו לאחראי המערכת לבדיקת הרשאות. אין ליצור את המשתמשים מחדש.",
         ].join("\n"),
@@ -23821,7 +23851,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const openRecordEmail = (
     moduleName: string, record: Record<string, any>, recordId: string | null,
-    title: string, generateDocuments?: () => Promise<MailAttachment[]>,
+    title: string, generateDocuments?: () => Promise<MailAttachment[]>, consolidated = false,
   ) => {
     if (!currentProject?.id) return alert("יש לבחור פרויקט");
     const snapshot = structuredClone(record);
@@ -23829,7 +23859,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       projectId: currentProject.id, module: moduleName,
       recordId: recordId || `draft-${crypto.randomUUID()}`, recordIds: Array.isArray(snapshot.records) ? snapshot.records.map((item: any) => String(item.id || "")).filter(Boolean) : undefined, title,
       data: { ...snapshot, title, projectName },
-      attachments: collectMailAttachments(snapshot), generateDocuments,
+      attachments: consolidated ? [] : collectMailAttachments(snapshot), generateDocuments,
     });
   };
 
@@ -23958,7 +23988,20 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const [record, recordId] = current[section] || [currentProject || {}, currentProject?.id || null];
     const title = String(record.title || record.name || recordTitleForExport());
     const html = ["checklists", "nonconformances", "trialSections", "controlProcesses"].includes(section) ? exportHtml(getExportChecklistNo()) : null;
-    openRecordEmail(section, record, recordId, title, html ? async () => [await documentForEmail(html, title)] : undefined);
+    const consolidate = Boolean(html && ["nonconformances", "trialSections"].includes(section));
+    openRecordEmail(
+      section,
+      record,
+      recordId,
+      title,
+      html ? async () => {
+        if (!consolidate) return [await documentForEmail(html, title)];
+        const blob = await buildMergedPdfBlob(title, html, archiveRecordPdfAppendices(record));
+        const attachment = await pdfBlobToEmailAttachment(`${title} - כולל נספחים.pdf`, blob);
+        return [{id:crypto.randomUUID(), filename:attachment.filename, mimeType:attachment.mimeType || "application/pdf", ...(attachment.url ? {url:attachment.url} : {}), ...(attachment.contentBase64 ? {contentBase64:attachment.contentBase64} : {})}];
+      } : undefined,
+      consolidate,
+    );
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -25900,7 +25943,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <div>
             {projectUsersLoad.error && <p role="alert">{projectUsersLoad.error}</p>}
             {!projectUsersLoad.error && projectUsersLoad.projectId !== selectedUsersProjectId && <p>טוען משתמשי פרויקט…</p>}
-            {projectUsersLoad.projectId === selectedUsersProjectId && !projectUsersLoad.canManage && <p>הרשימה זמינה לצפייה. עריכה ושמירה דורשות הרשאת מנהל בפרויקט.</p>}
+            {projectUsersLoad.projectId === selectedUsersProjectId && !projectUsersLoad.canManage && <p>הרשימה זמינה לצפייה. עריכה ושמירה דורשות הרשאת עריכה בפרויקט.</p>}
             <fieldset disabled={!canEditProjectEmailUsers} style={{border:0, padding:0, minWidth:0}}>
             <ProjectUsersSection
               guardedBody={guardedBody}
@@ -25909,6 +25952,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onAddUser={addProjectEmailUser}
               onUpdateUser={updateProjectEmailUser}
               onDeleteUser={deleteProjectEmailUser}
+              canManageCredentials={projectUsersLoad.canManageCredentials}
               onSaveUsers={saveCurrentProjectEmailUsers}
             />
             </fieldset>

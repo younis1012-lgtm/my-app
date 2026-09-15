@@ -71,31 +71,78 @@ export async function readMailDirectory(request: Request) {
     }
     const projectId = field(params.get('projectId'),100);
     const {db,user,role} = await authorize(request,projectId,false);
-    const managingUsers = params.get('mode') === 'manage-users' && role === 'admin';
-    const result = managingUsers
-      ? await db.from('project_email_users').select('*').eq('project_id',projectId)
+    const directoryRequested = params.get('mode') === 'manage-users';
+    const managingUsers = ['admin','readwrite'].includes(role);
+    const result = directoryRequested
+      ? await db.from('project_email_users').select(role === 'admin' ? '*' : 'id,project_id,name,email,role,company,phone,active,created_at').eq('project_id',projectId)
       : await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
-    const contacts = (result.data || []).filter(x=>validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email}));
+    const directoryRows = (result.data || []) as any[];
+    const contacts = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email,role:x.role || '',company:x.company || '',phone:x.phone || ''}));
     const accessUsers = await db.from('project_access_users').select('*');
-    if (managingUsers && accessUsers.error) throw new MailError('טעינת שיוכי המשתמשים נכשלה. נסה שוב לפני שמירה',503);
+    if (directoryRequested && accessUsers.error) throw new MailError('טעינת שיוכי המשתמשים נכשלה. נסה שוב לפני שמירה',503);
     if (!accessUsers.error) {
       const project = await db.from('projects').select('name').eq('id',projectId).maybeSingle();
-      if (managingUsers && project.error) throw new MailError('טעינת הפרויקט נכשלה. נסה שוב לפני שמירה',503);
+      if (directoryRequested && project.error) throw new MailError('טעינת הפרויקט נכשלה. נסה שוב לפני שמירה',503);
       const projectName = String(project.data?.name || '').replace(/\s+/g,'').toLowerCase();
       for (const user of accessUsers.data || []) {
         const email = String(user.username || '').trim().toLowerCase();
         if (user.active !== false && validMailAddress(email) && matchesProjectAssignment(user,projectId,projectName) && !contacts.some(x=>x.email.toLowerCase()===email))
-          contacts.push({id:`access-${email}`,name:user.display_name || email,email});
+          contacts.push({id:`access-${email}`,name:user.display_name || email,email,
+            role:user.job_title || user.professional_role || (!['admin','readwrite','readonly'].includes(String(user.role || '').toLowerCase()) ? user.role || '' : ''),
+            company:user.company || '',phone:user.phone || ''});
       }
     }
     const qualityAssuranceNcr = role === 'readonly' && params.get('module') === 'nonconformances';
-    const senders = (result.data || []).filter(x=>validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email}));
+    const senders = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email}));
     const systemEmail = process.env.EMAIL_USER?.trim();
     if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:qualityAssuranceNcr ? systemEmail : 'חשבון המערכת',email:systemEmail});
-    const operator = await operatorIdentity(db,user,projectId,result.data || []);
-    return Response.json({contacts,senders,operator,canManageUsers:role === 'admin',...(managingUsers ? {users:result.data || []} : {})},{headers:{'Cache-Control':'no-store'}});
+    const operator = await operatorIdentity(db,user,projectId,directoryRows);
+    const users = directoryRequested ? directoryRows.map(row => ({
+      id:row.id,project_id:row.project_id,name:row.name,email:row.email,role:row.role,company:row.company,phone:row.phone,active:row.active,created_at:row.created_at,
+      ...(role === 'admin' ? {smtp_app_password:row.smtp_app_password} : {}),
+    })) : undefined;
+    return Response.json({contacts,senders,operator,canManageUsers:managingUsers,canManageCredentials:role === 'admin',...(directoryRequested ? {users} : {})},{headers:{'Cache-Control':'no-store'}});
   } catch (error) {return errorResponse(error);}
+}
+export async function saveMailDirectory(request: Request) {
+  try {
+    const origin = request.headers.get('origin');
+    if (origin && origin !== new URL(request.url).origin) throw new MailError('בקשת השמירה אינה תקינה',403);
+    const raw = await request.text();
+    if (raw.length > 500_000) throw new MailError('רשימת המשתמשים גדולה מדי',413);
+    let body;
+    try { body = JSON.parse(raw); } catch { throw new MailError('בקשת השמירה אינה תקינה'); }
+    const projectId = field(body?.projectId,100);
+    const {db,role} = await authorize(request,projectId,true);
+    if (!Array.isArray(body.rows) || body.rows.length > 500) throw new MailError('רשימת המשתמשים אינה תקינה');
+    const rows = body.rows.map((row: any) => {
+      if (!row || row.project_id !== projectId) throw new MailError('ניתן לשמור רק בפרויקט הנבחר',403);
+      const next: Record<string, unknown> = {id:field(row.id,200),project_id:projectId};
+      for (const key of ['name','role','company','email','phone']) {
+        if (typeof row[key] !== 'string' || row[key].length > 500) throw new MailError('פרטי המשתמש אינם תקינים');
+        next[key] = row[key].trim();
+      }
+      if (!validMailAddress(String(next.email))) throw new MailError('כתובת המייל אינה תקינה');
+      if (typeof row.active !== 'boolean') throw new MailError('מצב המשתמש אינו תקין');
+      next.active = row.active;
+      // Editors may manage contact details, never mailbox credentials.
+      if (role === 'admin' && Object.hasOwn(row,'smtp_app_password')) {
+        if (typeof row.smtp_app_password !== 'string' || row.smtp_app_password.length > 500) throw new MailError('סיסמת המייל אינה תקינה');
+        next.smtp_app_password = row.smtp_app_password;
+      }
+      return next;
+    });
+    if (new Set(rows.map((row: any)=>row.id)).size !== rows.length) throw new MailError('רשימת המשתמשים מכילה כפילויות');
+    if (rows.length) {
+      const existing = await db.from('project_email_users').select('id,project_id').in('id',rows.map((row: any)=>row.id));
+      if (existing.error) throw new MailError('בדיקת רשומות המשתמשים נכשלה',503);
+      if ((existing.data || []).some(row=>row.project_id !== projectId)) throw new MailError('רשומה זו שייכת לפרויקט אחר',403);
+      const result = await db.from('project_email_users').upsert(rows,{onConflict:'id',defaultToNull:false});
+      if (result.error) throw new MailError('שמירת משתמשי הפרויקט נכשלה. השינויים נשארו בדפדפן; נסה שוב',503);
+    }
+    return Response.json({success:true},{headers:{'Cache-Control':'no-store'}});
+  } catch (error) { return errorResponse(error); }
 }
 function errorResponse(error: unknown) {
   return Response.json({ success: false, error: error instanceof MailError ? error.message : 'שירות המייל אינו זמין כרגע' }, { status: error instanceof MailError ? error.status : 500 });

@@ -31,12 +31,13 @@ test('management directory and mail include legacy names and scalar IDs without 
   assert.equal(mail.users,undefined);
   assert.equal(JSON.stringify(mail).includes('SECRET'),false);
 });
-test('management mode never exposes mailbox rows to non-admin or revoked members',async()=>{
+test('management mode allows editors to edit details without exposing mailbox credentials',async()=>{
   for(const role of ['readonly','readwrite']) {
     const response=await setup({role}).directory('projectId=project&mode=manage-users');
     const body=await response.json();
-    assert.equal(body.canManageUsers,false);
-    assert.equal(body.users,undefined);
+    assert.equal(body.canManageUsers,role==='readwrite');
+    assert.ok(Array.isArray(body.users));
+    assert.equal(body.canManageCredentials,false);
     assert.equal(JSON.stringify(body).includes('SERVER_SECRET'),false);
   }
   assert.equal((await setup({role:'admin',active:false}).directory('projectId=project&mode=manage-users')).status,403);
@@ -44,19 +45,38 @@ test('management mode never exposes mailbox rows to non-admin or revoked members
 test('management load fails rather than silently hiding an unavailable legacy directory',async()=>{
   assert.equal((await setup({role:'admin',accessError:{message:'unavailable'}}).directory('projectId=project&mode=manage-users')).status,503);
 });
+test('legacy contacts expose existing job and company details',async()=>{
+  const data=await (await setup({project:{name:'מגד אלכרום'},accessUsers:[{username:'legacy@example.com',display_name:'Legacy',project_name:'מגד אלכרום',job_title:'מפקח',company:'חברה',phone:'050'}]}).directory()).json();
+  assert.deepEqual(data.contacts.find(x=>x.email==='legacy@example.com'),{id:'access-legacy@example.com',name:'Legacy',email:'legacy@example.com',role:'מפקח',company:'חברה',phone:'050'});
+});
+test('editor can save contact details through server without mailbox credentials',async()=>{
+  const s=setup({role:'readwrite'});
+  const response=await s.saveDirectory({projectId:'project',rows:[{id:'row',project_id:'project',name:'Name',role:'Role',company:'Company',email:'a@example.com',phone:'050',active:true,smtp_app_password:'must-not-pass'}]});
+  assert.equal(response.status,200);
+  assert.equal(s.directoryWrites.length,1);
+  assert.equal(s.directoryWrites[0][0].company,'Company');
+  assert.equal('smtp_app_password' in s.directoryWrites[0][0],false);
+});
+test('viewer, cross-project rows and cross-origin saves are rejected',async()=>{
+  assert.equal((await setup({role:'readonly'}).saveDirectory({projectId:'project',rows:[]})).status,403);
+  assert.equal((await setup({role:'readwrite'}).saveDirectory({projectId:'project',rows:[{id:'row',project_id:'other',name:'N',role:'R',company:'C',email:'a@example.com',phone:'',active:true}]})).status,403);
+  assert.equal((await setup({role:'readwrite'}).saveDirectory({projectId:'project',rows:[]},'https://evil.example')).status,403);
+});
 function setup(options = {}) {
-  const history = new Map(); let sent = 0, sentMessage;
+  const history = new Map(), directoryWrites=[]; let sent = 0, sentMessage;
   function query(table) {
     let operation='select', payload, conditions=[], fields='';
     const q = {
       select(value){fields=value;return q}, eq(key,value){conditions.push([key,value]);return q}, ilike(key,value){conditions.push([key,value]);return q}, in(){return q}, limit(){return q}, order(){return q},
-      insert(value){operation='insert';payload=value;return q}, update(value){operation='update';payload=value;return q},
+      insert(value){operation='insert';payload=value;return q}, update(value){operation='update';payload=value;return q}, upsert(value){operation='upsert';payload=value;return q},
       async single(){return execute()}, async maybeSingle(){return execute()}, then(resolve,reject){return Promise.resolve(execute()).then(resolve,reject)},
     };
     function execute() {
       if (table === 'projects') return {data:options.project || options.projects || []};
       if (table === 'project_access_users') return {data:options.accessUsers || [],error:options.accessError};
       if (table === 'project_email_users' && fields==='*') return {data:options.projectEmailRows || []};
+      if (table === 'project_email_users' && fields==='id,project_id') return {data:options.existingDirectoryRows || []};
+      if (table === 'project_email_users' && operation==='upsert') {directoryWrites.push(payload);return {error:options.directoryWriteError || null};}
       if (table === 'project_members' && fields==='project_id,role,active') return {data:options.members || []};
       if (table === 'project_email_users' && fields.startsWith('project_id,')) return {data:options.assignments || []};
       if (table === 'project_members') return {data:options.noMember ? null : {role:options.role || 'readwrite',active:options.active !== false}};
@@ -80,7 +100,7 @@ function setup(options = {}) {
   }, {NEXT_PUBLIC_SUPABASE_URL:'https://example.supabase.co',NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon',SUPABASE_SERVICE_ROLE_KEY:'service'});
   const payload = {projectId:'project',module:'any-future-module',recordId:'record',requestId:'11111111-1111-1111-1111-111111111111',senderEmail:'sender@example.com',to:'to@example.com',cc:[],bcc:[],subject:'Subject',text:'Text <script>alert(1)</script>',attachments:[{filename:'test.txt',mimeType:'text/plain',contentBase64:'aGVsbG8='}]};
   async function send(changes={}, authenticated=true) { return server.postMail(new Request('https://app.example/api/send-email',{method:'POST',headers:authenticated?{Authorization:'Bearer token'}:{},body:JSON.stringify({...payload,...changes})})); }
-  return {send,history,directory:(mode='projectId=project')=>server.readMailDirectory(new Request('https://app.example/api/email-directory?'+mode,{headers:{Authorization:'Bearer token'}})),get sent(){return sent},get message(){return sentMessage}};
+  return {send,history,directoryWrites,directory:(mode='projectId=project')=>server.readMailDirectory(new Request('https://app.example/api/email-directory?'+mode,{headers:{Authorization:'Bearer token'}})),saveDirectory:(body,origin='https://app.example')=>server.saveMailDirectory(new Request('https://app.example/api/email-directory',{method:'POST',headers:{Authorization:'Bearer token',Origin:origin},body:JSON.stringify(body)})),get sent(){return sent},get message(){return sentMessage}};
 }
 test('nested attachments include quality documents and deduplicate without mutating the source',()=>{
   const record={items:[{attachments:[{name:'a.txt',dataUrl:'data:text/plain;base64,aGVsbG8='}]}],documents:[{fileName:'b.pdf',fileUrl:'https://example.supabase.co/storage/v1/object/public/b.pdf',fileType:'application/pdf'}],copy:{name:'a.txt',dataUrl:'data:text/plain;base64,aGVsbG8='}};
