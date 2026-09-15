@@ -11,7 +11,8 @@ function load(file, extras={}) {
   return exports;
 }
 const {matchesProjectAssignment,assignmentProjectIds} = load('app/lib/projectAssignments.ts');
-const {saveProjectUserRows} = load('app/lib/projectUserStorage.ts');
+let storageFetch = async()=>{ throw new Error('unexpected fetch'); };
+const {saveProjectUserRows,restoreProjectUserDetails} = load('app/lib/projectUserStorage.ts',{fetch:(...args)=>storageFetch(...args)});
 const plain = value => JSON.parse(JSON.stringify(value));
 test('legacy assignments include name, scalar ID and array ID independently',()=>{
   for (const row of [
@@ -29,33 +30,29 @@ test('legacy assignments include name, scalar ID and array ID independently',()=
   assert.equal(matchesProjectAssignment({},'majdal',''),false);
   assert.deepEqual(plain(assignmentProjectIds({project_ids:['A'],project_id:'a',projectId:'B'})),['a','b']);
 });
-function database({role='admin',active=true,loggedIn=true,error=null}={}) {
-  const writes=[];
-  return {writes,auth:{getUser:async()=>({data:{user:loggedIn?{id:'operator'}:null}})},from(table){
-    if(table==='project_members') {
-      const filters={}; const q={select(){return q},eq(k,v){filters[k]=v;return q},async maybeSingle(){assert.deepEqual(filters,{project_id:'majdal',user_id:'operator'});return {data:{role,active}}}};return q;
-    }
-    assert.equal(table,'project_email_users');
-    return {async upsert(rows,options){writes.push(plain(rows));assert.equal(options.onConflict,'id');return {error}}};
-  }};
-}
-test('save only touches selected project and preserves IDs and mailbox credentials',async()=>{
-  const db=database();
-  const rows=[{id:'existing-text-id',project_id:'majdal',smtp_app_password:'unchanged',active:false},{id:'other',project_id:'other'}];
-  await saveProjectUserRows(db,'majdal',rows);
-  assert.deepEqual(db.writes,[[rows[0]]]);
-  assert.equal(rows.length,2);
+test('client save sends only the selected project through the protected endpoint',async()=>{
+  let request;
+  const db={auth:{getSession:async()=>({data:{session:{access_token:'token'}}})}};
+  storageFetch=async(url,options)=>{request={url,options};return {ok:true,json:async()=>({success:true})}};
+  try {
+    const rows=[{id:'existing-text-id',project_id:'majdal',smtp_app_password:'unchanged',active:false},{id:'other',project_id:'other'}];
+    await saveProjectUserRows(db,'majdal',rows);
+    assert.equal(request.url,'/api/email-directory');
+    assert.equal(request.options.headers.Authorization,'Bearer token');
+    assert.deepEqual(JSON.parse(request.options.body).rows,[rows[0]]);
+  } finally { storageFetch=async()=>{throw new Error('unexpected fetch')}; }
 });
-for(const options of [{loggedIn:false},{role:'readwrite'},{role:'readonly'},{active:false}])
-  test('unauthorized save is blocked '+JSON.stringify(options),async()=>{
-    const db=database(options);await assert.rejects(saveProjectUserRows(db,'majdal',[{project_id:'majdal'}]));assert.equal(db.writes.length,0);
-  });
-test('empty save performs no insert or deletion',async()=>{
-  const db=database();await saveProjectUserRows(db,'majdal',[]);assert.deepEqual(db.writes,[]);
+test('client save requires a current authenticated session',async()=>{
+  const db={auth:{getSession:async()=>({data:{session:null}})}};
+  await assert.rejects(saveProjectUserRows(db,'majdal',[{project_id:'majdal'}]),/ההתחברות פגה/);
 });
-test('RLS error remains a failed save with actionable text',async()=>{
-  const db=database({error:{code:'42501'}});
-  await assert.rejects(saveProjectUserRows(db,'majdal',[{project_id:'majdal'}]),/להתחבר מחדש/);
+test('cached role and company fill missing legacy details without overwriting cloud values',()=>{
+  const cloud=[{email:'legacy@example.com',role:'',company:'',phone:'',smtpAppPassword:''},{email:'stored@example.com',role:'מנהל',company:'ענן'}];
+  const cached=[{email:'LEGACY@example.com',role:'מפקח',company:'חברה א',phone:'050',smtpAppPassword:'secret'},{email:'stored@example.com',role:'ישן',company:'ישן'}];
+  const restored=restoreProjectUserDetails(cloud,cached,false);
+  assert.deepEqual(plain(restored[0]),{...cloud[0],role:'מפקח',company:'חברה א',phone:'050',smtpAppPassword:''});
+  assert.equal(restored[1].role,'מנהל');
+  assert.equal(restored[1].company,'ענן');
 });
 test('both schema entry points preserve project membership policies on rerun',()=>{
   const a=fs.readFileSync(path.join(root,'app/supabase/09_project_email_users.sql'),'utf8');
@@ -90,12 +87,12 @@ test('loading merges directory contacts without duplicating stored rows; save sk
   assert.equal(result.users.length,2);
   assert.equal(result.users[0].smtpAppPassword,'keep-secret');
   assert.equal(result.users[1].directoryOnly,true);
-  await client.saveProjectEmailUsersToCloud([...result.users,{id:'other',projectId:'other'}],'majdal');
+  await client.saveProjectEmailUsersToCloud([...result.users,{id:'other',projectId:'other'}],'majdal',true);
   assert.equal(client.written.length,1);
   assert.equal(client.written[0].id,'text-existing');
   assert.equal(client.written[0].smtp_app_password,'keep-secret');
   const edited={...result.users[1],directoryOnly:false,name:'Edited'};
-  await client.saveProjectEmailUsersToCloud([edited],'majdal');
+  await client.saveProjectEmailUsersToCloud([edited],'majdal',true);
   assert.equal(client.written[0].id,edited.id);
 });
 test('failed directory response does not become an empty successful result',async()=>{
