@@ -9603,6 +9603,9 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
     { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
   ];
+  const highlightedModules = ["projectStructure", "holdPoints", "checklists", "trialSections"]
+    .map((key) => homeModules.find((module) => module.key === key))
+    .filter(Boolean) as HomeDashboardProps["homeModules"];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
   const distribution = [
     { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
@@ -9631,11 +9634,11 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 950 }}>תיקיות המערכת</h3>
-          <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>{homeModules.length}</span>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 950 }}>גישה מהירה</h3>
+          <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>כלי עבודה מרכזיים</span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
-          {homeModules.map((module) => (
+          {highlightedModules.map((module) => (
             <button
               key={String(module.key)}
               type="button"
@@ -9684,7 +9687,7 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
         <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
+              <div style={{ fontSize: 22, fontWeight: 950 }}>תמונת מצב לפרויקט</div>
               <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
             </div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
@@ -21991,6 +21994,13 @@ export default function Page() {
 
   const homeModules = [
     {
+      key: "projectStructure",
+      title: "עץ הפרויקט",
+      icon: "🌳",
+      description: "מבנה הפרויקט והשיוכים",
+      count: currentProjectStructureNodes.length,
+    },
+    {
       key: "projectDetails",
       title: "פרטי הפרויקט",
       icon: "🏗️",
@@ -24722,6 +24732,15 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
       ];
+  const navGroups = [
+    { title: "ראשי", keys: ["home", "account"] },
+    { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
+    { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
+    { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
+  ].map((group) => ({
+    ...group,
+    items: navItems.filter(([key]) => group.keys.includes(key)),
+  })).filter((group) => group.items.length);
 
   if (!authReady) {
     return (
@@ -25493,26 +25512,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         />
       ) : null}
 
-      <div style={styles.navRow}>
-        {navItems.map(([key, label]) => (
-          <button
-            key={key}
-            style={{
-              ...styles.navBtn,
-              background: section === key ? "#0f172a" : "#fff",
-              color: section === key ? "#fff" : "#0f172a",
-            }}
-            onClick={() => setSection(key)}
-          >
-            {label}
-          </button>
-        ))}
+      <nav className="project-navigation" aria-label="ניווט ראשי">
+        {navGroups.map((group) => <div className="project-navigation-group" key={group.title}>
+          <div className="project-navigation-title">{group.title}</div>
+          {group.items.map(([key, label]) => (
+            <button key={key} style={{ ...styles.navBtn, borderColor: section === key ? "#3b82f6" : "transparent", background: section === key ? "#1d4ed8" : "transparent", color: "#fff", padding: "9px 10px" }} onClick={() => setSection(key)}>
+              {label}
+            </button>
+          ))}
+        </div>)}
         <button
           type="button"
           style={{
             ...styles.navBtn,
-            background: "#fff",
-            color: "#0f172a",
+            background: "transparent",
+            color: "#fff",
+            borderColor: "#334155",
           }}
           onClick={() => {
             const params = new URLSearchParams();
@@ -25524,13 +25539,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         </button>
         <button
           type="button"
-          style={styles.secondaryBtn}
+          style={{ ...styles.secondaryBtn, background: "transparent", color: "#fff", borderColor: "#334155" }}
           onClick={() => setShowArchiveSelection(true)}
           disabled={!currentProject || isSaving}
         >
           הורד חומר פרויקט
         </button>
-      </div>
+      </nav>
 
       {showArchiveSelection && (
         <div
@@ -25617,7 +25632,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         </div>
       )}
 
-      <div style={styles.layout}>
+      <div className="project-content" style={styles.layout}>
         <main style={styles.mainCard}>
           {currentProject && !guardedBody && (
             <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
