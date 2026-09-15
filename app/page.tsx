@@ -22473,6 +22473,11 @@ export default function Page() {
     return `<h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
 
+  const exportStatusLabel = (value: unknown) => {
+    const status = String(value ?? "").trim();
+    return status === "טיוטה" || status.toLowerCase() === "draft" ? "בתהליך / בטיפול" : status;
+  };
+
   const nonconformanceExportHtml = () => {
     const f: any = enrichNonconformanceRecordWithProjectDetails(nonconformanceForm);
     return `${baseRows([
@@ -22496,7 +22501,7 @@ export default function Page() {
       ["שבר", f.breakage],
       ["השפעה על איכות", f.qualityImpact],
       ["חומרה", f.severity],
-      ["סטטוס", f.status],
+      ["סטטוס", exportStatusLabel(f.status)],
       ["תיאור אי ההתאמה", f.description, 110],
       ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty, 90],
       ["טיפול נדרש", f.actionRequired, 100],
@@ -22561,7 +22566,7 @@ export default function Page() {
       ["תוצאה / מסקנות קטע ניסוי", resultText, 70],
       ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
       ["אושר על ידי", get("approvedBy")],
-      ["סטטוס", get("status")],
+      ["סטטוס", exportStatusLabel(get("status"))],
       ["הערות", get("notes"), 45],
     ])}${attachmentsList(images)}${signaturesTable(f.approval)}`;
   };
@@ -22620,7 +22625,7 @@ export default function Page() {
           ["סוג בקרה", "ספקים"],
           ["כותרת", supplierPreliminaryForm.title],
           ["תאריך", supplierPreliminaryForm.date],
-          ["סטטוס", supplierPreliminaryForm.status],
+          ["סטטוס", exportStatusLabel(supplierPreliminaryForm.status)],
           ["שם ספק", (s as any).supplierName],
           ["חומר מסופק", (s as any).suppliedMaterial],
           ["טלפון", (s as any).contactPhone],
@@ -22636,7 +22641,7 @@ export default function Page() {
           ["סוג בקרה", "קבלנים"],
           ["כותרת", subcontractorPreliminaryForm.title],
           ["תאריך", subcontractorPreliminaryForm.date],
-          ["סטטוס", subcontractorPreliminaryForm.status],
+          ["סטטוס", exportStatusLabel(subcontractorPreliminaryForm.status)],
           ["שם קבלן משנה", (s as any).subcontractorName],
           ["תחום", (s as any).field],
           ["טלפון", (s as any).contactPhone],
@@ -22651,7 +22656,7 @@ export default function Page() {
         ["סוג בקרה", "חומרים"],
         ["כותרת", materialPreliminaryForm.title],
         ["תאריך", materialPreliminaryForm.date],
-        ["סטטוס", materialPreliminaryForm.status],
+        ["סטטוס", exportStatusLabel(materialPreliminaryForm.status)],
         ["שם חומר", (m as any).materialName],
         ["מקור", (m as any).source],
         ["שימוש", (m as any).usage],
@@ -22668,7 +22673,7 @@ export default function Page() {
       ["שם / תיאור", record.title],
       ["תחום", record.discipline],
       ["תאריך", record.date],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["הערות", record.notes, 80],
     ])}${attachmentsList(record.attachments)}${signaturesTable(record.approval)}`;
 
@@ -22680,7 +22685,7 @@ export default function Page() {
         ["סוג בקרה", "ספקים"],
         ["כותרת", record.title],
         ["תאריך", record.date],
-        ["סטטוס", record.status],
+        ["סטטוס", exportStatusLabel(record.status)],
         ["שם ספק", supplier.supplierName],
         ["חומר מסופק", supplier.suppliedMaterial],
         ["טלפון", supplier.contactPhone],
@@ -22694,7 +22699,7 @@ export default function Page() {
         ["סוג בקרה", "קבלנים"],
         ["כותרת", record.title],
         ["תאריך", record.date],
-        ["סטטוס", record.status],
+        ["סטטוס", exportStatusLabel(record.status)],
         ["שם קבלן משנה", subcontractor.subcontractorName],
         ["תחום / סוג עבודה", subcontractor.field || subcontractor.workType],
         ["טלפון", subcontractor.contactPhone],
@@ -22707,7 +22712,7 @@ export default function Page() {
       ["סוג בקרה", "חומרים"],
       ["כותרת", record.title],
       ["תאריך", record.date],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["שם חומר", material.materialName],
       ["מקור / ספק", material.source],
       ["שימוש מיועד", material.usage],
@@ -22734,7 +22739,7 @@ export default function Page() {
       ["הסט", f.offset],
       ["דרגה", f.grade],
       ["חומרה", f.severity],
-      ["סטטוס", f.status],
+      ["סטטוס", exportStatusLabel(f.status)],
       ["תיאור אי ההתאמה", f.description, 110],
       ["גורם אחראי", f.responsibleParty, 70],
       ["טיפול נדרש", f.actionRequired, 100],
@@ -22774,7 +22779,7 @@ export default function Page() {
       ["תוצאה / מסקנות", get("result", "conclusions"), 70],
       ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
       ["אושר על ידי", get("approvedBy")],
-      ["סטטוס", get("status")],
+      ["סטטוס", exportStatusLabel(get("status"))],
       ["הערות", get("notes"), 45],
     ])}${attachmentsList(record.images)}${signaturesTable(record.approval)}`;
   };
@@ -22788,7 +22793,7 @@ export default function Page() {
       ["מיקום / שימוש מיועד", record.location],
       ["מחתך", record.fromSection || record.fromChainage],
       ["עד חתך", record.toSection || record.toChainage],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["ספק / מפעל", record.supplier],
       ["מס׳ תעודת מעבדה", record.labCertificateNo],
     ])}${referenceResultsExportTable(record.workType, record.referenceResults)}${requiredDocumentsExportTable(record.requiredDocuments)}${signaturesTable(record.approval)}`;
@@ -22801,7 +22806,7 @@ export default function Page() {
       ["תאריך טיפול", record.treatmentDate],
       ["מיקום", record.location],
       ["מבצע / עורך", record.author],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["טיפול", record.treatment, 100],
       ["הערות", record.notes, 80],
     ])}${attachmentsList(record.attachments ?? (record.attachment ? [record.attachment] : []))}${signaturesTable(record.approval)}`;

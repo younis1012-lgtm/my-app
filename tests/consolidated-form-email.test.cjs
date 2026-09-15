@@ -17,4 +17,5 @@ test('trial section list loads reported details and shows status tracking indica
   assert.match(source,/trial_sections: "[^"]*details"/);
   for (const label of ['בתהליך / בטיפול','אושרו','נדחו']) assert.ok(source.includes(label));
   assert.match(source,/status === "טיוטה" \|\| status === "draft" \? "בתהליך \/ בטיפול"/);
+  assert.match(source,/\["סטטוס", exportStatusLabel\(get\("status"\)\)\]/);
 });
