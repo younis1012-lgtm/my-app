@@ -38,7 +38,7 @@ export function ApprovalPanel({ value, onChange }: { value: ApprovalFlow; onChan
   return <div style={{ ...styles.rowCard, marginTop: 18 }}>
     <div style={styles.subHeader}>אישורים וחתימות</div>
     <div style={styles.formGrid}>
-      <Field label="סטטוס אישור"><select style={styles.input} value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value as ApprovalFlow['status'] })}><option value="draft">בהליך</option><option value="approved">מאושר</option><option value="rejected">נדחה</option></select></Field>
+      <Field label="סטטוס אישור"><select style={styles.input} value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value as ApprovalFlow['status'] })}><option value="draft">בתהליך / בטיפול</option><option value="approved">מאושר</option><option value="rejected">נדחה</option></select></Field>
       <Field label="הערות" full><textarea style={styles.textarea} value={value.remarks} onChange={(event) => onChange({ ...value, remarks: event.target.value })} /></Field>
     </div>
     {value.signatures.map((signature, index) => <div key={signature.role} style={{ ...styles.rowCard, background: '#fff', marginBottom: 10 }}>

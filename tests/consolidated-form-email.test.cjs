@@ -15,6 +15,6 @@ test('NCR and trial section email generate one merged PDF and suppress loose att
 test('trial section list loads reported details and shows status tracking indicators',()=>{
   assert.match(source,/מעקב קטעי ניסוי/);
   assert.match(source,/trial_sections: "[^"]*details"/);
-  for (const label of ['בהליך','אושרו','נדחו']) assert.ok(source.includes(label));
-  assert.match(source,/status === "טיוטה" \|\| status === "draft" \? "בהליך"/);
+  for (const label of ['בתהליך / בטיפול','אושרו','נדחו']) assert.ok(source.includes(label));
+  assert.match(source,/status === "טיוטה" \|\| status === "draft" \? "בתהליך \/ בטיפול"/);
 });

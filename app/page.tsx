@@ -4314,8 +4314,8 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
   {
     id: "water-drainage",
     title: "רשימות תיוג מים וניקוז",
-    description: "מערכות מים, צנרת ניקוז וריצוף תעלות",
-    templateKeys: ["waterSystems", "drainagePiping", "channelPaving"],
+    description: "מערכות מים, קווי ביוב, צנרת ניקוז וריצוף תעלות",
+    templateKeys: ["waterSystems", "sewerLines", "drainagePiping", "channelPaving"],
   },
   {
     id: "roadworks",
@@ -6096,6 +6096,7 @@ function ChecklistsSection({
   const isPileChecklist =
     String(checklistForm.templateKey) === "dryMethodPiles" ||
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
+  const isSewerChecklist = String(checklistForm.templateKey) === "sewerLines";
   const isEarthworksChecklistForm =
     ["excavation", "baseCourseSpreading", "controlledCompaction", "standardCompaction", "asphaltSite", "asphaltWorks"].includes(String(checklistForm.templateKey)) ||
     /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים|אספלט/.test(
@@ -6683,6 +6684,15 @@ function ChecklistsSection({
                 style={inputStyle}
               />
             </label>
+            {isSewerChecklist ? (
+              <>
+                <label><span style={labelStyle}>מס׳ קו</span><input value={(checklistForm as any).lineNo ?? ""} onChange={(event) => setField("lineNo", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>בין שוחות / קטע</span><input value={(checklistForm as any).betweenManholes ?? ""} onChange={(event) => setField("betweenManholes", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>חומר הצינור</span><input value={(checklistForm as any).pipeMaterial ?? ""} onChange={(event) => setField("pipeMaterial", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>קוטר הצינור</span><input value={(checklistForm as any).pipeDiameter ?? ""} onChange={(event) => setField("pipeDiameter", event.target.value)} style={inputStyle} placeholder="לדוגמה: 200 מ״מ" /></label>
+                <label><span style={labelStyle}>אורך הקו</span><input value={(checklistForm as any).lineLengthMeters ?? ""} onChange={(event) => setField("lineLengthMeters", event.target.value)} style={inputStyle} placeholder="במטרים" /></label>
+              </>
+            ) : null}
           </div>
           <label style={{ display: "block", marginTop: 12 }}>
             <span style={labelStyle}>הערות</span>
@@ -10338,7 +10348,7 @@ function PlansSection({
         <Field label="תאריך"><input type="date" style={styles.input} value={form.date} onChange={(e) => onChange("date", e.target.value)} /></Field>
         <Field label="סטטוס">
           <select style={styles.input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
-            <option value="טיוטה">בהליך</option>
+            <option value="טיוטה">בתהליך / בטיפול</option>
             <option>בתוקף</option>
             <option>לביצוע</option>
             <option>מבוטל</option>
@@ -10468,7 +10478,7 @@ function TrialSectionsRecordsTable({
   };
   const statusText = (record: any) => {
     const status = cellValue(record, "status", "approvalStatus", "result");
-    return status === "טיוטה" || status === "draft" ? "בהליך" : status;
+    return status === "טיוטה" || status === "draft" ? "בתהליך / בטיפול" : status;
   };
   const statusStyle = (status: string): CSSProperties => {
     const normalized = normalizeLooseText(status).toLowerCase();
@@ -10609,7 +10619,7 @@ function TrialSectionsRecordsTable({
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
           {[
             ["סה״כ", trackingCounts.total, "#0f172a", "#fff"],
-            ["בהליך", trackingCounts.open, "#d97706", "#fffbeb"],
+            ["בתהליך / בטיפול", trackingCounts.open, "#d97706", "#fffbeb"],
             ["אושרו", trackingCounts.approved, "#15803d", "#f0fdf4"],
             ["נדחו", trackingCounts.rejected, "#dc2626", "#fef2f2"],
           ].map(([label, value, color, background]) => (
@@ -14385,7 +14395,7 @@ function ControlProcessesSection({
             >
               {CONTROL_PROCESS_STATUS_OPTIONS.map((status) => (
                 <option key={status} value={status}>
-                  {status === "טיוטה" ? "בהליך" : status}
+                  {status === "טיוטה" ? "בתהליך / בטיפול" : status}
                 </option>
               ))}
             </select>
@@ -22338,6 +22348,7 @@ export default function Page() {
     const elementHeader = isConcreteExport ? "מבנה/אלמנט" : "מס׳ שכבה";
     const subElementHeader = isConcreteExport ? "תת אלמנט" : "כביש / מבנה";
     const procedureNo = template.procedureNo || "";
+    const formNo = template.formNo || "";
     const edition = sourceRecord.revision || template.edition || CHECKLIST_DEFAULT_REVISION;
     const procedureDate = sourceRecord.revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -22360,6 +22371,7 @@ export default function Page() {
     const toStationSection = sourceRecord.toStationSection || sourceRecord.toSection || "";
     const offset = sourceRecord.offset || sourceRecord.side || "";
     const notes = sourceRecord.notes || "";
+    const isSewerExport = String(templateKey) === "sewerLines";
 
     const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
 
@@ -22406,8 +22418,8 @@ export default function Page() {
     return `<div class="checklist-export-title">${safeText(title)}</div>
     <table class="doc-header">
       <tbody>
-        <tr><td>${elementHeader}:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-        <tr><td>${valueOrBlank(procedureNo, 20)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
+        <tr><td>${formNo ? "נוהל / טופס" : elementHeader}:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td>${valueOrBlank([procedureNo, formNo].filter(Boolean).join(" / "), 24)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
       </tbody>
     </table>
     <table class="checklist-top-table source-meta">
@@ -22420,6 +22432,12 @@ export default function Page() {
         <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
       </tbody>
     </table>
+    ${isSewerExport ? `<table class="checklist-top-table source-meta">
+      <tbody>
+        <tr><th>מס׳ קו</th><th>בין שוחות / קטע</th><th>חומר הצינור</th><th>קוטר הצינור</th><th>אורך הקו במטרים</th></tr>
+        <tr><td>${valueOrBlank(sourceRecord.lineNo, 18)}</td><td>${valueOrBlank(sourceRecord.betweenManholes, 28)}</td><td>${valueOrBlank(sourceRecord.pipeMaterial, 22)}</td><td>${valueOrBlank(sourceRecord.pipeDiameter, 18)}</td><td>${valueOrBlank(sourceRecord.lineLengthMeters, 18)}</td></tr>
+      </tbody>
+    </table>` : ""}
     <table class="check-table">
       <thead>
         <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה &nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>

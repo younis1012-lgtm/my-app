@@ -255,7 +255,7 @@ export function ControlProcessesSection({ guardedBody, currentProjectId, process
       <Field label="מיקום / קטע"><input style={styles.input} value={form.location || ""} onChange={(e) => setField("location", e.target.value)} /></Field>
       <Field label="מחתך"><input style={styles.input} value={form.fromChainage || ""} onChange={(e) => setField("fromChainage", e.target.value)} /></Field>
       <Field label="עד חתך"><input style={styles.input} value={form.toChainage || ""} onChange={(e) => setField("toChainage", e.target.value)} /></Field>
-      <Field label="סטטוס"><select style={styles.input} value={form.status || "טיוטה"} onChange={(e) => setField("status", e.target.value)}><option value="טיוטה">בהליך</option><option>בביצוע</option><option>ממתין לאישור</option><option>מאושר</option><option>נדחה</option><option>נעול</option></select></Field>
+      <Field label="סטטוס"><select style={styles.input} value={form.status || "טיוטה"} onChange={(e) => setField("status", e.target.value)}><option value="טיוטה">בתהליך / בטיפול</option><option>בביצוע</option><option>ממתין לאישור</option><option>מאושר</option><option>נדחה</option><option>נעול</option></select></Field>
     </div>
     <div style={styles.buttonRow}><button style={styles.primaryBtn} onClick={save}>{editingId ? "עדכן תהליך" : "פתח תהליך בקרה"}</button><button style={styles.secondaryBtn} onClick={reset}>נקה</button></div>
     <div style={{ ...styles.cardGrid, marginTop: 18 }}>
