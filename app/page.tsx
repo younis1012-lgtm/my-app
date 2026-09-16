@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
+import { ColumnFilter } from "./components/ColumnFilter";
+import { assignmentProjectIds, matchesProjectAssignment } from "./lib/projectAssignments";
+import { restoreProjectUserDetails, saveProjectUserRows } from "./lib/projectUserStorage";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
+import { NCR_HANDLER_OPTIONS, NCR_RESPONSIBLE_OPTIONS, canManageNonconformances, nonconformanceActor } from "./lib/nonconformanceWorkflow";
+import { preparePreliminaryEmailRecords } from "./lib/preliminaryEmail";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import type {
@@ -107,6 +113,7 @@ type ProjectEmailUser = {
   email: string;
   phone?: string;
   smtpAppPassword?: string;
+  directoryOnly?: boolean;
   active: boolean;
   createdAt: string;
 };
@@ -175,6 +182,7 @@ const readProjectEmailUsers = (): ProjectEmailUser[] => {
         email: String(item?.email || "").trim(),
         phone: String(item?.phone || ""),
         smtpAppPassword: String(item?.smtpAppPassword || item?.smtp_app_password || ""),
+        directoryOnly: item?.directoryOnly === true,
         active: item?.active !== false,
         createdAt: String(item?.createdAt || new Date().toISOString()),
       }))
@@ -190,29 +198,32 @@ const writeProjectEmailUsers = (users: ProjectEmailUser[]) => {
   window.localStorage.setItem(PROJECT_EMAIL_USERS_STORAGE_KEY, JSON.stringify(dedupeProjectEmailUsers(users)));
 };
 
-const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[]) => {
-  if (!isSupabaseConfigured || !supabase) return;
-  const normalized = dedupeProjectEmailUsers(users).map((user) => ({
-    id: uuidFromProjectEmailUser(user),
+const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId: string, canManageCredentials = false) => {
+  const normalized = dedupeProjectEmailUsers(users).filter(user => !user.directoryOnly && normalizeStoredProjectId(user.projectId) === projectId).map((user) => ({
+    id: user.id,
     project_id: normalizeStoredProjectId(user.projectId),
     name: user.name,
     role: user.role,
     company: user.company,
     email: user.email,
     phone: user.phone || "",
-    smtp_app_password: user.smtpAppPassword || "",
+    ...(canManageCredentials ? { smtp_app_password: user.smtpAppPassword || "" } : {}),
     active: user.active !== false,
     created_at: toSupabaseTimestamp(user.createdAt),
   }));
-  const { error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).upsert(normalized, { onConflict: "id" });
-  if (error) throw error;
+  await saveProjectUserRows(supabase, projectId, normalized);
 };
 
-const loadProjectEmailUsersFromCloud = async () => {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase.from(PROJECT_EMAIL_USERS_TABLE).select("*");
-  if (error) throw error;
-  const users = (Array.isArray(data) ? data : []).map((item: any) => ({
+const loadProjectEmailUsersFromCloud = async (projectId: string) => {
+  const session = await supabase?.auth.getSession();
+  const token = session?.data.session?.access_token;
+  if (!token) throw new Error("יש לצאת ולהתחבר שוב כדי לטעון את משתמשי הפרויקט");
+  const params = new URLSearchParams({projectId, mode: "manage-users"});
+  const response = await fetch('/api/email-directory?' + params, {headers:{Authorization: 'Bearer ' + token}, cache:'no-store'});
+  const directory = await response.json();
+  if (!response.ok) throw new Error(directory.error || "טעינת משתמשי הפרויקט נכשלה");
+  const data = directory.users || [];
+  const users: ProjectEmailUser[] = (Array.isArray(data) ? data : []).map((item: any) => ({
     id: String(item?.id || crypto.randomUUID()),
     projectId: normalizeStoredProjectId(item?.project_id || item?.projectId),
     name: String(item?.name || ""),
@@ -224,7 +235,11 @@ const loadProjectEmailUsersFromCloud = async () => {
     active: item?.active !== false,
     createdAt: String(item?.created_at || item?.createdAt || new Date().toISOString()),
   })).filter((item: ProjectEmailUser) => item.projectId && item.email);
-  return dedupeProjectEmailUsers(users);
+  for (const contact of directory.contacts || []) {
+    if (!users.some(user => user.email.toLowerCase() === String(contact.email).toLowerCase()))
+      users.push({id: crypto.randomUUID(), projectId, name: contact.name, email: contact.email, role: contact.role || "", company: contact.company || "", phone: contact.phone || "", smtpAppPassword: "", active: true, createdAt: new Date().toISOString(), directoryOnly: true});
+  }
+  return {users: dedupeProjectEmailUsers(users), canManage: directory.canManageUsers === true, canManageCredentials: directory.canManageCredentials === true};
 };
 
 type ProjectProfile = {
@@ -2054,6 +2069,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
 });
 
 const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null => {
+  if (isLegacyHoldPoint(value)) return null;
   if (!value || typeof value !== "object") return null;
   const status = SUPERVISION_REPORT_STATUS_OPTIONS.includes(value.status)
     ? value.status
@@ -2496,19 +2512,12 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
               .map((alias: unknown) => String(alias ?? "").trim())
               .filter(Boolean)
           : undefined,
-        projectIds: Array.isArray(item.projectIds ?? item.project_ids)
-          ? (item.projectIds ?? item.project_ids)
-              .map(normalizeStoredProjectId)
-              .filter(Boolean)
-          : item.projectId || item.project_id
-            ? [normalizeStoredProjectId(item.projectId ?? item.project_id)].filter(Boolean)
-            : item.code && normalizeStoredProjectId(item.code).includes("-")
-              ? [normalizeStoredProjectId(item.code)].filter(Boolean)
-              : undefined,
+        projectIds: assignmentProjectIds(item).length ? assignmentProjectIds(item).map(normalizeStoredProjectId)
+          : item.code && normalizeStoredProjectId(item.code).includes("-") ? [normalizeStoredProjectId(item.code)] : undefined,
         projectName:
           normalizeAccessRole(item.role) === "admin"
             ? null
-            : String(item.projectName ?? "").trim(),
+            : String(item.projectName ?? item.project_name ?? "").trim(),
         signatureDataUrl: String(item.signatureDataUrl ?? ""),
         signatureFileName: String(item.signatureFileName ?? ""),
       }),
@@ -2542,13 +2551,8 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   ).trim(),
   role: normalizeAccessRole(row?.role),
   code: row?.code ? String(row.code).trim() : undefined,
-  projectIds: Array.isArray(row?.project_ids ?? row?.projectIds)
-    ? (row.project_ids ?? row.projectIds).map(normalizeStoredProjectId).filter(Boolean)
-    : row?.project_id
-      ? [normalizeStoredProjectId(row.project_id)].filter(Boolean)
-      : row?.code && normalizeStoredProjectId(row.code).includes("-")
-        ? [normalizeStoredProjectId(row.code)].filter(Boolean)
-        : undefined,
+  projectIds: assignmentProjectIds(row).length ? assignmentProjectIds(row).map(normalizeStoredProjectId)
+    : row?.code && normalizeStoredProjectId(row.code).includes("-") ? [normalizeStoredProjectId(row.code)] : undefined,
   projectName:
     normalizeAccessRole(row?.role) === "admin"
       ? null
@@ -2687,33 +2691,14 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     }))
     .filter((row) => row.projectId);
 
-  // project_members contains older, incomplete assignments for some users.
-  // Project personnel are also assigned in project_email_users; include those
-  // active assignments so a QC user can actually open every project shown in
-  // the project picker (notably Road 806 for q.controling@gmail.com).
+  // Read personnel assignments through the authenticated server; mailbox secrets remain private.
   let personnelMemberships: Array<{ projectId: string; role: ProjectAccess["role"]; projectName: string }> = [];
-  if (email) {
-    const { data: personnelRows, error: personnelError } = await supabase
-      .from(PROJECT_EMAIL_USERS_TABLE)
-      .select("project_id, role, active")
-      .ilike("email", email)
-      .eq("active", true);
-    if (!personnelError) {
-      personnelMemberships = (Array.isArray(personnelRows) ? personnelRows : [])
-        .map((row: any) => ({
-          projectId: normalizeStoredProjectId(row?.project_id),
-          role: isQualityControlProjectUser({
-            name: "",
-            role: String(row?.role ?? ""),
-            company: "",
-            active: row?.active !== false,
-          })
-            ? ("readwrite" as const)
-            : ("readonly" as const),
-          projectName: "",
-        }))
-        .filter((row) => row.projectId);
-    }
+  const session = await supabase.auth.getSession();
+  if (session.data.session?.access_token) {
+    const result = await fetch('/api/email-directory?mode=memberships', {headers:{Authorization:`Bearer ${session.data.session.access_token}`},cache:'no-store'});
+    if (!result.ok) throw new Error('טעינת שיוכי הפרויקטים נכשלה. יש לנסות שוב');
+    const directory = await result.json();
+    personnelMemberships = directory.memberships;
   }
 
   const membershipRoleRank: Record<ProjectAccess["role"], number> = {
@@ -3120,6 +3105,22 @@ type PlanRecord = {
   notes: string;
   attachments: StoredAttachment[];
   savedAt: string;
+};
+
+type LabEmailEvent = {
+  id: string;
+  project_id?: string;
+  from_email?: string;
+  subject?: string;
+  received_at?: string;
+  seen?: boolean;
+};
+
+type LabSenderRow = {
+  id: string;
+  project_id: string;
+  lab_name: string;
+  lab_email: string;
 };
 
 type GeneratedProjectTreeDraft = {
@@ -4329,8 +4330,8 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
   {
     id: "water-drainage",
     title: "רשימות תיוג מים וניקוז",
-    description: "מערכות מים, צנרת ניקוז וריצוף תעלות",
-    templateKeys: ["waterSystems", "drainagePiping", "channelPaving"],
+    description: "מערכות מים, קווי ביוב, צנרת ניקוז וריצוף תעלות",
+    templateKeys: ["waterSystems", "sewerLines", "drainagePiping", "channelPaving"],
   },
   {
     id: "roadworks",
@@ -4507,8 +4508,8 @@ const createDefaultNonconformance = (): Omit<
     contractor: "",
     qualityAssurance: "",
     qualityControl: "",
-    openedBy: "QA / QC",
-    openedRole: "בקרת איכות",
+    openedBy: "",
+    openedRole: "",
     raisedBy: "",
     date: "",
     structureNodeId: "",
@@ -4936,6 +4937,29 @@ const isProjectStructureAccessError = (error: unknown) => {
       text.includes("permission denied"))
   );
 };
+const CLOUD_DELETE_BLOCKED_MESSAGE =
+  "המחיקה לא בוצעה בפועל בשרת (ייתכן שאין למשתמש הנוכחי הרשאה מספקת למחיקה). פנה למנהל המערכת אם התופעה חוזרת.";
+// Shared helper for every "delete row from Supabase" call in the app.
+// Two things can make a delete silently do nothing even though no error is
+// thrown: (1) a DELETE row-level-security policy only has a USING clause (no
+// WITH CHECK), so Postgres quietly deletes 0 rows instead of raising an
+// error when it blocks the request; (2) the id simply doesn't match. Adding
+// .select(idColumn) makes Supabase return the rows it actually deleted, so
+// we can tell the difference between "deleted" and "silently blocked" and
+// surface a real error to the user in both cases instead of pretending it
+// worked.
+const deleteCloudRow = async (
+  client: NonNullable<typeof supabase>,
+  table: string,
+  id: string,
+  idColumn: string = "id",
+) => {
+  const result = await client.from(table).delete().eq(idColumn, id).select(idColumn);
+  if (result.error) throw result.error;
+  if (!result.data || result.data.length === 0)
+    throw new Error(CLOUD_DELETE_BLOCKED_MESSAGE);
+  return result;
+};
 const isOptionalCloudTable = (table: string) =>
   table === CONTROL_PROCESS_TABLE ||
   table === SUPERVISION_REPORTS_TABLE ||
@@ -4975,9 +4999,21 @@ const writeLocalCurrentProjectId = (
 };
 const readRequestedProjectIdFromUrl = () => {
   if (typeof window === "undefined") return null;
-  return normalizeStoredProjectId(
-    new URLSearchParams(window.location.search).get("projectId"),
-  ) || null;
+  const params = new URLSearchParams(window.location.search);
+  const direct = normalizeStoredProjectId(params.get("projectId"));
+  if (direct) return direct;
+  // קישורי הזמנה ישנים שמים את מזהה הפרויקט בפרמטר project (כ-UUID) ולא
+  // ב-projectId. יש לזהות גם אותם, אחרת הפונקציות שמסתמכות עליה (לדוגמה
+  // טעינת הנתונים מהענן ובחירת הפרויקט הפעיל) מתעלמות מהבקשה שבכתובת.
+  const legacyValue = String(params.get("project") ?? "").trim();
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      legacyValue,
+    )
+  ) {
+    return normalizeStoredProjectId(legacyValue) || null;
+  }
+  return null;
 };
 const consumeRequestedProjectRoute = () => {
   if (typeof window === "undefined") return;
@@ -4988,31 +5024,6 @@ const consumeRequestedProjectRoute = () => {
   url.searchParams.delete("returnToProject");
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 };
-
-// Supabase/PostgREST silently caps any single request at the project's
-// "Max Rows" setting (1000 by default) — it returns 200 OK with a truncated
-// page, not an error. Every list in this app is loaded through this helper
-// so that projects with more rows than the cap don't lose data off the
-// dashboard; it pages through with .range() until a short page confirms
-// there's nothing left, regardless of what the server-side cap is set to.
-const SUPABASE_PAGE_SIZE = 1000;
-
-async function fetchAllRows<T = any>(
-  buildPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
-): Promise<{ data: T[] | null; error: any }> {
-  let allRows: T[] = [];
-  let from = 0;
-  while (true) {
-    const to = from + SUPABASE_PAGE_SIZE - 1;
-    const { data, error } = await buildPage(from, to);
-    if (error) return { data: allRows.length ? allRows : null, error };
-    const rows = data ?? [];
-    allRows = allRows.concat(rows);
-    if (rows.length < SUPABASE_PAGE_SIZE) break;
-    from += SUPABASE_PAGE_SIZE;
-  }
-  return { data: allRows, error: null };
-}
 
 async function selectTable(table: string, orderColumn?: string) {
   const empty = { data: [], error: null } as any;
@@ -5025,47 +5036,30 @@ async function selectTable(table: string, orderColumn?: string) {
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !anonKey)
       return { data: [], error: new Error("Supabase is not configured") } as any;
-    const allRows: any[] = [];
-    let offset = 0;
-    while (true) {
-      const query = new URLSearchParams({
-        select: "*",
-        limit: String(SUPABASE_PAGE_SIZE),
-        offset: String(offset),
-        order: orderColumn ? `${orderColumn}.desc` : "id.asc",
-      });
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
-        {
-          headers: {
-            apikey: anonKey,
-            Authorization: `Bearer ${anonKey}`,
-          },
-          cache: "no-store",
+    const query = new URLSearchParams({ select: "*" });
+    if (orderColumn) query.set("order", `${orderColumn}.desc`);
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+      {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`,
         },
-      );
-      if (!response.ok)
-        return {
-          data: allRows,
-          error: new Error(`Supabase REST ${table}: ${response.status} ${await response.text()}`),
-        } as any;
-      const page = await response.json();
-      const rows = Array.isArray(page) ? page : [];
-      allRows.push(...rows);
-      if (rows.length < SUPABASE_PAGE_SIZE) break;
-      offset += SUPABASE_PAGE_SIZE;
-    }
-    return { data: allRows, error: null } as any;
+        cache: "no-store",
+      },
+    );
+    if (!response.ok)
+      return {
+        data: [],
+        error: new Error(`Supabase REST ${table}: ${response.status} ${await response.text()}`),
+      } as any;
+    return { data: await response.json(), error: null } as any;
   };
 
-  const fetchUnordered = () =>
-    fetchAllRows((from, to) =>
-      supabase!.from(table).select("*").order("id", { ascending: true }).range(from, to),
-    );
-
   try {
+    const baseQuery = supabase!.from(table).select("*");
     if (!orderColumn) {
-      const result = await fetchUnordered();
+      const result = await baseQuery;
       if (
         result.error &&
         isMissingRelation(result.error) &&
@@ -5075,18 +5069,15 @@ async function selectTable(table: string, orderColumn?: string) {
       if (result.error) return selectViaRest();
       return result;
     }
-    const ordered = await fetchAllRows((from, to) =>
-      supabase!
-        .from(table)
-        .select("*")
-        .order(orderColumn, { ascending: false })
-        .range(from, to),
-    );
+    const ordered = await supabase!
+      .from(table)
+      .select("*")
+      .order(orderColumn, { ascending: false });
     if (!ordered.error) return ordered;
     if (isMissingRelation(ordered.error) && isOptionalCloudTable(table))
       return empty;
     if (isMissingColumnError(ordered.error, orderColumn)) {
-      const result = await fetchUnordered();
+      const result = await baseQuery;
       if (
         result.error &&
         isMissingRelation(result.error) &&
@@ -5106,6 +5097,8 @@ async function selectProjectTable(
   table: string,
   orderColumn: string | undefined,
   projectIds: string[],
+  summariesOnly = true,
+  selectedColumns = "*",
 ) {
   // Keep legacy cloud ids intact here. projectCloudIdsForCanonicalId deliberately
   // returns both the canonical id and historical aliases; normalizing this list
@@ -5121,6 +5114,50 @@ async function selectProjectTable(
   if (!scopedProjectIds.length) return selectTable(table, orderColumn);
 
   const empty = { data: [], error: null } as any;
+  const selectHeavyTableSummaries = async () => {
+    const summarySelect: Record<string, string> = {
+      checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
+      trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id,details",
+      preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
+      rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
+      [CONTROL_PROCESS_TABLE]: "id,project_id,process_no,title,work_type,spec_section,location,from_section,to_section,status,checklist_ids,rfi_ids,nonconformance_ids,audit_log,approval,locked_at,saved_at,created_at,structure_node_id",
+      [SUPERVISION_REPORTS_TABLE]: "id,project_id,title,report_no,date,structure_node_id,location,author,status,treatment_date,saved_at",
+      [PLANS_TABLE]: "id,project_id,plan_no,revision,title,discipline,date,status,saved_at",
+    };
+    const select = summarySelect[table];
+    if (!select) return null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) return null;
+
+    const headers = { apikey: anonKey, Authorization: `Bearer ${anonKey}` };
+    try {
+      const query = new URLSearchParams({
+        select,
+        project_id: `in.(${scopedProjectIds.join(",")})`,
+      });
+      if (orderColumn) query.set("order", `${orderColumn}.desc`);
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+        { headers, cache: "no-store" },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      return { data: Array.isArray(rows) ? rows : [], error: null } as any;
+    } catch (error) {
+      console.warn(`Summary cloud load failed for ${table}`, error);
+      return null;
+    }
+  };
+
+  // Folder views need metadata only. Full forms and attachments are fetched
+  // on demand when the user opens a record.
+  if (summariesOnly) {
+    const summaryResult = await selectHeavyTableSummaries();
+    if (summaryResult) return summaryResult;
+  }
+
   // Some production RLS policies still compare project_members against a
   // historical project UUID. In that state an authenticated SELECT succeeds
   // but returns zero rows, while the table's existing public read policy can
@@ -5131,43 +5168,32 @@ async function selectProjectTable(
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !anonKey) return empty;
     try {
-      const allRows: any[] = [];
-      let offset = 0;
-      while (true) {
-        const query = new URLSearchParams({
-          select: "*",
-          project_id: `in.(${scopedProjectIds.join(",")})`,
-          limit: String(SUPABASE_PAGE_SIZE),
-          offset: String(offset),
-          order: orderColumn ? `${orderColumn}.desc` : "id.asc",
-        });
-        const response = await fetch(
-          `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
-          {
-            headers: {
-              apikey: anonKey,
-              Authorization: `Bearer ${anonKey}`,
-            },
-            cache: "no-store",
+      const query = new URLSearchParams({
+        select: selectedColumns,
+        project_id: `in.(${scopedProjectIds.join(",")})`,
+      });
+      if (orderColumn) query.set("order", `${orderColumn}.desc`);
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+        {
+          headers: {
+            apikey: anonKey,
+            Authorization: `Bearer ${anonKey}`,
           },
-        );
-        if (!response.ok) return { data: allRows, error: null } as any;
-        const page = await response.json();
-        const rows = Array.isArray(page) ? page : [];
-        allRows.push(...rows);
-        if (rows.length < SUPABASE_PAGE_SIZE) break;
-        offset += SUPABASE_PAGE_SIZE;
-      }
-      return { data: allRows, error: null } as any;
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) return empty;
+      const data = await response.json();
+      return { data: Array.isArray(data) ? data : [], error: null } as any;
     } catch {
       return empty;
     }
   };
-  const buildQuery = () => supabase!.from(table).select("*").in("project_id", scopedProjectIds);
+  const buildQuery = () => supabase!.from(table).select(selectedColumns).in("project_id", scopedProjectIds);
+  const baseQuery = buildQuery();
   if (!orderColumn) {
-    const result = await fetchAllRows((from, to) =>
-      buildQuery().order("id", { ascending: true }).range(from, to),
-    );
+    const result = await baseQuery;
     if (result.error && isMissingRelationError(result.error) && isOptionalCloudTable(table))
       return empty;
     if (result.error && isMissingColumnError(result.error, "project_id"))
@@ -5183,9 +5209,7 @@ async function selectProjectTable(
     return result;
   }
 
-  const ordered = await fetchAllRows((from, to) =>
-    buildQuery().order(orderColumn, { ascending: false }).range(from, to),
-  );
+  const ordered = await buildQuery().order(orderColumn, { ascending: false });
   if (!ordered.error) {
     if (!ordered.data?.length) {
       const recovered = await selectViaScopedAnonRest();
@@ -5205,6 +5229,43 @@ async function selectProjectTable(
     if (recovered.data?.length) return recovered;
   }
   return ordered;
+}
+
+async function loadProjectHoldPoints(projectIds: string[]): Promise<HoldPointRecord[]> {
+  const [modern, legacy] = await Promise.all([
+    selectProjectTable(HOLD_POINTS_TABLE, "serial_no", projectIds, false),
+    selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", projectIds, false,
+      "id,project_id,title,report_no,date,structure_node_id,location,author,status,notes,saved_at"),
+  ]);
+  if (modern.error && !isMissingHoldPointsTable(modern.error)) throw modern.error;
+  if (legacy.error) throw legacy.error;
+        const modernRecords = (modern.data ?? []).map((row: any) => {
+          const details = row.details && typeof row.details === "object" ? row.details : {};
+          return {
+            ...details,
+            id: row.id,
+            projectId: normalizeStoredProjectId(row.project_id),
+            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
+            referenceNo: row.reference_no ?? details.referenceNo ?? "",
+            name: row.name ?? details.name ?? "",
+            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
+            element: row.element ?? details.element ?? "",
+            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
+            checklistIds: details.checklistIds ?? [],
+            nonconformanceIds: details.nonconformanceIds ?? [],
+            trialSectionIds: details.trialSectionIds ?? [],
+            documents: details.documents ?? [],
+            createdAt: row.created_at ?? details.createdAt ?? "",
+            updatedAt: row.updated_at ?? details.updatedAt ?? "",
+          } as HoldPointRecord;
+        });
+  const records = new Map<string, HoldPointRecord>();
+  for (const row of legacy.data ?? []) {
+    const record = legacyHoldPointToRecord(row);
+    if (record) records.set(record.id, { ...record, projectId: normalizeStoredProjectId(record.projectId) });
+  }
+  for (const record of modernRecords) records.set(record.id, record);
+  return [...records.values()];
 }
 
 function cloudRowsOrFallback<T = any>(
@@ -6086,6 +6147,7 @@ function ChecklistsSection({
   const isPileChecklist =
     String(checklistForm.templateKey) === "dryMethodPiles" ||
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
+  const isSewerChecklist = String(checklistForm.templateKey) === "sewerLines";
   const isEarthworksChecklistForm =
     ["excavation", "baseCourseSpreading", "controlledCompaction", "standardCompaction", "asphaltSite", "asphaltWorks"].includes(String(checklistForm.templateKey)) ||
     /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים|אספלט/.test(
@@ -6673,6 +6735,15 @@ function ChecklistsSection({
                 style={inputStyle}
               />
             </label>
+            {isSewerChecklist ? (
+              <>
+                <label><span style={labelStyle}>מס׳ קו</span><input value={(checklistForm as any).lineNo ?? ""} onChange={(event) => setField("lineNo", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>בין שוחות / קטע</span><input value={(checklistForm as any).betweenManholes ?? ""} onChange={(event) => setField("betweenManholes", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>חומר הצינור</span><input value={(checklistForm as any).pipeMaterial ?? ""} onChange={(event) => setField("pipeMaterial", event.target.value)} style={inputStyle} /></label>
+                <label><span style={labelStyle}>קוטר הצינור</span><input value={(checklistForm as any).pipeDiameter ?? ""} onChange={(event) => setField("pipeDiameter", event.target.value)} style={inputStyle} placeholder="לדוגמה: 200 מ״מ" /></label>
+                <label><span style={labelStyle}>אורך הקו</span><input value={(checklistForm as any).lineLengthMeters ?? ""} onChange={(event) => setField("lineLengthMeters", event.target.value)} style={inputStyle} placeholder="במטרים" /></label>
+              </>
+            ) : null}
           </div>
           <label style={{ display: "block", marginTop: 12 }}>
             <span style={labelStyle}>הערות</span>
@@ -8870,6 +8941,34 @@ function SupervisionReportsSection({
   onSendEmail: (record: SupervisionReportRecord) => void;
 }) {
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordFilters, setRecordFilters] = useState<Record<string, string>>({});
+  const recordsPageSize = 10;
+  const supervisionFilterColumns = [
+    { key: "serial", label: "מס׳", value: (_record: SupervisionReportRecord, index: number) => index + 1 },
+    { key: "title", label: "נושא", value: (record: SupervisionReportRecord) => record.title || "דוח פיקוח" },
+    { key: "reportNo", label: "מספר", value: (record: SupervisionReportRecord) => record.reportNo },
+    { key: "date", label: "תאריך", value: (record: SupervisionReportRecord) => record.date },
+    { key: "treatmentDate", label: "תאריך טיפול", value: (record: SupervisionReportRecord) => record.treatmentDate },
+    { key: "location", label: "מיקום", value: (record: SupervisionReportRecord) => record.location },
+    { key: "author", label: "עורך", value: (record: SupervisionReportRecord) => record.author },
+    { key: "status", label: "סטטוס", value: (record: SupervisionReportRecord) => record.status },
+    { key: "files", label: "קבצים", value: (record: SupervisionReportRecord) => (record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file) => file.name).join(" ") },
+  ];
+  const filteredSupervisionRecords = records.filter((record, index) =>
+    supervisionFilterColumns.every((column) => {
+      const query = normalizeTableFilter(recordFilters[column.key]);
+      return !query || normalizeTableFilter(column.value(record, index)).includes(query);
+    }),
+  );
+  const recordsTotalPages = Math.max(1, Math.ceil(filteredSupervisionRecords.length / recordsPageSize));
+  const safeRecordsPage = Math.min(recordsPage, recordsTotalPages);
+  const visibleRecords = filteredSupervisionRecords.slice((safeRecordsPage - 1) * recordsPageSize, safeRecordsPage * recordsPageSize);
+  const firstVisibleRecord = visibleRecords.length ? (safeRecordsPage - 1) * recordsPageSize + 1 : 0;
+  const lastVisibleRecord = Math.min(safeRecordsPage * recordsPageSize, filteredSupervisionRecords.length);
+  useEffect(() => {
+    if (recordsPage > recordsTotalPages) setRecordsPage(recordsTotalPages);
+  }, [recordsPage, recordsTotalPages]);
   const input: CSSProperties = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -9010,11 +9109,21 @@ function SupervisionReportsSection({
                     <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
                   ))}
                 </tr>
+                <tr style={{ background: "#f8fafc" }}>
+                  {supervisionFilterColumns.map((column) => (
+                    <th key={column.key} style={{ padding: 6, border: "1px solid #cbd5e1" }}>
+                      <ColumnFilter options={records.map((record, index) => String(column.value(record, index) ?? ""))} aria-label={`סינון לפי ${column.label}`} value={recordFilters[column.key] || ""} onChange={(event) => { setRecordFilters((current) => ({ ...current, [column.key]: event.target.value })); setRecordsPage(1); }} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
+                    </th>
+                  ))}
+                  <th style={{ padding: 6, border: "1px solid #cbd5e1" }}>
+                    {Object.values(recordFilters).some((value) => normalizeTableFilter(value)) ? <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 9px" }} onClick={() => { setRecordFilters({}); setRecordsPage(1); }}>נקה</button> : null}
+                  </th>
+                </tr>
               </thead>
               <tbody>
-                {records.map((record, index) => (
+                {visibleRecords.map((record, index) => (
                   <tr key={record.id}>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{index + 1}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{(safeRecordsPage - 1) * recordsPageSize + index + 1}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
@@ -9039,6 +9148,21 @@ function SupervisionReportsSection({
                 ))}
               </tbody>
             </table>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", paddingTop: 12 }}>
+              <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisibleRecord}–{lastVisibleRecord} מתוך {filteredSupervisionRecords.length}{filteredSupervisionRecords.length !== records.length ? ` (סה״כ ${records.length})` : ""}</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <button type="button" style={styles.secondaryBtn} disabled={safeRecordsPage === 1} onClick={() => setRecordsPage((value) => Math.max(1, value - 1))}>הקודם</button>
+                {Array.from({ length: recordsTotalPages }, (_, index) => index + 1)
+                  .filter((value) => recordsTotalPages <= 7 || value === 1 || value === recordsTotalPages || Math.abs(value - safeRecordsPage) <= 2)
+                  .map((value, index, values) => (
+                    <Fragment key={value}>
+                      {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                      <button type="button" onClick={() => setRecordsPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safeRecordsPage ? "#0f172a" : "#fff", color: value === safeRecordsPage ? "#fff" : "#0f172a" }}>{value}</button>
+                    </Fragment>
+                  ))}
+                <button type="button" style={styles.secondaryBtn} disabled={safeRecordsPage === recordsTotalPages} onClick={() => setRecordsPage((value) => Math.min(recordsTotalPages, value + 1))}>הבא</button>
+              </div>
+            </div>
           </div>
         ) : (
           <div style={styles.emptyBox}>אין עדיין דוחות פיקוח עליון. לחץ הוספה, מלא פרטים ולחץ שמירה.</div>
@@ -9052,6 +9176,29 @@ function SupervisionReportsSection({
 type FolderColumn = {
   label: string;
   value: (record: any, index: number) => React.ReactNode;
+};
+
+const tableCellSearchText = (value: React.ReactNode): string => {
+  if (value == null || typeof value === "boolean") return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(tableCellSearchText).join(" ");
+  if (typeof value === "object" && "props" in value) {
+    return tableCellSearchText((value as any).props?.children ?? (value as any).props?.value);
+  }
+  return String(value);
+};
+
+const normalizeTableFilter = (value: unknown) =>
+  normalizeLooseText(value).toLocaleLowerCase("he-IL");
+
+const nonconformanceOpeningParty = (record: any) => {
+  const details = record?.details && typeof record.details === "object" ? record.details : {};
+  const role = normalizeTableFilter(
+    record?.openedRole || record?.opened_role || details.openedRole || details.opened_role,
+  );
+  if (role.includes("qa") || role.includes("אבטחת")) return "QA";
+  if (role.includes("qc") || role.includes("בקרת")) return "QC";
+  return "QC";
 };
 
 function getRecordTitle(record: any) {
@@ -9319,11 +9466,37 @@ function collectCertificateRows(record: any): any[] {
 }
 
 function getPreliminaryExpiryDate(record: any) {
-  const direct = normalizeDateValue(record?.expiryDate || record?.validUntil);
+  const nested = record?.supplier || record?.subcontractor || record?.material || {};
+  const direct = normalizeDateValue(
+    nested?.expiryDate ||
+      nested?.expiry_date ||
+      nested?.validUntil ||
+      nested?.valid_until ||
+      nested?.expirationDate ||
+      nested?.certificateExpiryDate ||
+      nested?.licenseExpiryDate ||
+      record?.expiryDate ||
+      record?.expiry_date ||
+      record?.validUntil ||
+      record?.valid_until ||
+      record?.expirationDate ||
+      record?.certificateExpiryDate ||
+      record?.licenseExpiryDate,
+  );
   if (direct) return direct;
   const rows = collectCertificateRows(record);
-  const withExpiry = rows.find((row: any) => normalizeDateValue(row?.expiryDate || row?.expiry_date || row?.validUntil));
-  return normalizeDateValue(withExpiry?.expiryDate || withExpiry?.expiry_date || withExpiry?.validUntil) || "";
+  const rowExpiry = (row: any) =>
+    normalizeDateValue(
+      row?.expiryDate ||
+        row?.expiry_date ||
+        row?.validUntil ||
+        row?.valid_until ||
+        row?.expirationDate ||
+        row?.certificateExpiryDate ||
+        row?.licenseExpiryDate,
+    );
+  const withExpiry = rows.find((row: any) => rowExpiry(row));
+  return rowExpiry(withExpiry) || "";
 }
 
 function getPreliminaryApprovalDate(record: any) {
@@ -9390,7 +9563,7 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
   const expired = isExpiredDate(date);
   return (
     <span style={{ color: expired ? "#dc2626" : undefined, fontWeight: expired ? 900 : 700 }}>
-      {date || "-"}{expired ? " ✖" : ""}
+      {date || "לא הוזן תוקף"}{expired ? " ✖" : ""}
     </span>
   );
 }
@@ -9398,6 +9571,7 @@ function ExpiryDateCell({ value }: { value?: unknown }) {
 
 
 type HomeDashboardProps = {
+  projectName: string;
   projects: Project[];
   projectChecklists: any[];
   projectNonconformances: any[];
@@ -9425,7 +9599,7 @@ const statusTone = (tone: "good" | "warn" | "danger" | "info") => {
   return { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8", pill: "#2563eb", soft: "#dbeafe" };
 };
 
-function HomeSection({ projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
+function HomeSection({ projectName, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports, projectPlans, homeModules, setSection }: HomeDashboardProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const isClosed = (value: unknown) => {
@@ -9462,25 +9636,38 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     const openTrial = projectTrialSections.filter((item) => isOpen(item?.status)).length;
     return { openNcr, openRfi, pendingApprovals, overdue, checklistPercent, openTrial };
   }, [projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports]);
+  const formatShortDate = (value: unknown) => {
+    const date = parseDate(value);
+    if (!date) return "";
+    return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+  };
+  const urgencyTag = (record: any) => {
+    if (isOverdue(record)) return { tagLabel: "דחוף", tone: "danger" as const };
+    const date = parseDate(record?.expectedCloseDate ?? record?.closeDate ?? record?.dueDate ?? record?.date ?? record?.openDate);
+    if (date && date.getTime() === today.getTime()) return { tagLabel: "להיום", tone: "warn" as const };
+    return { tagLabel: "בתהליך / בטיפול", tone: "info" as const };
+  };
   const urgentTasks = [
-    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", meta: item?.status || "פתוח", tone: "danger" as const })),
-    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", meta: item?.status || "ממתין", tone: "warn" as const })),
-    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", meta: item?.status || "בטיפול", tone: "info" as const })),
+    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", subtitle: "אי התאמות · בקרת איכות", date: formatShortDate(item?.expectedCloseDate ?? item?.closeDate ?? item?.dueDate ?? item?.date), ...urgencyTag(item) })),
+    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", subtitle: "RFI · תכנון ומסמכים", date: formatShortDate(item?.dueDate ?? item?.date), ...urgencyTag(item) })),
+    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", subtitle: "קטע ניסוי · בקרת איכות", date: formatShortDate(item?.date ?? item?.expectedCloseDate), ...urgencyTag(item) })),
   ].slice(0, 5);
-  const kpis = [
-    { icon: "⚠️", label: "אי התאמות", value: metrics.openNcr, tone: metrics.openNcr ? "danger" : "good", help: metrics.openNcr ? "דורש טיפול" : "אין פתוחות", section: "nonconformances" as AppSection },
-    { icon: "📨", label: "RFI", value: metrics.openRfi, tone: metrics.openRfi ? "warn" : "good", help: metrics.openRfi ? "ממתין למענה" : "אין פתוחים", section: "rfi" as AppSection },
-    { icon: "⏱️", label: "באיחור", value: metrics.overdue, tone: metrics.overdue ? "danger" : "good", help: metrics.overdue ? "לטיפול מיידי" : "ללא איחורים", section: "home" as AppSection },
-    { icon: "✍️", label: "לאישור", value: metrics.pendingApprovals, tone: metrics.pendingApprovals ? "warn" : "good", help: "חתימות / אישורים", section: "checklists" as AppSection },
-    { icon: "📋", label: "רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
-    { icon: "🧪", label: "קטעי ניסוי", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "פתוחים", section: "trialSections" as AppSection },
-  ] as const;
-  const quickActions = [
-    { label: "אי התאמה", icon: "⚠️", section: "nonconformances" as AppSection },
-    { label: "RFI", icon: "📨", section: "rfi" as AppSection },
-    { label: "רשימת תיוג", icon: "📋", section: "checklists" as AppSection },
-    { label: "קטע ניסוי", icon: "🧪", section: "trialSections" as AppSection },
-  ];
+  const dashboardKpis = [
+    { icon: "📄", label: "בקרה מקדימה", value: projectPreliminary.length, tone: "info" as const, section: "preliminary" as AppSection },
+    { icon: "💬", label: "RFI", value: metrics.openRfi, tone: "good" as const, section: "rfi" as AppSection },
+    { icon: "📋", label: "רשימות תיוג", value: projectChecklists.length, tone: "warn" as const, section: "checklists" as AppSection },
+    { icon: "⚠️", label: "קטעי ניסוי", value: metrics.openTrial, tone: "danger" as const, section: "trialSections" as AppSection },
+    { icon: "📄", label: "אי התאמות", value: metrics.openNcr, tone: "info" as const, section: "nonconformances" as AppSection },
+  ].reverse();
+  const quickAccessTone: Record<string, "blue" | "green" | "amber" | "red"> = {
+    projectStructure: "blue",
+    holdPoints: "green",
+    checklists: "amber",
+    trialSections: "red",
+  };
+  const highlightedModules = ["trialSections", "checklists", "holdPoints", "projectStructure"]
+    .map((key) => homeModules.find((module) => module.key === key))
+    .filter(Boolean) as HomeDashboardProps["homeModules"];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
   const distribution = [
     { label: "רשימות תיוג", value: projectChecklists.length, section: "checklists" as AppSection },
@@ -9491,104 +9678,45 @@ function HomeSection({ projectChecklists, projectNonconformances, projectTrialSe
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
     { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr)",
-        gap: 14,
-        alignItems: "start",
-        direction: "rtl",
-      }}
-    >
-      <aside
-        style={{
-          ...dashboardCardStyle,
-          direction: "rtl",
-          padding: 12,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 950 }}>תיקיות המערכת</h3>
-          <span style={{ borderRadius: 999, background: "#f1f5f9", padding: "3px 8px", fontSize: 12, fontWeight: 900, color: "#475569" }}>{homeModules.length}</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
-          {homeModules.map((module) => (
-            <button
-              key={String(module.key)}
-              type="button"
-              onClick={() => setSection(module.key as AppSection)}
-              style={{
-                border: "1px solid #e2e8f0",
-                background: "#fff",
-                borderRadius: 14,
-                padding: "9px 10px",
-                minHeight: 62,
-                textAlign: "right",
-                cursor: "pointer",
-                boxShadow: "0 5px 14px rgba(15,23,42,0.025)",
-                display: "grid",
-                gridTemplateColumns: "auto 1fr auto",
-                gap: 9,
-                alignItems: "center",
-                direction: "rtl",
-              }}
-            >
-              <span
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
-                  background: "#f1f5f9",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 19,
-                }}
-              >
-                {module.icon}
-              </span>
-              <span style={{ minWidth: 0 }}>
-                <span style={{ display: "block", fontWeight: 950, color: "#0f172a", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.title}</span>
-                <span style={{ display: "block", color: "#64748b", marginTop: 2, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{module.description}</span>
-              </span>
-              <span style={{ borderRadius: 999, background: "#f8fafc", border: "1px solid #e2e8f0", minWidth: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 950, fontSize: 12, color: "#0f172a" }}>{module.count}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
+  return <div className="yk-dashboard" dir="rtl">
+    <section className="yk-dashboard-hero">
+      <div><h1>תמונת מצב לפרויקט</h1><p>{projectName}</p></div>
+      <div className="yk-dashboard-date">📅 {new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long" }).format(today)}</div>
+    </section>
 
-      <main style={{ display: "grid", gap: 10, minWidth: 0, direction: "rtl" }}>
-        <div style={{ ...dashboardCardStyle, padding: 14, background: "linear-gradient(135deg,#020617,#111827 55%,#1e293b)", color: "#fff" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 950 }}>חדר בקרה לפרויקט</div>
-              <div style={{ opacity: 0.82, marginTop: 3, fontSize: 13 }}>תמונת מצב מהירה: פתוחים, באיחור, אישורים ומשימות לטיפול</div>
-            </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>{quickActions.map((action) => <button key={action.section} type="button" onClick={() => setSection(action.section)} style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.1)", color: "#fff", borderRadius: 999, padding: "7px 11px", fontWeight: 850, cursor: "pointer", fontSize: 13 }}><span style={{ marginInlineStart: 5 }}>{action.icon}</span>+ {action.label}</button>)}</div>
-          </div>
-        </div>
+    <section className="yk-kpi-grid">
+      {dashboardKpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} onClick={() => setSection(item.section)} style={{ background: tone.bg, borderColor: tone.border }}>
+        <span className="yk-kpi-icon" style={{ background: tone.soft }}>{item.icon}</span><strong>{item.value}</strong><span>{item.label}</span>
+      </button>; })}
+    </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8 }}>
-          {kpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} type="button" onClick={() => setSection(item.section)} style={{ ...dashboardCardStyle, minHeight: 88, padding: 10, textAlign: "right", background: tone.bg, borderColor: tone.border, cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center" }}><span style={{ width: 26, height: 26, borderRadius: 999, background: tone.soft, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{item.icon}</span><span style={{ color: tone.text, fontWeight: 850, fontSize: 12 }}>{item.help}</span></div>
-            <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 8, marginTop: 8 }}><div style={{ color: "#334155", fontWeight: 900, fontSize: 13 }}>{item.label}</div><div style={{ fontSize: 31, lineHeight: 1, fontWeight: 950, color: "#0f172a" }}>{item.value}</div></div>
-          </button>; })}
-        </div>
+    <section className="yk-dashboard-middle">
+      <article className="yk-panel yk-hold-panel">
+        <h2>⚑ נקודות עצירה</h2>
+        <div className="yk-hold-stats"><span className="open"><b>{homeModules.find((m) => m.key === "holdPoints")?.count ?? 0}</b> פתוחות</span><span className="late"><b>{metrics.overdue}</b> באיחור</span><span className="done"><b>0</b> הושלמו</span></div>
+        <button onClick={() => setSection("holdPoints")}>מעבר לכל נקודות העצירה ←</button>
+      </article>
+      <article className="yk-panel yk-urgent-panel">
+        <h2>⚠ דורש טיפול עכשיו</h2>
+        <div className="yk-task-list">{urgentTasks.length ? urgentTasks.slice(0, 3).map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} className="yk-urgent-row" onClick={() => setSection(task.section)} style={{ background: tone.bg, borderColor: tone.border }}>
+          <span className="yk-urgent-tag" style={{ background: tone.pill }}>{task.tagLabel}</span>
+          <span className="yk-urgent-body"><b>{task.title}</b><small style={{ color: tone.text }}>{task.subtitle}</small></span>
+          <span className="yk-urgent-meta"><span aria-hidden="true">{task.icon}</span>{task.date && <small>{task.date}</small>}</span>
+        </button>; }) : <p>✅ אין כרגע משימות דחופות פתוחות</p>}</div>
+      </article>
+      <article className="yk-panel yk-progress-panel">
+        <h2>▥ התקדמות ובקרה</h2>
+        {distribution.slice(0, 5).map((row) => <button key={row.label} onClick={() => setSection(row.section)}><span>{row.label}</span><b>{row.value}</b><i><em style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%` }} /></i></button>)}
+      </article>
+    </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(340px,1.05fr) minmax(320px,0.95fr)", gap: 10 }}>
-          <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>מה דורש טיפול עכשיו</h3>
-            {urgentTasks.length ? <div style={{ display: "grid", gap: 7 }}>{urgentTasks.map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} type="button" onClick={() => setSection(task.section)} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "9px 11px", borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, textAlign: "right", cursor: "pointer" }}><span style={{ fontSize: 18 }}>{task.icon}</span><span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</span><span style={{ color: "#64748b", fontSize: 12 }}>לחץ לפתיחת התיקייה</span></span><span style={{ color: tone.text, fontWeight: 900, fontSize: 12 }}>{task.meta}</span></button>; })}</div> : <div style={{ padding: 12, borderRadius: 12, background: "#f0fdf4", color: "#166534", fontWeight: 900 }}>✅ אין כרגע משימות דחופות פתוחות.</div>}
-          </div>
-          <div style={dashboardCardStyle}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 950 }}>חלוקת רשומות</h3>
-            <div style={{ display: "grid", gap: 7 }}>{distribution.map((row) => <button key={row.label} type="button" onClick={() => setSection(row.section)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "right", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", fontWeight: 850, marginBottom: 3, fontSize: 13 }}><span>{row.label}</span><span>{row.value}</span></div><div style={{ height: 7, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} /></div></button>)}</div>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+    <section className="yk-panel yk-quick-section">
+      <h2>⚡ גישה מהירה</h2>
+      <div className="yk-quick-grid">{highlightedModules.map((module) => <button className={`accent-${quickAccessTone[String(module.key)] ?? "blue"}`} key={String(module.key)} onClick={() => setSection(module.key as AppSection)}>
+        <span className="yk-quick-icon">{module.icon}</span><div><strong>{module.title}</strong><small>{module.description}</small></div><b>{module.count}</b><span className="yk-quick-link">מעבר למסך ←</span>
+      </button>)}</div>
+    </section>
+  </div>;
 }
 
 
@@ -9735,6 +9863,9 @@ function FolderRecordsTable({
   onDownloadSelectedPdf,
   sendSelectedLabel = "שלח מסומנים במייל",
   downloadSelectedLabel = "הורד מסומנים כ-PDF",
+  selectedRecordIds: controlledSelectedRecordIds,
+  onSelectedRecordIdsChange,
+  selectedActionCount,
 }: {
   title: string;
   description?: string;
@@ -9747,21 +9878,23 @@ function FolderRecordsTable({
   onDownloadSelectedPdf?: (records: any[]) => void | Promise<void>;
   sendSelectedLabel?: string;
   downloadSelectedLabel?: string;
+  selectedRecordIds?: string[];
+  onSelectedRecordIdsChange?: (ids: string[]) => void;
+  selectedActionCount?: number;
 }) {
   const safeRecords = Array.isArray(records) ? records : [];
   const isNarrow = useNarrowScreen();
-  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const pageSize = 10;
+  const [localSelectedRecordIds, setLocalSelectedRecordIds] = useState<string[]>([]);
+  const selectedRecordIds = controlledSelectedRecordIds ?? localSelectedRecordIds;
+  const setSelectedRecordIds = (update: (previous: string[]) => string[]) => {
+    const next = update(selectedRecordIds);
+    if (onSelectedRecordIdsChange) onSelectedRecordIdsChange(next);
+    else setLocalSelectedRecordIds(next);
+  };
   const canSelectRecords = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
-  const visibleRecordIds = safeRecords.map((record, index) => String(record?.id ?? index));
-  const selectedRecords = safeRecords.filter((record, index) =>
-    selectedRecordIds.includes(String(record?.id ?? index)),
-  );
-  const actionRecords = selectedRecords.length ? selectedRecords : safeRecords;
-  const allVisibleSelected = Boolean(
-    canSelectRecords &&
-      visibleRecordIds.length &&
-      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
-  );
   const serialFor = (record: any, index: number) =>
     record?.displayNumber ?? record?.checklistDisplayNumber ?? record?.checklistNo ?? record?.serialNumber ?? record?.number ?? index + 1;
   const existingColumnLabels = new Set(columns.map((column) => String(column.label).trim()));
@@ -9780,10 +9913,44 @@ function FolderRecordsTable({
     locationInsertIndex >= 0
       ? [...columns.slice(0, locationInsertIndex + 1), ...locationColumns, ...columns.slice(locationInsertIndex + 1)]
       : [...columns, ...locationColumns];
+  const filteredRecords = safeRecords.filter((record, index) => {
+    const serialQuery = normalizeTableFilter(columnFilters.__serial);
+    if (serialQuery && !normalizeTableFilter(serialFor(record, index)).includes(serialQuery)) return false;
+    return displayColumns.every((column) => {
+      const query = normalizeTableFilter(columnFilters[column.label]);
+      return !query || normalizeTableFilter(tableCellSearchText(column.value(record, index))).includes(query);
+    });
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRecords = filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const firstVisible = pageRecords.length ? (safePage - 1) * pageSize + 1 : 0;
+  const lastVisible = Math.min(safePage * pageSize, filteredRecords.length);
+  const visibleRecordIds = pageRecords.map((record, index) => String(record?.id ?? (safePage - 1) * pageSize + index));
+  const selectedRecords = filteredRecords.filter((record, index) =>
+    selectedRecordIds.includes(String(record?.id ?? index)),
+  );
+  const actionRecords = selectedRecords.length ? selectedRecords : filteredRecords;
+  const allVisibleSelected = Boolean(
+    canSelectRecords &&
+      visibleRecordIds.length &&
+      visibleRecordIds.every((id) => selectedRecordIds.includes(id)),
+  );
+  const activeFilterCount = Object.values(columnFilters).filter((value) => normalizeTableFilter(value)).length;
+  const updateColumnFilter = (key: string, value: string) => {
+    setColumnFilters((current) => ({ ...current, [key]: value }));
+    setPage(1);
+  };
 
   useEffect(() => {
+    if (controlledSelectedRecordIds) return;
     setSelectedRecordIds((prev) => prev.filter((id) => visibleRecordIds.includes(id)));
-  }, [visibleRecordIds.join("|")]);
+  }, [visibleRecordIds.join("|"), Boolean(controlledSelectedRecordIds)]);
+  useEffect(() => setPage(1), [title]);
+  useEffect(() => setColumnFilters({}), [title]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const toggleRecordSelection = (id: string, checked: boolean) => {
     setSelectedRecordIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id)));
@@ -9856,7 +10023,9 @@ function FolderRecordsTable({
               disabled={!actionRecords.length}
             >
               {selectedRecords.length
-                ? `${sendSelectedLabel} (${selectedRecords.length})`
+                ? `${sendSelectedLabel} (${selectedActionCount ?? selectedRecords.length})`
+                : selectedActionCount
+                  ? `${sendSelectedLabel} (${selectedActionCount})`
                 : `שלח את כל הרשומות במייל (${safeRecords.length})`}
             </button>
           ) : null}
@@ -9867,10 +10036,23 @@ function FolderRecordsTable({
           ) : null}
         </div>
       </div>
+      {activeFilterCount ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 14px", background: "#eff6ff", borderBottom: "1px solid #bfdbfe", color: "#1e40af", fontWeight: 850 }}>
+          <span>{activeFilterCount} מסנני עמודות פעילים · נמצאו {filteredRecords.length} רשומות</span>
+          <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 10px" }} onClick={() => { setColumnFilters({}); setPage(1); }}>נקה מסננים</button>
+        </div>
+      ) : null}
       {isNarrow ? (
         <div style={{ display: "grid", gap: 10, padding: 12 }}>
-          {safeRecords.length ? (
-            safeRecords.map((record, index) => {
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+            <ColumnFilter options={safeRecords.map((record, index) => String(serialFor(record, index)))} aria-label="סינון לפי מספר" style={styles.input} value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון מספר" />
+            {displayColumns.map((column) => (
+              <ColumnFilter options={safeRecords.map((record, index) => tableCellSearchText(column.value(record, index)))} aria-label={`סינון לפי ${column.label}`} key={column.label} style={styles.input} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder={`סינון ${column.label}`} />
+            ))}
+          </div>
+          {pageRecords.length ? (
+            pageRecords.map((record, index) => {
+              const absoluteIndex = (safePage - 1) * pageSize + index;
               const id = String(record?.id ?? index);
               return (
                 <article
@@ -9894,7 +10076,7 @@ function FolderRecordsTable({
                           aria-label={`בחר רשומה ${serialFor(record, index)}`}
                         />
                       ) : null}
-                      #{serialFor(record, index)}
+                      #{serialFor(record, absoluteIndex)}
                     </span>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {onOpen ? (
@@ -9923,7 +10105,7 @@ function FolderRecordsTable({
                         }}
                       >
                         <span style={{ color: "#64748b", fontWeight: 850, fontSize: 12 }}>{column.label}</span>
-                        <span style={{ color: "#0f172a", fontWeight: 800, overflowWrap: "anywhere" }}>{column.value(record, index) || "-"}</span>
+                        <span style={{ color: "#0f172a", fontWeight: 800, overflowWrap: "anywhere" }}>{column.value(record, absoluteIndex) || "-"}</span>
                       </div>
                     ))}
                   </div>
@@ -9970,10 +10152,23 @@ function FolderRecordsTable({
               ))}
               <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעולות</th>
             </tr>
+            <tr style={{ background: "#f8fafc" }}>
+              {canSelectRecords ? <th style={{ padding: 6, border: "1px solid #d7dee8" }} /> : null}
+              <th style={{ padding: 6, border: "1px solid #d7dee8" }}>
+                <ColumnFilter options={safeRecords.map((record, index) => String(serialFor(record, index)))} aria-label="סינון לפי מספר" value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
+              </th>
+              {displayColumns.map((column) => (
+                <th key={column.label} style={{ padding: 6, border: "1px solid #d7dee8" }}>
+                  <ColumnFilter options={safeRecords.map((record, index) => tableCellSearchText(column.value(record, index)))} aria-label={`סינון לפי ${column.label}`} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 110, padding: "7px 8px" }} />
+                </th>
+              ))}
+              <th style={{ padding: 6, border: "1px solid #d7dee8" }} />
+            </tr>
           </thead>
           <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
+            {pageRecords.length ? (
+              pageRecords.map((record, index) => {
+                const absoluteIndex = (safePage - 1) * pageSize + index;
                 const id = String(record?.id ?? index);
                 return (
                   <tr key={id}>
@@ -9989,11 +10184,11 @@ function FolderRecordsTable({
                       </td>
                     ) : null}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {serialFor(record, index)}
+                      {serialFor(record, absoluteIndex)}
                     </td>
                     {displayColumns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                        {column.value(record, index) || "-"}
+                        {column.value(record, absoluteIndex) || "-"}
                       </td>
                     ))}
                     <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
@@ -10024,6 +10219,21 @@ function FolderRecordsTable({
         </table>
       </div>
       )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: "1px solid #e2e8f0", background: "#f8fafc" }}>
+        <span style={{ color: "#64748b", fontWeight: 850 }}>{firstVisible}–{lastVisible} מתוך {filteredRecords.length}{filteredRecords.length !== safeRecords.length ? ` (סה״כ ${safeRecords.length})` : ""}</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button type="button" style={styles.secondaryBtn} disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>הקודם</button>
+          {Array.from({ length: totalPages }, (_, index) => index + 1)
+            .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - safePage) <= 2)
+            .map((value, index, values) => (
+              <Fragment key={value}>
+                {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                <button type="button" onClick={() => setPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safePage ? "#0f172a" : "#fff", color: value === safePage ? "#fff" : "#0f172a" }}>{value}</button>
+              </Fragment>
+            ))}
+          <button type="button" style={styles.secondaryBtn} disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>הבא</button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -10144,7 +10354,7 @@ function PlansSection({
         <Field label="תאריך"><input type="date" style={styles.input} value={form.date} onChange={(e) => onChange("date", e.target.value)} /></Field>
         <Field label="סטטוס">
           <select style={styles.input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
-            <option>טיוטה</option>
+            <option value="טיוטה">בתהליך / בטיפול</option>
             <option>בתוקף</option>
             <option>לביצוע</option>
             <option>מבוטל</option>
@@ -10215,7 +10425,7 @@ function TrialSectionsRecordsTable({
     const parsed = Date.parse(normalized);
     return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
   };
-  const safeRecords = (Array.isArray(records) ? records : [])
+  const sortedRecords = (Array.isArray(records) ? records : [])
     .map((record, originalIndex) => ({ record, originalIndex }))
     .sort((left, right) => {
       const byDate = trialDateValue(left.record) - trialDateValue(right.record);
@@ -10223,6 +10433,20 @@ function TrialSectionsRecordsTable({
       return left.originalIndex - right.originalIndex;
     })
     .map((item) => item.record);
+  const trackingCounts = sortedRecords.reduce(
+    (counts, record) => {
+      const status = normalizeLooseText(pickTrialValue(record, "status", "approvalStatus", "result")).toLowerCase();
+      counts.total += 1;
+      if (status.includes("אושר") || status.includes("מאושר") || status.includes("approved")) counts.approved += 1;
+      else if (status.includes("נדחה") || status.includes("rejected")) counts.rejected += 1;
+      else counts.open += 1;
+      return counts;
+    },
+    { total: 0, approved: 0, rejected: 0, open: 0 },
+  );
+  const [page, setPage] = useState(1);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const pageSize = 10;
   const cellValue = (record: any, ...keys: string[]) =>
     pickTrialValue(record, ...keys) || "-";
   const rawCellValue = (record: any, ...keys: string[]) =>
@@ -10258,8 +10482,10 @@ function TrialSectionsRecordsTable({
       combined,
     };
   };
-  const statusText = (record: any) =>
-    cellValue(record, "status", "approvalStatus", "result");
+  const statusText = (record: any) => {
+    const status = cellValue(record, "status", "approvalStatus", "result");
+    return status === "טיוטה" || status === "draft" ? "בתהליך / בטיפול" : status;
+  };
   const statusStyle = (status: string): CSSProperties => {
     const normalized = normalizeLooseText(status).toLowerCase();
     if (
@@ -10365,6 +10591,24 @@ function TrialSectionsRecordsTable({
     },
   ];
 
+  const filteredRecords = sortedRecords.filter((record, index) =>
+    columns.every((column) => {
+      const query = normalizeTableFilter(columnFilters[column.label]);
+      return !query || normalizeTableFilter(tableCellSearchText(column.value(record, index))).includes(query);
+    }),
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRecords = filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const activeFilterCount = Object.values(columnFilters).filter((value) => normalizeTableFilter(value)).length;
+  const updateColumnFilter = (label: string, value: string) => {
+    setColumnFilters((current) => ({ ...current, [label]: value }));
+    setPage(1);
+  };
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   return (
     <section
       style={{
@@ -10376,6 +10620,22 @@ function TrialSectionsRecordsTable({
         boxShadow: "0 8px 22px rgba(15, 23, 42, 0.04)",
       }}
     >
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid #e5e7eb", background: "#f8fafc" }}>
+        <div style={{ fontWeight: 950, marginBottom: 10 }}>מעקב קטעי ניסוי</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+          {[
+            ["סה״כ", trackingCounts.total, "#0f172a", "#fff"],
+            ["בתהליך / בטיפול", trackingCounts.open, "#d97706", "#fffbeb"],
+            ["אושרו", trackingCounts.approved, "#15803d", "#f0fdf4"],
+            ["נדחו", trackingCounts.rejected, "#dc2626", "#fef2f2"],
+          ].map(([label, value, color, background]) => (
+            <div key={String(label)} style={{ border: `1px solid ${color}33`, borderRadius: 10, padding: "10px 12px", color: String(color), background: String(background) }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{label}</div>
+              <div style={{ fontSize: 24, fontWeight: 950 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
       <div
         style={{
           display: "flex",
@@ -10389,7 +10649,8 @@ function TrialSectionsRecordsTable({
         }}
       >
         <div style={{ fontWeight: 900, color: "#374151" }}>
-          1-{Math.min(10, safeRecords.length)} / {safeRecords.length || 0}
+          {visibleRecords.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filteredRecords.length)} / {filteredRecords.length || 0}
+          {filteredRecords.length !== sortedRecords.length ? ` (סה״כ ${sortedRecords.length})` : ""}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button
@@ -10424,6 +10685,12 @@ function TrialSectionsRecordsTable({
           </button>
         </div>
       </div>
+      {activeFilterCount ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 14px", background: "#eff6ff", borderBottom: "1px solid #bfdbfe", color: "#1e40af", fontWeight: 850 }}>
+          <span>{activeFilterCount} מסנני עמודות פעילים</span>
+          <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 10px" }} onClick={() => { setColumnFilters({}); setPage(1); }}>נקה מסננים</button>
+        </div>
+      ) : null}
       <div style={{ overflowX: "auto" }}>
         <table
           style={{
@@ -10465,10 +10732,19 @@ function TrialSectionsRecordsTable({
                 </th>
               ))}
             </tr>
+            <tr style={{ background: "#f8fafc" }}>
+              <th style={{ width: 128, padding: 6, border: "1px solid #e5e7eb" }} />
+              {columns.map((column) => (
+                <th key={column.label} style={{ width: column.width, padding: 6, border: "1px solid #e5e7eb" }}>
+                  <ColumnFilter options={sortedRecords.map((record, index) => tableCellSearchText(column.value(record, index)))} aria-label={`סינון לפי ${column.label}`} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 90, padding: "7px 8px" }} />
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody>
-            {safeRecords.length ? (
-              safeRecords.map((record, index) => {
+            {visibleRecords.length ? (
+              visibleRecords.map((record, index) => {
+                const absoluteIndex = (safePage - 1) * pageSize + index;
                 const id = String(record?.id ?? index);
                 return (
                   <tr
@@ -10538,7 +10814,7 @@ function TrialSectionsRecordsTable({
                           lineHeight: 1.5,
                         }}
                       >
-                        {column.value(record, index) || "-"}
+                        {column.value(record, absoluteIndex) || "-"}
                       </td>
                     ))}
                   </tr>
@@ -10563,6 +10839,11 @@ function TrialSectionsRecordsTable({
           </tbody>
         </table>
       </div>
+      {filteredRecords.length ? (
+        <div style={{ padding: "0 16px 14px" }}>
+          <PaginationControls page={safePage} totalPages={totalPages} totalItems={filteredRecords.length} pageSize={pageSize} onPageChange={setPage} />
+        </div>
+      ) : null}
       <div
         style={{
           height: 14,
@@ -10652,7 +10933,7 @@ function FormGrid({
               onChange={(e) => set(field.key, e.target.value)}
               style={inputStyle}
             >
-              {(field.options ?? []).map((option) => (
+              {([...(field.options ?? []), ...((form[field.key] ?? '') && !(field.options ?? []).includes(form[field.key]) ? [form[field.key]] : [])]).map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -10669,6 +10950,34 @@ function FormGrid({
           )}
         </label>
       ))}
+    </div>
+  );
+}
+
+function PaginationControls({ page, totalPages, totalItems, pageSize, onPageChange }: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const first = totalItems ? (page - 1) * pageSize + 1 : 0;
+  const last = Math.min(page * pageSize, totalItems);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+      <span style={{ color: "#64748b", fontWeight: 850 }}>{first}–{last} מתוך {totalItems}</span>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" style={styles.secondaryBtn} disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))}>הקודם</button>
+        {Array.from({ length: totalPages }, (_, index) => index + 1)
+          .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - page) <= 2)
+          .map((value, index, values) => (
+            <Fragment key={value}>
+              {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+              <button type="button" onClick={() => onPageChange(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === page ? "#0f172a" : "#fff", color: value === page ? "#fff" : "#0f172a" }}>{value}</button>
+            </Fragment>
+          ))}
+        <button type="button" style={styles.secondaryBtn} disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))}>הבא</button>
+      </div>
     </div>
   );
 }
@@ -10748,6 +11057,14 @@ function RfiSection({
   sendRfiEmail: (record: RfiRecord) => void | Promise<void>;
   projectMeta: ProjectLegend;
 }) {
+  const [savedRfiPage, setSavedRfiPage] = useState(1);
+  const savedRfiPageSize = 10;
+  const savedRfiTotalPages = Math.max(1, Math.ceil(savedRfis.length / savedRfiPageSize));
+  const safeSavedRfiPage = Math.min(savedRfiPage, savedRfiTotalPages);
+  const visibleSavedRfis = savedRfis.slice((safeSavedRfiPage - 1) * savedRfiPageSize, safeSavedRfiPage * savedRfiPageSize);
+  useEffect(() => {
+    if (savedRfiPage > savedRfiTotalPages) setSavedRfiPage(savedRfiTotalPages);
+  }, [savedRfiPage, savedRfiTotalPages]);
   if (guardedBody) return <>{guardedBody}</>;
   const metaStyle: CSSProperties = {
     border: "1px solid #e2e8f0",
@@ -10973,7 +11290,7 @@ function RfiSection({
         <h3 style={{ marginTop: 0 }}>רשימת RFI שמורות</h3>
         {savedRfis.length ? (
           <div style={{ display: "grid", gap: 10 }}>
-            {savedRfis.map((item) => (
+            {visibleSavedRfis.map((item) => (
               <div
                 key={item.id}
                 style={{
@@ -11043,6 +11360,9 @@ function RfiSection({
         ) : (
           <div style={styles.emptyBox}>אין בקשות RFI שמורות.</div>
         )}
+        {savedRfis.length ? (
+          <PaginationControls page={safeSavedRfiPage} totalPages={savedRfiTotalPages} totalItems={savedRfis.length} pageSize={savedRfiPageSize} onPageChange={setSavedRfiPage} />
+        ) : null}
       </div>
       {editingRfiId &&
       normalizeRfiRecord({
@@ -11138,10 +11458,11 @@ const NCR_FIELDS: FieldDef[] = [
   {
     key: "responsibleParty",
     label: "גורם אחראי לליקוי תכנון, ביצוע, ספק",
-    type: "textarea",
+    type: "select",
+    options: NCR_RESPONSIBLE_OPTIONS,
   },
   { key: "actionRequired", label: "טיפול נדרש", type: "textarea" },
-  { key: "handler", label: "גורם המטפל" },
+  { key: "handler", label: "גורם המטפל", type: "select", options: NCR_HANDLER_OPTIONS },
   {
     key: "correctiveActionDetails",
     label: "פירוט ביצוע פעולה מתקנת",
@@ -11381,17 +11702,11 @@ function UserAccessPanel({
   hasUnsavedChanges: boolean;
 }) {
   const normalizedProjectId = normalizeStoredProjectId(projectId);
-  const normalizedProjectName = normalizeHebrewProjectName(projectName);
   const projectUsers = users
     .map((user, sourceIndex) => ({ user, sourceIndex }))
     .filter(({ user }) => {
       if (user.role === "admin") return false;
-      const ids = accessProjectIds(user);
-      if (ids.length) return ids.includes(normalizedProjectId);
-      return Boolean(
-        normalizedProjectName &&
-          normalizeHebrewProjectName(user.projectName ?? "") === normalizedProjectName,
-      );
+      return matchesProjectAssignment({...user, projectIds: accessProjectIds(user)}, normalizedProjectId, projectName);
     });
   return (
     <div
@@ -13461,6 +13776,14 @@ function ControlProcessesSection({
   onDelete: (id: string) => void | Promise<void>;
   onLock: () => void | Promise<void>;
 }) {
+  const [savedProcessPage, setSavedProcessPage] = useState(1);
+  const savedProcessPageSize = 10;
+  const savedProcessTotalPages = Math.max(1, Math.ceil(savedProcesses.length / savedProcessPageSize));
+  const safeSavedProcessPage = Math.min(savedProcessPage, savedProcessTotalPages);
+  const visibleSavedProcesses = savedProcesses.slice((safeSavedProcessPage - 1) * savedProcessPageSize, safeSavedProcessPage * savedProcessPageSize);
+  useEffect(() => {
+    if (savedProcessPage > savedProcessTotalPages) setSavedProcessPage(savedProcessTotalPages);
+  }, [savedProcessPage, savedProcessTotalPages]);
   if (guardedBody) return <>{guardedBody}</>;
 
   const readOnly = form.status === "נעול";
@@ -14078,7 +14401,7 @@ function ControlProcessesSection({
             >
               {CONTROL_PROCESS_STATUS_OPTIONS.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {status === "טיוטה" ? "בתהליך / בטיפול" : status}
                 </option>
               ))}
             </select>
@@ -14605,7 +14928,7 @@ function ControlProcessesSection({
         </h3>
         <div style={{ display: "grid", gap: 8 }}>
           {savedProcesses.length ? (
-            savedProcesses.map((process) => (
+            visibleSavedProcesses.map((process) => (
               <div
                 key={process.id}
                 style={{
@@ -14651,6 +14974,9 @@ function ControlProcessesSection({
             <div style={styles.emptyBox}>טרם נשמרו תעודות ייחוס בפרויקט.</div>
           )}
         </div>
+        {savedProcesses.length ? (
+          <PaginationControls page={safeSavedProcessPage} totalPages={savedProcessTotalPages} totalItems={savedProcesses.length} pageSize={savedProcessPageSize} onPageChange={setSavedProcessPage} />
+        ) : null}
       </div>
     </section>
   );
@@ -14664,10 +14990,11 @@ type ProjectUsersSectionProps = {
   onAddUser: (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => void;
   onUpdateUser: (id: string, patch: Partial<ProjectEmailUser>) => void;
   onDeleteUser: (id: string) => void;
+  canManageCredentials: boolean;
   onSaveUsers: () => void;
 };
 
-function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers }: ProjectUsersSectionProps) {
+function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpdateUser, onDeleteUser, onSaveUsers, canManageCredentials }: ProjectUsersSectionProps) {
   const [draft, setDraft] = useState({ name: "", role: "", company: "", email: "", phone: "", smtpAppPassword: "", active: true });
   const inputStyle: CSSProperties = {
     width: "100%",
@@ -14722,7 +15049,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
             <input placeholder="חברה" value={draft.company} onChange={(e) => setDraft((p) => ({ ...p, company: e.target.value }))} style={inputStyle} />
             <input placeholder="מייל" value={draft.email} onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))} style={inputStyle} />
             <input placeholder="טלפון" value={draft.phone} onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))} style={inputStyle} />
-            <input type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
+            <input disabled={!canManageCredentials} title={!canManageCredentials ? "סיסמת המייל מנוהלת על ידי מנהל הפרויקט" : undefined} type="password" placeholder="סיסמת אפליקציה Gmail" value={draft.smtpAppPassword} onChange={(e) => setDraft((p) => ({ ...p, smtpAppPassword: e.target.value }))} style={inputStyle} autoComplete="new-password" />
             <button type="button" onClick={add} style={styles.primaryBtn}>הוסף משתמש</button>
           </div>
           <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16 }}>
@@ -14743,7 +15070,7 @@ function ProjectUsersSection({ guardedBody, projectName, users, onAddUser, onUpd
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.company} onChange={(e) => onUpdateUser(user.id, { company: e.target.value })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.email} onChange={(e) => onUpdateUser(user.id, { email: e.target.value.trim() })} style={inputStyle} /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input value={user.phone || ""} onChange={(e) => onUpdateUser(user.id, { phone: e.target.value })} style={inputStyle} /></td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
+                    <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><input disabled={!canManageCredentials} title={!canManageCredentials ? "סיסמת המייל מנוהלת על ידי מנהל הפרויקט" : undefined} type="password" value={user.smtpAppPassword || ""} onChange={(e) => onUpdateUser(user.id, { smtpAppPassword: e.target.value })} style={inputStyle} autoComplete="new-password" placeholder="Gmail app password" /></td>
                     <td style={{ padding: 8, borderBottom: "1px solid #e2e8f0" }}><button type="button" style={styles.dangerBtn} onClick={() => onDeleteUser(user.id)}>מחק</button></td>
                   </tr>
                 )) : (
@@ -15480,7 +15807,14 @@ function ChecklistTrackingSection({
             </select>
           </label>
           <button type="button" style={styles.secondaryBtn} disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>הקודם</button>
-          <span style={{ minWidth: 76, textAlign: "center", fontWeight: 900 }}>{safePage} / {totalPages}</span>
+          {Array.from({ length: totalPages }, (_, index) => index + 1)
+            .filter((value) => totalPages <= 7 || value === 1 || value === totalPages || Math.abs(value - safePage) <= 2)
+            .map((value, index, values) => (
+              <Fragment key={value}>
+                {index > 0 && value - values[index - 1] > 1 ? <span>…</span> : null}
+                <button type="button" onClick={() => setPage(value)} style={{ ...styles.secondaryBtn, minWidth: 40, background: value === safePage ? "#0f172a" : "#fff", color: value === safePage ? "#fff" : "#0f172a" }}>{value}</button>
+              </Fragment>
+            ))}
           <button type="button" style={styles.secondaryBtn} disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>הבא</button>
         </div>
       </div>
@@ -15514,10 +15848,12 @@ export default function Page() {
     useState<ChecklistTemplateKey>(() => normalizeChecklistTemplateKey(undefined));
   const [preliminaryTab, setPreliminaryTab] =
     useState<PreliminaryTab>("suppliers");
+  const [preliminaryEmailSelectionIds, setPreliminaryEmailSelectionIds] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(
     readLocalCurrentProjectId(),
   );
+  useEffect(() => setPreliminaryEmailSelectionIds([]), [currentProjectId]);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectManager, setNewProjectManager] = useState("");
@@ -15564,6 +15900,9 @@ export default function Page() {
   >(null);
   const [recordsSearchTerm, setRecordsSearchTerm] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [concentrationsLoading, setConcentrationsLoading] = useState(false);
+  const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
+  const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
   const [authReady, setAuthReady] = useState(false);
@@ -15587,6 +15926,113 @@ export default function Page() {
   const [projectLegendDirty, setProjectLegendDirty] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [labEmailEvents, setLabEmailEvents] = useState<LabEmailEvent[]>([]);
+  useEffect(() => {
+    if (!cloudEnabled || !currentProjectId) {
+      setLabEmailEvents((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const scopedIds = projectCloudIdsForCanonicalId(currentProjectId);
+        const result = await selectProjectTable("lab_email_events", "received_at", scopedIds);
+        const rows: LabEmailEvent[] = Array.isArray(result?.data) ? result.data.filter((row: LabEmailEvent) => !row?.seen) : [];
+        if (!cancelled) setLabEmailEvents(rows);
+      } catch {
+        if (!cancelled) setLabEmailEvents([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudEnabled, currentProjectId]);
+  const markLabEmailSeen = async (id: string) => {
+    setLabEmailEvents((prev) => prev.filter((row) => row.id !== id));
+    if (!cloudEnabled) return;
+    try {
+      await supabase!.from("lab_email_events").update({ seen: true }).eq("id", id);
+    } catch {}
+  };
+  const [labSenders, setLabSenders] = useState<LabSenderRow[]>([]);
+  const [labSendersError, setLabSendersError] = useState("");
+  const [labSenderForm, setLabSenderForm] = useState({ labName: "", labEmail: "" });
+  const [editingLabSenderId, setEditingLabSenderId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!cloudEnabled || !currentProjectId) {
+      setLabSenders([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const scopedIds = projectCloudIdsForCanonicalId(currentProjectId);
+        const result = await selectProjectTable("project_lab_senders", "created_at", scopedIds);
+        if (!cancelled) setLabSenders(Array.isArray(result?.data) ? (result.data as LabSenderRow[]) : []);
+      } catch {
+        if (!cancelled) setLabSenders([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudEnabled, currentProjectId]);
+  const resetLabSenderForm = () => {
+    setEditingLabSenderId(null);
+    setLabSenderForm({ labName: "", labEmail: "" });
+  };
+  const editLabSender = (row: LabSenderRow) => {
+    setEditingLabSenderId(row.id);
+    setLabSenderForm({ labName: row.lab_name || "", labEmail: row.lab_email || "" });
+  };
+  const saveLabSender = async () => {
+    setLabSendersError("");
+    if (!currentProjectId) return;
+    const labEmail = labSenderForm.labEmail.trim().toLowerCase();
+    const labName = labSenderForm.labName.trim();
+    if (!labEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(labEmail)) {
+      setLabSendersError("יש להזין כתובת מייל תקינה של המעבדה");
+      return;
+    }
+    if (!cloudEnabled || !supabase) {
+      setLabSendersError("יש להתחבר לשרת כדי לשמור מעבדות");
+      return;
+    }
+    const projectId = normalizeStoredProjectId(currentProjectId);
+    try {
+      if (editingLabSenderId) {
+        const { error } = await supabase
+          .from("project_lab_senders")
+          .update({ lab_name: labName, lab_email: labEmail })
+          .eq("id", editingLabSenderId);
+        if (error) throw error;
+        setLabSenders((prev) => prev.map((row) => (row.id === editingLabSenderId ? { ...row, lab_name: labName, lab_email: labEmail } : row)));
+      } else {
+        const { data, error } = await supabase
+          .from("project_lab_senders")
+          .insert({ project_id: projectId, lab_name: labName, lab_email: labEmail })
+          .select("id,project_id,lab_name,lab_email")
+          .single();
+        if (error) throw error;
+        if (data) setLabSenders((prev) => [data as LabSenderRow, ...prev]);
+      }
+      resetLabSenderForm();
+    } catch (error) {
+      const text = errorText(error);
+      setLabSendersError(/duplicate|unique/i.test(text) ? "כתובת מייל זו כבר משויכת לפרויקט אחר" : "שמירת המעבדה נכשלה");
+    }
+  };
+  const deleteLabSender = async (id: string) => {
+    if (!cloudEnabled || !supabase) return;
+    if (!window.confirm("להסיר את המעבדה מרשימת ההתראות של הפרויקט?")) return;
+    setLabSenders((prev) => prev.filter((row) => row.id !== id));
+    try {
+      await supabase.from("project_lab_senders").delete().eq("id", id);
+    } catch {}
+    if (editingLabSenderId === id) resetLabSenderForm();
+  };
   const [accountForm, setAccountForm] = useState({
     username: "",
     currentPassword: "",
@@ -15962,40 +16408,16 @@ export default function Page() {
     if (!authReady || !projectAccess || !cloudEnabled || !supabase || !currentProjectId) return;
     let cancelled = false;
     const projectIds = projectCloudIdsForCanonicalId(currentProjectId);
-    void supabase
-      .from(HOLD_POINTS_TABLE)
-      .select("*")
-      .in("project_id", projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
-      .order("serial_no", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled || error || !Array.isArray(data)) return;
-        const cloudRecords = data.map((row: any) => {
-          const details = row.details && typeof row.details === "object" ? row.details : {};
-          return {
-            ...details,
-            id: row.id,
-            projectId: normalizeStoredProjectId(row.project_id),
-            serialNo: Number(row.serial_no ?? details.serialNo ?? 0),
-            referenceNo: row.reference_no ?? details.referenceNo ?? "",
-            name: row.name ?? details.name ?? "",
-            structureNodeId: row.structure_node_id ?? details.structureNodeId ?? "",
-            element: row.element ?? details.element ?? "",
-            status: row.status ?? details.status ?? "נוצרה, לא הושלמה",
-            checklistIds: details.checklistIds ?? [],
-            nonconformanceIds: details.nonconformanceIds ?? [],
-            trialSectionIds: details.trialSectionIds ?? [],
-            documents: details.documents ?? [],
-            createdAt: row.created_at ?? details.createdAt ?? "",
-            updatedAt: row.updated_at ?? details.updatedAt ?? "",
-          } as HoldPointRecord;
-        });
+    void loadProjectHoldPoints(projectIds.length ? projectIds : [normalizeStoredProjectId(currentProjectId)])
+      .then((cloudRecords) => {
+        if (cancelled) return;
         setSavedHoldPoints((current) => {
           const otherProjects = current.filter(
             (item) => normalizeStoredProjectId(item.projectId) !== normalizeStoredProjectId(currentProjectId),
           );
           return [...cloudRecords, ...otherProjects];
         });
-      });
+      }).catch((error) => { if (!cancelled) console.error("Failed loading hold points", error); });
     return () => {
       cancelled = true;
     };
@@ -16010,11 +16432,17 @@ export default function Page() {
     const loadReports = async () => {
       try {
         const reports = await readSupervisionReportsFromBrowser();
+        const legacyPoints = (reports ?? []).map(legacyHoldPointToRecord).filter(Boolean) as HoldPointRecord[];
+        if (legacyPoints.length) setSavedHoldPoints((current) => {
+          const byId = new Map(legacyPoints.map((record) => [record.id, { ...record, projectId: normalizeStoredProjectId(record.projectId) }]));
+          current.forEach((record) => byId.set(record.id, record));
+          return [...byId.values()];
+        });
 
         if (Array.isArray(reports) && reports.length > 0) {
           setSavedSupervisionReports(
             reports
-              .map((r) => normalizeSupervisionReport(r))
+              .map((r) => isLegacyHoldPoint(r) ? r : normalizeSupervisionReport(r))
               .filter(Boolean) as SupervisionReportRecord[],
           );
         } else {
@@ -16077,20 +16505,51 @@ export default function Page() {
       );
       return;
     }
+    let authenticatedAccess = access;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const upgradeResponse = await fetch("/api/auth/legacy-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: loginCode, password: loginPassword }),
+        });
+        const upgrade = await upgradeResponse.json();
+        if (!upgradeResponse.ok) throw new Error(upgrade.error || "הפעלת שירותי המייל נכשלה");
+        const signIn = await supabase.auth.signInWithPassword({
+          email: upgrade.email,
+          password: upgrade.password,
+        });
+        if (signIn.error) throw signIn.error;
+        const cloudAccess = await loadSupabaseAuthAccess();
+        authenticatedAccess = cloudAccess
+          ? {
+              ...cloudAccess,
+              username: access.username,
+              code: access.code,
+              displayName: access.displayName,
+              aliases: access.aliases,
+              projectName: access.projectName,
+            }
+          : access;
+      } catch (error) {
+        setLoginError(errorText(error));
+        return;
+      }
+    }
     setLoginError("");
     const projectList = projects.length ? projects : getDefaultProjectList();
     const selectedProjectId = selectInitialProjectIdForAccess(
       projectList,
-      access,
-      readLocalCurrentProjectId(matched),
+      authenticatedAccess,
+      readLocalCurrentProjectId(authenticatedAccess),
     );
     if (selectedProjectId) {
       setCurrentProjectId(selectedProjectId);
-      writeLocalCurrentProjectId(selectedProjectId, matched);
+      writeLocalCurrentProjectId(selectedProjectId, authenticatedAccess);
     }
-    setProjectAccess(access);
+    setProjectAccess(authenticatedAccess);
     setShowProjectPicker(true);
-    writeAuthSession(access);
+    writeAuthSession(authenticatedAccess);
     setSection("home");
   };
 
@@ -16516,6 +16975,48 @@ export default function Page() {
     } as ChecklistRecord;
   };
 
+  const nonconformanceRowToRecord = (row: any): NonconformanceRecord => {
+    const details = (row?.details ?? {}) as Record<string, any>;
+    return {
+      id: row.id,
+      projectId: normalizeStoredProjectId(row.project_id),
+      title: row.title ?? details.title ?? "",
+      structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
+      openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
+      openedRole: row.opened_role ?? details.openedRole ?? details.opened_role ?? "בקרת איכות",
+      raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
+      date: row.date ?? details.date ?? "",
+      location: row.location ?? details.location ?? "",
+      building: details.building ?? "",
+      element: row.element ?? details.element ?? "",
+      subElement: row.sub_element ?? details.subElement ?? details.sub_element ?? "",
+      fromSection: row.from_section ?? details.fromSection ?? details.from_section ?? "",
+      toSection: row.to_section ?? details.toSection ?? details.to_section ?? "",
+      offset: row.offset ?? details.offset ?? "",
+      grade: details.grade ?? "",
+      expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
+      updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
+      delayDays: details.delayDays ?? details.delay_days ?? "",
+      breakage: details.breakage ?? "",
+      qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
+      severity: row.severity ?? details.severity ?? "בינונית",
+      status: row.status ?? details.status ?? "פתוח",
+      description: row.description ?? details.description ?? "",
+      responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
+      actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
+      handler: details.handler ?? "",
+      correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
+      notes: row.notes ?? details.notes ?? "",
+      closedBy: details.closedBy ?? details.closed_by ?? "",
+      closingRole: details.closingRole ?? details.closing_role ?? "",
+      closedName: details.closedName ?? details.closed_name ?? "",
+      closingDate: details.closingDate ?? details.closing_date ?? "",
+      images: normalizeAttachments(row.images ?? details.images),
+      approval: normalizeApproval(row.approval ?? details.approval),
+      savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+    } as NonconformanceRecord;
+  };
+
   const loadFromCloudResults = (
     projectsRows: any[] | null,
     checklistRows: any[] | null,
@@ -16533,65 +17034,28 @@ export default function Page() {
     const requestedProjectId = readRequestedProjectIdFromUrl();
     const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
     const selectedProjectId = normalizeStoredProjectId(requestedProjectId || currentProjectId);
+    // אבטחה: אסור לעולם לבחור כברירת מחדל פרויקט שהמשתמש המחובר אינו מורשה
+    // אליו - לא לפי כתובת URL, לא לפי מה ששמור בדפדפן, ולא לפי "פרויקט פעיל"
+    // כללי. תמיד יש לצמצם קודם לרשימת הפרויקטים שהמשתמש הזה מורשה לראות.
+    const allowedProjects = getAccessibleProjectsForAccess(
+      availableProjects,
+      projectAccess,
+    );
     const active =
       (selectedProjectId
-        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
+        ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
         : undefined) ??
       (storedProjectId
-        ? availableProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
+        ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
         : undefined) ??
-      availableProjects.find((p) => p.isActive) ??
-      availableProjects[0] ??
+      allowedProjects.find((p) => p.isActive) ??
+      allowedProjects[0] ??
       getDefaultProjectList()[0];
     setCurrentProjectId(
       active?.id ? normalizeStoredProjectId(active.id) : null,
     );
     setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
-    setSavedNonconformances(
-      (nonconRows ?? []).map((row) => {
-        const details = (row.details ?? {}) as Record<string, any>;
-        return {
-          id: row.id,
-          projectId: normalizeStoredProjectId(row.project_id),
-          title: row.title ?? details.title ?? "",
-          structureNodeId: row.structure_node_id ?? details.structureNodeId ?? details.structure_node_id ?? "",
-          openedBy: details.openedBy ?? details.opened_by ?? "QA / QC",
-          openedRole: details.openedRole ?? details.opened_role ?? "בקרת איכות",
-          raisedBy: row.raised_by ?? details.raisedBy ?? details.raised_by ?? "",
-          date: row.date ?? details.date ?? "",
-          location: row.location ?? details.location ?? "",
-          building: details.building ?? "",
-          element: details.element ?? "",
-          subElement: details.subElement ?? details.sub_element ?? "",
-          fromSection: details.fromSection ?? details.from_section ?? "",
-          toSection: details.toSection ?? details.to_section ?? "",
-          offset: details.offset ?? "",
-          grade: details.grade ?? "",
-          expectedCloseDate: details.expectedCloseDate ?? details.expected_close_date ?? "",
-          updatedExpectedCloseDate: details.updatedExpectedCloseDate ?? details.updated_expected_close_date ?? "",
-          delayDays: details.delayDays ?? details.delay_days ?? "",
-          breakage: details.breakage ?? "",
-          qualityImpact: details.qualityImpact ?? details.quality_impact ?? "",
-          severity: row.severity ?? details.severity ?? "בינונית",
-          status: row.status ?? details.status ?? "פתוח",
-          description: row.description ?? details.description ?? "",
-          responsibleParty: details.responsibleParty ?? details.responsible_party ?? "",
-          actionRequired: row.action_required ?? details.actionRequired ?? details.action_required ?? "",
-          handler: details.handler ?? "",
-          correctiveActionDetails: details.correctiveActionDetails ?? details.corrective_action_details ?? "",
-          notes: row.notes ?? details.notes ?? "",
-          closedBy: details.closedBy ?? details.closed_by ?? "",
-          closingRole: details.closingRole ?? details.closing_role ?? "",
-          closedName: details.closedName ?? details.closed_name ?? "",
-          closingDate: details.closingDate ?? details.closing_date ?? "",
-          images: normalizeAttachments(row.images ?? details.images),
-          approval: normalizeApproval(row.approval ?? details.approval),
-          savedAt: row.saved_at
-            ? new Date(row.saved_at).toLocaleString("he-IL")
-            : "",
-        };
-      }),
-    );
+    setSavedNonconformances((nonconRows ?? []).map(nonconformanceRowToRecord));
     setSavedTrialSections(
       (trialRows ?? []).map((row) => {
         const details = row.details ?? {};
@@ -16631,9 +17095,19 @@ export default function Page() {
         title: row.title ?? "",
         date: row.date ?? "",
         status: row.status ?? "טיוטה",
-        supplier: row.supplier ?? undefined,
-        subcontractor: row.subcontractor ?? undefined,
-        material: row.material ?? undefined,
+        supplier: row.supplier ?? (row.supplier_name || row.supplied_material ? {
+          supplierName: row.supplier_name ?? "",
+          suppliedMaterial: row.supplied_material ?? "",
+        } : undefined),
+        subcontractor: row.subcontractor ?? (row.subcontractor_name || row.contractor_field ? {
+          subcontractorName: row.subcontractor_name ?? "",
+          field: row.contractor_field ?? "",
+        } : undefined),
+        material: row.material ?? (row.material_name || row.material_usage || row.material_source ? {
+          materialName: row.material_name ?? "",
+          usage: row.material_usage ?? "",
+          source: row.material_source ?? "",
+        } : undefined),
         approval: normalizeApproval(row.approval),
         savedAt: row.saved_at
           ? new Date(row.saved_at).toLocaleString("he-IL")
@@ -16682,6 +17156,26 @@ export default function Page() {
         // Unscoped authenticated reads are filtered inconsistently by the
         // production RLS policies and can replace whole modules with [].
         const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
+        const preliminaryRequest = selectProjectTable("preliminary_records", "saved_at", scopedProjectIds);
+        void preliminaryRequest.then((result) => {
+          if (cancelled || loadGeneration !== cloudLoadGenerationRef.current || result.error) return;
+          setSavedPreliminary(
+            (result.data ?? []).map((row: any) => ({
+              id: row.id,
+              projectId: normalizeStoredProjectId(row.project_id),
+              subtype: row.subtype,
+              structureNodeId: row.structure_node_id ?? "",
+              title: row.title ?? "",
+              date: row.date ?? "",
+              status: row.status ?? "טיוטה",
+              supplier: row.supplier ?? undefined,
+              subcontractor: row.subcontractor ?? undefined,
+              material: row.material ?? undefined,
+              approval: normalizeApproval(row.approval),
+              savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+            })),
+          );
+        });
         const [
           projectsRes,
           checklistsRes,
@@ -16698,7 +17192,7 @@ export default function Page() {
           selectProjectTable("checklists", "saved_at", scopedProjectIds),
           selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
           selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-          selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+          preliminaryRequest,
           selectProjectTable("rfi_records", "created_at", scopedProjectIds),
           selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
           selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
@@ -16748,6 +17242,87 @@ export default function Page() {
       cancelled = true;
     };
   }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
+
+  useEffect(() => {
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    if (
+      section !== "concentrations" ||
+      !loaded ||
+      !cloudEnabled ||
+      !supabase ||
+      !normalizedProjectId ||
+      hydratedConcentrationsProjectId === normalizedProjectId
+    ) return;
+
+    let cancelled = false;
+    setConcentrationsLoading(true);
+    setConcentrationsLoadError("");
+    const projectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
+    (async () => {
+      try {
+        const [checklistsResult, preliminaryResult, nonconformancesResult] = await Promise.all([
+          selectProjectTable(
+            "checklists",
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details,items",
+          ),
+          selectProjectTable(
+            "preliminary_records",
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
+          ),
+          selectProjectTable(
+            NONCONFORMANCE_TABLE,
+            "saved_at",
+            projectIds,
+            false,
+            "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,details",
+          ),
+        ]);
+        if (cancelled) return;
+        if (checklistsResult.error || preliminaryResult.error || nonconformancesResult.error) {
+          throw checklistsResult.error || preliminaryResult.error || nonconformancesResult.error;
+        }
+        if (!checklistsResult.error) {
+          setSavedChecklists((checklistsResult.data ?? []).map(checklistRowToRecord));
+        }
+        if (!preliminaryResult.error) {
+          setSavedPreliminary(
+            (preliminaryResult.data ?? []).map((row: any) => ({
+              id: row.id,
+              projectId: normalizeStoredProjectId(row.project_id),
+              subtype: row.subtype,
+              structureNodeId: row.structure_node_id ?? "",
+              title: row.title ?? "",
+              date: row.date ?? "",
+              status: row.status ?? "טיוטה",
+              supplier: row.supplier ?? undefined,
+              subcontractor: row.subcontractor ?? undefined,
+              material: row.material ?? undefined,
+              approval: normalizeApproval(row.approval),
+              savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+            })),
+          );
+        }
+        if (!nonconformancesResult.error) {
+          setSavedNonconformances((nonconformancesResult.data ?? []).map(nonconformanceRowToRecord));
+        }
+        setHydratedConcentrationsProjectId(normalizedProjectId);
+      } catch (error) {
+        console.error("Failed loading full concentration source data", error);
+        if (!cancelled) setConcentrationsLoadError("טעינת נתוני התעודות המלאים לא הושלמה.");
+      } finally {
+        if (!cancelled) setConcentrationsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [section, loaded, cloudEnabled, currentProjectId, hydratedConcentrationsProjectId]);
 
   useEffect(() => {
     if (!loaded || typeof window === "undefined") return;
@@ -16899,8 +17474,11 @@ export default function Page() {
     );
   };
 
-  const withSaving = async (action: () => Promise<void>) => {
-    if (!canWriteAccess(projectAccess)) {
+  const withSaving = async (
+    action: () => Promise<void>,
+    permitted = canWriteAccess(projectAccess),
+  ) => {
+    if (!permitted) {
       alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור, לעדכן או למחוק.");
       return;
     }
@@ -16977,7 +17555,10 @@ export default function Page() {
     if (!loaded || !projectAccess) return;
     if (showProjectPicker && accessibleProjects.length > 1) return;
 
-    const sourceProjects = accessibleProjects.length ? accessibleProjects : effectiveProjects;
+    // אבטחה: יש להשתמש תמיד ברשימת הפרויקטים המורשים למשתמש הזה בלבד
+    // (ולא ליפול בחזרה לרשימה המלאה, שעלולה לכלול פרויקטים שאינם שייכים
+    // לו), אחרת בחירת "הפרויקט הראשון בתור" עלולה להצביע על פרויקט זר.
+    const sourceProjects = getAccessibleProjectsForAccess(effectiveProjects, projectAccess);
     if (!sourceProjects.length) return;
 
     const requestedId = readRequestedProjectIdFromUrl();
@@ -17043,18 +17624,28 @@ export default function Page() {
   const [projectEmailUsers, setProjectEmailUsers] = useState<ProjectEmailUser[]>(() => readProjectEmailUsers());
   const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
 
+  const [projectUsersLoad, setProjectUsersLoad] = useState({projectId:"", canManage:false, canManageCredentials:false, error:""});
+  const selectedUsersProjectId = normalizeStoredProjectId(currentProject?.id);
+  const canEditProjectEmailUsers = projectUsersLoad.projectId === selectedUsersProjectId && projectUsersLoad.canManage;
   useEffect(() => {
     let active = true;
-    loadProjectEmailUsersFromCloud()
-      .then((cloudUsers) => {
-        if (!active || !cloudUsers?.length) return;
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
+    const projectId = selectedUsersProjectId;
+    setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error:""});
+    if (!projectId || !projectAccess) return;
+    loadProjectEmailUsersFromCloud(projectId)
+      .then((result) => {
+        if (!active) return;
+        const cachedProjectUsers = projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) === projectId);
+        const restoredUsers = restoreProjectUserDetails(result.users, cachedProjectUsers, result.canManageCredentials);
+        const next = [...projectEmailUsersRef.current.filter(user => normalizeStoredProjectId(user.projectId) !== projectId), ...restoredUsers];
+        projectEmailUsersRef.current = next;
+        setProjectEmailUsers(next);
+        writeProjectEmailUsers(next);
+        setProjectUsersLoad({projectId, canManage:result.canManage, canManageCredentials:result.canManageCredentials, error:""});
       })
-      .catch((error) => console.warn("טעינת משתמשי הפרויקט מהענן נכשלה", error));
+      .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error: errorText(error)}); });
     return () => { active = false; };
-  }, []);
+  }, [projectAccess?.authUserId, selectedUsersProjectId]);
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     const base = projectEmailUsersRef.current;
@@ -17105,7 +17696,7 @@ export default function Page() {
   }, [currentProjectEmailUsers, projectAccess]);
 
   const addProjectEmailUser = (user: Omit<ProjectEmailUser, "id" | "projectId" | "createdAt">) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר עם הרשאת עריכה בפרויקט.");
     if (!currentProject) return alert("יש לבחור פרויקט");
     saveProjectEmailUsers((prev) => [
       ...prev,
@@ -17114,30 +17705,26 @@ export default function Page() {
   };
 
   const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לערוך נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר עם הרשאת עריכה בפרויקט.");
     saveProjectEmailUsers((prev) =>
-      prev.map((user) => (user.id === id ? { ...user, ...patch, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
+      prev.map((user) => (user.id === id ? { ...user, ...patch, directoryOnly: false, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
     );
   };
 
   const deleteProjectEmailUser = (id: string) => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return;
+    if (projectEmailUsersRef.current.find(user => user.id === id)?.directoryOnly) return alert("משתמש זה משויך דרך רשימת ההרשאות. יש לעדכן את השיוך במסך ההרשאות.");
     if (!window.confirm("למחוק משתמש מרשימת הנמענים של הפרויקט?")) return;
     saveProjectEmailUsers((prev) => prev.filter((user) => user.id !== id));
   };
 
   const saveCurrentProjectEmailUsers = async () => {
-    if (!canWriteAccess(projectAccess)) return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור נמעני פרויקט.");
+    if (!canEditProjectEmailUsers) return alert("השמירה דורשת טעינה תקינה והרשאת עריכה בפרויקט הנבחר.");
+    const projectId = selectedUsersProjectId;
     const usersToSave = projectEmailUsersRef.current;
     try {
       writeProjectEmailUsers(usersToSave);
-      await saveProjectEmailUsersToCloud(usersToSave);
-      const cloudUsers = await loadProjectEmailUsersFromCloud();
-      if (cloudUsers) {
-        projectEmailUsersRef.current = cloudUsers;
-        setProjectEmailUsers(cloudUsers);
-        writeProjectEmailUsers(cloudUsers);
-      }
+      await saveProjectEmailUsersToCloud(usersToSave, projectId, projectUsersLoad.canManageCredentials);
       alert("משתמשי הפרויקט נשמרו בהצלחה בענן ובדפדפן");
     } catch (error) {
       console.error(error);
@@ -17149,12 +17736,9 @@ export default function Page() {
         [
           "המשתמשים נשמרו בדפדפן הנוכחי, אך לא נשמרו בענן.",
           "",
-          "כדי לשמור משתמשי פרויקט וסיסמת Gmail לכל פרויקט, יש להריץ פעם אחת ב-Supabase SQL Editor את הקובץ:",
-          "app/supabase/09_project_email_users.sql",
-          "",
-          details ? `Supabase error: ${details}` : "Supabase error: no details returned",
-          "",
-          "לאחר הרצת ה-SQL לחץ שוב על שמור משתמשים.",
+          "יש לוודא שההתחברות בתוקף ושיש לך הרשאת עריכה בפרויקט הנבחר.",
+          details,
+          "אם הבעיה נמשכת, יש להעביר הודעה זו לאחראי המערכת לבדיקת הרשאות. אין ליצור את המשתמשים מחדש.",
         ].join("\n"),
       );
     }
@@ -17250,6 +17834,11 @@ export default function Page() {
       supervisor: legend.supervisor || "",
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
+
+  const currentNonconformanceActor = useMemo(
+    () => nonconformanceActor(projectAccess, currentProjectEmailUsers),
+    [projectAccess, currentProjectEmailUsers],
+  );
 
   const qualityControlApproverName = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
@@ -17375,11 +17964,9 @@ export default function Page() {
   const applyProjectDefaultsToNonconformance = (form: any) => {
     const filled = fillOnlyEmptyFields(form, {
       ...projectDefaultFieldValues(),
-      raisedBy: currentProjectDefaults.qualityControl,
-      responsibleParty: currentProjectDefaults.contractor || currentProjectDefaults.projectManagement,
-      handler: currentProjectDefaults.workManager || currentProjectDefaults.contractor,
-      openedBy: form.openedBy || "QA / QC",
-      openedRole: form.openedRole || "בקרת איכות",
+      raisedBy: currentNonconformanceActor.personalName,
+      openedBy: currentNonconformanceActor.openedBy,
+      openedRole: currentNonconformanceActor.roleLabel,
     });
 
     // פרטי הפרויקט בטופס אי התאמה נמשכים תמיד ממסך "פרטי הפרויקט".
@@ -18055,6 +18642,7 @@ export default function Page() {
   const projectSupervisionReports = useMemo(
     () =>
       savedSupervisionReports
+        .filter((item) => !isLegacyHoldPoint(item))
         .filter((item) => recordMatchesCurrentProject(item.projectId))
         .filter(
           (item) =>
@@ -18358,6 +18946,9 @@ export default function Page() {
     currentProjectDefaults.workManager,
     currentProjectDefaults.surveyor,
     currentProjectDefaults.supervisor,
+    currentNonconformanceActor.openedBy,
+    currentNonconformanceActor.roleLabel,
+    currentNonconformanceActor.personalName,
     editingChecklistId,
     editingNonconformanceId,
     editingTrialSectionId,
@@ -18388,8 +18979,9 @@ export default function Page() {
     setNonconformanceForm(applyProjectDefaultsToNonconformance({
       ...createDefaultNonconformance(),
       title: nextNonconformanceTitle(),
-      openedBy: "QA / QC",
-      openedRole: "בקרת איכות",
+      openedBy: currentNonconformanceActor.openedBy,
+      openedRole: currentNonconformanceActor.roleLabel,
+      raisedBy: currentNonconformanceActor.personalName,
       status: "פתוח",
     } as any));
   };
@@ -18638,7 +19230,8 @@ export default function Page() {
         const result = await supabase!
           .from(PROJECT_STRUCTURE_TABLE)
           .delete()
-          .eq("id", id);
+          .eq("id", id)
+          .select("id");
         if (result.error) {
           if (
             isProjectStructureTableMissingError(result.error) ||
@@ -18646,6 +19239,12 @@ export default function Page() {
           )
             deletedLocallyOnly = true;
           else if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        } else if (!result.data || result.data.length === 0) {
+          // "Succeeded" but matched 0 rows server-side (most commonly:
+          // row-level security silently excluded it, which Postgres does not
+          // treat as an error for deletes). Fall back the same way as a
+          // genuine access error instead of pretending it was deleted.
+          deletedLocallyOnly = true;
         }
       }
       setProjectStructureNodes((prev) => prev.filter((node) => node.id !== id));
@@ -18680,10 +19279,6 @@ export default function Page() {
     );
     await withSaving(async () => {
       if (cloudEnabled) {
-        await supabase!
-          .from("projects")
-          .update({ is_active: false })
-          .neq("id", id);
         const result = await supabase!.from("projects").insert({
           id,
           name: project.name,
@@ -18708,7 +19303,13 @@ export default function Page() {
           ...projectAccess,
           code: id,
           projectName: project.name,
-          projectIds: [id],
+          // Add the new project to whatever this user could already see,
+          // instead of replacing their whole project list with just this
+          // one new project (which used to silently drop every project
+          // they already had access to).
+          projectIds: Array.from(
+            new Set([...(projectAccess.projectIds ?? []), id]),
+          ),
         };
         const nextUsers = accessUsers.map((user) =>
           user.username === projectAccess.username ||
@@ -20058,35 +20659,41 @@ export default function Page() {
     return newSampleRows.length;
   };
 
-  const loadControlProcess = (record: ControlProcessRecord) => {
+  const loadControlProcess = async (record: ControlProcessRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(CONTROL_PROCESS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? normalizeControlProcess(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
     setSection("controlProcesses");
-    setEditingControlProcessId(record.id);
+    setEditingControlProcessId(fullRecord.id);
     setControlProcessForm({
-      processNo: record.processNo,
-      title: record.title,
-      workType: record.workType,
-      specSection: record.specSection,
-      structureNodeId: record.structureNodeId,
-      location: record.location,
-      date: record.date,
-      fromSection: record.fromSection,
-      toSection: record.toSection,
-      status: record.status,
-      checklistIds: record.checklistIds,
-      rfiIds: record.rfiIds,
-      nonconformanceIds: record.nonconformanceIds,
-      requiredDocuments: normalizeRequiredDocuments(record.requiredDocuments),
+      processNo: fullRecord.processNo,
+      title: fullRecord.title,
+      workType: fullRecord.workType,
+      specSection: fullRecord.specSection,
+      structureNodeId: fullRecord.structureNodeId,
+      location: fullRecord.location,
+      date: fullRecord.date,
+      fromSection: fullRecord.fromSection,
+      toSection: fullRecord.toSection,
+      status: fullRecord.status,
+      checklistIds: fullRecord.checklistIds,
+      rfiIds: fullRecord.rfiIds,
+      nonconformanceIds: fullRecord.nonconformanceIds,
+      requiredDocuments: normalizeRequiredDocuments(fullRecord.requiredDocuments),
       referenceResults: ensureReferenceResultsForMaterial(
-        isGradingLineReferenceRecord(record) &&
-        !isSelectedMaterialReference(record.workType) &&
-        !isMatzeaAReference(record.workType)
+        isGradingLineReferenceRecord(fullRecord) &&
+        !isSelectedMaterialReference(fullRecord.workType) &&
+        !isMatzeaAReference(fullRecord.workType)
           ? "קו דירוג"
-          : record.workType,
-        record.referenceResults,
+          : fullRecord.workType,
+        fullRecord.referenceResults,
       ),
-      auditTrail: record.auditTrail,
-      approval: normalizeApproval(record.approval),
-      lockedAt: record.lockedAt,
+      auditTrail: fullRecord.auditTrail,
+      approval: normalizeApproval(fullRecord.approval),
+      lockedAt: fullRecord.lockedAt,
     });
   };
 
@@ -20099,9 +20706,13 @@ export default function Page() {
         const result = await supabase!
           .from(CONTROL_PROCESS_TABLE)
           .delete()
-          .eq("id", id);
-        if (result.error && !shouldIgnoreCloudError(result.error))
-          throw result.error;
+          .eq("id", id)
+          .select("id");
+        if (result.error) {
+          if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        } else if (!result.data || result.data.length === 0) {
+          throw new Error(CLOUD_DELETE_BLOCKED_MESSAGE);
+        }
       }
       setSavedControlProcesses((prev) => prev.filter((item) => item.id !== id));
       if (editingControlProcessId === id) resetControlProcessForm();
@@ -20243,22 +20854,27 @@ export default function Page() {
     setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt }));
     alert("רשימת התיוג נשמרה בהצלחה");
   };
-  const loadChecklist = (record: ChecklistRecord) => {
+  const loadChecklist = async (record: ChecklistRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from("checklists").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) fullRecord = checklistRowToRecord(data);
+    }
     setSection("checklists");
-    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(record.templateKey));
-    setEditingChecklistId(record.id);
+    setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(fullRecord.templateKey));
+    setEditingChecklistId(fullRecord.id);
     setChecklistForm({
-      ...(record as any),
-      checklistNo: record.checklistNo,
-      templateKey: record.templateKey,
-      title: record.title,
-      category: record.category,
-      location: record.location,
-      date: record.date,
-      contractor: record.contractor,
-      notes: record.notes,
-      items: normalizeChecklistItems(record.items),
-      approval: normalizeApproval(record.approval),
+      ...(fullRecord as any),
+      checklistNo: fullRecord.checklistNo,
+      templateKey: fullRecord.templateKey,
+      title: fullRecord.title,
+      category: fullRecord.category,
+      location: fullRecord.location,
+      date: fullRecord.date,
+      contractor: fullRecord.contractor,
+      notes: fullRecord.notes,
+      items: normalizeChecklistItems(fullRecord.items),
+      approval: normalizeApproval(fullRecord.approval),
     });
   };
   useEffect(() => {
@@ -20280,12 +20896,14 @@ export default function Page() {
   const deleteChecklist = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק רשימות תיוג.");
-    return withSaving(async () =>
-      cloudEnabled
-        ? (await supabase!.from("checklists").delete().eq("id", id),
-          await refreshCloudData())
-        : setSavedChecklists((prev) => prev.filter((item) => item.id !== id)),
-    );
+    return withSaving(async () => {
+      if (cloudEnabled) {
+        await deleteCloudRow(supabase!, "checklists", id);
+        await refreshCloudData();
+      } else {
+        setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
+      }
+    });
   };
 
   const saveRfiPayload = async (
@@ -20434,10 +21052,20 @@ export default function Page() {
     resetRfiForm();
   };
 
-  const loadRfi = (record: RfiRecord) => {
+  const hydrateRfiRecord = async (record: RfiRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from("rfi_records").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) fullRecord = rfiRowToRecord(data);
+    }
+    return fullRecord;
+  };
+
+  const loadRfi = async (record: RfiRecord) => {
+    const fullRecord = await hydrateRfiRecord(record);
     setSection("rfi");
-    setEditingRfiId(record.id);
-    const { id, projectId, savedAt, ...form } = record;
+    setEditingRfiId(fullRecord.id);
+    const { id, projectId, savedAt, ...form } = fullRecord;
     setRfiForm(form);
   };
 
@@ -20448,11 +21076,7 @@ export default function Page() {
     if (!window.confirm("למחוק את " + (record?.title ?? "RFI") + "?")) return;
     await withSaving(async () => {
       if (cloudEnabled) {
-        const result = await supabase!
-          .from("rfi_records")
-          .delete()
-          .eq("id", id);
-        if (result.error) throw result.error;
+        await deleteCloudRow(supabase!, "rfi_records", id);
         await refreshCloudData();
       } else {
         setSavedRfis((prev) => prev.filter((item) => item.id !== id));
@@ -20482,8 +21106,8 @@ export default function Page() {
   };
 
   const saveNonconformance = async () => {
-    if (!canWriteAccess(projectAccess))
-      return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור אי-התאמות.");
+    if (!canManageNonconformances(projectAccess))
+      return alert("אין למשתמש הנוכחי הרשאה לפתוח או לעדכן אי־התאמות.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     if (!String((nonconformanceForm as any).structureNodeId ?? "").trim())
       return alert("יש לשייך את אי ההתאמה לאלמנט בעץ הפרויקט.");
@@ -20562,12 +21186,25 @@ export default function Page() {
             closingDate: (record as any).closingDate,
           },
         };
-        await saveWithApprovalFallback(
-          NONCONFORMANCE_TABLE,
-          payload,
-          editingNonconformanceId ? "update" : "insert",
-          editingNonconformanceId ?? undefined,
-        );
+        if (!canWriteAccess(projectAccess) && canManageNonconformances(projectAccess)) {
+          const session = await supabase!.auth.getSession();
+          const token = session.data.session?.access_token;
+          if (!token) throw new Error("ההתחברות פגה. יש להתחבר שוב.");
+          const result = await fetch('/api/nonconformances', {
+            method:'POST',
+            headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+            body:JSON.stringify({projectId:normalizedProjectId,mode:editingNonconformanceId ? 'update' : 'insert',record:payload}),
+          });
+          const data = await result.json().catch(()=>({}));
+          if (!result.ok) throw new Error(data.error || "שמירת אי־ההתאמה נכשלה");
+        } else {
+          await saveWithApprovalFallback(
+            NONCONFORMANCE_TABLE,
+            payload,
+            editingNonconformanceId ? "update" : "insert",
+            editingNonconformanceId ?? undefined,
+          );
+        }
         await refreshCloudData();
       } else
         setSavedNonconformances((prev) =>
@@ -20577,10 +21214,34 @@ export default function Page() {
               )
             : [record, ...prev],
         );
-    });
+    }, canManageNonconformances(projectAccess));
     resetNonconformanceEditor();
   };
-  const loadNonconformance = (record: NonconformanceRecord) => {
+  const loadNonconformance = async (record: NonconformanceRecord) => {
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(NONCONFORMANCE_TABLE).select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        const details = data.details && typeof data.details === "object" ? data.details : {};
+        record = {
+          ...details,
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          structureNodeId: data.structure_node_id ?? details.structureNodeId ?? "",
+          title: details.title ?? "",
+          raisedBy: details.raisedBy ?? data.raised_by ?? "",
+          date: details.date ?? data.date ?? "",
+          location: details.location ?? data.location ?? "",
+          severity: details.severity ?? data.severity ?? "בינונית",
+          status: details.status ?? data.status ?? "פתוח",
+          description: data.description ?? details.description ?? "",
+          actionRequired: data.action_required ?? details.actionRequired ?? "",
+          notes: details.notes ?? data.notes ?? "",
+          images: normalizeAttachments(data.images ?? details.images),
+          approval: normalizeApproval(data.approval ?? details.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+        } as NonconformanceRecord;
+      }
+    }
     setSection("nonconformances");
     setEditingNonconformanceId(record.id);
     setNonconformanceForm({
@@ -20698,17 +21359,19 @@ export default function Page() {
   const deleteNonconformance = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק אי-התאמות.");
-    return withSaving(async () =>
-      cloudEnabled
-        ? (await supabase!.from(NONCONFORMANCE_TABLE).delete().eq("id", id),
-          await refreshCloudData())
-        : setSavedNonconformances((prev) =>
-            prev.filter((item) => item.id !== id),
-          ),
-    );
+    return withSaving(async () => {
+      if (cloudEnabled) {
+        await deleteCloudRow(supabase!, NONCONFORMANCE_TABLE, id);
+        await refreshCloudData();
+      } else {
+        setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
+      }
+    });
   };
 
   const closeNonconformance = () => {
+    if (!canManageNonconformances(projectAccess))
+      return alert("אין למשתמש הנוכחי הרשאה לסגור אי־התאמות.");
     if (
       !String((nonconformanceForm as any).correctiveActionDetails ?? "").trim()
     )
@@ -20718,9 +21381,9 @@ export default function Page() {
       ...prev,
       status: "סגור",
       closingDate: prev.closingDate || today,
-      closedBy: prev.closedBy || "QA / QC",
-      closingRole: prev.closingRole || "QC",
-      closedName: prev.closedName || projectAccess?.displayName || "",
+      closedBy: currentNonconformanceActor.roleLabel,
+      closingRole: currentNonconformanceActor.roleLabel,
+      closedName: currentNonconformanceActor.personalName,
     }));
     setTimeout(
       () =>
@@ -20842,7 +21505,31 @@ export default function Page() {
     });
     resetTrialSectionEditor();
   };
-  const loadTrialSection = (record: TrialSectionRecord) => {
+  const loadTrialSection = async (record: TrialSectionRecord) => {
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from("trial_sections").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        const details = data.details && typeof data.details === "object" ? data.details : {};
+        record = {
+          ...details,
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          structureNodeId: data.structure_node_id ?? details.structureNodeId ?? "",
+          title: details.title ?? data.title ?? "",
+          location: details.location ?? data.location ?? "",
+          date: details.date ?? data.date ?? "",
+          spec: details.spec ?? data.spec ?? "",
+          result: details.result ?? data.result ?? "",
+          approvedBy: details.approvedBy ?? data.approved_by ?? "",
+          status: details.status ?? data.status ?? "טיוטה",
+          notes: details.notes ?? data.notes ?? "",
+          images: normalizeAttachments(details.images ?? data.images),
+          approval: normalizeApproval(details.approval ?? data.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+          details,
+        } as TrialSectionRecord;
+      }
+    }
     setSection("trialSections");
     setEditingTrialSectionId(record.id);
     const details = ((record as any).details && typeof (record as any).details === "object") ? (record as any).details : {};
@@ -20866,14 +21553,14 @@ export default function Page() {
   const deleteTrialSection = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק קטעי ניסוי.");
-    return withSaving(async () =>
-      cloudEnabled
-        ? (await supabase!.from("trial_sections").delete().eq("id", id),
-          await refreshCloudData())
-        : setSavedTrialSections((prev) =>
-            prev.filter((item) => item.id !== id),
-          ),
-    );
+    return withSaving(async () => {
+      if (cloudEnabled) {
+        await deleteCloudRow(supabase!, "trial_sections", id);
+        await refreshCloudData();
+      } else {
+        setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
+      }
+    });
   };
 
   const currentPreliminaryForm =
@@ -20971,7 +21658,31 @@ export default function Page() {
     });
     resetPreliminaryEditor();
   };
-  const loadPreliminary = (record: PreliminaryRecord) => {
+  const hydratePreliminaryRecord = async (record: PreliminaryRecord): Promise<PreliminaryRecord> => {
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from("preliminary_records").select("*").eq("id", record.id).maybeSingle();
+      if (!error && data) {
+        return {
+          id: data.id,
+          projectId: normalizeStoredProjectId(data.project_id),
+          subtype: data.subtype,
+          structureNodeId: data.structure_node_id ?? "",
+          title: data.title ?? "",
+          date: data.date ?? "",
+          status: data.status ?? "טיוטה",
+          supplier: data.supplier ?? undefined,
+          subcontractor: data.subcontractor ?? undefined,
+          material: data.material ?? undefined,
+          approval: normalizeApproval(data.approval),
+          savedAt: data.saved_at ? new Date(data.saved_at).toLocaleString("he-IL") : "",
+        } as PreliminaryRecord;
+      }
+      if (error) throw error;
+    }
+    return record;
+  };
+  const loadPreliminary = async (record: PreliminaryRecord) => {
+    record = await hydratePreliminaryRecord(record);
     setSection("preliminary");
     setPreliminaryTab(record.subtype);
     setEditingPreliminaryId(record.id);
@@ -21013,12 +21724,14 @@ export default function Page() {
   const deletePreliminary = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק בקרה מקדימה.");
-    return withSaving(async () =>
-      cloudEnabled
-        ? (await supabase!.from("preliminary_records").delete().eq("id", id),
-          await refreshCloudData())
-        : setSavedPreliminary((prev) => prev.filter((item) => item.id !== id)),
-    );
+    return withSaving(async () => {
+      if (cloudEnabled) {
+        await deleteCloudRow(supabase!, "preliminary_records", id);
+        await refreshCloudData();
+      } else {
+        setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
+      }
+    });
   };
 
   const guardedBody =
@@ -21312,17 +22025,23 @@ export default function Page() {
     setEditingPlanId(id);
   };
 
-  const loadPlan = (record: PlanRecord) => {
-    setEditingPlanId(record.id);
+  const loadPlan = async (record: PlanRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(PLANS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? planRowToRecord(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
+    setEditingPlanId(fullRecord.id);
     setPlanForm({
-      planNo: record.planNo,
-      revision: record.revision,
-      title: record.title,
-      discipline: record.discipline,
-      date: record.date,
-      status: record.status,
-      notes: record.notes,
-      attachments: normalizeAttachments(record.attachments),
+      planNo: fullRecord.planNo,
+      revision: fullRecord.revision,
+      title: fullRecord.title,
+      discipline: fullRecord.discipline,
+      date: fullRecord.date,
+      status: fullRecord.status,
+      notes: fullRecord.notes,
+      attachments: normalizeAttachments(fullRecord.attachments),
     });
     setSection("plans");
   };
@@ -21333,8 +22052,12 @@ export default function Page() {
     if (!window.confirm("למחוק את התוכנית?")) return;
     await withSaving(async () => {
       if (cloudEnabled && supabase) {
-        const result = await supabase.from(PLANS_TABLE).delete().eq("id", id);
-        if (result.error && !shouldIgnoreCloudError(result.error)) throw result.error;
+        const result = await supabase.from(PLANS_TABLE).delete().eq("id", id).select("id");
+        if (result.error) {
+          if (!shouldIgnoreCloudError(result.error)) throw result.error;
+        } else if (!result.data || result.data.length === 0) {
+          throw new Error(CLOUD_DELETE_BLOCKED_MESSAGE);
+        }
       }
       setSavedPlans((prev) => prev.filter((item) => item.id !== id));
       if (cloudEnabled) await refreshCloudData();
@@ -21374,10 +22097,12 @@ export default function Page() {
           },
           { onConflict: "id" },
         );
-        if (result.error && !shouldIgnoreCloudError(result.error)) {
-          const message = String(result.error.message || "");
-          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
-            throw result.error;
+        if (result.error) {
+          if (!isMissingHoldPointsTable(result.error)) throw result.error;
+          const legacy = await supabase.from(SUPERVISION_REPORTS_TABLE).upsert(
+            legacyHoldPointToRow({ ...record, projectId: normalizeStoredProjectId(record.projectId) }), { onConflict: "id" },
+          );
+          if (legacy.error) throw legacy.error;
         }
       }
       setSavedHoldPoints((current) =>
@@ -21393,18 +22118,31 @@ export default function Page() {
       return alert("למשתמש הנוכחי אין הרשאה למחוק נקודות עצירה.");
     await withSaving(async () => {
       if (cloudEnabled && supabase) {
-        const result = await supabase.from(HOLD_POINTS_TABLE).delete().eq("id", id);
-        if (result.error && !shouldIgnoreCloudError(result.error)) {
-          const message = String(result.error.message || "");
-          if (!message.includes(HOLD_POINTS_TABLE) && !message.includes("schema cache"))
-            throw result.error;
+        const result = await supabase.from(HOLD_POINTS_TABLE).delete().eq("id", id).select("id");
+        if (result.error) {
+          if (!isMissingHoldPointsTable(result.error)) throw result.error;
+        } else if (!result.data || result.data.length === 0) {
+          throw new Error(CLOUD_DELETE_BLOCKED_MESSAGE);
         }
+        // Legacy fallback row: most hold points never had one, so 0 rows
+        // here is normal and not an error condition.
+        const legacy = await supabase.from(SUPERVISION_REPORTS_TABLE).delete().eq("id", id)
+          .like("title", `${LEGACY_HOLD_POINT_PREFIX}%`);
+        if (legacy.error) throw legacy.error;
       }
       setSavedHoldPoints((current) => current.filter((item) => item.id !== id));
+      if (!cloudEnabled) setSavedSupervisionReports((current) => current.filter((item) => item.id !== id || !isLegacyHoldPoint(item)));
     });
   };
 
   const homeModules = [
+    {
+      key: "projectStructure",
+      title: "עץ הפרויקט",
+      icon: "🌳",
+      description: "מבנה הפרויקט והשיוכים",
+      count: currentProjectStructureNodes.length,
+    },
     {
       key: "projectDetails",
       title: "פרטי הפרויקט",
@@ -21763,6 +22501,7 @@ export default function Page() {
     const elementHeader = isConcreteExport ? "מבנה/אלמנט" : "מס׳ שכבה";
     const subElementHeader = isConcreteExport ? "תת אלמנט" : "כביש / מבנה";
     const procedureNo = template.procedureNo || "";
+    const formNo = template.formNo || "";
     const edition = sourceRecord.revision || template.edition || CHECKLIST_DEFAULT_REVISION;
     const procedureDate = sourceRecord.revisionDate || template.procedureDate || CHECKLIST_DEFAULT_REVISION_DATE;
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
@@ -21785,6 +22524,7 @@ export default function Page() {
     const toStationSection = sourceRecord.toStationSection || sourceRecord.toSection || "";
     const offset = sourceRecord.offset || sourceRecord.side || "";
     const notes = sourceRecord.notes || "";
+    const isSewerExport = String(templateKey) === "sewerLines";
 
     const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
 
@@ -21831,8 +22571,8 @@ export default function Page() {
     return `<div class="checklist-export-title">${safeText(title)}</div>
     <table class="doc-header">
       <tbody>
-        <tr><td>${elementHeader}:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
-        <tr><td>${valueOrBlank(procedureNo, 20)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
+        <tr><td>${formNo ? "נוהל / טופס" : elementHeader}:</td><td colspan="5">שם הנוהל:</td><td>מהדורה:</td><td>תאריך:</td></tr>
+        <tr><td>${valueOrBlank([procedureNo, formNo].filter(Boolean).join(" / "), 24)}</td><td colspan="5" class="header-title">${safeText(title)}</td><td>${valueOrBlank(edition, 16)}</td><td>${valueOrBlank(procedureDate, 18)}</td></tr>
       </tbody>
     </table>
     <table class="checklist-top-table source-meta">
@@ -21845,6 +22585,12 @@ export default function Page() {
         <tr><td>${valueOrBlank(stationSection, 18)}</td><td>${valueOrBlank(toStationSection, 18)}</td><td>${valueOrBlank(offset, 18)}</td><td colspan="2">${valueOrBlank(notes, 40)}</td></tr>
       </tbody>
     </table>
+    ${isSewerExport ? `<table class="checklist-top-table source-meta">
+      <tbody>
+        <tr><th>מס׳ קו</th><th>בין שוחות / קטע</th><th>חומר הצינור</th><th>קוטר הצינור</th><th>אורך הקו במטרים</th></tr>
+        <tr><td>${valueOrBlank(sourceRecord.lineNo, 18)}</td><td>${valueOrBlank(sourceRecord.betweenManholes, 28)}</td><td>${valueOrBlank(sourceRecord.pipeMaterial, 22)}</td><td>${valueOrBlank(sourceRecord.pipeDiameter, 18)}</td><td>${valueOrBlank(sourceRecord.lineLengthMeters, 18)}</td></tr>
+      </tbody>
+    </table>` : ""}
     <table class="check-table">
       <thead>
         <tr><th colspan="7" class="wide-label">תאור פעילות הבקרה &nbsp;&nbsp; אישור שלבי התהליך ע״י בקרת האיכות</th></tr>
@@ -21880,6 +22626,11 @@ export default function Page() {
     return `<h2>קבצים / תמונות מצורפים</h2><div class="attachment-summary">${safeText(summary)}</div><table><thead><tr><th>סוג צירוף</th><th>שם / מספר קובץ</th><th>סוג קובץ</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
 
+  const exportStatusLabel = (value: unknown) => {
+    const status = String(value ?? "").trim();
+    return status === "טיוטה" || status.toLowerCase() === "draft" ? "בתהליך / בטיפול" : status;
+  };
+
   const nonconformanceExportHtml = () => {
     const f: any = enrichNonconformanceRecordWithProjectDetails(nonconformanceForm);
     return `${baseRows([
@@ -21903,7 +22654,7 @@ export default function Page() {
       ["שבר", f.breakage],
       ["השפעה על איכות", f.qualityImpact],
       ["חומרה", f.severity],
-      ["סטטוס", f.status],
+      ["סטטוס", exportStatusLabel(f.status)],
       ["תיאור אי ההתאמה", f.description, 110],
       ["גורם אחראי לליקוי תכנון, ביצוע, ספק", f.responsibleParty, 90],
       ["טיפול נדרש", f.actionRequired, 100],
@@ -21968,7 +22719,7 @@ export default function Page() {
       ["תוצאה / מסקנות קטע ניסוי", resultText, 70],
       ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
       ["אושר על ידי", get("approvedBy")],
-      ["סטטוס", get("status")],
+      ["סטטוס", exportStatusLabel(get("status"))],
       ["הערות", get("notes"), 45],
     ])}${attachmentsList(images)}${signaturesTable(f.approval)}`;
   };
@@ -22027,7 +22778,7 @@ export default function Page() {
           ["סוג בקרה", "ספקים"],
           ["כותרת", supplierPreliminaryForm.title],
           ["תאריך", supplierPreliminaryForm.date],
-          ["סטטוס", supplierPreliminaryForm.status],
+          ["סטטוס", exportStatusLabel(supplierPreliminaryForm.status)],
           ["שם ספק", (s as any).supplierName],
           ["חומר מסופק", (s as any).suppliedMaterial],
           ["טלפון", (s as any).contactPhone],
@@ -22043,7 +22794,7 @@ export default function Page() {
           ["סוג בקרה", "קבלנים"],
           ["כותרת", subcontractorPreliminaryForm.title],
           ["תאריך", subcontractorPreliminaryForm.date],
-          ["סטטוס", subcontractorPreliminaryForm.status],
+          ["סטטוס", exportStatusLabel(subcontractorPreliminaryForm.status)],
           ["שם קבלן משנה", (s as any).subcontractorName],
           ["תחום", (s as any).field],
           ["טלפון", (s as any).contactPhone],
@@ -22058,7 +22809,7 @@ export default function Page() {
         ["סוג בקרה", "חומרים"],
         ["כותרת", materialPreliminaryForm.title],
         ["תאריך", materialPreliminaryForm.date],
-        ["סטטוס", materialPreliminaryForm.status],
+        ["סטטוס", exportStatusLabel(materialPreliminaryForm.status)],
         ["שם חומר", (m as any).materialName],
         ["מקור", (m as any).source],
         ["שימוש", (m as any).usage],
@@ -22075,7 +22826,7 @@ export default function Page() {
       ["שם / תיאור", record.title],
       ["תחום", record.discipline],
       ["תאריך", record.date],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["הערות", record.notes, 80],
     ])}${attachmentsList(record.attachments)}${signaturesTable(record.approval)}`;
 
@@ -22087,7 +22838,7 @@ export default function Page() {
         ["סוג בקרה", "ספקים"],
         ["כותרת", record.title],
         ["תאריך", record.date],
-        ["סטטוס", record.status],
+        ["סטטוס", exportStatusLabel(record.status)],
         ["שם ספק", supplier.supplierName],
         ["חומר מסופק", supplier.suppliedMaterial],
         ["טלפון", supplier.contactPhone],
@@ -22101,7 +22852,7 @@ export default function Page() {
         ["סוג בקרה", "קבלנים"],
         ["כותרת", record.title],
         ["תאריך", record.date],
-        ["סטטוס", record.status],
+        ["סטטוס", exportStatusLabel(record.status)],
         ["שם קבלן משנה", subcontractor.subcontractorName],
         ["תחום / סוג עבודה", subcontractor.field || subcontractor.workType],
         ["טלפון", subcontractor.contactPhone],
@@ -22114,7 +22865,7 @@ export default function Page() {
       ["סוג בקרה", "חומרים"],
       ["כותרת", record.title],
       ["תאריך", record.date],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["שם חומר", material.materialName],
       ["מקור / ספק", material.source],
       ["שימוש מיועד", material.usage],
@@ -22141,7 +22892,7 @@ export default function Page() {
       ["הסט", f.offset],
       ["דרגה", f.grade],
       ["חומרה", f.severity],
-      ["סטטוס", f.status],
+      ["סטטוס", exportStatusLabel(f.status)],
       ["תיאור אי ההתאמה", f.description, 110],
       ["גורם אחראי", f.responsibleParty, 70],
       ["טיפול נדרש", f.actionRequired, 100],
@@ -22181,7 +22932,7 @@ export default function Page() {
       ["תוצאה / מסקנות", get("result", "conclusions"), 70],
       ["פעולה מתקנת / נדרשת", get("correctiveAction", "requiredAction", "actionRequired"), 55],
       ["אושר על ידי", get("approvedBy")],
-      ["סטטוס", get("status")],
+      ["סטטוס", exportStatusLabel(get("status"))],
       ["הערות", get("notes"), 45],
     ])}${attachmentsList(record.images)}${signaturesTable(record.approval)}`;
   };
@@ -22195,7 +22946,7 @@ export default function Page() {
       ["מיקום / שימוש מיועד", record.location],
       ["מחתך", record.fromSection || record.fromChainage],
       ["עד חתך", record.toSection || record.toChainage],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["ספק / מפעל", record.supplier],
       ["מס׳ תעודת מעבדה", record.labCertificateNo],
     ])}${referenceResultsExportTable(record.workType, record.referenceResults)}${requiredDocumentsExportTable(record.requiredDocuments)}${signaturesTable(record.approval)}`;
@@ -22208,7 +22959,7 @@ export default function Page() {
       ["תאריך טיפול", record.treatmentDate],
       ["מיקום", record.location],
       ["מבצע / עורך", record.author],
-      ["סטטוס", record.status],
+      ["סטטוס", exportStatusLabel(record.status)],
       ["טיפול", record.treatment, 100],
       ["הערות", record.notes, 80],
     ])}${attachmentsList(record.attachments ?? (record.attachment ? [record.attachment] : []))}${signaturesTable(record.approval)}`;
@@ -22352,6 +23103,7 @@ export default function Page() {
         }
         if (rfiCloudRows) allProjectRfis = rfiCloudRows.map(rfiRowToRecord);
         if (controlCloudRows) allProjectControlProcesses = controlCloudRows.map(normalizeControlProcess).filter(Boolean) as ControlProcessRecord[];
+        if (sectionEnabled("holdPoints")) allProjectHoldPoints = await loadProjectHoldPoints(projectCloudIdsForCanonicalId(currentProjectIdNormalized));
         if (supervisionCloudRows) allProjectSupervisionReports = supervisionCloudRows.map(supervisionReportRowToRecord).filter(Boolean) as SupervisionReportRecord[];
         if (planCloudRows) allProjectPlans = planCloudRows.map(planRowToRecord).filter(Boolean) as PlanRecord[];
       }
@@ -23277,7 +24029,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const openRecordEmail = (
     moduleName: string, record: Record<string, any>, recordId: string | null,
-    title: string, generateDocuments?: () => Promise<MailAttachment[]>,
+    title: string, generateDocuments?: () => Promise<MailAttachment[]>, consolidated = false,
   ) => {
     if (!currentProject?.id) return alert("יש לבחור פרויקט");
     const snapshot = structuredClone(record);
@@ -23285,31 +24037,64 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       projectId: currentProject.id, module: moduleName,
       recordId: recordId || `draft-${crypto.randomUUID()}`, recordIds: Array.isArray(snapshot.records) ? snapshot.records.map((item: any) => String(item.id || "")).filter(Boolean) : undefined, title,
       data: { ...snapshot, title, projectName },
-      attachments: collectMailAttachments(snapshot), generateDocuments,
+      attachments: consolidated ? [] : collectMailAttachments(snapshot), generateDocuments,
     });
   };
 
   const documentForEmail = async (html: string, title: string): Promise<MailAttachment> => {
     const bytes = await buildFormOnlyPdfBytes(html, title);
-    return { id: crypto.randomUUID(), filename: `${title}.pdf`, mimeType: "application/pdf", contentBase64: arrayBufferToBase64(bytes) };
+    return {
+      id: crypto.randomUUID(),
+      ...(await pdfBlobToEmailAttachment(
+        `${title}.pdf`,
+        new Blob([bytes], { type: "application/pdf" }),
+      )),
+    };
   };
 
-  const sendPreliminaryRecordsEmail = async (recordsToSend: any[]) => {
+  const sendPreliminaryRecordsEmail = async (
+    recordsToSend: any[],
+    useCurrentDraft = false,
+  ) => {
     if (!recordsToSend.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
-    const records = structuredClone(recordsToSend);
+    // A form that is currently open can contain newly attached files that have not
+    // been saved yet. Hydrating it from the database would replace those files with
+    // the older saved copy immediately before generating the email.
+    const records = await preparePreliminaryEmailRecords(
+      recordsToSend,
+      hydratePreliminaryRecord,
+      useCurrentDraft,
+    );
     const title = records.length === 1 ? records[0].title || "בקרה מקדימה" : `בקרה מקדימה (${records.length})`;
-    const documents = records.map((record: any) => ({ title: record.title || title, html: archivePrintableHtml(record.title || title, preliminaryRecordArchiveBody(record)) }));
-    openRecordEmail("preliminary", { records, status: records[0]?.status }, records.length === 1 ? records[0].id : `batch-${crypto.randomUUID()}`, title,
-      async () => { const result: MailAttachment[] = []; for (const doc of documents) result.push(await documentForEmail(doc.html, doc.title)); return result; });
+    setCentralMailContext({
+      projectId: currentProject.id, module: 'preliminary',
+      recordId: records.length === 1 ? records[0].id || `draft-${crypto.randomUUID()}` : `batch-${crypto.randomUUID()}`,
+      recordIds: records.map((record: any)=>String(record.id || '')).filter(Boolean), title,
+      data: {records, title, projectName, status: records[0]?.status}, attachments: [],
+      generateDocuments: async () => {
+        const documents: MailAttachment[] = [];
+        for (const [index,record] of records.entries()) {
+          const typeLabel = labelForPreliminary(record.subtype || preliminaryTab);
+          const documentTitle = `${typeLabel} - ${record.title || index + 1} - כולל נספחים`;
+          const result = await buildMergedPreliminaryRecordsPdfBlob([record], documentTitle);
+          documents.push({
+            id: crypto.randomUUID(),
+            ...(await pdfBlobToEmailAttachment(`${documentTitle}.pdf`, result.blob)),
+          });
+        }
+        return documents;
+      },
+    });
   };
 
   const downloadPreliminaryRecordsPdf = async (recordsToDownload: any[]) => {
-    const records = recordsToDownload.filter(Boolean);
-    if (!records.length) {
+    const selectedRecords = recordsToDownload.filter(Boolean) as PreliminaryRecord[];
+    if (!selectedRecords.length) {
       alert("יש לסמן לפחות רשומה אחת להורדה");
       return;
     }
     try {
+      const records = await Promise.all(selectedRecords.map(hydratePreliminaryRecord));
       const sectionTitle = `בקרה מקדימה - ${labelForPreliminary(preliminaryTab)} (${records.length})`;
       if (records.length > 1) {
         const JSZip = (await import("jszip")).default;
@@ -23368,7 +24153,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const sendCurrentFormEmail = async () => {
     if (section === "rfi") return sendRfiEmail({ ...rfiForm, id: editingRfiId || "" } as RfiRecord);
     if (section === "supervisionReports") return sendSupervisionReportEmail({ ...supervisionReportForm, id: editingSupervisionReportId || "" } as SupervisionReportRecord);
-    if (section === "preliminary") return sendPreliminaryRecordsEmail([{ ...currentPreliminaryForm, id: editingPreliminaryId }]);
+    if (section === "preliminary")
+      return sendPreliminaryRecordsEmail(
+        [{ ...currentPreliminaryForm, id: editingPreliminaryId }],
+        true,
+      );
     const current: Record<string, [Record<string, any>, string | null]> = {
       checklists: [checklistForm, editingChecklistId], nonconformances: [nonconformanceForm, editingNonconformanceId],
       trialSections: [trialSectionForm, editingTrialSectionId], controlProcesses: [controlProcessForm, editingControlProcessId],
@@ -23377,7 +24166,20 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     const [record, recordId] = current[section] || [currentProject || {}, currentProject?.id || null];
     const title = String(record.title || record.name || recordTitleForExport());
     const html = ["checklists", "nonconformances", "trialSections", "controlProcesses"].includes(section) ? exportHtml(getExportChecklistNo()) : null;
-    openRecordEmail(section, record, recordId, title, html ? async () => [await documentForEmail(html, title)] : undefined);
+    const consolidate = Boolean(html && ["nonconformances", "trialSections"].includes(section));
+    openRecordEmail(
+      section,
+      record,
+      recordId,
+      title,
+      html ? async () => {
+        if (!consolidate) return [await documentForEmail(html, title)];
+        const blob = await buildMergedPdfBlob(title, html, archiveRecordPdfAppendices(record));
+        const attachment = await pdfBlobToEmailAttachment(`${title} - כולל נספחים.pdf`, blob);
+        return [{id:crypto.randomUUID(), filename:attachment.filename, mimeType:attachment.mimeType || "application/pdf", ...(attachment.url ? {url:attachment.url} : {}), ...(attachment.contentBase64 ? {contentBase64:attachment.contentBase64} : {})}];
+      } : undefined,
+      consolidate,
+    );
   };
 
   const structureLinkedSections: AppSection[] = [
@@ -23732,21 +24534,32 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     alert("דוח פיקוח עליון נשמר בהצלחה.");
   };
 
-  const loadSupervisionReport = (record: SupervisionReportRecord) => {
-    setEditingSupervisionReportId(record.id);
+  const hydrateSupervisionReport = async (record: SupervisionReportRecord) => {
+    let fullRecord = record;
+    if (cloudEnabled && supabase) {
+      const { data, error } = await supabase.from(SUPERVISION_REPORTS_TABLE).select("*").eq("id", record.id).maybeSingle();
+      const normalized = !error && data ? supervisionReportRowToRecord(data) : null;
+      if (normalized) fullRecord = normalized;
+    }
+    return fullRecord;
+  };
+
+  const loadSupervisionReport = async (record: SupervisionReportRecord) => {
+    const fullRecord = await hydrateSupervisionReport(record);
+    setEditingSupervisionReportId(fullRecord.id);
     setSupervisionReportForm({
-      title: record.title,
-      reportNo: record.reportNo,
-      date: record.date,
-      structureNodeId: record.structureNodeId,
-      location: record.location,
-      author: record.author,
-      status: record.status,
-      treatment: record.treatment,
-      treatmentDate: record.treatmentDate,
-      notes: record.notes,
-      attachment: (record.attachments ?? (record.attachment ? [record.attachment] : [])).at(0) ?? null,
-      attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
+      title: fullRecord.title,
+      reportNo: fullRecord.reportNo,
+      date: fullRecord.date,
+      structureNodeId: fullRecord.structureNodeId,
+      location: fullRecord.location,
+      author: fullRecord.author,
+      status: fullRecord.status,
+      treatment: fullRecord.treatment,
+      treatmentDate: fullRecord.treatmentDate,
+      notes: fullRecord.notes,
+      attachment: (fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])).at(0) ?? null,
+      attachments: normalizeAttachments(fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])),
     });
   };
 
@@ -23761,11 +24574,16 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     if (!window.confirm("למחוק את דוח הפיקוח?")) return;
     if (cloudEnabled) {
       await withSaving(async () => {
-        const { error } = await supabase!
+        const { error, data } = await supabase!
           .from(SUPERVISION_REPORTS_TABLE)
           .delete()
-          .eq("id", id);
-        if (error && !shouldIgnoreCloudError(error)) throw error;
+          .eq("id", id)
+          .select("id");
+        if (error) {
+          if (!shouldIgnoreCloudError(error)) throw error;
+        } else if (!data || data.length === 0) {
+          throw new Error(CLOUD_DELETE_BLOCKED_MESSAGE);
+        }
         const next = savedSupervisionReports.filter((item) => item.id !== id);
         setSavedSupervisionReports(next);
         void writeSupervisionReportsToBrowser(next);
@@ -23835,6 +24653,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const downloadSupervisionReportPdf = async (record: SupervisionReportRecord) => {
     try {
+      record = await hydrateSupervisionReport(record);
       const blob = await buildSupervisionReportMergedPdfBlob(record);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -23850,6 +24669,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   };
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
+    record = await hydrateSupervisionReport(record);
     const title = record.title || "דוח פיקוח עליון";
     const html = supervisionReportHtml(record);
     openRecordEmail("supervisionReports", record, record.id, title, async () => [await documentForEmail(html, title)]);
@@ -23958,6 +24778,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const downloadRfiPdf = async (record: RfiRecord) => {
     try {
+      record = await hydrateRfiRecord(record);
       const blob = await buildRfiMergedPdfBlob(record);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -23972,7 +24793,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }
   };
 
-  const downloadRfiExcel = (record: RfiRecord) => {
+  const downloadRfiExcel = async (record: RfiRecord) => {
+    record = await hydrateRfiRecord(record);
     const docs = normalizeAttachments(record.documents);
     const detailRows = rfiExportRows(record)
       .map(([label, value]) => `<tr><th>${safeText(label)}</th><td>${safeText(value)}</td></tr>`)
@@ -24000,6 +24822,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   };
 
   const sendRfiEmail = async (record: RfiRecord) => {
+    record = await hydrateRfiRecord(record);
     const title = rfiExportTitle(record), html = rfiExportHtml(record);
     openRecordEmail("rfi", record, record.id, title, async () => [await documentForEmail(html, title)]);
   };
@@ -24057,6 +24880,36 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
       ];
+  const navGroups = [
+    { title: "ראשי", keys: ["home", "account"] },
+    { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
+    { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
+    { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
+  ].map((group) => ({
+    ...group,
+    items: navItems.filter(([key]) => group.keys.includes(key)),
+  })).filter((group) => group.items.length);
+  const navIcons: Partial<Record<AppSection, string>> = {
+    home: "⌂", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
+    checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
+    plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
+  };
+  const topbarAccountName = projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
+  const topbarAvatarInitials = topbarAccountName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).filter(Boolean).join("").toUpperCase() || "מ";
+  const isTopbarRecordOpen = (value: unknown) => {
+    const text = String(value ?? "").toLowerCase();
+    return !["סגור", "מאושר", "הושלם", "נעול", "closed", "approved", "done"].some((word) => text.includes(word));
+  };
+  const topbarAlerts = projectAccess ? [
+    ...labEmailEvents.slice(0, 3).map((event) => ({ icon: "🧪", title: `מייל ממעבדה: ${event?.subject || event?.from_email || "תעודת בדיקה"}`, section: "preliminary" as AppSection, labEmailId: event?.id as string | undefined })),
+    ...projectNonconformances.filter((item) => isTopbarRecordOpen(item?.status)).slice(0, 3).map((item) => ({ icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", section: "nonconformances" as AppSection, labEmailId: undefined as string | undefined })),
+    ...projectRfis.filter((item) => isTopbarRecordOpen(item?.status)).slice(0, 2).map((item) => ({ icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", section: "rfi" as AppSection, labEmailId: undefined as string | undefined })),
+  ].slice(0, 5) : [];
+  const topbarAlertCount = projectAccess
+    ? labEmailEvents.length
+      + projectNonconformances.filter((item) => isTopbarRecordOpen(item?.status)).length
+      + projectRfis.filter((item) => isTopbarRecordOpen(item?.status)).length
+    : 0;
 
   if (!authReady) {
     return (
@@ -24667,149 +25520,123 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       {centralMailContext && (
         <EmailComposer key={`${centralMailContext.module}:${centralMailContext.recordId}`}
           context={centralMailContext} senderEmail={currentEmailSender.senderEmail}
-          contacts={emailRecipientOptions} canSend={canWriteAccess(projectAccess) && projectAccess?.authProvider === "supabase"}
+          contacts={emailRecipientOptions} canSend={projectAccess?.authProvider === "supabase"}
           onClose={() => setCentralMailContext(null)} />
       )}
 
-      <header style={styles.header}>
-        <div style={styles.headerCard}>
-          <div style={{ fontWeight: 900, fontSize: 24 }}>Y.K QUALITY</div>
-          <div style={{ color: "#475569", marginTop: 6 }}>
-            QA/QC · Multi-file refactor · workflow with signatures
-          </div>
-          <div
-            style={{
-              marginTop: 12,
-              padding: "10px 12px",
-              borderRadius: 14,
-              background: "linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%)",
-              border: "1px solid #e2e8f0",
-              color: "#0f172a",
-              fontWeight: 850,
-              lineHeight: 1.6,
-            }}
-          >
-            שלום {projectAccess.displayName || projectAccess.username || "משתמש מערכת"},
-            <br />
-            שיהיה יום עבודה מוצלח.
+      <header className="yk-topbar">
+        <div className="yk-topbar-identity">
+          <div className="yk-topbar-avatar" aria-hidden="true">{topbarAvatarInitials}</div>
+          <div className="yk-topbar-idinfo">
+            <button
+              type="button"
+              className="yk-topbar-name"
+              onClick={() => { setShowAccountMenu((prev) => !prev); setShowNotifications(false); }}
+              aria-expanded={showAccountMenu}
+            >
+              {topbarAccountName}
+              <span className="yk-topbar-caret" aria-hidden="true">⌄</span>
+            </button>
+            <div className="yk-topbar-sub">
+              {projectAccess.username || ""}
+              {isSaving ? " · שומר נתונים..." : ""}
+              {!cloudEnabled ? " · מצב מקומי בלבד" : ""}
+            </div>
+            {showAccountMenu && (
+              <div className="yk-topbar-menu" role="menu">
+                {canManageProjectUsers && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setShowUserManagement((prev) => !prev); setShowAccountMenu(false); }}
+                  >
+                    👥 ניהול משתמשים
+                  </button>
+                )}
+                {!isAdminAccess(projectAccess) && accessibleProjects.length > 1 && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setShowProjectPicker(true); setShowAccountMenu(false); }}
+                  >
+                    🔁 החלף פרויקט
+                  </button>
+                )}
+                <button type="button" role="menuitem" onClick={logoutProject}>
+                  🚪 יציאה
+                </button>
+              </div>
+            )}
           </div>
         </div>
-        <div style={styles.headerCard}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-            }}
+
+        <div className="yk-topbar-project">
+          <span aria-hidden="true">🏢</span>
+          {isAdminAccess(projectAccess) ? (
+            <select
+              className="yk-topbar-project-select"
+              value={currentProjectId ?? ""}
+              onChange={(event) => {
+                void setActiveProject(event.target.value);
+              }}
+              aria-label="בחירת פרויקט לעבודה"
+            >
+              {accessibleProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="yk-topbar-project-name">{projectName}</span>
+          )}
+        </div>
+
+        <div className="yk-topbar-bell-wrap">
+          <button
+            type="button"
+            className="yk-topbar-bell"
+            onClick={() => { setShowNotifications((prev) => !prev); setShowAccountMenu(false); }}
+            aria-label="התראות"
+            aria-expanded={showNotifications}
           >
-            <div>
-              <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
-              <div>{projectName}</div>
-              <div style={{ color: "#64748b", marginTop: 4, fontSize: 13 }}>
-                משתמש: {projectAccess.displayName} · הרשאה:{" "}
-                {isAdminAccess(projectAccess)
-                  ? "מנהל מערכת"
-                  : `פרויקט ${projectAccess.code ?? ""}`}
-              </div>
-              {isSaving && (
-                <div style={{ color: "#475569", marginTop: 6 }}>
-                  שומר נתונים...
-                </div>
-              )}
-              {!cloudEnabled && (
-                <div style={{ color: "#475569", marginTop: 6 }}>
-                  מצב מקומי בלבד
-                </div>
-              )}
-              {isAdminAccess(projectAccess) ? (
-                <label
-                  style={{
-                    display: "grid",
-                    gap: 6,
-                    marginTop: 10,
-                    fontWeight: 900,
-                    color: "#0f172a",
-                  }}
-                >
-                  בחירת פרויקט לעבודה
-                  <select
-                    value={currentProjectId ?? ""}
-                    onChange={(event) => {
-                      void setActiveProject(event.target.value);
-                    }}
-                    style={{
-                      minWidth: 260,
-                      border: "1px solid #cbd5e1",
-                      borderRadius: 10,
-                      padding: "9px 10px",
-                      fontWeight: 900,
-                      background: "#fff",
-                      color: "#0f172a",
-                    }}
-                  >
-                    {accessibleProjects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {canManageProjectUsers ? (
+            🔔
+            {topbarAlertCount > 0 && <span className="yk-topbar-badge">{topbarAlertCount}</span>}
+          </button>
+          {showNotifications && (
+            <div className="yk-topbar-menu yk-topbar-notifications" role="menu">
+              {topbarAlerts.length ? topbarAlerts.map((alert, index) => (
                 <button
                   type="button"
-                  onClick={() => setShowUserManagement((prev) => !prev)}
-                  style={{
-                    border: "1px solid #cbd5e1",
-                    background: showUserManagement ? "#0f172a" : "#fff",
-                    color: showUserManagement ? "#fff" : "#0f172a",
-                    borderRadius: 10,
-                    padding: "8px 10px",
-                    fontWeight: 900,
-                    cursor: "pointer",
+                  role="menuitem"
+                  key={`${alert.section}-${index}`}
+                  onClick={() => {
+                    if (alert.labEmailId) markLabEmailSeen(alert.labEmailId);
+                    setSection(alert.section);
+                    setShowNotifications(false);
                   }}
                 >
-                  ניהול משתמשים
+                  <span aria-hidden="true">{alert.icon}</span> {alert.title}
                 </button>
-              ) : null}
-              {!isAdminAccess(projectAccess) && accessibleProjects.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowProjectPicker(true)}
-                  style={{
-                    border: "1px solid #cbd5e1",
-                    background: "#0f172a",
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 10px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
-                >
-                  החלף פרויקט
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={logoutProject}
-                style={{
-                  border: "1px solid #cbd5e1",
-                  background: "#fff",
-                  borderRadius: 10,
-                  padding: "8px 10px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                יציאה
-              </button>
+              )) : <div className="yk-topbar-empty">אין התראות חדשות</div>}
             </div>
-          </div>
+          )}
+        </div>
+
+        <div className="yk-topbar-spacer" />
+
+        <div className="yk-topbar-brand">
+          <div className="yk-topbar-brand-name">Y.K QUALITY</div>
+          <div className="yk-topbar-brand-tag">QA/QC · workflow with signatures</div>
         </div>
       </header>
+
+      {(showAccountMenu || showNotifications) && (
+        <div
+          className="yk-topbar-backdrop"
+          onClick={() => { setShowAccountMenu(false); setShowNotifications(false); }}
+        />
+      )}
 
       {canManageProjectUsers && showUserManagement ? (
         <UserAccessPanel
@@ -24828,26 +25655,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         />
       ) : null}
 
-      <div style={styles.navRow}>
-        {navItems.map(([key, label]) => (
-          <button
-            key={key}
-            style={{
-              ...styles.navBtn,
-              background: section === key ? "#0f172a" : "#fff",
-              color: section === key ? "#fff" : "#0f172a",
-            }}
-            onClick={() => setSection(key)}
-          >
-            {label}
-          </button>
-        ))}
+      <nav className="project-navigation" aria-label="ניווט ראשי">
+        {navGroups.map((group) => <div className="project-navigation-group" key={group.title}>
+          <div className="project-navigation-title">{group.title}</div>
+          {group.items.map(([key, label]) => (
+            <button key={key} style={{ ...styles.navBtn, borderColor: section === key ? "#3b82f6" : "transparent", background: section === key ? "#1d4ed8" : "transparent", color: "#fff", padding: "9px 10px" }} onClick={() => setSection(key)}>
+              <span aria-hidden="true" style={{ display: "inline-block", width: 24, marginInlineEnd: 7, textAlign: "center" }}>{navIcons[key] ?? "•"}</span>{label}
+            </button>
+          ))}
+        </div>)}
         <button
           type="button"
           style={{
             ...styles.navBtn,
-            background: "#fff",
-            color: "#0f172a",
+            background: "transparent",
+            color: "#fff",
+            borderColor: "#334155",
           }}
           onClick={() => {
             const params = new URLSearchParams();
@@ -24859,13 +25682,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         </button>
         <button
           type="button"
-          style={styles.secondaryBtn}
+          style={{ ...styles.secondaryBtn, background: "transparent", color: "#fff", borderColor: "#334155" }}
           onClick={() => setShowArchiveSelection(true)}
           disabled={!currentProject || isSaving}
         >
           הורד חומר פרויקט
         </button>
-      </div>
+      </nav>
 
       {showArchiveSelection && (
         <div
@@ -24952,7 +25775,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         </div>
       )}
 
-      <div style={styles.layout}>
+      <div className="project-content" style={styles.layout}>
         <main style={styles.mainCard}>
           {currentProject && !guardedBody && (
             <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
@@ -25269,6 +26092,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           )}
           {section === "home" && (
             <HomeSection
+              projectName={currentProject?.name ?? projectName}
               projects={accessibleProjects}
               projectChecklists={projectChecklists}
               projectNonconformances={projectNonconformances}
@@ -25300,6 +26124,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             />
           )}
           {section === "projectUsers" && (
+            <div>
+            {projectUsersLoad.error && <p role="alert">{projectUsersLoad.error}</p>}
+            {!projectUsersLoad.error && projectUsersLoad.projectId !== selectedUsersProjectId && <p>טוען משתמשי פרויקט…</p>}
+            {projectUsersLoad.projectId === selectedUsersProjectId && !projectUsersLoad.canManage && <p>הרשימה זמינה לצפייה. עריכה ושמירה דורשות הרשאת עריכה בפרויקט.</p>}
+            <fieldset disabled={!canEditProjectEmailUsers} style={{border:0, padding:0, minWidth:0}}>
             <ProjectUsersSection
               guardedBody={guardedBody}
               projectName={projectName}
@@ -25307,8 +26136,52 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onAddUser={addProjectEmailUser}
               onUpdateUser={updateProjectEmailUser}
               onDeleteUser={deleteProjectEmailUser}
+              canManageCredentials={projectUsersLoad.canManageCredentials}
               onSaveUsers={saveCurrentProjectEmailUsers}
             />
+            </fieldset>
+            <div style={{ ...styles.rowCard, marginTop: 18 }}>
+              <div style={styles.subHeader}>מעבדות מקושרות לפרויקט</div>
+              <p style={{ color: "#64748b", fontWeight: 700, marginTop: -8, marginBottom: 14 }}>
+                כאשר מתקבל מייל מכתובת המעבדה שמוגדרת כאן, תוצג התראה במערכת עבור הפרויקט הזה. אין צורך ליצור משתמש — רק לרשום את כתובת המייל של המעבדה.
+              </p>
+              {labSendersError && <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>{labSendersError}</p>}
+              {labSenders.length ? (
+                <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                  {labSenders.map((row) => (
+                    <div key={row.id} style={{ ...styles.rowCard, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 0 }}>
+                      <div>
+                        <div style={{ fontWeight: 800 }}>{row.lab_name || "מעבדה"}</div>
+                        <div style={{ color: "#64748b", fontWeight: 700, fontSize: 13 }}>{row.lab_email}</div>
+                      </div>
+                      {canEditProjectEmailUsers && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button type="button" style={styles.secondaryBtn} onClick={() => editLabSender(row)}>עריכה</button>
+                          <button type="button" style={styles.dangerBtn} onClick={() => deleteLabSender(row.id)}>מחיקה</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={styles.emptyBox}>לא הוגדרה עדיין מעבדה לפרויקט זה.</p>
+              )}
+              {canEditProjectEmailUsers && (
+                <div style={styles.formGrid}>
+                  <Field label="שם המעבדה">
+                    <input style={styles.input} value={labSenderForm.labName} onChange={(event) => setLabSenderForm((prev) => ({ ...prev, labName: event.target.value }))} placeholder="לדוגמה: מעבדת קבוצת ההנדסה" />
+                  </Field>
+                  <Field label="כתובת מייל המעבדה">
+                    <input style={styles.input} value={labSenderForm.labEmail} onChange={(event) => setLabSenderForm((prev) => ({ ...prev, labEmail: event.target.value }))} placeholder="lab@example.com" dir="ltr" />
+                  </Field>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                    <button type="button" style={styles.primaryBtn} onClick={saveLabSender}>{editingLabSenderId ? "עדכון מעבדה" : "הוספת מעבדה"}</button>
+                    {editingLabSenderId && <button type="button" style={styles.secondaryBtn} onClick={resetLabSenderForm}>ביטול</button>}
+                  </div>
+                </div>
+              )}
+            </div>
+            </div>
           )}
           {section === "checklistTracking" && (
             <ChecklistTrackingSection
@@ -25480,6 +26353,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות."
                 records={projectNonconformances as any[]}
                 columns={[
+                  { label: "גורם פותח (QC/QA)", value: (record) => nonconformanceOpeningParty(record) },
                   { label: "אלמנט", value: (record) => record.element || record.details?.element },
                   { label: "תת אלמנט", value: (record) => record.subElement || record.details?.subElement || record.details?.sub_element },
                   { label: "תיאור אי התאמה", value: (record) => record.description || record.details?.description },
@@ -25567,16 +26441,23 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <>
               <FolderRecordsTable
                 title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
-                description="מוצגות רק רשומות הסוג שנבחר: ספקים, חומרים או קבלני משנה."
+                description="ניתן לסמן רשומות, לעבור בין ספקים, חומרים וקבלני משנה, ואז לשלוח את כולן יחד במייל אחד."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
                 columns={preliminaryFolderColumns(preliminaryTab)}
                 onOpen={(id) => { const record = projectPreliminary.find((item) => item.id === id); if (record) loadPreliminary(record); }}
                 onDelete={deletePreliminary}
                 onNew={resetPreliminaryEditor}
-                onSendSelectedEmail={sendPreliminaryRecordsEmail}
+                onSendSelectedEmail={(records) => sendPreliminaryRecordsEmail(
+                  preliminaryEmailSelectionIds.length
+                    ? projectPreliminary.filter((record) => preliminaryEmailSelectionIds.includes(String(record.id)))
+                    : records,
+                )}
                 onDownloadSelectedPdf={downloadPreliminaryRecordsPdf}
                 sendSelectedLabel="שלח מסומנים במייל"
                 downloadSelectedLabel="הורד מסומנים כ-PDF"
+                selectedRecordIds={preliminaryEmailSelectionIds}
+                onSelectedRecordIdsChange={setPreliminaryEmailSelectionIds}
+                selectedActionCount={preliminaryEmailSelectionIds.length}
               />
             <PreliminarySection
               guardedBody={guardedBody}
@@ -25619,6 +26500,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 savedSupervisionReports={projectSupervisionReports}
                 currentProjectName={projectName}
                 onImportSoilSurvey={importSoilSurveyToEarthworksConcentration}
+                loadPreliminaryForExport={async () => {
+                  if (!cloudEnabled || !supabase) return projectPreliminary;
+                  const result = await selectProjectTable(
+                    "preliminary_records", "saved_at", projectCloudIdsForCanonicalId(currentProjectIdNormalized), false,
+                    "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
+                  );
+                  if (result.error) throw new Error("לא ניתן לטעון את פרטי התעודות העדכניים. נסה להוריד שוב.");
+                  return (result.data ?? []).map((row: any) => ({
+                    ...row, projectId: normalizeStoredProjectId(row.project_id),
+                    structureNodeId: row.structure_node_id ?? "", savedAt: row.saved_at ?? "",
+                  })).filter((row: any) => !normalizedSearchTerm ||
+                    [row.title, row.subtype, row.status].join(" ").toLowerCase().includes(normalizedSearchTerm));
+                }}
+                sourceDataLoading={concentrationsLoading}
+                sourceDataReady={!cloudEnabled || hydratedConcentrationsProjectId === currentProjectIdNormalized}
+                sourceDataError={concentrationsLoadError}
                 projectMeta={
                   {
                     projectName: currentProjectLegend.projectName,
