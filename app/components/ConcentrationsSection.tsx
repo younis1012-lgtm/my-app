@@ -4657,6 +4657,17 @@ const definitions: ConcentrationDefinition[] = [
   },
 ];
 
+// Groups the concentrations page by source, so the 16 cards read as a few
+// labeled clusters instead of one flat wall of look-alike cards.
+type ConcentrationGroupKey = "preliminary" | "checklists" | "earthworks" | "reporting";
+
+const concentrationGroups: { key: ConcentrationGroupKey; label: string; icon: string; color: string; ids: ConcentrationId[] }[] = [
+  { key: "preliminary", label: "בקרה מקדימה", icon: "📋", color: "#2563eb", ids: ["contractors", "suppliers", "materials", "selected-material", "subbase-a"] },
+  { key: "checklists", label: "רשימות תיוג ובדיקות שטח", icon: "☷", color: "#16a34a", ids: ["concrete", "asphalt", "density", "piles"] },
+  { key: "earthworks", label: "עבודות עפר", icon: "⛏", color: "#b45309", ids: ["layer-tracking", "earthworks", "earthworks-material-results"] },
+  { key: "reporting", label: "ניהול ותיעוד", icon: "✉", color: "#7c3aed", ids: ["nonconformances", "rfi", "supervision", "trial-sections"] },
+];
+
 const deferredPreviewConcentrationIds = new Set<ConcentrationId>([
   "nonconformances",
   "suppliers",
@@ -6307,6 +6318,7 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<ConcentrationGroupKey>>(new Set());
   const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
   const [asphaltMixPicker, setAsphaltMixPicker] = useState<{
     selectedMixes: string[];
@@ -6368,6 +6380,26 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
         ? current.filter((id) => !visibleIds.includes(id))
         : Array.from(new Set([...current, ...visibleIds])),
     );
+
+  const groupedVisibleDefinitions = useMemo(() => {
+    const byId = new Map(visibleDefinitions.map((definition) => [definition.id, definition]));
+    return concentrationGroups
+      .map((group) => ({
+        ...group,
+        definitions: group.ids
+          .map((id) => byId.get(id))
+          .filter((definition): definition is ConcentrationDefinition => Boolean(definition)),
+      }))
+      .filter((group) => group.definitions.length);
+  }, [visibleDefinitions]);
+  const isSearching = Boolean(search.trim());
+  const toggleGroupCollapsed = (key: ConcentrationGroupKey) =>
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const pickAsphaltMix = () =>
     new Promise<string[]>((resolve) => {
@@ -6487,6 +6519,109 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
     }
   };
 
+  const renderConcentrationCard = (definition: ConcentrationDefinition) => {
+    const isOpen = openId === definition.id;
+    const isDeferredPreview = deferredPreviewConcentrationIds.has(definition.id);
+    const rows = isDeferredPreview && isOpen ? buildRowsForDefinition(definition) : rowsById[definition.id] ?? [];
+    const isTemplateConcentration = definition.id === "earthworks-material-results";
+    const isSelected = selectedIds.includes(definition.id);
+    const hasRowsOrDeferred = rows.length || isTemplateConcentration || isDeferredPreview;
+    // The deferred-preview default state used to repeat a full sentence on
+    // every card ("built automatically from saved certificates..."); the
+    // pill above already says that, so this stays empty in the common case
+    // and the card only grows a status line when there's something new to say.
+    const statusText = rows.length
+      ? `נמצאו ${rows.length} רשומות ליצוא.`
+      : isDeferredPreview && !isOpen
+        ? ""
+        : isTemplateConcentration
+          ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה."
+          : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי.";
+    return (
+      <div
+        key={definition.id}
+        style={{
+          ...cardStyle,
+          border: isSelected ? "2px solid #2563eb" : cardStyle.border,
+          background: isSelected ? "#eff6ff" : "#fff",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleSelected(definition.id)}
+              aria-label={`בחר ${definition.title} להורדה`}
+              style={{ width: 20, height: 20, marginTop: 2, accentColor: "#2563eb", cursor: "pointer" }}
+            />
+            <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
+          </div>
+          <span style={{ borderRadius: 999, background: hasRowsOrDeferred ? "#dcfce7" : "#f1f5f9", color: hasRowsOrDeferred ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isDeferredPreview ? "מהתעודות השמורות" : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
+        </div>
+
+        {statusText && (
+          <div style={{ marginTop: 12, color: rows.length ? "#166534" : "#64748b", fontWeight: 800 }}>
+            {statusText}
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+          <button type="button" disabled={busyId === definition.id || !sourceDataReady} onClick={() => exportOne(definition)} style={{ ...btnStyle, opacity: sourceDataReady ? 1 : 0.55, cursor: busyId === definition.id ? "wait" : sourceDataReady ? "pointer" : "not-allowed" }}>
+            {busyId === definition.id ? "מפיק Excel..." : !sourceDataReady ? "ממתין לנתוני התעודות..." : "הורד Excel חדש"}
+          </button>
+          {definition.id === "earthworks-material-results" && onImportSoilSurvey && (
+            <>
+              <input
+                ref={soilSurveyInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                style={{ display: "none" }}
+                onChange={(event) => importSoilSurvey(event.target.files?.[0])}
+              />
+              <button
+                type="button"
+                disabled={soilSurveyImporting}
+                onClick={() => soilSurveyInputRef.current?.click()}
+                style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: soilSurveyImporting ? "wait" : "pointer" }}
+              >
+                {soilSurveyImporting ? "קולט סקר קרקע..." : "קליטת סקר קרקע PDF"}
+              </button>
+            </>
+          )}
+          <button type="button" disabled={!sourceDataReady && !isOpen} onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", opacity: sourceDataReady || isOpen ? 1 : 0.55, cursor: sourceDataReady || isOpen ? "pointer" : "not-allowed" }}>
+            {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
+          </button>
+        </div>
+
+        {isOpen && (
+          <div style={{ marginTop: 14, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 12, maxHeight: 260 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {definition.columns.slice(0, 8).map((column) => (
+                    <th key={column} style={{ position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{column}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length ? rows.slice(0, 20).map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {definition.columns.slice(0, 8).map((column) => (
+                      <td key={column} style={{ padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{cleanText(row[column])}</td>
+                    ))}
+                  </tr>
+                )) : (
+                  <tr><td colSpan={Math.min(definition.columns.length, 8)} style={{ padding: 12, textAlign: "center", color: "#64748b", fontWeight: 800 }}>אין נתונים להצגה</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <section dir="rtl" style={{ display: "grid", gap: 16 }}>
       {sourceDataLoading ? (
@@ -6559,91 +6694,27 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-        {visibleDefinitions.map((definition) => {
-          const isOpen = openId === definition.id;
-          const isDeferredPreview = deferredPreviewConcentrationIds.has(definition.id);
-          const rows = isDeferredPreview && isOpen ? buildRowsForDefinition(definition) : rowsById[definition.id] ?? [];
-          const isTemplateConcentration = definition.id === "earthworks-material-results";
-          const isSelected = selectedIds.includes(definition.id);
-          const hasRowsOrDeferred = rows.length || isTemplateConcentration || isDeferredPreview;
+      <div style={{ display: "grid", gap: 14 }}>
+        {groupedVisibleDefinitions.map((group) => {
+          const isCollapsed = !isSearching && collapsedGroups.has(group.key);
           return (
-            <div
-              key={definition.id}
-              style={{
-                ...cardStyle,
-                border: isSelected ? "2px solid #2563eb" : cardStyle.border,
-                background: isSelected ? "#eff6ff" : "#fff",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelected(definition.id)}
-                    aria-label={`בחר ${definition.title} להורדה`}
-                    style={{ width: 20, height: 20, marginTop: 2, accentColor: "#2563eb", cursor: "pointer" }}
-                  />
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>{definition.title}</div>
-                </div>
-                <span style={{ borderRadius: 999, background: hasRowsOrDeferred ? "#dcfce7" : "#f1f5f9", color: hasRowsOrDeferred ? "#166534" : "#475569", padding: "5px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>{rows.length ? `${rows.length} רשומות` : isDeferredPreview ? "מהתעודות השמורות" : isTemplateConcentration ? "תבנית ריקה" : `${rows.length} רשומות`}</span>
-              </div>
-
-              <div style={{ marginTop: 12, color: rows.length || isDeferredPreview ? "#166534" : "#64748b", fontWeight: 800 }}>
-                {rows.length ? `נמצאו ${rows.length} רשומות ליצוא.` : isDeferredPreview && !isOpen ? "הריכוז ייבנה אוטומטית מהתעודות שכבר שמורות בתוך רשימות התיוג בזמן פתיחה או הורדה." : isTemplateConcentration ? "אין עדיין תעודות ייחוס מתאימות; יורדת תבנית ריקה בפורמט הדוגמה." : "אין נתונים שמורים לריכוז זה בפרויקט הנוכחי."}
-              </div>
-
-              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-                <button type="button" disabled={busyId === definition.id || !sourceDataReady} onClick={() => exportOne(definition)} style={{ ...btnStyle, opacity: sourceDataReady ? 1 : 0.55, cursor: busyId === definition.id ? "wait" : sourceDataReady ? "pointer" : "not-allowed" }}>
-                  {busyId === definition.id ? "מפיק Excel..." : !sourceDataReady ? "ממתין לנתוני התעודות..." : "הורד Excel חדש"}
-                </button>
-                {definition.id === "earthworks-material-results" && onImportSoilSurvey && (
-                  <>
-                    <input
-                      ref={soilSurveyInputRef}
-                      type="file"
-                      accept="application/pdf,.pdf"
-                      style={{ display: "none" }}
-                      onChange={(event) => importSoilSurvey(event.target.files?.[0])}
-                    />
-                    <button
-                      type="button"
-                      disabled={soilSurveyImporting}
-                      onClick={() => soilSurveyInputRef.current?.click()}
-                      style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", cursor: soilSurveyImporting ? "wait" : "pointer" }}
-                    >
-                      {soilSurveyImporting ? "קולט סקר קרקע..." : "קליטת סקר קרקע PDF"}
-                    </button>
-                  </>
-                )}
-                <button type="button" disabled={!sourceDataReady && !isOpen} onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", opacity: sourceDataReady || isOpen ? 1 : 0.55, cursor: sourceDataReady || isOpen ? "pointer" : "not-allowed" }}>
-                  {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
-                </button>
-              </div>
-
-              {isOpen && (
-                <div style={{ marginTop: 14, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 12, maxHeight: 260 }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        {definition.columns.slice(0, 8).map((column) => (
-                          <th key={column} style={{ position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{column}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length ? rows.slice(0, 20).map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                          {definition.columns.slice(0, 8).map((column) => (
-                            <td key={column} style={{ padding: 8, border: "1px solid #e2e8f0", whiteSpace: "normal", textAlign: "center", verticalAlign: "middle" }}>{cleanText(row[column])}</td>
-                          ))}
-                        </tr>
-                      )) : (
-                        <tr><td colSpan={Math.min(definition.columns.length, 8)} style={{ padding: 12, textAlign: "center", color: "#64748b", fontWeight: 800 }}>אין נתונים להצגה</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+            <div key={group.key} style={{ border: "1px solid #e2e8f0", borderRadius: 18, background: "#fff", boxShadow: "0 6px 18px rgba(15,23,42,.04)", overflow: "hidden" }}>
+              <button
+                type="button"
+                onClick={() => toggleGroupCollapsed(group.key)}
+                aria-expanded={!isCollapsed}
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "14px 18px", border: 0, background: "transparent", cursor: "pointer", textAlign: "right" }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 16, fontWeight: 900 }}>
+                  <span aria-hidden="true" style={{ width: 32, height: 32, borderRadius: 10, display: "grid", placeItems: "center", background: group.color, color: "#fff", fontSize: 15 }}>{group.icon}</span>
+                  {group.label}
+                  <span style={{ color: "#64748b", fontWeight: 700, fontSize: 13 }}>({group.definitions.length})</span>
+                </span>
+                <span aria-hidden="true" style={{ color: "#64748b", display: "inline-block", transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .15s ease" }}>▾</span>
+              </button>
+              {!isCollapsed && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, padding: "0 18px 18px" }}>
+                  {group.definitions.map((definition) => renderConcentrationCard(definition))}
                 </div>
               )}
             </div>
