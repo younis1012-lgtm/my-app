@@ -911,34 +911,69 @@ const preliminaryDocumentFiles = (doc: any): string => uniqueJoin([
     ? doc[key].filter((file: any) => file?.attached !== false).map((file: any) => firstText(file?.name, file?.fileName, file?.attachmentName)) : []),
 ], "\n");
 
+// Stacks one value per certificate into a single cell, one line each (the
+// sheet's cells use wrapText, so "\n" renders as a real line break in Excel).
+// When every certificate has the exact same value the cell just shows it
+// once instead of repeating identical lines. blankPlaceholder fills in a gap
+// so line N in this column still lines up with line N in the other stacked
+// columns of the same row.
+const stackDocValues = (values: string[], blankPlaceholder = ""): string => {
+  if (!values.length) return "";
+  if (new Set(values).size <= 1) return values[0];
+  return values.map((value) => value || blankPlaceholder).join("\n");
+};
+
 const buildPreliminaryConcentrationRows = (records: any[], subtype: string): Row[] => {
   const kind = subtype === "suppliers" ? "supplier" : subtype === "subcontractors" ? "subcontractor" : "material";
   const rowBuilder = subtype === "suppliers" ? supplierRow : subtype === "subcontractors" ? contractorRow : materialRow;
+  // Contractors and materials get one row per record, with every certificate
+  // stacked inside that row's cells. Suppliers keep the previous one-row-per
+  // -certificate layout for now.
+  const consolidate = subtype === "subcontractors" || subtype === "materials";
   return preliminaryBySubtype(records, subtype).flatMap((record, index) => {
     const base = rowBuilder(record, index);
     const entries = preliminaryCertificateEntries(record);
     const direct = record?.[kind] || record;
     // Legacy forms can store certificate metadata directly on the entity.
     const documents = entries.length ? entries : [direct];
-    return documents.map((doc) => {
-      const row = { ...base };
+    const docFields = documents.map((doc) => {
       const hasCertificate = entries.length > 0 || Boolean(preliminaryDocumentNumber(doc) || firstText(doc?.expiryDate, doc?.validUntil, doc?.certificateType) || preliminaryDocumentFiles(doc));
       const number = preliminaryDocumentNumber(doc) || "לא הוזן";
       const type = firstText(doc?.details, doc?.description, doc?.certificateType, doc?.documentType, inferDocumentType(doc)) || (hasCertificate ? "לא הוזן" : "לא צורפה תעודה");
-      const expiry = firstDateText(doc?.expiryDate, doc?.expiry_date, doc?.validUntil, doc?.valid_until, doc?.expirationDate, doc?.certificateExpiryDate, doc?.licenseExpiryDate);
-      row[subtype === "materials" ? "מספר תעודה / אישור" : "מספר תעודה / רישיון / אישור"] = number;
-      row[subtype === "suppliers" ? "סוג תעודה /ISO/ת״ת/רישיון" : "שם / סוג תעודה"] = type;
-      row[subtype === "suppliers" ? "תוקף" : "תאריך תפוגה"] = expiry || "לא הוזן";
-      row["תאריך אישור"] = preliminaryApprovalDateText(record);
-      row["תאריך הנפקת תעודה"] = firstDateText(doc?.issueDate, doc?.issue_date, doc?.issuedAt);
-      row["קבצים מצורפים"] = preliminaryDocumentFiles(doc);
-      row["הערות"] = uniqueJoin([base["הערות"], doc?.notes], "\n");
-      if (subtype === "subcontractors") {
-        row["סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור"] = firstText(direct?.classification, direct?.contractorClassification, direct?.registrationNo, direct?.classificationNo);
-        row["מס׳ מסמכים"] = hasCertificate ? 1 : "";
-      }
-      return row;
+      const expiry = firstDateText(doc?.expiryDate, doc?.expiry_date, doc?.validUntil, doc?.valid_until, doc?.expirationDate, doc?.certificateExpiryDate, doc?.licenseExpiryDate) || "לא הוזן";
+      const issueDate = firstDateText(doc?.issueDate, doc?.issue_date, doc?.issuedAt);
+      const files = preliminaryDocumentFiles(doc);
+      const notes = firstText(doc?.notes);
+      return { hasCertificate, number, type, expiry, issueDate, files, notes };
     });
+
+    if (!consolidate) {
+      return docFields.map((fields) => {
+        const row = { ...base };
+        row["מספר תעודה / רישיון / אישור"] = fields.number;
+        row["סוג תעודה /ISO/ת״ת/רישיון"] = fields.type;
+        row["תוקף"] = fields.expiry;
+        row["תאריך אישור"] = preliminaryApprovalDateText(record);
+        row["תאריך הנפקת תעודה"] = fields.issueDate;
+        row["קבצים מצורפים"] = fields.files;
+        row["הערות"] = uniqueJoin([base["הערות"], fields.notes], "\n");
+        return row;
+      });
+    }
+
+    const row = { ...base };
+    row[subtype === "materials" ? "מספר תעודה / אישור" : "מספר תעודה / רישיון / אישור"] = stackDocValues(docFields.map((fields) => fields.number));
+    row["שם / סוג תעודה"] = stackDocValues(docFields.map((fields) => fields.type));
+    row["תאריך תפוגה"] = stackDocValues(docFields.map((fields) => fields.expiry));
+    row["תאריך אישור"] = preliminaryApprovalDateText(record);
+    row["תאריך הנפקת תעודה"] = stackDocValues(docFields.map((fields) => fields.issueDate), "לא הוזן");
+    row["קבצים מצורפים"] = stackDocValues(docFields.map((fields) => fields.files), "לא צורף קובץ");
+    row["הערות"] = uniqueJoin([base["הערות"], ...docFields.map((fields) => fields.notes)], "\n");
+    if (subtype === "subcontractors") {
+      row["סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור"] = firstText(direct?.classification, direct?.contractorClassification, direct?.registrationNo, direct?.classificationNo);
+      row["מס׳ מסמכים"] = docFields.some((fields) => fields.hasCertificate) ? docFields.length : "";
+    }
+    return [row];
   });
 };
 
@@ -4492,7 +4527,7 @@ const definitions: ConcentrationDefinition[] = [
     id: "contractors",
     title: "ריכוז קבלנים",
     fileName: "ריכוז קבלנים.xlsx",
-    description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה — שורה לכל תעודה",
+    description: "ריכוז מתוך אישורי קבלנים/קבלני משנה בבקרה מקדימה — שורה אחת לכל קבלן, כל התעודות מרוכזות בתוך התא",
     sourceLabel: "בקרה מקדימה / קבלנים",
     columns: ["מס׳", "שם קבלן / קבלן משנה", "תחום ביצוע", "סיווג ברשם הקבלנים / מספר תעודה / רישיון / אישור", "מספר תעודה / רישיון / אישור", "שם / סוג תעודה", "מס׳ מסמכים", "סטטוס", "תאריך אישור", "תאריך תפוגה", "תאריך הנפקת תעודה", "קבצים מצורפים", "הערות"],
     buildRows: ({ savedPreliminary }) => buildPreliminaryConcentrationRows(savedPreliminary, "subcontractors"),
@@ -4548,7 +4583,7 @@ const definitions: ConcentrationDefinition[] = [
     id: "materials",
     title: "ריכוז חומרים",
     fileName: "ריכוז חומרים.xlsx",
-    description: "ריכוז אישורי חומרים מתוך בקרה מקדימה — שורה לכל תעודה",
+    description: "ריכוז אישורי חומרים מתוך בקרה מקדימה — שורה אחת לכל חומר, כל התעודות מרוכזות בתוך התא",
     sourceLabel: "בקרה מקדימה / חומרים",
     columns: ["מס׳", "שם חומר", "מקור/יצרן", "שימוש מיועד", "מספר תעודה / אישור", "שם / סוג תעודה", "סטטוס", "תאריך אישור", "תאריך תפוגה", "תאריך הנפקת תעודה", "קבצים מצורפים", "הערות"],
     buildRows: ({ savedPreliminary }) => buildPreliminaryConcentrationRows(savedPreliminary, "materials"),
@@ -4641,13 +4676,23 @@ const deferredPreviewConcentrationIds = new Set<ConcentrationId>([
   "rfi",
 ]);
 
-const xmlEscape = (value: unknown): string =>
-  cleanText(value)
+// Multi-value cells (e.g. several certificates stacked in one contractor/material
+// row) carry real "\n" line breaks between values. cleanText() collapses all
+// whitespace including newlines, so those breaks are preserved here (each line
+// is still whitespace-cleaned on its own) instead of being flattened to spaces;
+// the sheet's cells already use wrapText, so a preserved "\n" renders as an
+// in-cell line break in Excel.
+const xmlEscape = (value: unknown): string => {
+  const text = typeof value === "string" && value.includes("\n")
+    ? value.split("\n").map((line) => cleanText(line)).join("\n")
+    : cleanText(value);
+  return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+};
 
 const colName = (n: number) => {
   let s = "";
@@ -4687,10 +4732,20 @@ const excelColumnWidth = (values: unknown[], min = 12, max = 46) => {
   return Math.max(min, Math.min(max, Math.ceil(longest * 1.15) + 2));
 };
 
-const excelRowHeight = (values: unknown[], base = 24, max = 84) => {
+// A cell can wrap because a single value is long, or because a stacked
+// multi-value cell (several certificates joined with "\n", one per line)
+// carries more lines than the rest of the row. Take whichever accounts for
+// more visual lines so the row is tall enough to show every line.
+const excelRowHeight = (values: unknown[], base = 24, max = 154) => {
   const longest = values.reduce<number>((current, value) => Math.max(current, excelTextLength(value)), 0);
-  if (longest <= 22) return base;
-  return Math.min(max, base + Math.ceil((longest - 22) / 24) * 14);
+  const wrappedLines = longest <= 22 ? 1 : 1 + Math.ceil((longest - 22) / 24);
+  const stackedLines = values.reduce<number>((current, value) => {
+    const text = String(value ?? "");
+    return text.includes("\n") ? Math.max(current, text.split("\n").length) : current;
+  }, 1);
+  const lines = Math.max(wrappedLines, stackedLines);
+  if (lines <= 1) return base;
+  return Math.min(max, base + (lines - 1) * 14);
 };
 
 const colsXmlFromWidths = (widths: number[]) =>
