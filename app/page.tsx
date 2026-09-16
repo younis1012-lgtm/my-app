@@ -9585,20 +9585,36 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
     const openTrial = projectTrialSections.filter((item) => isOpen(item?.status)).length;
     return { openNcr, openRfi, pendingApprovals, overdue, checklistPercent, openTrial };
   }, [projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRFIs, projectSupervisionReports]);
+  const formatShortDate = (value: unknown) => {
+    const date = parseDate(value);
+    if (!date) return "";
+    return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+  };
+  const urgencyTag = (record: any) => {
+    if (isOverdue(record)) return { tagLabel: "דחוף", tone: "danger" as const };
+    const date = parseDate(record?.expectedCloseDate ?? record?.closeDate ?? record?.dueDate ?? record?.date ?? record?.openDate);
+    if (date && date.getTime() === today.getTime()) return { tagLabel: "להיום", tone: "warn" as const };
+    return { tagLabel: "בתהליך / בטיפול", tone: "info" as const };
+  };
   const urgentTasks = [
-    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", meta: item?.status || "פתוח", tone: "danger" as const })),
-    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", meta: item?.status || "ממתין", tone: "warn" as const })),
-    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", meta: item?.status || "בטיפול", tone: "info" as const })),
+    ...projectNonconformances.filter((item) => isOpen(item?.status)).slice(0, 3).map((item) => ({ section: "nonconformances" as AppSection, icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", subtitle: "אי התאמות · בקרת איכות", date: formatShortDate(item?.expectedCloseDate ?? item?.closeDate ?? item?.dueDate ?? item?.date), ...urgencyTag(item) })),
+    ...projectRFIs.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "rfi" as AppSection, icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", subtitle: "RFI · תכנון ומסמכים", date: formatShortDate(item?.dueDate ?? item?.date), ...urgencyTag(item) })),
+    ...projectTrialSections.filter((item) => isOpen(item?.status)).slice(0, 2).map((item) => ({ section: "trialSections" as AppSection, icon: "🧪", title: item?.title || item?.sectionNo || "קטע ניסוי בטיפול", subtitle: "קטע ניסוי · בקרת איכות", date: formatShortDate(item?.date ?? item?.expectedCloseDate), ...urgencyTag(item) })),
   ].slice(0, 5);
-  const kpis = [
-    { icon: "⚠️", label: "אי התאמות", value: metrics.openNcr, tone: metrics.openNcr ? "danger" : "good", help: metrics.openNcr ? "דורש טיפול" : "אין פתוחות", section: "nonconformances" as AppSection },
-    { icon: "📨", label: "RFI", value: metrics.openRfi, tone: metrics.openRfi ? "warn" : "good", help: metrics.openRfi ? "ממתין למענה" : "אין פתוחים", section: "rfi" as AppSection },
-    { icon: "⏱️", label: "באיחור", value: metrics.overdue, tone: metrics.overdue ? "danger" : "good", help: metrics.overdue ? "לטיפול מיידי" : "ללא איחורים", section: "home" as AppSection },
-    { icon: "✍️", label: "לאישור", value: metrics.pendingApprovals, tone: metrics.pendingApprovals ? "warn" : "good", help: "חתימות / אישורים", section: "checklists" as AppSection },
-    { icon: "📋", label: "רשימות", value: `${metrics.checklistPercent}%`, tone: metrics.checklistPercent >= 80 ? "good" : metrics.checklistPercent >= 40 ? "warn" : "info", help: `${projectChecklists.length} רשומות`, section: "checklists" as AppSection },
-    { icon: "🧪", label: "קטעי ניסוי", value: metrics.openTrial, tone: metrics.openTrial ? "info" : "good", help: "פתוחים", section: "trialSections" as AppSection },
-  ] as const;
-  const highlightedModules = ["projectStructure", "holdPoints", "checklists", "trialSections"]
+  const dashboardKpis = [
+    { icon: "📄", label: "בקרה מקדימה", value: projectPreliminary.length, tone: "info" as const, section: "preliminary" as AppSection },
+    { icon: "💬", label: "RFI", value: metrics.openRfi, tone: "good" as const, section: "rfi" as AppSection },
+    { icon: "📋", label: "רשימות תיוג", value: projectChecklists.length, tone: "warn" as const, section: "checklists" as AppSection },
+    { icon: "⚠️", label: "קטעי ניסוי", value: metrics.openTrial, tone: "danger" as const, section: "trialSections" as AppSection },
+    { icon: "📄", label: "אי התאמות", value: metrics.openNcr, tone: "info" as const, section: "nonconformances" as AppSection },
+  ].reverse();
+  const quickAccessTone: Record<string, "blue" | "green" | "amber" | "red"> = {
+    projectStructure: "blue",
+    holdPoints: "green",
+    checklists: "amber",
+    trialSections: "red",
+  };
+  const highlightedModules = ["trialSections", "checklists", "holdPoints", "projectStructure"]
     .map((key) => homeModules.find((module) => module.key === key))
     .filter(Boolean) as HomeDashboardProps["homeModules"];
   const totalRecords = Math.max(1, projectChecklists.length + projectNonconformances.length + projectTrialSections.length + projectPreliminary.length + projectRFIs.length + projectSupervisionReports.length + projectPlans.length);
@@ -9611,8 +9627,6 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
     { label: "פיקוח עליון", value: projectSupervisionReports.length, section: "supervisionReports" as AppSection },
     { label: "תוכניות", value: projectPlans.length, section: "plans" as AppSection },
   ];
-  const dashboardKpis = kpis.filter((item) => !["באיחור"].includes(item.label));
-  const accent = ["blue", "green", "amber", "red"];
   return <div className="yk-dashboard" dir="rtl">
     <section className="yk-dashboard-hero">
       <div><h1>תמונת מצב לפרויקט</h1><p>{projectName}</p></div>
@@ -9621,7 +9635,7 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
 
     <section className="yk-kpi-grid">
       {dashboardKpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} onClick={() => setSection(item.section)} style={{ background: tone.bg, borderColor: tone.border }}>
-        <span className="yk-kpi-icon" style={{ background: tone.soft }}>{item.icon}</span><strong>{item.value}</strong><span>{item.label}</span><small style={{ color: tone.text }}>{item.help}</small>
+        <span className="yk-kpi-icon" style={{ background: tone.soft }}>{item.icon}</span><strong>{item.value}</strong><span>{item.label}</span>
       </button>; })}
     </section>
 
@@ -9633,7 +9647,11 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
       </article>
       <article className="yk-panel yk-urgent-panel">
         <h2>⚠ דורש טיפול עכשיו</h2>
-        <div className="yk-task-list">{urgentTasks.length ? urgentTasks.slice(0, 3).map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} onClick={() => setSection(task.section)} style={{ background: tone.bg, borderColor: tone.border }}><span>{task.icon}</span><b>{task.title}</b><small style={{ color: tone.text }}>{task.meta}</small></button>; }) : <p>✅ אין כרגע משימות דחופות פתוחות</p>}</div>
+        <div className="yk-task-list">{urgentTasks.length ? urgentTasks.slice(0, 3).map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} className="yk-urgent-row" onClick={() => setSection(task.section)} style={{ background: tone.bg, borderColor: tone.border }}>
+          <span className="yk-urgent-tag" style={{ background: tone.pill }}>{task.tagLabel}</span>
+          <span className="yk-urgent-body"><b>{task.title}</b><small style={{ color: tone.text }}>{task.subtitle}</small></span>
+          <span className="yk-urgent-meta"><span aria-hidden="true">{task.icon}</span>{task.date && <small>{task.date}</small>}</span>
+        </button>; }) : <p>✅ אין כרגע משימות דחופות פתוחות</p>}</div>
       </article>
       <article className="yk-panel yk-progress-panel">
         <h2>▥ התקדמות ובקרה</h2>
@@ -9643,7 +9661,7 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
 
     <section className="yk-panel yk-quick-section">
       <h2>⚡ גישה מהירה</h2>
-      <div className="yk-quick-grid">{highlightedModules.map((module, index) => <button className={`accent-${accent[index]}`} key={String(module.key)} onClick={() => setSection(module.key as AppSection)}>
+      <div className="yk-quick-grid">{highlightedModules.map((module) => <button className={`accent-${quickAccessTone[String(module.key)] ?? "blue"}`} key={String(module.key)} onClick={() => setSection(module.key as AppSection)}>
         <span className="yk-quick-icon">{module.icon}</span><div><strong>{module.title}</strong><small>{module.description}</small></div><b>{module.count}</b><span className="yk-quick-link">מעבר למסך ←</span>
       </button>)}</div>
     </section>
@@ -15857,6 +15875,8 @@ export default function Page() {
   const [projectLegendDirty, setProjectLegendDirty] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [accountForm, setAccountForm] = useState({
     username: "",
     currentPassword: "",
@@ -24680,6 +24700,17 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
     plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
   };
+  const topbarAccountName = projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
+  const topbarAvatarInitials = topbarAccountName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).filter(Boolean).join("").toUpperCase() || "מ";
+  const isTopbarRecordOpen = (value: unknown) => {
+    const text = String(value ?? "").toLowerCase();
+    return !["סגור", "מאושר", "הושלם", "נעול", "closed", "approved", "done"].some((word) => text.includes(word));
+  };
+  const topbarAlerts = projectAccess ? [
+    ...projectNonconformances.filter((item) => isTopbarRecordOpen(item?.status)).slice(0, 3).map((item) => ({ icon: "⚠️", title: item?.title || item?.description || "אי התאמה פתוחה", section: "nonconformances" as AppSection })),
+    ...projectRfis.filter((item) => isTopbarRecordOpen(item?.status)).slice(0, 2).map((item) => ({ icon: "📨", title: item?.title || item?.referenceNo || "RFI פתוח", section: "rfi" as AppSection })),
+  ].slice(0, 5) : [];
+  const topbarAlertCount = topbarAlerts.length;
 
   if (!authReady) {
     return (
@@ -25294,145 +25325,115 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           onClose={() => setCentralMailContext(null)} />
       )}
 
-      <header style={styles.header}>
-        <div style={styles.headerCard}>
-          <div style={{ fontWeight: 900, fontSize: 24 }}>Y.K QUALITY</div>
-          <div style={{ color: "#475569", marginTop: 6 }}>
-            QA/QC · Multi-file refactor · workflow with signatures
-          </div>
-          <div
-            style={{
-              marginTop: 12,
-              padding: "10px 12px",
-              borderRadius: 14,
-              background: "linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%)",
-              border: "1px solid #e2e8f0",
-              color: "#0f172a",
-              fontWeight: 850,
-              lineHeight: 1.6,
-            }}
-          >
-            שלום {projectAccess.displayName || projectAccess.username || "משתמש מערכת"},
-            <br />
-            שיהיה יום עבודה מוצלח.
+      <header className="yk-topbar">
+        <div className="yk-topbar-identity">
+          <div className="yk-topbar-avatar" aria-hidden="true">{topbarAvatarInitials}</div>
+          <div className="yk-topbar-idinfo">
+            <button
+              type="button"
+              className="yk-topbar-name"
+              onClick={() => { setShowAccountMenu((prev) => !prev); setShowNotifications(false); }}
+              aria-expanded={showAccountMenu}
+            >
+              {topbarAccountName}
+              <span className="yk-topbar-caret" aria-hidden="true">⌄</span>
+            </button>
+            <div className="yk-topbar-sub">
+              {projectAccess.username || ""}
+              {isSaving ? " · שומר נתונים..." : ""}
+              {!cloudEnabled ? " · מצב מקומי בלבד" : ""}
+            </div>
+            {showAccountMenu && (
+              <div className="yk-topbar-menu" role="menu">
+                {canManageProjectUsers && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setShowUserManagement((prev) => !prev); setShowAccountMenu(false); }}
+                  >
+                    👥 ניהול משתמשים
+                  </button>
+                )}
+                {!isAdminAccess(projectAccess) && accessibleProjects.length > 1 && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setShowProjectPicker(true); setShowAccountMenu(false); }}
+                  >
+                    🔁 החלף פרויקט
+                  </button>
+                )}
+                <button type="button" role="menuitem" onClick={logoutProject}>
+                  🚪 יציאה
+                </button>
+              </div>
+            )}
           </div>
         </div>
-        <div style={styles.headerCard}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-            }}
+
+        <div className="yk-topbar-project">
+          <span aria-hidden="true">🏢</span>
+          {isAdminAccess(projectAccess) ? (
+            <select
+              className="yk-topbar-project-select"
+              value={currentProjectId ?? ""}
+              onChange={(event) => {
+                void setActiveProject(event.target.value);
+              }}
+              aria-label="בחירת פרויקט לעבודה"
+            >
+              {accessibleProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="yk-topbar-project-name">{projectName}</span>
+          )}
+        </div>
+
+        <div className="yk-topbar-bell-wrap">
+          <button
+            type="button"
+            className="yk-topbar-bell"
+            onClick={() => { setShowNotifications((prev) => !prev); setShowAccountMenu(false); }}
+            aria-label="התראות"
+            aria-expanded={showNotifications}
           >
-            <div>
-              <div style={{ fontWeight: 800 }}>פרויקט פעיל</div>
-              <div>{projectName}</div>
-              <div style={{ color: "#64748b", marginTop: 4, fontSize: 13 }}>
-                משתמש: {projectAccess.displayName} · הרשאה:{" "}
-                {isAdminAccess(projectAccess)
-                  ? "מנהל מערכת"
-                  : `פרויקט ${projectAccess.code ?? ""}`}
-              </div>
-              {isSaving && (
-                <div style={{ color: "#475569", marginTop: 6 }}>
-                  שומר נתונים...
-                </div>
-              )}
-              {!cloudEnabled && (
-                <div style={{ color: "#475569", marginTop: 6 }}>
-                  מצב מקומי בלבד
-                </div>
-              )}
-              {isAdminAccess(projectAccess) ? (
-                <label
-                  style={{
-                    display: "grid",
-                    gap: 6,
-                    marginTop: 10,
-                    fontWeight: 900,
-                    color: "#0f172a",
-                  }}
-                >
-                  בחירת פרויקט לעבודה
-                  <select
-                    value={currentProjectId ?? ""}
-                    onChange={(event) => {
-                      void setActiveProject(event.target.value);
-                    }}
-                    style={{
-                      minWidth: 260,
-                      border: "1px solid #cbd5e1",
-                      borderRadius: 10,
-                      padding: "9px 10px",
-                      fontWeight: 900,
-                      background: "#fff",
-                      color: "#0f172a",
-                    }}
-                  >
-                    {accessibleProjects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {canManageProjectUsers ? (
+            🔔
+            {topbarAlertCount > 0 && <span className="yk-topbar-badge">{topbarAlertCount}</span>}
+          </button>
+          {showNotifications && (
+            <div className="yk-topbar-menu yk-topbar-notifications" role="menu">
+              {topbarAlerts.length ? topbarAlerts.map((alert, index) => (
                 <button
                   type="button"
-                  onClick={() => setShowUserManagement((prev) => !prev)}
-                  style={{
-                    border: "1px solid #cbd5e1",
-                    background: showUserManagement ? "#0f172a" : "#fff",
-                    color: showUserManagement ? "#fff" : "#0f172a",
-                    borderRadius: 10,
-                    padding: "8px 10px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
+                  role="menuitem"
+                  key={`${alert.section}-${index}`}
+                  onClick={() => { setSection(alert.section); setShowNotifications(false); }}
                 >
-                  ניהול משתמשים
+                  <span aria-hidden="true">{alert.icon}</span> {alert.title}
                 </button>
-              ) : null}
-              {!isAdminAccess(projectAccess) && accessibleProjects.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowProjectPicker(true)}
-                  style={{
-                    border: "1px solid #cbd5e1",
-                    background: "#0f172a",
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 10px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
-                >
-                  החלף פרויקט
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={logoutProject}
-                style={{
-                  border: "1px solid #cbd5e1",
-                  background: "#fff",
-                  borderRadius: 10,
-                  padding: "8px 10px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                יציאה
-              </button>
+              )) : <div className="yk-topbar-empty">אין התראות חדשות</div>}
             </div>
-          </div>
+          )}
+        </div>
+
+        <div className="yk-topbar-spacer" />
+
+        <div className="yk-topbar-brand">
+          <div className="yk-topbar-brand-name">Y.K QUALITY</div>
+          <div className="yk-topbar-brand-tag">QA/QC · workflow with signatures</div>
         </div>
       </header>
+
+      {(showAccountMenu || showNotifications) && (
+        <div
+          className="yk-topbar-backdrop"
+          onClick={() => { setShowAccountMenu(false); setShowNotifications(false); }}
+        />
+      )}
 
       {canManageProjectUsers && showUserManagement ? (
         <UserAccessPanel
