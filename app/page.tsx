@@ -21601,6 +21601,25 @@ export default function Page() {
           ? subcontractorPreliminaryForm
           : materialPreliminaryForm;
     if (!form.title.trim()) return alert("יש להזין כותרת");
+    // הגנה מפני יצירת רשומה חדשה וריקה בטעות: זה קורה בעיקר אחרי מחיקת
+    // רשומה שהייתה פתוחה לעריכה - הטופס מתאפס אוטומטית למצב "רשומה
+    // חדשה", ואם באותו רגע לוחצים שמור (למשל מהרגל, מיד אחרי המחיקה)
+    // נוצרת רשומה חדשה כמעט ריקה במקום שהמחיקה תישאר כפי שהיא.
+    const keyFieldFilled = String(
+      (subtype === "suppliers"
+        ? form.supplier?.supplierName
+        : subtype === "subcontractors"
+          ? form.subcontractor?.subcontractorName
+          : form.material?.materialName) ?? "",
+    ).trim();
+    if (!keyFieldFilled)
+      return alert(
+        subtype === "suppliers"
+          ? "יש להזין שם ספק לפני השמירה."
+          : subtype === "subcontractors"
+            ? "יש להזין שם קבלן משנה לפני השמירה."
+            : "יש להזין שם חומר לפני השמירה.",
+      );
     const id = editingPreliminaryId ?? crypto.randomUUID();
     const title =
       editingPreliminaryId || titleHasNumber(form.title)
