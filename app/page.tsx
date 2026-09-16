@@ -5290,7 +5290,7 @@ async function saveWithApprovalFallback(
   const savePayload = (body: Record<string, any>) =>
     mode === "insert"
       ? supabase!.from(table).insert(body)
-      : supabase!.from(table).update(body).eq("id", id);
+      : supabase!.from(table).update(body).eq("id", id).select("id");
 
   let result = await savePayload(currentPayload);
   const optionalColumns = [
@@ -5318,6 +5318,18 @@ async function saveWithApprovalFallback(
   }
   if (result.error)
     throw new Error(errorText(result.error) || "שגיאה בשמירה מול Supabase");
+  // עדכון ש"הצליח" אך לא שינה אף שורה בפועל קורה לרוב כשהרשומה שמנסים
+  // לעדכן כבר לא קיימת (למשל נמחקה קודם לכן, וטופס העריכה נשאר עם מזהה
+  // ישן). זו לא הצלחה אמיתית - יש להודיע כדי שלא ייווצר רושם מטעה שהשינוי
+  // נשמר, בזמן שבפועל שום דבר לא קרה בשרת.
+  if (
+    mode === "update" &&
+    (!("data" in result) || !result.data || (result.data as unknown[]).length === 0)
+  ) {
+    throw new Error(
+      "העדכון לא בוצע בפועל בשרת - ככל הנראה הרשומה נמחקה בינתיים. רענן את המסך ונסה שוב.",
+    );
+  }
 }
 
 type ChecklistAttachmentsPanelProps = {
@@ -20896,7 +20908,7 @@ export default function Page() {
   const deleteChecklist = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק רשימות תיוג.");
-    return withSaving(async () => {
+    await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "checklists", id);
         await refreshCloudData();
@@ -20904,6 +20916,11 @@ export default function Page() {
         setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
       }
     });
+    // אם הרשומה שנמחקה היא זו שהייתה פתוחה בטופס העריכה, יש לאפס את הטופס.
+    // אחרת מזהה הרשומה שנמחקה נשאר "תקוע" בטופס, ולחיצה מאוחרת יותר על
+    // שמירה תבצע עדכון על רשומה שכבר לא קיימת - מה שיוצר רושם מטעה שהיא
+    // חזרה להופיע.
+    if (editingChecklistId === id) resetChecklistForm();
   };
 
   const saveRfiPayload = async (
@@ -21359,7 +21376,7 @@ export default function Page() {
   const deleteNonconformance = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק אי-התאמות.");
-    return withSaving(async () => {
+    await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, NONCONFORMANCE_TABLE, id);
         await refreshCloudData();
@@ -21367,6 +21384,8 @@ export default function Page() {
         setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
       }
     });
+    // ראו הערה בפונקציית deleteChecklist - אותו תיקון נדרש כאן.
+    if (editingNonconformanceId === id) resetNonconformanceEditor();
   };
 
   const closeNonconformance = () => {
@@ -21553,7 +21572,7 @@ export default function Page() {
   const deleteTrialSection = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק קטעי ניסוי.");
-    return withSaving(async () => {
+    await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "trial_sections", id);
         await refreshCloudData();
@@ -21561,6 +21580,8 @@ export default function Page() {
         setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
       }
     });
+    // ראו הערה בפונקציית deleteChecklist - אותו תיקון נדרש כאן.
+    if (editingTrialSectionId === id) resetTrialSectionEditor();
   };
 
   const currentPreliminaryForm =
@@ -21724,7 +21745,7 @@ export default function Page() {
   const deletePreliminary = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק בקרה מקדימה.");
-    return withSaving(async () => {
+    await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "preliminary_records", id);
         await refreshCloudData();
@@ -21732,6 +21753,11 @@ export default function Page() {
         setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
       }
     });
+    // מחיקת חומר/ספק/קבלן שהיה פתוח בטופס העריכה חייבת לאפס גם את הטופס.
+    // אחרת מזהה הרשומה שנמחקה נשאר שמור בטופס (editingPreliminaryId), ולחיצה
+    // על "שמור" בהמשך תבצע עדכון על רשומה שכבר לא קיימת בשרת - מה שגורם
+    // לרושם המטעה שהפריט שנמחק "חוזר להופיע" אחרי שמירה.
+    if (editingPreliminaryId === id) resetPreliminaryEditor();
   };
 
   const guardedBody =
