@@ -11003,9 +11003,6 @@ const RFI_FIELDS: FieldDef[] = [
     type: "select",
     options: ["פתוח", "ממתין להתייחסות", "בטיפול", "נענה", "סגור"],
   },
-  { key: "planNo", label: "מס' תוכנית" },
-  { key: "revision", label: "גרסה / מהדורה" },
-  { key: "planName", label: "שם תוכנית" },
   { key: "buildingDetails", label: "פרטי המבנה" },
   { key: "building", label: "מבנה" },
   { key: "openDate", label: "תאריך פתיחה", type: "date" },
@@ -11053,6 +11050,7 @@ function RfiSection({
   downloadRfiExcel,
   sendRfiEmail,
   projectMeta,
+  projectPlans,
 }: {
   guardedBody: React.ReactNode;
   rfiForm: any;
@@ -11068,6 +11066,7 @@ function RfiSection({
   downloadRfiExcel: (record: RfiRecord) => void;
   sendRfiEmail: (record: RfiRecord) => void | Promise<void>;
   projectMeta: ProjectLegend;
+  projectPlans: PlanRecord[];
 }) {
   const [savedRfiPage, setSavedRfiPage] = useState(1);
   const savedRfiPageSize = 10;
@@ -11086,6 +11085,25 @@ function RfiSection({
     fontWeight: 800,
   };
   const rfiDocuments = normalizeAttachments(rfiForm.documents);
+  const rfiPlanOptionLabel = (plan: PlanRecord) =>
+    `${plan.planNo}${plan.title ? ` — ${plan.title}` : ""}${plan.revision ? ` (מהדורה ${plan.revision})` : ""}`;
+  const selectedRfiPlan =
+    projectPlans.find((item) => item.id === (rfiForm as any).selectedPlanId) ||
+    (rfiForm.planNo
+      ? projectPlans.find(
+          (item) => item.planNo === rfiForm.planNo && (!rfiForm.revision || item.revision === rfiForm.revision),
+        )
+      : undefined);
+  const selectRfiPlan = (planId: string) => {
+    const plan = projectPlans.find((item) => item.id === planId);
+    setRfiForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: planId,
+      planNo: plan ? plan.planNo : "",
+      planName: plan ? plan.title : "",
+      revision: plan ? plan.revision : "",
+    }));
+  };
   const addRfiDocument = async (file?: File) => {
     if (!file) return;
     const maxSizeMb = 20;
@@ -11197,6 +11215,61 @@ function RfiSection({
             <br />
             {projectMeta.qualityAssurance || "—"}
           </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
+            תוכנית (מס׳ / שם / מהדורה)
+            <select
+              value={selectedRfiPlan?.id ?? ""}
+              onChange={(e) => selectRfiPlan(e.target.value)}
+              style={{
+                width: "100%",
+                border: "1px solid #cbd5e1",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontWeight: 800,
+                background: "#fff",
+                minHeight: 44,
+              }}
+            >
+              <option value="">
+                {projectPlans.length
+                  ? "— בחר תוכנית מהרשימה —"
+                  : "לא נמצאו תוכניות בפרויקט — יש להוסיף תוכניות במסך \"תוכניות\""}
+              </option>
+              {projectPlans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {rfiPlanOptionLabel(plan)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {rfiForm.planNo ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 10,
+                marginTop: 8,
+              }}
+            >
+              <div style={metaStyle}>
+                מס׳ תוכנית
+                <br />
+                {rfiForm.planNo}
+              </div>
+              <div style={metaStyle}>
+                שם תוכנית
+                <br />
+                {rfiForm.planName || "—"}
+              </div>
+              <div style={metaStyle}>
+                גרסה / מהדורה
+                <br />
+                {rfiForm.revision || "—"}
+              </div>
+            </div>
+          ) : null}
         </div>
         <FormGrid fields={RFI_FIELDS} form={rfiForm} setForm={setRfiForm} />
         <div
@@ -24868,8 +24941,18 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
   const sendRfiEmail = async (record: RfiRecord) => {
     record = await hydrateRfiRecord(record);
-    const title = rfiExportTitle(record), html = rfiExportHtml(record);
-    openRecordEmail("rfi", record, record.id, title, async () => [await documentForEmail(html, title)]);
+    const title = rfiExportTitle(record);
+    openRecordEmail("rfi", record, record.id, title, async () => {
+      const blob = await buildRfiMergedPdfBlob(record);
+      const attachment = await pdfBlobToEmailAttachment(`${title} - כולל נספחים.pdf`, blob);
+      return [{
+        id: crypto.randomUUID(),
+        filename: attachment.filename,
+        mimeType: attachment.mimeType || "application/pdf",
+        ...(attachment.url ? { url: attachment.url } : {}),
+        ...(attachment.contentBase64 ? { contentBase64: attachment.contentBase64 } : {}),
+      }];
+    }, true);
   };
 
   const showExportButtons = [
@@ -25985,6 +26068,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               downloadRfiExcel={downloadRfiExcel}
               sendRfiEmail={sendRfiEmail}
               projectMeta={currentProjectLegend}
+              projectPlans={currentProjectPlans}
             />
             </>
           )}
