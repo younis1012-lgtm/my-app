@@ -1,6 +1,19 @@
 export type EngineeringTemplateNode = {
   name: string;
   children?: EngineeringTemplateNode[];
+  // Present this step with a checkbox the user can turn off before saving
+  // the tree (default: included). Use for a step that applies to most, but
+  // not necessarily all, instances of this element — e.g. a connection to a
+  // manhole that only some pipe runs have.
+  optional?: boolean;
+  // Present a set of mutually exclusive execution methods; the user must
+  // pick exactly one and it replaces this node (by name) in the saved tree.
+  // Use when the *method* varies by site/plan conditions rather than the
+  // step simply being present or absent — e.g. pipe bedding: gravel bed vs
+  // sand layering vs none.
+  choices?: EngineeringTemplateNode[];
+  // Index into `choices` selected by default (defaults to 0 if omitted).
+  defaultChoiceIndex?: number;
 };
 
 export type EngineeringTemplate = {
@@ -104,11 +117,21 @@ export const ENGINEERING_TEMPLATES: EngineeringTemplate[] = [
     id: "drainage-pipe",
     icon: "🚰",
     title: "קו ניקוז",
-    description: "חפירה, מצע לצינור, הנחה, עטיפה ומילוי חוזר.",
+    description: "חפירה, מצע/ריבוד לצינור לפי תנאי השטח, הנחה, חיבורים ומילוי חוזר.",
     nodes: [
       { name: "חפירה" },
-      { name: "מצע לצינור" },
+      {
+        name: "תשתית מתחת לצינור",
+        choices: [
+          { name: "מצע לצינור (חצץ דרוס / מצע מהודק)" },
+          { name: "ריבוד בחול" },
+          { name: "ללא מצע – הנחה ישירה על קרקע מיושרת ומהודקת" },
+        ],
+        defaultChoiceIndex: 0,
+      },
       { name: "הנחת צינור" },
+      { name: "התחברות לשוחה קיימת / חדשה", optional: true },
+      { name: "הנחת קולטן והתחברות לקו", optional: true },
       { name: "בדיקות" },
       { name: "עטיפה" },
       { name: "מילוי חוזר", children: [{ name: "שכבה 1" }, { name: "שכבה 2" }, { name: "שכבה 3" }] },
