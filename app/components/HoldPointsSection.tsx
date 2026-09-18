@@ -140,6 +140,49 @@ const ncrClosed = (record?: LinkedRecord) =>
     String(record?.status || "").toLowerCase().includes(value.toLowerCase()),
   );
 
+function StructureNodeSearchSelect({
+  nodes,
+  value,
+  onChange,
+}: {
+  nodes: StructureNode[];
+  value: string;
+  onChange: (nodeId: string, node?: StructureNode) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const nodeLabel = (node: StructureNode) => (node.code ? `${node.code} · ${node.name}` : node.name);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = normalizedQuery
+    ? nodes.filter((node) => nodeLabel(node).toLowerCase().includes(normalizedQuery))
+    : nodes;
+  const selectedNode = nodes.find((node) => node.id === value);
+  const options = selectedNode && !filtered.some((node) => node.id === selectedNode.id)
+    ? [selectedNode, ...filtered]
+    : filtered;
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <input
+        style={input}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="חיפוש אלמנט..."
+      />
+      <select
+        style={input}
+        value={value}
+        onChange={(event) => {
+          const node = nodes.find((item) => item.id === event.target.value);
+          onChange(event.target.value, node);
+        }}
+      >
+        <option value="">בחר אלמנט</option>
+        {options.map((node) => <option key={node.id} value={node.id}>{nodeLabel(node)}</option>)}
+      </select>
+      {normalizedQuery ? <small style={{ color: "#64748b" }}>נמצאו {filtered.length} תוצאות</small> : null}
+    </div>
+  );
+}
+
 function Selector({
   title,
   records,
@@ -397,7 +440,13 @@ export function HoldPointsSection({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12, marginTop: 12 }}>
             <label><strong>מספר ייחוס</strong><input style={input} value={draft.referenceNo} onChange={(event) => update("referenceNo", event.target.value)} /></label>
             <label><strong>שם נקודת העצירה *</strong><input style={input} value={draft.name} onChange={(event) => update("name", event.target.value)} /></label>
-            <label><strong>אלמנט מעץ הפרויקט *</strong><select style={input} value={draft.structureNodeId} onChange={(event) => { const node = structureNodes.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, structureNodeId: event.target.value, element: node?.name || current.element })); }}><option value="">בחר אלמנט</option>{structureNodes.map((node) => <option key={node.id} value={node.id}>{node.code ? `${node.code} · ` : ""}{node.name}</option>)}</select></label>
+            <label><strong>אלמנט מעץ הפרויקט *</strong>
+              <StructureNodeSearchSelect
+                nodes={structureNodes}
+                value={draft.structureNodeId}
+                onChange={(nodeId, node) => setDraft((current) => ({ ...current, structureNodeId: nodeId, element: node?.name || current.element }))}
+              />
+            </label>
             <label><strong>תיאור אלמנט / מבנה</strong><input style={input} value={draft.element} onChange={(event) => update("element", event.target.value)} /></label>
             <label><strong>חברת בקרת איכות</strong><input style={input} value={draft.qcCompany} onChange={(event) => update("qcCompany", event.target.value)} /></label>
             <label><strong>חברת הבטחת איכות</strong><input style={input} value={draft.qaCompany} onChange={(event) => update("qaCompany", event.target.value)} /></label>
