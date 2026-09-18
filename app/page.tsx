@@ -8287,6 +8287,11 @@ function ProjectStructureSection({
   onGenerateFromPlans,
   onDownload,
   linkedRecords,
+  onOpenChecklist,
+  onOpenNonconformance,
+  onOpenTrialSection,
+  onOpenRfi,
+  onOpenHoldPoints,
 }: {
   nodes: ProjectStructureNode[];
   plans: PlanRecord[];
@@ -8309,9 +8314,25 @@ function ProjectStructureSection({
     rfis: any[];
     holdPoints: any[];
   };
+  // Opens the given record directly in its own module (e.g. the checklist
+  // editor) so a linked-count badge below can jump straight to it instead of
+  // only showing a number.
+  onOpenChecklist: (record: any) => void;
+  onOpenNonconformance: (record: any) => void;
+  onOpenTrialSection: (record: any) => void;
+  onOpenRfi: (record: any) => void;
+  onOpenHoldPoints: () => void;
 }) {
   const ordered = sortProjectStructureNodes(nodes);
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+  // Which linked-records badge (of which node) is currently showing its pick
+  // list, so the user can choose one specific checklist/nonconformance/etc.
+  // to open when a branch has more than one linked record.
+  const [linkedGroupPicker, setLinkedGroupPicker] = useState<{
+    label: string;
+    type: "checklists" | "nonconformances" | "trialSections" | "rfis";
+    records: any[];
+  } | null>(null);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const visibleNodes = ordered.filter((node) => {
     let parentId = node.parentId;
@@ -8797,13 +8818,20 @@ function ProjectStructureSection({
                   }
                 });
               }
-              const linkedCounts = [
-                ["רשימות תיוג", linkedRecords.checklists.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
-                ["אי־התאמות", linkedRecords.nonconformances.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
-                ["קטעי ניסוי", linkedRecords.trialSections.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
-                ["RFI", linkedRecords.rfis.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
-                ["נקודות עצירה", linkedRecords.holdPoints.filter((record) => descendantIds.has(linkedStructureNodeId(record))).length],
-              ] as Array<[string, number]>;
+              // Each group carries the actual matched records (not just a
+              // count) so its badge can open them directly instead of only
+              // displaying a number.
+              const linkedGroups: Array<{
+                type: "checklists" | "nonconformances" | "trialSections" | "rfis" | "holdPoints";
+                label: string;
+                records: any[];
+              }> = [
+                { type: "checklists", label: "רשימות תיוג", records: linkedRecords.checklists.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+                { type: "nonconformances", label: "אי־התאמות", records: linkedRecords.nonconformances.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+                { type: "trialSections", label: "קטעי ניסוי", records: linkedRecords.trialSections.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+                { type: "rfis", label: "RFI", records: linkedRecords.rfis.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+                { type: "holdPoints", label: "נקודות עצירה", records: linkedRecords.holdPoints.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+              ];
               return (
                 <div
                   key={node.id}
@@ -8844,12 +8872,32 @@ function ProjectStructureSection({
                         : ""}
                     </div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
-                      {linkedCounts.filter(([, count]) => count > 0).map(([label, count]) => (
-                        <span key={label} style={{ background: "#e0f2fe", color: "#075985", borderRadius: 999, padding: "3px 8px", fontSize: 12, fontWeight: 900 }}>
-                          {label}: {count}
-                        </span>
+                      {linkedGroups.filter((group) => group.records.length > 0).map((group) => (
+                        <button
+                          key={group.type}
+                          type="button"
+                          title="לחץ לפתיחה"
+                          onClick={() => {
+                            if (group.type === "holdPoints") {
+                              onOpenHoldPoints();
+                              return;
+                            }
+                            if (group.records.length === 1) {
+                              const [record] = group.records;
+                              if (group.type === "checklists") onOpenChecklist(record);
+                              else if (group.type === "nonconformances") onOpenNonconformance(record);
+                              else if (group.type === "trialSections") onOpenTrialSection(record);
+                              else if (group.type === "rfis") onOpenRfi(record);
+                              return;
+                            }
+                            setLinkedGroupPicker({ label: group.label, type: group.type, records: group.records });
+                          }}
+                          style={{ background: "#e0f2fe", color: "#075985", borderRadius: 999, padding: "3px 8px", fontSize: 12, fontWeight: 900, border: 0, cursor: "pointer" }}
+                        >
+                          {group.label}: {group.records.length}
+                        </button>
                       ))}
-                      {!linkedCounts.some(([, count]) => count > 0) ? (
+                      {!linkedGroups.some((group) => group.records.length > 0) ? (
                         <span style={{ color: "#94a3b8", fontSize: 12, fontWeight: 700 }}>אין רשומות משויכות</span>
                       ) : null}
                     </div>
@@ -8880,6 +8928,51 @@ function ProjectStructureSection({
           </div>
         )}
       </div>
+
+      {linkedGroupPicker ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setLinkedGroupPicker(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", padding: 24, display: "grid", placeItems: "center" }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 16, padding: 20, width: "min(560px, 94vw)", maxHeight: "80vh", overflow: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12 }}>
+              <h3 style={{ margin: 0 }}>{linkedGroupPicker.label} משויכות</h3>
+              <button
+                type="button"
+                onClick={() => setLinkedGroupPicker(null)}
+                style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 10, padding: "6px 10px", cursor: "pointer", fontWeight: 900 }}
+              >
+                סגור
+              </button>
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {linkedGroupPicker.records.map((record: any, index: number) => (
+                <button
+                  key={record.id ?? index}
+                  type="button"
+                  onClick={() => {
+                    if (linkedGroupPicker.type === "checklists") onOpenChecklist(record);
+                    else if (linkedGroupPicker.type === "nonconformances") onOpenNonconformance(record);
+                    else if (linkedGroupPicker.type === "trialSections") onOpenTrialSection(record);
+                    else if (linkedGroupPicker.type === "rfis") onOpenRfi(record);
+                    setLinkedGroupPicker(null);
+                  }}
+                  style={{ textAlign: "right", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 12px", background: "#f8fafc", cursor: "pointer", fontWeight: 800 }}
+                >
+                  {record.title || (record.checklistNo ? `רשימה ${record.checklistNo}` : "") || "ללא כותרת"}
+                  {record.date ? ` · ${record.date}` : ""}
+                  {record.status ? ` · ${record.status}` : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -25954,6 +26047,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 rfis: projectRfis,
                 holdPoints: projectHoldPoints,
               }}
+              onOpenChecklist={loadChecklist}
+              onOpenNonconformance={loadNonconformance}
+              onOpenTrialSection={loadTrialSection}
+              onOpenRfi={loadRfi}
+              onOpenHoldPoints={() => setSection("holdPoints")}
             />
           )}
           {section === "projectDetails" && currentProject && (
