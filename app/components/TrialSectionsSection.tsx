@@ -1,4 +1,5 @@
 type TrialSectionRecord = any;
+import { useRef, useState } from 'react';
 import { ApprovalPanel, Field, FormModeBanner, styles } from './common';
 import { FileDropZone } from './FileDropZone';
 import { trialStructureOptions, trialStructureSelectionPatch } from '../lib/trialStructure';
@@ -9,6 +10,73 @@ type ProjectStructureNode = {
   nodeType: 'road' | 'site' | 'structure' | 'section' | 'element' | 'activity';
   name: string;
 };
+
+type ProjectPlan = {
+  id: string;
+  planNo: string;
+  title: string;
+  revision: string;
+};
+
+const trialPlanOptionLabel = (plan: ProjectPlan) =>
+  `${plan.planNo}${plan.title ? ` — ${plan.title}` : ''}${plan.revision ? ` (מהדורה ${plan.revision})` : ''}`;
+
+// Searchable "תוכנית" (plan) picker for a trial section, mirroring the
+// checklist form's plan search: a text input with a native datalist so the
+// user can type a number or name instead of scrolling a plain list.
+function TrialPlanField({
+  plans,
+  form,
+  setForm,
+}: {
+  plans: ProjectPlan[];
+  form: any;
+  setForm: React.Dispatch<React.SetStateAction<any>>;
+}) {
+  const selectedPlan =
+    plans.find((item) => item.id === form?.selectedPlanId) ||
+    (form?.planNo
+      ? plans.find((item) => item.planNo === form.planNo && (!form.revision || item.revision === form.revision))
+      : undefined);
+  const searchValue = selectedPlan ? trialPlanOptionLabel(selectedPlan) : String(form?.planSearch ?? '');
+  const selectPlan = (planId: string) => {
+    const plan = plans.find((item) => item.id === planId);
+    setForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: planId,
+      planSearch: plan ? trialPlanOptionLabel(plan) : '',
+      planNo: plan ? plan.planNo : '',
+      planName: plan ? plan.title : '',
+      revision: plan ? plan.revision : '',
+    }));
+  };
+  const searchPlan = (searchText: string) => {
+    const normalizedSearch = searchText.trim().toLocaleLowerCase('he');
+    const plan = plans.find((item) => trialPlanOptionLabel(item).trim().toLocaleLowerCase('he') === normalizedSearch);
+    if (plan) {
+      selectPlan(plan.id);
+      return;
+    }
+    setForm((prev: any) => ({ ...prev, selectedPlanId: '', planSearch: searchText }));
+  };
+  return (
+    <>
+      <input
+        type="search"
+        list="trial-plan-smart-search-options"
+        value={searchValue}
+        onChange={(event) => searchPlan(event.target.value)}
+        style={styles.input}
+        placeholder={plans.length ? 'הקלד מספר או שם תוכנית לחיפוש' : 'לא נמצאו תוכניות בפרויקט'}
+        autoComplete="off"
+      />
+      <datalist id="trial-plan-smart-search-options">
+        <option value="" />
+        {plans.map((plan) => <option key={plan.id} value={trialPlanOptionLabel(plan)} />)}
+      </datalist>
+    </>
+  );
+}
 
 type StoredAttachment = {
   name: string;
@@ -134,6 +202,7 @@ const trialFieldGroups = [
     fields: [
       ['title', 'שם קטע ניסוי'],
       ['sectionNo', "קטע מס'"],
+      ['planNo', 'תוכנית'],
       ['proofForActivityType', 'הוכחת היכולת לפעולה מסוג'],
       ['elementName', 'שם האלמנט'],
       ['subElement', 'תת אלמנט'],
@@ -204,6 +273,17 @@ const updateTrialField = (setTrialSectionForm: any, key: string, value: string) 
   }));
 };
 
+// Suggests a trial-section name ("שם קטע ניסוי") from a material name, so
+// e.g. picking "חומר איטום" / "חומרי איטום" suggests "עבודות איטום". Materials
+// that don't follow the "חומר(י) ..." pattern still get a reasonable
+// "עבודות <שם החומר>" suggestion rather than nothing.
+const suggestTrialTitleFromMaterial = (material: string) => {
+  const trimmed = material.trim();
+  if (!trimmed) return '';
+  const withoutMaterialPrefix = trimmed.replace(/^חומרי?\s+/, '');
+  return `עבודות ${withoutMaterialPrefix || trimmed}`.trim();
+};
+
 // Lets "חומרים לשימוש" be picked from the project's already-approved
 // materials (multiple selections allowed) instead of retyped as free text.
 // Stores the picks as the same " ; "-joined string the field already used,
@@ -271,10 +351,25 @@ function TrialStructureFields({
 }) {
   const selectedNodeId = String(form?.structureNodeId || '');
   const options = trialStructureOptions(nodes);
+  const [query, setQuery] = useState('');
+  const normalizedQuery = query.trim().toLocaleLowerCase('he');
+  const filteredOptions = normalizedQuery
+    ? options.filter((option) => option.label.toLocaleLowerCase('he').includes(normalizedQuery))
+    : options;
+  const selectedOption = options.find((option) => option.id === selectedNodeId);
+  const visibleOptions = selectedOption && !filteredOptions.some((option) => option.id === selectedOption.id)
+    ? [selectedOption, ...filteredOptions]
+    : filteredOptions;
   const selectStyle = { ...styles.input, background: '#fff' };
   return (
     <>
       <Field label="שיוך לעץ הפרויקט — חובה">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="חיפוש לפי כביש, אלמנט או פעילות..."
+          style={{ ...styles.input, background: '#fff', marginBottom: 6 }}
+        />
         <select
           style={selectStyle}
           value={selectedNodeId}
@@ -286,8 +381,13 @@ function TrialStructureFields({
           }}
         >
           <option value="">בחר כביש, מבנה, אלמנט או פעילות מתוך העץ</option>
-          {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          {visibleOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
+        {normalizedQuery ? (
+          <div style={{ color: '#64748b', fontSize: 12, fontWeight: 700, marginTop: 4 }}>
+            נמצאו {filteredOptions.length} תוצאות
+          </div>
+        ) : null}
       </Field>
       {selectedNodeId ? <div style={{ color: '#166534', fontWeight: 800, alignSelf: 'end' }}>קטע הניסוי ישויך לפריט שנבחר בעץ.</div> : null}
       {!nodes.length ? (
@@ -305,6 +405,7 @@ const buildTrialWordHtml = (form: any) => {
     ['שם הפרויקט', value('projectName'), 'חברת ניהול', value('managementCompany')],
     ['קבלן ראשי', value('mainContractor'), 'חברת בקרת איכות', value('qualityControlCompany')],
     ['שם קטע ניסוי', value('title'), "קטע מס'", value('sectionNo')],
+    ['תוכנית', value('planNo'), 'מהדורה', value('revision')],
     ['הוכחת היכולת לפעולה מסוג', value('proofForActivityType'), 'שם האלמנט', value('elementName')],
     ['תת אלמנט', value('subElement'), 'מחתך', value('fromSection')],
     ['עד חתך', value('toSection'), 'צד', value('side')],
@@ -380,11 +481,32 @@ export function TrialSectionsSection(props: {
   // module, so "חומרים לשימוש" can be picked from that approved list instead
   // of retyped as free text. Empty when the project has none approved yet.
   approvedMaterials?: string[];
+  // The project's registered plans, so "תוכנית" can be picked with search
+  // instead of typed as free text. Empty when the project has none yet.
+  projectPlans?: ProjectPlan[];
 }) {
+  // Tracks the last title we auto-filled from a chosen material, so switching
+  // the material keeps "שם קטע ניסוי" in sync while a title the user typed
+  // themselves is never overwritten.
+  const autoTrialTitleRef = useRef('');
+
   const downloadFilledTrialWord = () => {
     const html = buildTrialWordHtml(props.trialSectionForm as any);
     const fileName = `${cleanFileName(getTrialValue(props.trialSectionForm, 'sectionNo'), 'דוח קטע ניסוי')}.doc`;
     downloadTextFile(html, fileName, 'application/msword;charset=utf-8');
+  };
+
+  const handleMaterialsForUseChange = (next: string) => {
+    updateTrialField(props.setTrialSectionForm, 'materialsForUse', next);
+    const firstMaterial = next.split(/\s*;\s*/).map((item) => item.trim()).filter(Boolean)[0];
+    const suggestion = firstMaterial ? suggestTrialTitleFromMaterial(firstMaterial) : '';
+    if (!suggestion) return;
+    props.setTrialSectionForm((prev: any) => {
+      const currentTitle = String(getTrialValue(prev, 'title') || '').trim();
+      if (currentTitle && currentTitle !== autoTrialTitleRef.current) return prev;
+      autoTrialTitleRef.current = suggestion;
+      return { ...prev, title: suggestion };
+    });
   };
 
   return (
@@ -419,7 +541,13 @@ export function TrialSectionsSection(props: {
                       <MaterialsForUseField
                         value={String(getTrialValue(props.trialSectionForm, key))}
                         approvedMaterials={props.approvedMaterials ?? []}
-                        onChange={(next) => updateTrialField(props.setTrialSectionForm, key, next)}
+                        onChange={handleMaterialsForUseChange}
+                      />
+                    ) : key === 'planNo' ? (
+                      <TrialPlanField
+                        plans={props.projectPlans ?? []}
+                        form={props.trialSectionForm}
+                        setForm={props.setTrialSectionForm}
                       />
                     ) : kind === 'textarea' ? (
                       <textarea
