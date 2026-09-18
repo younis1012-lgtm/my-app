@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 import { matchesProjectAssignment } from './projectAssignments';
 import { MAIL_MAX_BYTES, MAIL_SIGNATURE, escapeMailHtml, mailRecipients, validMailAddress } from './email';
+import { projectCloudIdsForCanonicalId } from './projectId';
 
 class MailError extends Error { constructor(message: string, public status = 400) { super(message); } }
 function personnelRole(row: {role?: string; name?: string; company?: string}) {
@@ -73,9 +74,16 @@ export async function readMailDirectory(request: Request) {
     const {db,user,role} = await authorize(request,projectId,false);
     const directoryRequested = params.get('mode') === 'manage-users';
     const managingUsers = ['admin','readwrite'].includes(role);
+    // A handful of older projects (e.g. Road 65/Dovrat) have their rows saved
+    // under a historical duplicate project id rather than the canonical one
+    // now used everywhere else. Reading with .in(...) over every id that
+    // canonically belongs to this project (see projectCloudIdsForCanonicalId)
+    // keeps those legacy rows visible instead of silently showing "no
+    // participants" for exactly the projects most likely to have old data.
+    const readableProjectIds = projectCloudIdsForCanonicalId(projectId);
     const result = directoryRequested
-      ? await db.from('project_email_users').select(role === 'admin' ? '*' : 'id,project_id,name,email,role,company,phone,active,created_at').eq('project_id',projectId)
-      : await db.from('project_email_users').select('id,name,email,role,smtp_app_password').eq('project_id',projectId).eq('active',true);
+      ? await db.from('project_email_users').select(role === 'admin' ? '*' : 'id,project_id,name,email,role,company,phone,active,created_at').in('project_id',readableProjectIds)
+      : await db.from('project_email_users').select('id,name,email,role,smtp_app_password').in('project_id',readableProjectIds).eq('active',true);
     if (result.error) throw new MailError('טעינת כתובות המייל המאושרות נכשלה',503);
     const directoryRows = (result.data || []) as any[];
     const contacts = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email)).map(x=>({id:x.id,name:x.name || x.email,email:x.email,role:x.role || '',company:x.company || '',phone:x.phone || ''}));
