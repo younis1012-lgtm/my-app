@@ -11152,9 +11152,29 @@ function RfiSection({
     setRfiForm((prev: any) => ({
       ...prev,
       selectedPlanId: planId,
+      planSearch: plan ? rfiPlanOptionLabel(plan) : "",
       planNo: plan ? plan.planNo : "",
       planName: plan ? plan.title : "",
       revision: plan ? plan.revision : "",
+    }));
+  };
+  const rfiPlanSearchValue = selectedRfiPlan
+    ? rfiPlanOptionLabel(selectedRfiPlan)
+    : ((rfiForm as any).planSearch ?? "");
+  const searchRfiPlan = (searchText: string) => {
+    const normalizedSearch = searchText.trim().toLocaleLowerCase("he");
+    const plan = projectPlans.find((item) => {
+      const label = rfiPlanOptionLabel(item).trim().toLocaleLowerCase("he");
+      return label === normalizedSearch;
+    });
+    if (plan) {
+      selectRfiPlan(plan.id);
+      return;
+    }
+    setRfiForm((prev: any) => ({
+      ...prev,
+      selectedPlanId: "",
+      planSearch: searchText,
     }));
   };
   const addRfiDocument = async (file?: File) => {
@@ -11272,9 +11292,11 @@ function RfiSection({
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
             תוכנית (מס׳ / שם / מהדורה)
-            <select
-              value={selectedRfiPlan?.id ?? ""}
-              onChange={(e) => selectRfiPlan(e.target.value)}
+            <input
+              type="search"
+              list="rfi-plan-smart-search-options"
+              value={rfiPlanSearchValue}
+              onChange={(e) => searchRfiPlan(e.target.value)}
               style={{
                 width: "100%",
                 border: "1px solid #cbd5e1",
@@ -11283,19 +11305,21 @@ function RfiSection({
                 fontWeight: 800,
                 background: "#fff",
                 minHeight: 44,
+                boxSizing: "border-box",
               }}
-            >
-              <option value="">
-                {projectPlans.length
-                  ? "— בחר תוכנית מהרשימה —"
-                  : "לא נמצאו תוכניות בפרויקט — יש להוסיף תוכניות במסך \"תוכניות\""}
-              </option>
+              placeholder={
+                projectPlans.length
+                  ? "הקלד מספר או שם תוכנית לחיפוש"
+                  : "לא נמצאו תוכניות בפרויקט — יש להוסיף תוכניות במסך \"תוכניות\""
+              }
+              autoComplete="off"
+            />
+            <datalist id="rfi-plan-smart-search-options">
+              <option value="" />
               {projectPlans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {rfiPlanOptionLabel(plan)}
-                </option>
+                <option key={plan.id} value={rfiPlanOptionLabel(plan)} />
               ))}
-            </select>
+            </datalist>
           </label>
           {rfiForm.planNo ? (
             <div
@@ -26654,6 +26678,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               resetTrialSectionEditor={resetTrialSectionEditor}
               projectStructureNodes={currentProjectStructureNodes}
               approvedMaterials={approvedPreliminaryMaterialNames}
+              projectPlans={projectPlans}
             />
             </>
           )}
