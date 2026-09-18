@@ -204,6 +204,62 @@ const updateTrialField = (setTrialSectionForm: any, key: string, value: string) 
   }));
 };
 
+// Lets "חומרים לשימוש" be picked from the project's already-approved
+// materials (multiple selections allowed) instead of retyped as free text.
+// Stores the picks as the same " ; "-joined string the field already used,
+// so nothing downstream (Word export, saved records) needs to change.
+function MaterialsForUseField({
+  value,
+  approvedMaterials,
+  onChange,
+}: {
+  value: string;
+  approvedMaterials: string[];
+  onChange: (next: string) => void;
+}) {
+  const selected = value
+    .split(/\s*;\s*/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!approvedMaterials.length) {
+    return (
+      <>
+        <input
+          type="text"
+          style={styles.input}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+          עדיין אין בפרויקט זה חומרים מאושרים ב"בקרה מקדימה" — לאחר אישור חומר שם ניתן יהיה לבחור אותו כאן מרשימה.
+        </div>
+      </>
+    );
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
+      {approvedMaterials.map((material) => {
+        const checked = selected.includes(material);
+        return (
+          <label key={material} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #dbe3ef', borderRadius: 12, padding: '8px 10px', background: checked ? '#eef6ff' : '#fff', fontWeight: 800, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => {
+                const next = event.currentTarget.checked
+                  ? Array.from(new Set([...selected, material]))
+                  : selected.filter((item) => item !== material);
+                onChange(next.join(' ; '));
+              }}
+            />
+            <span>{material}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 function TrialStructureFields({
   nodes,
   form,
@@ -320,6 +376,10 @@ export function TrialSectionsSection(props: {
   saveTrialSection: () => void;
   resetTrialSectionEditor: () => void;
   projectStructureNodes: ProjectStructureNode[];
+  // Names of materials already approved in this project's preliminary-control
+  // module, so "חומרים לשימוש" can be picked from that approved list instead
+  // of retyped as free text. Empty when the project has none approved yet.
+  approvedMaterials?: string[];
 }) {
   const downloadFilledTrialWord = () => {
     const html = buildTrialWordHtml(props.trialSectionForm as any);
@@ -354,8 +414,14 @@ export function TrialSectionsSection(props: {
                 {group.fields.filter(([key]) => !(
                   group.title === 'פרטי קטע הניסוי' && ['elementName', 'subElement'].includes(key)
                 )).map(([key, label, kind]) => (
-                  <Field key={key} label={label} full={kind === 'textarea'}>
-                    {kind === 'textarea' ? (
+                  <Field key={key} label={label} full={kind === 'textarea' || key === 'materialsForUse'}>
+                    {key === 'materialsForUse' ? (
+                      <MaterialsForUseField
+                        value={String(getTrialValue(props.trialSectionForm, key))}
+                        approvedMaterials={props.approvedMaterials ?? []}
+                        onChange={(next) => updateTrialField(props.setTrialSectionForm, key, next)}
+                      />
+                    ) : kind === 'textarea' ? (
                       <textarea
                         style={styles.textarea}
                         value={String(getTrialValue(props.trialSectionForm, key))}
