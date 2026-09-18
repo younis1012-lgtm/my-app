@@ -18939,6 +18939,24 @@ export default function Page() {
       ),
     [projectPreliminary],
   );
+  // Materials already approved in this project's "בקרה מקדימה" (preliminary
+  // control) module, so a trial section can pick from them instead of
+  // retyping a material name that should already be an approved one. Applies
+  // to every project, including ones not yet created, since it is derived
+  // live from each project's own preliminary records.
+  const approvedPreliminaryMaterialNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projectPreliminary
+            .filter((record) => record.subtype === "materials")
+            .filter((record) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
+            .map((record) => String((record as any).materialName || (record as any).material?.materialName || "").trim())
+            .filter(Boolean),
+        ),
+      ),
+    [projectPreliminary],
+  );
 
   const extractSequentialNo = (title: unknown) => {
     const text = String(title ?? "");
@@ -26635,6 +26653,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               saveTrialSection={saveTrialSection}
               resetTrialSectionEditor={resetTrialSectionEditor}
               projectStructureNodes={currentProjectStructureNodes}
+              approvedMaterials={approvedPreliminaryMaterialNames}
             />
             </>
           )}
