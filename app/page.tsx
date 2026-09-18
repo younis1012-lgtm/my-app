@@ -17170,11 +17170,25 @@ export default function Page() {
         .map(supervisionReportRowToRecord)
         .filter(Boolean) as SupervisionReportRecord[],
     );
-    setProjectStructureNodes(
-      (structureRows ?? [])
+    setProjectStructureNodes((prev) => {
+      const cloudNodes = (structureRows ?? [])
         .map(normalizeProjectStructureNode)
-        .filter(Boolean) as ProjectStructureNode[],
-    );
+        .filter(Boolean) as ProjectStructureNode[];
+      // Merge rather than replace: a structure-tree save (e.g. from the
+      // engineering-templates page) writes to localStorage immediately and
+      // to the cloud in a separate, fallible request. If that cloud write
+      // hasn't landed yet — or failed silently (RLS, a schema mismatch, a
+      // network blip) — a plain replace here would erase the just-saved
+      // nodes the moment this cloud refresh runs, even though nothing is
+      // actually wrong with them. Keep any node already in memory that the
+      // cloud response didn't include, so a saved tree is never silently
+      // wiped by its own background refresh.
+      const merged = [...cloudNodes];
+      prev.forEach((node) => {
+        if (!merged.some((existing) => existing.id === node.id)) merged.push(node);
+      });
+      return merged;
+    });
     setSavedPlans(
       (planRows ?? [])
         .map(planRowToRecord)
