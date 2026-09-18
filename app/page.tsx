@@ -10608,32 +10608,6 @@ function TrialSectionsRecordsTable({
       value: (record) => cellValue(record, "subElement", "sub_element"),
     },
     {
-      label: "מיקום / מבנה",
-      width: 170,
-      value: (record) =>
-        cellValue(record, "location", "workLocation", "roadStructure", "workSection", "area"),
-    },
-    {
-      label: "קומה",
-      width: 110,
-      value: (record) => cellValue(record, "floor", "level"),
-    },
-    {
-      label: "יחידה",
-      width: 110,
-      value: (record) => cellValue(record, "unit", "buildingUnit"),
-    },
-    {
-      label: "הסט",
-      width: 110,
-      value: (record) => cellValue(record, "offset"),
-    },
-    {
-      label: "צד",
-      width: 110,
-      value: (record) => splitRangeAndSide(record).side || "-",
-    },
-    {
       label: "מחתך",
       width: 120,
       value: (record) => splitRangeAndSide(record).from || "-",
@@ -10644,9 +10618,9 @@ function TrialSectionsRecordsTable({
       value: (record) => splitRangeAndSide(record).to || "-",
     },
     {
-      label: "מחתך עד חתך/צד",
-      width: 190,
-      value: (record) => splitRangeAndSide(record).combined || "-",
+      label: "צד/הסט",
+      width: 110,
+      value: (record) => splitRangeAndSide(record).side || "-",
     },
     {
       label: "תאריך ביצוע",
@@ -10760,7 +10734,7 @@ function TrialSectionsRecordsTable({
         <table
           style={{
             width: "100%",
-            minWidth: 1880,
+            minWidth: 1190,
             borderCollapse: "collapse",
             tableLayout: "fixed",
             direction: "rtl",
