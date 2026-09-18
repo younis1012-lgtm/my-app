@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { normalizeStoredProjectId, projectCloudIdsForCanonicalId } from "../../lib/projectId";
 import { ENGINEERING_TEMPLATES, type EngineeringTemplateNode } from "./TemplateData";
 
 const STORAGE_KEY = "yk-quality-stage4-multifile";
@@ -41,7 +42,7 @@ const normalizeStoredNode = (value: any): StoredProjectNode | null => {
   if (!value || typeof value !== "object" || !value.id) return null;
   return {
     id: String(value.id),
-    projectId: String(value.projectId ?? value.project_id ?? ""),
+    projectId: normalizeStoredProjectId(value.projectId ?? value.project_id ?? ""),
     parentId: String(value.parentId ?? value.parent_id ?? ""),
     nodeType: value.nodeType ?? value.node_type ?? "activity",
     name: String(value.name ?? ""),
@@ -57,7 +58,7 @@ const normalizeStoredNode = (value: any): StoredProjectNode | null => {
 
 const nodeToRow = (node: StoredProjectNode) => ({
   id: node.id,
-  project_id: node.projectId,
+  project_id: normalizeStoredProjectId(node.projectId),
   parent_id: node.parentId || null,
   node_type: node.nodeType,
   name: node.name,
@@ -76,51 +77,107 @@ const cardStyle = {
   boxShadow: "0 16px 35px rgba(15,23,42,0.06)",
 } as const;
 
+// A node's `choices`/`optional` selection, keyed by the node's tree path
+// joined with " / ". Lives in TemplateLibrary's state and is resolved into
+// the final, concrete node list right before saving (see resolveTemplateNodes).
+export type TemplateNodeConfig = Record<string, { choiceIndex?: number; included?: boolean }>;
+
+const configKeyForPath = (path: string[]) => path.join(" / ");
+
 function NodeTree({
   nodes,
   depth = 0,
   parentPath = [],
   checklistCount,
   onOpen,
+  config,
+  onConfigChange,
+  editable = false,
 }: {
   nodes: EngineeringTemplateNode[];
   depth?: number;
   parentPath?: string[];
   checklistCount: (path: string[]) => number;
   onOpen: (path: string[]) => void;
+  config?: TemplateNodeConfig;
+  onConfigChange?: (path: string[], patch: { choiceIndex?: number; included?: boolean }) => void;
+  editable?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 7 }}>
       {nodes.map((node, index) => {
-        const path = [...parentPath, node.name];
+        // configPath: stable identity for this declared node, used as the key
+        // for remembering the user's choice/inclusion pick (must not change
+        // when the picked alternative changes).
+        const configPath = [...parentPath, node.name];
+        const key = configKeyForPath(configPath);
+        const nodeConfig = config?.[key];
+        const isChoice = Boolean(node.choices?.length);
+        const choiceIndex = nodeConfig?.choiceIndex ?? node.defaultChoiceIndex ?? 0;
+        const resolvedChoice = isChoice ? node.choices![Math.min(choiceIndex, node.choices!.length - 1)] : undefined;
+        // displayPath: what this step will actually be named in the saved
+        // project tree (the chosen alternative's name for a choice node), used
+        // for opening/counting linked checklists and for children's paths.
+        const path = [...parentPath, resolvedChoice ? resolvedChoice.name : node.name];
+        const included = node.optional ? (nodeConfig?.included ?? true) : true;
         const count = checklistCount(path);
         return (
         <div key={`${node.name}-${index}`}>
-          <button
-            type="button"
-            onClick={() => onOpen(path)}
-            style={{
-              width: "calc(100% - " + depth * 22 + "px)",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "7px 10px",
-              marginInlineStart: depth * 22,
-              borderRadius: 12,
-              background: depth === 0 ? "#f8fafc" : "#fff",
-              border: depth === 0 ? "1px solid #e2e8f0" : "1px solid transparent",
-              fontWeight: depth === 0 ? 950 : 800,
-              color: "#0f172a",
-              cursor: "pointer",
-              textAlign: "right",
-            }}
-          >
-            <span style={{ color: "#f59e0b", fontWeight: 950 }}>{depth === 0 ? "▣" : "├"}</span>
-            <span style={{ flex: 1 }}>{node.name}</span>
-            <span style={{ borderRadius: 999, background: count ? "#dbeafe" : "#f1f5f9", color: count ? "#1d4ed8" : "#64748b", padding: "2px 8px", fontSize: 12, fontWeight: 950 }}>
-              {count} רשימות
-            </span>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginInlineStart: depth * 22 }}>
+            {editable && node.optional ? (
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 850, color: "#475569", cursor: "pointer", whiteSpace: "nowrap" }}>
+                <input
+                  type="checkbox"
+                  checked={included}
+                  onChange={(event) => onConfigChange?.(configPath, { included: event.target.checked })}
+                />
+                כלול
+              </label>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onOpen(path)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "7px 10px",
+                borderRadius: 12,
+                background: depth === 0 ? "#f8fafc" : "#fff",
+                border: depth === 0 ? "1px solid #e2e8f0" : "1px solid transparent",
+                fontWeight: depth === 0 ? 950 : 800,
+                color: "#0f172a",
+                cursor: "pointer",
+                textAlign: "right",
+                opacity: included ? 1 : 0.45,
+              }}
+            >
+              <span style={{ color: "#f59e0b", fontWeight: 950 }}>{depth === 0 ? "▣" : "├"}</span>
+              <span style={{ flex: 1 }}>{resolvedChoice ? resolvedChoice.name : node.name}</span>
+              {node.optional && !editable ? (
+                <span style={{ borderRadius: 999, background: "#f1f5f9", color: "#64748b", padding: "2px 8px", fontSize: 11, fontWeight: 850 }}>אופציונלי</span>
+              ) : null}
+              <span style={{ borderRadius: 999, background: count ? "#dbeafe" : "#f1f5f9", color: count ? "#1d4ed8" : "#64748b", padding: "2px 8px", fontSize: 12, fontWeight: 950 }}>
+                {count} רשימות
+              </span>
+            </button>
+          </div>
+          {editable && isChoice ? (
+            <div style={{ marginInlineStart: depth * 22 + 26, marginTop: 4, marginBottom: 2 }}>
+              <select
+                value={choiceIndex}
+                onChange={(event) => onConfigChange?.(configPath, { choiceIndex: Number(event.target.value) })}
+                style={{ fontSize: 12, fontWeight: 800, border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 8px", background: "#fff", color: "#334155" }}
+              >
+                {node.choices!.map((option, optionIndex) => (
+                  <option key={option.name} value={optionIndex}>
+                    {node.name}: {option.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {node.children?.length ? (
             <NodeTree
               nodes={node.children}
@@ -128,6 +185,9 @@ function NodeTree({
               parentPath={path}
               checklistCount={checklistCount}
               onOpen={onOpen}
+              config={config}
+              onConfigChange={onConfigChange}
+              editable={editable}
             />
           ) : null}
         </div>
@@ -135,6 +195,48 @@ function NodeTree({
     </div>
   );
 }
+
+// Turns a template's raw (declarative) node list into the concrete list that
+// will actually be written to the project tree, applying the user's choice
+// picks and optional-step inclusions. Steps left as "not included" are
+// dropped entirely; a `choices` step is replaced by whichever alternative
+// was selected (defaulting to `defaultChoiceIndex`, or the first option).
+export const resolveTemplateNodes = (
+  nodes: EngineeringTemplateNode[],
+  config: TemplateNodeConfig,
+  parentPath: string[] = [],
+): EngineeringTemplateNode[] => {
+  const resolved: EngineeringTemplateNode[] = [];
+  nodes.forEach((node) => {
+    const path = [...parentPath, node.name];
+    const key = configKeyForPath(path);
+    const nodeConfig = config[key];
+    if (node.optional && !(nodeConfig?.included ?? true)) return;
+    if (node.choices?.length) {
+      const choiceIndex = nodeConfig?.choiceIndex ?? node.defaultChoiceIndex ?? 0;
+      const chosen = node.choices[Math.min(choiceIndex, node.choices.length - 1)];
+      // Children are keyed (both here and in NodeTree) by the path the saved
+      // tree will actually have, i.e. under the chosen alternative's name —
+      // not the choice group's generic label.
+      const childPath = [...parentPath, chosen.name];
+      resolved.push({
+        ...chosen,
+        children: [
+          ...(chosen.children ?? []),
+          ...resolveTemplateNodes(node.children ?? [], config, childPath),
+        ],
+      });
+      return;
+    }
+    resolved.push({
+      ...node,
+      optional: undefined,
+      choices: undefined,
+      children: node.children ? resolveTemplateNodes(node.children, config, path) : undefined,
+    });
+  });
+  return resolved;
+};
 
 export function TemplateLibrary() {
   const [selectedIds, setSelectedIds] = useState<string[]>(["road-structure", "retaining-wall", "drainage-channel"]);
@@ -145,6 +247,20 @@ export function TemplateLibrary() {
   const [projectChecklists, setProjectChecklists] = useState<LinkedChecklist[]>([]);
   const [openedPath, setOpenedPath] = useState<string[] | null>(null);
   const [detectedPlanTemplateIds, setDetectedPlanTemplateIds] = useState<string[]>([]);
+  // Per-template choice/optional-step selections, made in the preview panel
+  // below before saving. Keyed by template id, then by node path.
+  const [templateNodeConfig, setTemplateNodeConfig] = useState<Record<string, TemplateNodeConfig>>({});
+  const updateTemplateNodeConfig = (
+    templateId: string,
+    path: string[],
+    patch: { choiceIndex?: number; included?: boolean },
+  ) => {
+    const key = configKeyForPath(path);
+    setTemplateNodeConfig((prev) => ({
+      ...prev,
+      [templateId]: { ...prev[templateId], [key]: { ...prev[templateId]?.[key], ...patch } },
+    }));
+  };
   const selectedTemplates = useMemo(
     () => ENGINEERING_TEMPLATES.filter((template) => selectedIds.includes(template.id)),
     [selectedIds],
@@ -152,14 +268,16 @@ export function TemplateLibrary() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const activeProjectId =
+    const activeProjectId = normalizeStoredProjectId(
       params.get("projectId")?.trim() ||
-      window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ||
-      "";
+        window.localStorage.getItem(CURRENT_PROJECT_STORAGE_KEY)?.trim() ||
+        "",
+    );
     if (activeProjectId)
       window.localStorage.setItem(CURRENT_PROJECT_STORAGE_KEY, activeProjectId);
     setProjectId(activeProjectId);
     if (!activeProjectId) return;
+    const scopedProjectIds = projectCloudIdsForCanonicalId(activeProjectId);
 
     const loadLinkedRecords = async () => {
       let localNodes: StoredProjectNode[] = [];
@@ -173,7 +291,7 @@ export function TemplateLibrary() {
         if (Array.isArray(persisted?.savedChecklists)) {
           localChecklists = persisted.savedChecklists.map((record: any) => ({
             id: String(record.id),
-            projectId: String(record.projectId ?? ""),
+            projectId: normalizeStoredProjectId(record.projectId ?? ""),
             structureNodeId: String(record.structureNodeId ?? record.details?.structureNodeId ?? ""),
             checklistNo: Number(record.checklistNo) || null,
             title: String(record.title ?? ""),
@@ -185,16 +303,16 @@ export function TemplateLibrary() {
         }
         const parsedPlans = JSON.parse(window.localStorage.getItem(PLANS_STORAGE_KEY) || "[]");
         if (Array.isArray(parsedPlans))
-          projectPlans = parsedPlans.filter(
-            (plan: any) => String(plan?.projectId ?? plan?.project_id ?? "") === activeProjectId,
+          projectPlans = parsedPlans.filter((plan: any) =>
+            scopedProjectIds.includes(normalizeStoredProjectId(plan?.projectId ?? plan?.project_id ?? "")),
           );
       } catch {}
 
       if (supabase) {
         const [nodesResult, checklistResult, plansResult] = await Promise.all([
-          supabase.from(PROJECT_STRUCTURE_TABLE).select("*").eq("project_id", activeProjectId),
-          supabase.from("checklists").select("*").eq("project_id", activeProjectId),
-          supabase.from("plans").select("*").eq("project_id", activeProjectId),
+          supabase.from(PROJECT_STRUCTURE_TABLE).select("*").in("project_id", scopedProjectIds),
+          supabase.from("checklists").select("*").in("project_id", scopedProjectIds),
+          supabase.from("plans").select("*").in("project_id", scopedProjectIds),
         ]);
         if (!nodesResult.error && Array.isArray(nodesResult.data))
           localNodes = nodesResult.data.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
@@ -203,7 +321,7 @@ export function TemplateLibrary() {
             const details = row.details && typeof row.details === "object" ? row.details : {};
             return {
               id: String(row.id),
-              projectId: String(row.project_id ?? ""),
+              projectId: normalizeStoredProjectId(row.project_id ?? ""),
               structureNodeId: String(row.structure_node_id ?? details.structureNodeId ?? ""),
               checklistNo: Number(row.checklist_no) || null,
               title: String(row.title ?? ""),
@@ -309,7 +427,10 @@ export function TemplateLibrary() {
 
       let cloudNodes: StoredProjectNode[] = [];
       if (supabase) {
-        const result = await supabase.from(PROJECT_STRUCTURE_TABLE).select("*").eq("project_id", projectId);
+        const result = await supabase
+          .from(PROJECT_STRUCTURE_TABLE)
+          .select("*")
+          .in("project_id", projectCloudIdsForCanonicalId(projectId));
         if (!result.error && Array.isArray(result.data)) {
           cloudNodes = result.data.map(normalizeStoredNode).filter(Boolean) as StoredProjectNode[];
         }
@@ -351,21 +472,26 @@ export function TemplateLibrary() {
 
       selectedTemplates.forEach((template, index) => {
         const rootId = findOrCreate(template.title, "", "structure", index);
-        addChildren(template.nodes, rootId, 0);
+        const resolvedNodes = resolveTemplateNodes(
+          template.nodes,
+          templateNodeConfig[template.id] ?? {},
+          [template.title],
+        );
+        addChildren(resolvedNodes, rootId, 0);
       });
 
       const merged = [...allNodes, ...created];
       window.localStorage.setItem(PROJECT_STRUCTURE_STORAGE_KEY, JSON.stringify(merged));
 
-      let cloudWarning = false;
+      let cloudErrorMessage = "";
       if (supabase && created.length) {
         const result = await supabase.from(PROJECT_STRUCTURE_TABLE).upsert(created.map(nodeToRow), { onConflict: "id" });
-        cloudWarning = Boolean(result.error);
+        if (result.error) cloudErrorMessage = result.error.message || "שגיאה לא ידועה מהשרת";
       }
 
       setMessage(
         created.length
-          ? `נשמרו ${created.length} סעיפים בעץ הפרויקט.${cloudWarning ? " העץ נשמר בדפדפן, אך השמירה בענן נכשלה." : ""}`
+          ? `נשמרו ${created.length} סעיפים בעץ הפרויקט.${cloudErrorMessage ? ` שימו לב: השמירה בענן נכשלה (${cloudErrorMessage}) — הסעיפים נשמרו בדפדפן זה בלבד ועלולים להיעלם בכניסה הבאה. יש לצלם מסך של ההודעה הזו ולפנות לתמיכה.` : ""}`
           : "כל הסעיפים שנבחרו כבר קיימים בעץ הפרויקט.",
       );
     } catch (error) {
@@ -446,7 +572,7 @@ export function TemplateLibrary() {
           <div>
             <h2 style={{ margin: 0, fontSize: 22 }}>עץ מוצע מהתבניות שנבחרו</h2>
             <div style={{ color: "#64748b", fontWeight: 750, marginTop: 4 }}>
-              נבחרו {selectedTemplates.length} תבניות. שמירת העץ תוסיף את הסעיפים לפרויקט הפעיל ותאפשר לשייך אליהם רשימות תיוג.
+              נבחרו {selectedTemplates.length} תבניות. שמירת העץ תוסיף את הסעיפים לפרויקט הפעיל ותאפשר לשייך אליהם רשימות תיוג. בסעיפים עם תיבת "כלול" ניתן להסיר שלב שלא רלוונטי (למשל חיבור לשוחה שלא קיים בקטע הזה), ובסעיפים עם רשימה נפתחת ניתן לבחור את שיטת הביצוע בפועל (למשל מצע לצינור לעומת ריבוד בחול).
             </div>
           </div>
           <button
@@ -485,6 +611,9 @@ export function TemplateLibrary() {
                 parentPath={[template.title]}
                 checklistCount={(path) => linkedChecklistsForPath(path).length}
                 onOpen={setOpenedPath}
+                config={templateNodeConfig[template.id]}
+                onConfigChange={(path, patch) => updateTemplateNodeConfig(template.id, path, patch)}
+                editable
               />
             </article>
           ))}
