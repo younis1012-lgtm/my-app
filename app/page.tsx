@@ -19020,7 +19020,7 @@ export default function Page() {
   const numberedTitle = (base: string, number: number) =>
     `${base} מס׳ ${number}`;
   const titleHasNumber = (title: unknown) => extractSequentialNo(title) > 0;
-  const nextRfiTitle = () => numberedTitle("RFI", nextSequentialNo("rfi", []));
+  const nextRfiTitle = () => numberedTitle("RFI", nextSequentialNo("rfi", savedRfis as any));
   const nextNonconformanceTitle = () =>
     numberedTitle(
       "אי התאמה",
@@ -21192,7 +21192,7 @@ export default function Page() {
       projectId: normalizeStoredProjectId(currentProjectId),
       ...rfiForm,
       title,
-      rfiNumber: rfiForm.rfiNumber ?? existing?.rfiNumber ?? null,
+      rfiNumber: rfiForm.rfiNumber ?? existing?.rfiNumber ?? extractSequentialNo(title) ?? null,
       createdBy: existing?.createdBy || rfiForm.createdBy || actor,
       updatedBy: actor,
       updatedAt: actionTime,
@@ -23503,8 +23503,8 @@ export default function Page() {
         `${projectRoot}/RFI`,
         allProjectRfis,
         [
-          ["מספר", (record) => record.rfiNumber || record.referenceNo],
-          ["כותרת", (record) => record.title],
+          ["מספר", (record) => (record.rfiNumber ? `RFI מס' ${record.rfiNumber}` : record.title || record.referenceNo)],
+          ["כותרת", (record) => record.workActivity || record.title],
           ["סטטוס", (record) => record.status],
           ["תוכנית", (record) => record.planNo],
           ["מיקום", (record) => record.location],
@@ -26132,9 +26132,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 description="רשימת כל פניות RFI ואישורי המתכנן בפרויקט."
                 records={projectRfis as any[]}
                 columns={[
-                  { label: "כותרת", value: (record) => getRecordTitle(record) },
-                  { label: "מספר", value: (record) => record.rfiNo || record.number || record.id },
-                  { label: "תאריך", value: (record) => getRecordDate(record) },
+                  { label: "כותרת", value: (record) => record.workActivity || getRecordTitle(record) },
+                  { label: "מספר", value: (record) => (record.rfiNumber ? `RFI מס' ${record.rfiNumber}` : getRecordTitle(record)) },
+                  { label: "תאריך", value: (record) => formatTrackingDate(record.openDate || getRecordDate(record)) },
                   { label: "סטטוס", value: (record) => getRecordStatus(record) },
                 ]}
                 onOpen={(id) => { const record = projectRfis.find((item) => item.id === id); if (record) loadRfi(record); }}
