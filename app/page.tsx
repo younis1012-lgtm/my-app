@@ -21091,6 +21091,7 @@ export default function Page() {
         : supabase!.from("rfi_records").insert(body);
 
     let result = await run(payload);
+    let droppedStructureNodeId = false;
     if (
       result.error &&
       [
@@ -21102,6 +21103,9 @@ export default function Page() {
         "structure_node_id",
       ].some((column) => isMissingColumnError(result.error, column))
     ) {
+      droppedStructureNodeId =
+        isMissingColumnError(result.error, "structure_node_id") &&
+        Boolean(payload.structure_node_id);
       const {
         rfi_number,
         created_by,
@@ -21114,6 +21118,15 @@ export default function Page() {
       result = await run(fallbackPayload);
     }
     if (result.error) throw result.error;
+    if (droppedStructureNodeId) {
+      // The RFI itself was saved successfully above, but the cloud table is
+      // still missing the structure_node_id column, so the tree assignment
+      // could not be stored. Surface this loudly instead of pretending the
+      // link was saved — see app/supabase/06_project_structure_links.sql.
+      throw new Error(
+        "ה-RFI נשמר, אך השיוך לעץ הפרויקט לא נשמר כי בטבלת ה-RFI במסד הנתונים חסרה העמודה structure_node_id. יש להריץ בעל/ת הפרויקט את סקריפט העדכון 06_project_structure_links.sql ב-Supabase SQL Editor ואז לנסות לשייך שוב.",
+      );
+    }
   };
 
   const uploadInlineRfiDocumentToCloud = async (
