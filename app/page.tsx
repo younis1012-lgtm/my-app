@@ -5247,6 +5247,7 @@ async function saveWithApprovalFallback(
   id?: string,
 ) {
   let currentPayload = sanitizeCloudPayload(payload);
+  const requestedStructureNodeId = currentPayload.structure_node_id;
   const savePayload = (body: Record<string, any>) =>
     mode === "insert"
       ? supabase!.from(table).insert(body)
@@ -5288,6 +5289,17 @@ async function saveWithApprovalFallback(
   ) {
     throw new Error(
       "העדכון לא בוצע בפועל בשרת - ככל הנראה הרשומה נמחקה בינתיים. רענן את המסך ונסה שוב.",
+    );
+  }
+  if (omittedColumns.has("structure_node_id") && requestedStructureNodeId) {
+    // The record itself was saved successfully above, but the cloud table
+    // (checklists / nonconformances / trial sections / control processes,
+    // depending on the caller) is still missing the structure_node_id
+    // column, so the tree assignment could not be stored. Surface this
+    // loudly instead of pretending the link was saved — see
+    // app/supabase/06_project_structure_links.sql.
+    throw new Error(
+      `הרשומה נשמרה, אך השיוך לעץ הפרויקט לא נשמר כי בטבלת ${table} במסד הנתונים חסרה העמודה structure_node_id. יש להריץ את סקריפט העדכון 06_project_structure_links.sql ב-Supabase SQL Editor ואז לנסות לשייך שוב.`,
     );
   }
 }
@@ -17269,14 +17281,23 @@ export default function Page() {
       // engineering-templates page) writes to localStorage immediately and
       // to the cloud in a separate, fallible request. If that cloud write
       // hasn't landed yet — or failed silently (RLS, a schema mismatch, a
-      // network blip) — a plain replace here would erase the just-saved
-      // nodes the moment this cloud refresh runs, even though nothing is
-      // actually wrong with them. Keep any node already in memory that the
-      // cloud response didn't include, so a saved tree is never silently
-      // wiped by its own background refresh.
+      // network blip) — a plain replace here could erase a just-saved node
+      // the moment this cloud refresh runs, even though nothing is actually
+      // wrong with it. But keeping every local-only node forever means a
+      // node someone genuinely deleted (from another tab, another device,
+      // or directly in Supabase) would never disappear from this browser.
+      // So the protection only covers nodes saved recently enough that a
+      // real cloud write would already have landed; anything older that is
+      // still missing from the cloud response is treated as deleted.
+      const RECENT_LOCAL_NODE_GRACE_MS = 5 * 60 * 1000;
+      const now = Date.now();
       const merged = [...cloudNodes];
       prev.forEach((node) => {
-        if (!merged.some((existing) => existing.id === node.id)) merged.push(node);
+        if (merged.some((existing) => existing.id === node.id)) return;
+        const savedAt = Date.parse(node.updatedAt || node.createdAt || "");
+        if (Number.isFinite(savedAt) && now - savedAt <= RECENT_LOCAL_NODE_GRACE_MS) {
+          merged.push(node);
+        }
       });
       return merged;
     });
@@ -21991,6 +22012,9 @@ export default function Page() {
   const persistPlansToCloud = async (plans: PlanRecord[]) => {
     if (!cloudEnabled || !supabase || !plans.length) return;
     let rows = plans.map(planRecordToRow).map(sanitizeCloudPayload);
+    const hadAttachments = rows.some(
+      (row) => Array.isArray(row.attachments) && row.attachments.length > 0,
+    );
     const optionalColumns = ["revision", "discipline", "date", "status", "notes", "attachments", "saved_at"] as const;
     const omittedColumns = new Set<string>();
     let result = await supabase.from(PLANS_TABLE).upsert(rows, { onConflict: "id" });
@@ -22010,6 +22034,15 @@ export default function Page() {
 
     if (result.error && !shouldIgnoreCloudError(result.error)) {
       throw new Error(errorText(result.error) || "שמירת התוכניות ב-Supabase נכשלה");
+    }
+    if (omittedColumns.has("attachments") && hadAttachments) {
+      // The plan rows themselves were saved above, but the cloud table is
+      // still missing the attachments column, so the attached plan files
+      // could not be stored there. Surface this loudly instead of silently
+      // dropping the files the user actually attached.
+      throw new Error(
+        "רשימת התוכניות נשמרה, אך קובצי התוכניות המצורפים לא נשמרו כי בטבלת plans ב-Supabase חסרה העמודה attachments. יש להוסיף את העמודה בטבלה ולנסות שוב.",
+      );
     }
   };
 
@@ -24537,14 +24570,17 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         : supabase.from(SUPERVISION_REPORTS_TABLE).insert(payload);
 
     let payload = sanitizeCloudPayload(supervisionReportRecordToRow(record));
+    const requestedStructureNodeId = payload.structure_node_id;
     let result = await save(payload);
     if (result.error && shouldIgnoreCloudError(result.error)) {
       console.warn("Supervision reports cloud table unavailable; keeping browser copy.", result.error);
       return false;
     }
+    let droppedStructureNodeId = false;
     if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
       const { structure_node_id, ...fallbackPayload } = payload;
       payload = fallbackPayload;
+      droppedStructureNodeId = true;
       result = await save(payload);
     }
     if (result.error && shouldIgnoreCloudError(result.error)) {
@@ -24552,6 +24588,16 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       return false;
     }
     if (result.error) throw result.error;
+    if (droppedStructureNodeId && requestedStructureNodeId) {
+      // The report itself was saved successfully above, but the cloud table
+      // is still missing the structure_node_id column, so the tree
+      // assignment could not be stored. Surface this loudly instead of
+      // pretending the link was saved — see
+      // app/supabase/06_project_structure_links.sql.
+      throw new Error(
+        "דוח הפיקוח נשמר, אך השיוך לעץ הפרויקט לא נשמר כי בטבלת דוחות הפיקוח במסד הנתונים חסרה העמודה structure_node_id. יש להריץ את סקריפט העדכון 06_project_structure_links.sql ב-Supabase SQL Editor ואז לנסות לשייך שוב.",
+      );
+    }
     return true;
   };
 
