@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "./common";
+
+type QualityDocumentRevision = {
+  revision: string; date: string; fileName: string; fileType: string;
+  fileSize: number; fileUrl: string; storagePath: string; uploadedAt: string;
+};
 
 type QualityDocument = {
   id: string; projectId: string; category: string; documentNo: string; title: string;
   revision: string; date: string; status: string; notes: string; fileName: string;
   fileType: string; fileSize: number; fileUrl: string; storagePath: string; uploadedAt: string;
+  history?: QualityDocumentRevision[];
 };
 
 const categories = ["תוכנית בקרת איכות", "נהלי עבודה", "הוראות עבודה", "טפסים ונספחים", "מפרטים ותקנים", "תוכניות איכות של קבלני משנה", "אחר"];
@@ -31,6 +37,15 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
   const updateInputRef = useRef<HTMLInputElement>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatingBusy, setUpdatingBusy] = useState(false);
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Set<string>>(new Set());
+
+  const toggleHistory = (id: string) => {
+    setExpandedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const saveLocal = (next: QualityDocument[]) => {
     setRecords(next);
@@ -107,20 +122,29 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
     if (newRevision === null) return;
     setUpdatingBusy(true); setMessage(`מעדכן ${chosenFile.name}... אין לסגור את החלון.`);
     try {
-      const oldStoragePath = record.storagePath;
       const storagePath = `quality-documents/${safePart(projectId)}/${safePart(record.category)}/${Date.now()}-${record.id}-${safePart(chosenFile.name)}`;
       const result = await supabase.storage.from("attachments").upload(storagePath, chosenFile, { upsert: false, contentType: chosenFile.type || "application/octet-stream", cacheControl: "3600" });
       if (result.error) throw result.error;
       const publicData = supabase.storage.from("attachments").getPublicUrl(storagePath).data;
       const now = new Date().toISOString();
+      // Keep the previous file as a revision-history entry instead of
+      // deleting it, so the full revision trail stays available (important
+      // for quality-procedure audit purposes) even though the table always
+      // shows only the current revision.
+      const previousRevision: QualityDocumentRevision = {
+        revision: record.revision, date: record.date, fileName: record.fileName,
+        fileType: record.fileType, fileSize: record.fileSize, fileUrl: record.fileUrl,
+        storagePath: record.storagePath, uploadedAt: record.uploadedAt,
+      };
       const next = records.map((item) => item.id === record.id
-        ? { ...item, revision: newRevision.trim(), date: now.slice(0, 10), fileName: chosenFile.name, fileType: chosenFile.type, fileSize: chosenFile.size, fileUrl: publicData.publicUrl, storagePath, uploadedAt: now }
+        ? {
+            ...item, revision: newRevision.trim(), date: now.slice(0, 10), fileName: chosenFile.name,
+            fileType: chosenFile.type, fileSize: chosenFile.size, fileUrl: publicData.publicUrl,
+            storagePath, uploadedAt: now, history: [previousRevision, ...(item.history || [])],
+          }
         : item);
       saveLocal(next); await saveCloudIndex(next);
-      if (oldStoragePath && oldStoragePath !== storagePath) {
-        await supabase.storage.from("attachments").remove([oldStoragePath]).catch(() => {});
-      }
-      setMessage("המסמך עודכן בהצלחה — לא נדרשה מחיקה.");
+      setMessage("המסמך עודכן בהצלחה — המהדורה הקודמת נשמרה בהיסטוריה, לא נדרשה מחיקה.");
     } catch (error: any) {
       setMessage("");
       alert(`עדכון הקובץ נכשל: ${error?.message || "שגיאת אחסון"}.`);
@@ -169,6 +193,6 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
       }}
     />
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) repeat(2,minmax(160px,220px))", gap: 10 }}><input style={styles.input} placeholder="חיפוש לפי שם, מספר, מהדורה או קובץ..." value={search} onChange={(e) => setSearch(e.target.value)} /><select style={styles.input} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option>הכול</option>{categories.map((x) => <option key={x}>{x}</option>)}</select><select style={styles.input} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option>הכול</option>{statuses.map((x) => <option key={x} value={x}>{statusLabel(x)}</option>)}</select></div>
-    <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}><table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse", background: "#fff" }}><thead><tr>{["קטגוריה", "מספר", "שם מסמך", "מהדורה", "תאריך", "סטטוס", "קובץ", "גודל", "פעולות"].map((x) => <th key={x} style={{ padding: 12, textAlign: "right", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>{x}</th>)}</tr></thead><tbody>{filtered.map((record) => <tr key={record.id}>{[record.category, record.documentNo || "—", record.title, record.revision || "—", record.date].map((x, i) => <td key={i} style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{x}</td>)}<td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><select style={styles.input} value={record.status} disabled={!canWrite} onChange={(e) => void changeStatus(record, e.target.value)}>{statuses.map((x) => <option key={x} value={x}>{statusLabel(x)}</option>)}</select></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><a href={record.fileUrl} target="_blank" rel="noreferrer" download={record.fileName}>📎 {record.fileName}</a></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{formatSize(record.fileSize)}</td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}><button type="button" style={styles.secondaryBtn} onClick={() => window.open(record.fileUrl, "_blank", "noopener,noreferrer")}>פתיחה</button><button type="button" style={styles.secondaryBtn} disabled={!canWrite || updatingBusy} onClick={() => startUpdate(record)}>עדכון</button>{onEmail && <button type="button" style={styles.secondaryBtn} onClick={() => onEmail(record)}>שליחה במייל</button>}<button type="button" style={styles.dangerBtn} disabled={!canWrite} onClick={() => void remove(record)}>מחק</button></div></td></tr>)}{!filtered.length ? <tr><td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#64748b" }}>טרם נשמרו מסמכים מתאימים.</td></tr> : null}</tbody></table></div>
+    <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}><table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse", background: "#fff" }}><thead><tr>{["קטגוריה", "מספר", "שם מסמך", "מהדורה", "תאריך", "סטטוס", "קובץ", "גודל", "פעולות"].map((x) => <th key={x} style={{ padding: 12, textAlign: "right", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>{x}</th>)}</tr></thead><tbody>{filtered.map((record) => <Fragment key={record.id}><tr>{[record.category, record.documentNo || "—", record.title, record.revision || "—", record.date].map((x, i) => <td key={i} style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{x}</td>)}<td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><select style={styles.input} value={record.status} disabled={!canWrite} onChange={(e) => void changeStatus(record, e.target.value)}>{statuses.map((x) => <option key={x} value={x}>{statusLabel(x)}</option>)}</select></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><a href={record.fileUrl} target="_blank" rel="noreferrer" download={record.fileName}>📎 {record.fileName}</a></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{formatSize(record.fileSize)}</td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}><button type="button" style={styles.secondaryBtn} onClick={() => window.open(record.fileUrl, "_blank", "noopener,noreferrer")}>פתיחה</button><button type="button" style={styles.secondaryBtn} disabled={!canWrite || updatingBusy} onClick={() => startUpdate(record)}>עדכון</button>{record.history?.length ? <button type="button" style={styles.secondaryBtn} onClick={() => toggleHistory(record.id)}>{expandedHistoryIds.has(record.id) ? "הסתר היסטוריה" : `היסטוריה (${record.history.length})`}</button> : null}{onEmail && <button type="button" style={styles.secondaryBtn} onClick={() => onEmail(record)}>שליחה במייל</button>}<button type="button" style={styles.dangerBtn} disabled={!canWrite} onClick={() => void remove(record)}>מחק</button></div></td></tr>{expandedHistoryIds.has(record.id) && record.history?.length ? <tr><td colSpan={9} style={{ padding: 12, borderBottom: "1px solid #eef2f7", background: "#f8fafc" }}><div style={{ fontWeight: 850, marginBottom: 6 }}>מהדורות קודמות של {record.title}:</div><div style={{ display: "grid", gap: 6 }}>{record.history.map((rev, i) => <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}><span>מהדורה {rev.revision || "—"}</span><span>{rev.date}</span><a href={rev.fileUrl} target="_blank" rel="noreferrer" download={rev.fileName}>📎 {rev.fileName}</a><span style={{ color: "#64748b" }}>{formatSize(rev.fileSize)}</span></div>)}</div></td></tr> : null}</Fragment>)}{!filtered.length ? <tr><td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#64748b" }}>טרם נשמרו מסמכים מתאימים.</td></tr> : null}</tbody></table></div>
   </section>;
 }
