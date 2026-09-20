@@ -14,7 +14,7 @@ const statuses = ["טיוטה", "לאישור", "מאושר", "מבוטל", "ה�
 const statusLabel = (status: string) => status === "טיוטה" ? "בתהליך / בטיפול" : status;
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
 const formatSize = (size: number) => size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
-const safePart = (value: string) => value.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_").slice(0, 100) || "file";
+const safePart = (value: string) => value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "file";
 
 export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail }: { projectId: string; canWrite: boolean; supabase: any; onEmail?: (record: QualityDocument) => void }) {
   const storageKey = `yk-quality-documents-${projectId}`;
