@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "./common";
 
 type QualityDocument = {
@@ -28,6 +28,9 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
   const [statusFilter, setStatusFilter] = useState("הכול");
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
+  const updateInputRef = useRef<HTMLInputElement>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingBusy, setUpdatingBusy] = useState(false);
 
   const saveLocal = (next: QualityDocument[]) => {
     setRecords(next);
@@ -88,6 +91,42 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
     } finally { setUploading(false); }
   };
 
+  const startUpdate = (record: QualityDocument) => {
+    if (!canWrite || updatingBusy) return;
+    setUpdatingId(record.id);
+    updateInputRef.current?.click();
+  };
+
+  const applyUpdate = async (chosenFile: File) => {
+    const record = records.find((item) => item.id === updatingId);
+    setUpdatingId(null);
+    if (!record) return;
+    if (chosenFile.size > MAX_FILE_SIZE) return alert("הקובץ גדול מ־500MB. יש לפצל אותו או להעלות קובץ דחוס קטן יותר.");
+    if (!supabase) return alert("שירות אחסון הקבצים אינו מחובר. לא ניתן לעדכן קובץ גדול באופן בטוח.");
+    const newRevision = window.prompt("מהדורה חדשה למסמך (ניתן להשאיר כפי שהוא):", record.revision || "");
+    if (newRevision === null) return;
+    setUpdatingBusy(true); setMessage(`מעדכן ${chosenFile.name}... אין לסגור את החלון.`);
+    try {
+      const oldStoragePath = record.storagePath;
+      const storagePath = `quality-documents/${safePart(projectId)}/${safePart(record.category)}/${Date.now()}-${record.id}-${safePart(chosenFile.name)}`;
+      const result = await supabase.storage.from("attachments").upload(storagePath, chosenFile, { upsert: false, contentType: chosenFile.type || "application/octet-stream", cacheControl: "3600" });
+      if (result.error) throw result.error;
+      const publicData = supabase.storage.from("attachments").getPublicUrl(storagePath).data;
+      const now = new Date().toISOString();
+      const next = records.map((item) => item.id === record.id
+        ? { ...item, revision: newRevision.trim(), date: now.slice(0, 10), fileName: chosenFile.name, fileType: chosenFile.type, fileSize: chosenFile.size, fileUrl: publicData.publicUrl, storagePath, uploadedAt: now }
+        : item);
+      saveLocal(next); await saveCloudIndex(next);
+      if (oldStoragePath && oldStoragePath !== storagePath) {
+        await supabase.storage.from("attachments").remove([oldStoragePath]).catch(() => {});
+      }
+      setMessage("המסמך עודכן בהצלחה — לא נדרשה מחיקה.");
+    } catch (error: any) {
+      setMessage("");
+      alert(`עדכון הקובץ נכשל: ${error?.message || "שגיאת אחסון"}.`);
+    } finally { setUpdatingBusy(false); }
+  };
+
   const remove = async (record: QualityDocument) => {
     if (!canWrite || !confirm(`למחוק את ${record.title}?`)) return;
     const next = records.filter((item) => item.id !== record.id);
@@ -112,7 +151,17 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
       <button type="button" style={styles.primaryBtn} disabled={!canWrite || uploading} onClick={() => void upload()}>{uploading ? "מעלה קובץ..." : "העלה ושמור מסמך"}</button>
       {message ? <div style={{ color: message.includes("בהצלחה") ? "#166534" : "#1d4ed8", fontWeight: 850 }}>{message}</div> : null}
     </div>
+    <input
+      ref={updateInputRef}
+      type="file"
+      style={{ display: "none" }}
+      onChange={(e) => {
+        const chosen = e.target.files?.[0];
+        e.target.value = "";
+        if (chosen) void applyUpdate(chosen); else setUpdatingId(null);
+      }}
+    />
     <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) repeat(2,minmax(160px,220px))", gap: 10 }}><input style={styles.input} placeholder="חיפוש לפי שם, מספר, מהדורה או קובץ..." value={search} onChange={(e) => setSearch(e.target.value)} /><select style={styles.input} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option>הכול</option>{categories.map((x) => <option key={x}>{x}</option>)}</select><select style={styles.input} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option>הכול</option>{statuses.map((x) => <option key={x} value={x}>{statusLabel(x)}</option>)}</select></div>
-    <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}><table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse", background: "#fff" }}><thead><tr>{["קטגוריה", "מספר", "שם מסמך", "מהדורה", "תאריך", "סטטוס", "קובץ", "גודל", "פעולות"].map((x) => <th key={x} style={{ padding: 12, textAlign: "right", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>{x}</th>)}</tr></thead><tbody>{filtered.map((record) => <tr key={record.id}>{[record.category, record.documentNo || "—", record.title, record.revision || "—", record.date, statusLabel(record.status)].map((x, i) => <td key={i} style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{x}</td>)}<td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><a href={record.fileUrl} target="_blank" rel="noreferrer" download={record.fileName}>📎 {record.fileName}</a></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{formatSize(record.fileSize)}</td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{onEmail && <button type="button" style={styles.secondaryBtn} onClick={() => onEmail(record)}>שליחה במייל</button>}<button type="button" style={styles.dangerBtn} disabled={!canWrite} onClick={() => void remove(record)}>מחק</button></td></tr>)}{!filtered.length ? <tr><td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#64748b" }}>טרם נשמרו מסמכים מתאימים.</td></tr> : null}</tbody></table></div>
+    <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 14 }}><table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse", background: "#fff" }}><thead><tr>{["קטגוריה", "מספר", "שם מסמך", "מהדורה", "תאריך", "סטטוס", "קובץ", "גודל", "פעולות"].map((x) => <th key={x} style={{ padding: 12, textAlign: "right", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>{x}</th>)}</tr></thead><tbody>{filtered.map((record) => <tr key={record.id}>{[record.category, record.documentNo || "—", record.title, record.revision || "—", record.date, statusLabel(record.status)].map((x, i) => <td key={i} style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{x}</td>)}<td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><a href={record.fileUrl} target="_blank" rel="noreferrer" download={record.fileName}>📎 {record.fileName}</a></td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}>{formatSize(record.fileSize)}</td><td style={{ padding: 12, borderBottom: "1px solid #eef2f7" }}><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}><button type="button" style={styles.secondaryBtn} onClick={() => window.open(record.fileUrl, "_blank", "noopener,noreferrer")}>פתיחה</button><button type="button" style={styles.secondaryBtn} disabled={!canWrite || updatingBusy} onClick={() => startUpdate(record)}>עדכון</button>{onEmail && <button type="button" style={styles.secondaryBtn} onClick={() => onEmail(record)}>שליחה במייל</button>}<button type="button" style={styles.dangerBtn} disabled={!canWrite} onClick={() => void remove(record)}>מחק</button></div></td></tr>)}{!filtered.length ? <tr><td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#64748b" }}>טרם נשמרו מסמכים מתאימים.</td></tr> : null}</tbody></table></div>
   </section>;
 }
