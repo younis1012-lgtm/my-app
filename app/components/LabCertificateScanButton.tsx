@@ -66,7 +66,7 @@ export default function LabCertificateScanButton({
       const rawText = await extractTextFromPdfBuffer(buffer);
       const parsed = parseLabCertificateText(rawText);
       onSave(parsed, fileInfo);
-      alert("תעודת המעבדה צורפה, נקלטה ונשמרה לריכוזים.");
+      alert("תעודת המעבדה צורפה ונקלטה. השינוי עדיין בטיוטה — יש ללחוץ \"שמור\" על הרשימה כדי לשמור אותו בפועל.");
     } catch (error) {
       console.error(error);
       alert("התעודה צורפה, אבל לא הצלחתי לקרוא ממנה נתונים. אם זה צילום סרוק ולא PDF טקסטואלי, צריך OCR.");
