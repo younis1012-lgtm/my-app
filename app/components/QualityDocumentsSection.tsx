@@ -9,7 +9,7 @@ type QualityDocument = {
   fileType: string; fileSize: number; fileUrl: string; storagePath: string; uploadedAt: string;
 };
 
-const categories = ["תוכנית הבטחת איכות", "נהלי עבודה", "הוראות עבודה", "טפסים ונספחים", "מפרטים ותקנים", "תוכניות איכות של קבלני משנה", "אחר"];
+const categories = ["תוכנית בקרת איכות", "נהלי עבודה", "הוראות עבודה", "טפסים ונספחים", "מפרטים ותקנים", "תוכניות איכות של קבלני משנה", "אחר"];
 const statuses = ["טיוטה", "לאישור", "מאושר", "מבוטל", "הוחלף במהדורה חדשה"];
 const statusLabel = (status: string) => status === "טיוטה" ? "בתהליך / בטיפול" : status;
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
