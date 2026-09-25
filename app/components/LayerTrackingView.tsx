@@ -176,7 +176,7 @@ function certificatesOf(full: any): { certs: Cert[]; measurements: Measurement[]
   return { certs, measurements, failed };
 }
 
-function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string) => any): StructureGroup[] {
+export function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string) => any): StructureGroup[] {
   // שיוך למבנה: לפי קוד (RW01, DC01…) אם קיים, אחרת לפי שם המבנה
   const groups = new Map<string, { names: Map<string, number>; rows: LayerTrackingInputRow[] }>();
   rows.forEach((row) => {
@@ -270,6 +270,176 @@ function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string) => any
   return result.sort((a, b) => b.layers.reduce((s, l) => s + l.segments.length, 0) - a.layers.reduce((s, l) => s + l.segments.length, 0));
 }
 
+// ---------- ייצוא ל־Excel ----------
+// גיליון לכל מבנה בצורת "גאנט": שורה לכל שכבה (ושורות נוספות לחפיפות), עמודה לכל
+// מקטע חתך, והפס של כל רשימת תיוג כתאים ממוזגים וצבועים עם מספרי התעודות.
+// בנוסף גיליון "רשימה" עם כל הפרטים לסינון ומיון.
+
+const excelSheetName = (name: string, used: Set<string>) => {
+  const base = name.replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 28) || "מבנה";
+  let candidate = base;
+  let index = 2;
+  while (used.has(candidate)) candidate = `${base.slice(0, 25)} (${index++})`;
+  used.add(candidate);
+  return candidate;
+};
+
+const excelStep = (span: number) => {
+  const candidates = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+  return candidates.find((step) => span / step <= 120) ?? 1000;
+};
+
+export async function exportLayerTrackingExcel(
+  groups: StructureGroup[],
+  projectName: string,
+  usesPlus: boolean,
+  labelFor: (segment: Segment) => string,
+) {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Y.K Quality";
+  const used = new Set<string>();
+  const argb = (hex: string) => `FF${hex.replace("#", "").toUpperCase()}`;
+  const thin = { style: "thin" as const, color: { argb: "FFFFFFFF" } };
+
+  // גיליון רשימה
+  const list = workbook.addWorksheet(excelSheetName("רשימה", used), { views: [{ rightToLeft: true, state: "frozen", ySplit: 3 }] });
+  list.getCell("A1").value = `מעקב שכבות – ${projectName}`;
+  list.getCell("A1").font = { bold: true, size: 14 };
+  list.getCell("A2").value = `הופק ${new Date().toLocaleDateString("he-IL")} · Y.K Quality`;
+  const headers = ["מבנה", "שכבה / אלמנט", "רשימת תיוג", "תאריך", "סטטוס", "מחתך", "עד חתך", "תעודות מעבדה", "תעודה שלא עמדה", "מדידה מצורפת", "חפיפה עם"];
+  const headerRow = list.getRow(3);
+  headerRow.values = headers;
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(NAVY) } };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  });
+  list.columns = [28, 26, 12, 12, 12, 11, 11, 26, 16, 26, 26].map((width) => ({ width }));
+  groups.forEach((group) => {
+    group.layers.forEach((layer) => {
+      layer.segments.forEach((segment) => {
+        const row = list.addRow([
+          group.name,
+          layer.label,
+          String(segment.row.number),
+          segment.row.date,
+          segment.row.status,
+          formatChainage(segment.from, usesPlus),
+          formatChainage(segment.to, usesPlus),
+          segment.certs.map((cert) => cert.no).join(", "),
+          segment.certs.filter((cert) => cert.failed).map((cert) => cert.no).join(", "),
+          segment.measurements.map((m) => m.name).join(", "),
+          segment.overlaps.map((o) => `רש״ת ${o.number} (${formatChainage(o.from, usesPlus)}–${formatChainage(o.to, usesPlus)})`).join(", "),
+        ]);
+        row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: segment.approved ? "FFD1FAE5" : "FFFEF3C7" } };
+        if (segment.failed) row.getCell(9).font = { bold: true, color: { argb: argb(RED) } };
+      });
+    });
+    group.unplaced.forEach((row) => {
+      list.addRow([group.name, row.layer || row.element, String(row.number), row.date, row.status, "", "", "", "", "", "ללא חתכים – לא ממוקם"]);
+    });
+  });
+  list.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: headers.length } };
+
+  // גיליון גרפי לכל מבנה
+  groups.forEach((group) => {
+    if (!group.layers.length) return;
+    const sheet = workbook.addWorksheet(excelSheetName(group.name, used), { views: [{ rightToLeft: false, state: "frozen", xSplit: 1, ySplit: 4 }] });
+    const step = excelStep(group.max - group.min);
+    const lo = Math.floor(group.min / step) * step;
+    const hi = Math.ceil(group.max / step) * step;
+    const columns = Math.max(1, Math.round((hi - lo) / step));
+    const colOf = (value: number) => 2 + Math.min(columns - 1, Math.max(0, Math.floor((value - lo) / step + 1e-9)));
+    const endColOf = (value: number) => 2 + Math.min(columns - 1, Math.max(0, Math.ceil((value - lo) / step - 1e-9) - 1));
+    sheet.getColumn(1).width = 30;
+    for (let c = 0; c < columns; c += 1) sheet.getColumn(2 + c).width = 3.2;
+    sheet.getCell("A1").value = `מעקב שכבות – ${group.name}`;
+    sheet.getCell("A1").font = { bold: true, size: 14 };
+    sheet.getCell("A2").value = `${projectName} · הופק ${new Date().toLocaleDateString("he-IL")} · כל עמודה = ${step} יח׳ חתך · ירוק = מאושר, צהוב = בטיפול, גבול אדום = תעודה שלא עמדה, (מ) = צורפה מדידה`;
+    sheet.getCell("A2").font = { size: 10, color: { argb: "FF475569" } };
+    // כותרת ציר החתכים – תווית כל כמה עמודות
+    const labelEvery = Math.max(1, Math.ceil(columns / 20));
+    const axis = sheet.getRow(4);
+    axis.getCell(1).value = "שכבה / חתך";
+    axis.getCell(1).font = { bold: true };
+    for (let c = 0; c < columns; c += labelEvery) {
+      const endCol = Math.min(columns - 1, c + labelEvery - 1);
+      if (endCol > c) sheet.mergeCells(4, 2 + c, 4, 2 + endCol);
+      const cell = axis.getCell(2 + c);
+      cell.value = formatChainage(lo + c * step, usesPlus);
+      cell.font = { size: 9, color: { argb: "FF64748B" } };
+      cell.alignment = { horizontal: "left" };
+    }
+    let rowIndex = 5;
+    let previous: string | null = null;
+    group.layers.forEach((layer) => {
+      if (previous && previous !== layer.category) {
+        const sep = sheet.getRow(rowIndex);
+        for (let c = 1; c <= columns + 1; c += 1) sep.getCell(c).border = { top: { style: "dashed", color: { argb: "FF94A3B8" } } };
+        rowIndex += 1;
+      }
+      previous = layer.category;
+      const firstRow = rowIndex;
+      for (let lane = 0; lane < layer.lanes; lane += 1) {
+        const row = sheet.getRow(rowIndex + lane);
+        row.height = 20;
+        for (let c = 0; c < columns; c += 1) {
+          row.getCell(2 + c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F6F9" } };
+        }
+      }
+      if (layer.lanes > 1) sheet.mergeCells(firstRow, 1, firstRow + layer.lanes - 1, 1);
+      const labelCell = sheet.getCell(firstRow, 1);
+      labelCell.value = layer.label;
+      labelCell.font = { bold: true, color: { argb: argb(NAVY) } };
+      labelCell.alignment = { vertical: "middle", horizontal: "right" };
+      const occupied = new Set<string>();
+      layer.segments.forEach((segment) => {
+        const r = firstRow + segment.lane;
+        let start = colOf(segment.from);
+        const end = Math.max(start, endColOf(segment.to));
+        while (start <= end && occupied.has(`${r}:${start}`)) start += 1;
+        if (start > end) return;
+        for (let c = start; c <= end; c += 1) occupied.add(`${r}:${c}`);
+        if (end > start) sheet.mergeCells(r, start, r, end);
+        const cell = sheet.getCell(r, start);
+        const label = labelFor(segment);
+        cell.value = `${label}${segment.measurements.length ? " (מ)" : ""}`;
+        cell.note = [
+          `רשימת תיוג ${segment.row.number} · ${segment.row.status}`,
+          `חתכים ${formatChainage(segment.from, usesPlus)}–${formatChainage(segment.to, usesPlus)} · ${segment.row.date}`,
+          `תעודות: ${segment.certs.map((cert) => cert.no + (cert.failed ? " ✗" : "")).join(", ") || "לא שויכו"}`,
+          segment.measurements.length ? `מדידה: ${segment.measurements.map((m) => m.name).join(", ")}` : "",
+          segment.overlaps.length ? `חפיפה עם ${segment.overlaps.map((o) => `רש״ת ${o.number}`).join(", ")}` : "",
+        ].filter(Boolean).join("\n");
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(segment.approved ? TEAL : GOLD) } };
+        cell.font = { bold: true, size: 9, color: { argb: segment.certs.length ? "FFFFFFFF" : "FFFDE68A" } };
+        cell.alignment = { horizontal: "center", vertical: "middle", shrinkToFit: true };
+        const edge = segment.failed ? { style: "medium" as const, color: { argb: argb(RED) } } : thin;
+        cell.border = { top: edge, bottom: edge, left: edge, right: edge };
+      });
+      rowIndex += layer.lanes;
+    });
+    if (group.unplaced.length) {
+      rowIndex += 1;
+      sheet.getCell(rowIndex, 1).value = `ללא חתכים – לא ממוקמים: ${group.unplaced.map((row) => `רש״ת ${row.number}`).join(", ")}`;
+      sheet.getCell(rowIndex, 1).font = { bold: true, color: { argb: "FF92400E" } };
+    }
+    sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `מעקב שכבות - ${projectName} - ${new Date().toLocaleDateString("he-IL").replace(/\//g, "-")}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 function niceTicks(min: number, max: number) {
   const span = Math.max(1, max - min);
   const raw = span / 8;
@@ -316,6 +486,19 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
   const groups = useMemo(() => buildGroups(filteredRows, getFullRecord), [filteredRows, getFullRecord]);
   const visibleGroups = structureFilter ? groups.filter((group) => group.key === structureFilter) : groups;
   const usesPlus = rows.some((row) => /\+/.test(String(row.fromSection)) || /\+/.test(String(row.toSection)));
+
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const exportExcel = async () => {
+    setExportingExcel(true);
+    try {
+      await exportLayerTrackingExcel(visibleGroups, projectName || "פרויקט", usesPlus, labelFor);
+    } catch (error) {
+      console.error("Layer tracking Excel export failed", error);
+      window.alert("הפקת קובץ ה־Excel נכשלה. נסה שוב.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   const exportPdf = () => {
     const html = containerRef.current?.innerHTML ?? "";
@@ -375,9 +558,14 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
             </select>
           </label>
         </div>
-        <button type="button" onClick={exportPdf} style={{ border: 0, background: GOLD, color: NAVY, borderRadius: 8, padding: "9px 16px", fontWeight: 900, cursor: "pointer" }}>
-          ⎙ הפק PDF
-        </button>
+        <span style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => void exportExcel()} disabled={exportingExcel} style={{ border: `1px solid ${NAVY}`, background: "#fff", color: NAVY, borderRadius: 8, padding: "9px 16px", fontWeight: 900, cursor: exportingExcel ? "wait" : "pointer" }}>
+            {exportingExcel ? "מפיק Excel..." : "⬇ הפק Excel"}
+          </button>
+          <button type="button" onClick={exportPdf} style={{ border: 0, background: GOLD, color: NAVY, borderRadius: 8, padding: "9px 16px", fontWeight: 900, cursor: "pointer" }}>
+            ⎙ הפק PDF
+          </button>
+        </span>
       </div>
 
       <div style={{ ...panel, display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", padding: "8px 14px", fontSize: 13, color: "#334155" }}>
