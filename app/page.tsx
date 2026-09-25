@@ -5191,6 +5191,73 @@ async function selectProjectTable(
   return ordered;
 }
 
+// Loads a project table in two stages so heavy JSON columns (embedded
+// attachments) never hit the database statement timeout: first the light
+// columns for all rows, then the heavy columns in small batches by id.
+async function selectProjectTableInBatches(
+  table: string,
+  orderColumn: string | undefined,
+  projectIds: string[],
+  lightColumns: string,
+  heavyColumns: string,
+  batchSize = 4,
+  concurrency = 3,
+) {
+  const base = await selectProjectTable(table, orderColumn, projectIds, false, lightColumns);
+  if (base.error || !Array.isArray(base.data) || !base.data.length) return base;
+  const rows: any[] = base.data;
+  const ids = rows.map((row) => row?.id).filter(Boolean);
+  const heavyById = new Map<string, any>();
+  const heavySelect = `id,${heavyColumns}`;
+
+  const fetchHeavy = async (chunk: string[]): Promise<any[]> => {
+    const result = await supabase!.from(table).select(heavySelect).in("id", chunk);
+    if (!result.error && result.data?.length) return result.data as any[];
+    // Anonymous REST fallback, same as selectProjectTable (stale RLS membership).
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (supabaseUrl && anonKey) {
+      const query = new URLSearchParams({ select: heavySelect, id: `in.(${chunk.join(",")})` });
+      const response = await fetch(`${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`, {
+        headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+        cache: "no-store",
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) return data;
+      }
+    }
+    if (result.error) throw result.error;
+    return [];
+  };
+
+  const loadChunk = async (chunk: string[]) => {
+    try {
+      for (const row of await fetchHeavy(chunk)) heavyById.set(row.id, row);
+    } catch (error) {
+      // A batch that is still too heavy: retry row by row before giving up.
+      if (chunk.length === 1) throw error;
+      for (const id of chunk) {
+        for (const row of await fetchHeavy([id])) heavyById.set(row.id, row);
+      }
+    }
+  };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += batchSize) chunks.push(ids.slice(i, i + batchSize));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, chunks.length) }, async () => {
+      while (next < chunks.length) await loadChunk(chunks[next++]);
+    }),
+  );
+
+  return {
+    data: rows.map((row) => ({ ...row, ...(heavyById.get(row.id) ?? {}) })),
+    error: null,
+  } as any;
+}
+
 async function loadProjectHoldPoints(projectIds: string[]): Promise<HoldPointRecord[]> {
   const [modern, legacy] = await Promise.all([
     selectProjectTable(HOLD_POINTS_TABLE, "serial_no", projectIds, false),
@@ -17432,12 +17499,12 @@ export default function Page() {
     (async () => {
       try {
         const [checklistsResult, preliminaryResult, nonconformancesResult] = await Promise.all([
-          selectProjectTable(
+          selectProjectTableInBatches(
             "checklists",
             "saved_at",
             projectIds,
-            false,
-            "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details,items",
+            "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
+            "items",
           ),
           selectProjectTable(
             "preliminary_records",
@@ -17446,12 +17513,13 @@ export default function Page() {
             false,
             "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
           ),
-          selectProjectTable(
+          selectProjectTableInBatches(
             NONCONFORMANCE_TABLE,
             "saved_at",
             projectIds,
-            false,
-            "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,details",
+            "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id",
+            "details",
+            8,
           ),
         ]);
         if (cancelled) return;
