@@ -8,6 +8,17 @@
 // רשימת חריגים וקווי מגמה – ללא גרפי טבעת, מדי מחוג או עמודות+קו.
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  activityCalendarSvg,
+  approvalValiditySvg,
+  moduleStatusSvg,
+  monthlyActivitySvg,
+  ncrCumulativeSvg,
+  ncrParetoSvg,
+  svgSize,
+  svgToPngBase64,
+} from "./dashboardCharts";
+import { openManagerReport } from "./managerReport";
 
 type AnyRecord = Record<string, any>;
 
@@ -38,9 +49,9 @@ export type ManagementDashboardProps = {
 };
 
 export type ModuleKey = "checklists" | "nonconformances" | "trialSections" | "preliminary" | "rfi" | "supervisionReports" | "holdPoints";
-type State = "closed" | "progress" | "draft" | "rejected";
+export type State = "closed" | "progress" | "draft" | "rejected";
 
-type Row = {
+export type Row = {
   module: ModuleKey;
   id: string;
   title: string;
@@ -54,7 +65,7 @@ type Row = {
   raw: AnyRecord;
 };
 
-const MODULES: Array<{ key: ModuleKey; label: string; short: string }> = [
+export const MODULES: Array<{ key: ModuleKey; label: string; short: string }> = [
   { key: "checklists", label: "רשימות תיוג", short: "רש״ת" },
   { key: "nonconformances", label: "אי־התאמות", short: "NCR" },
   { key: "holdPoints", label: "נקודות עצירה", short: "עצירה" },
@@ -64,7 +75,7 @@ const MODULES: Array<{ key: ModuleKey; label: string; short: string }> = [
   { key: "supervisionReports", label: "פיקוח עליון", short: "פיקוח" },
 ];
 
-const STATE_META: Record<State, { label: string; color: string }> = {
+export const STATE_META: Record<State, { label: string; color: string }> = {
   closed: { label: "סגור / מאושר", color: "#0f766e" },
   progress: { label: "בטיפול", color: "#d4a017" },
   draft: { label: "טיוטה", color: "#94a3b8" },
@@ -100,10 +111,10 @@ const firstDate = (...values: unknown[]) => {
   return null;
 };
 
-const fmt = (date: Date | null) =>
+export const fmt = (date: Date | null) =>
   date ? new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date) : "";
 
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+export const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
 const text = (...values: unknown[]) => values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
 
@@ -228,18 +239,18 @@ export function buildRows(props: ManagementDashboardProps): Row[] {
   return rows;
 }
 
-const isOpenAt = (row: Row, at: Date) => {
+export const isOpenAt = (row: Row, at: Date) => {
   if (row.state === "draft") return false;
   if (row.opened && row.opened > at) return false;
   if (row.state === "closed") return Boolean(row.closed && row.closed > at);
   return true;
 };
 
-const isOverdue = (row: Row, today: Date) => row.state !== "closed" && Boolean(row.due && row.due < today);
+export const isOverdue = (row: Row, today: Date) => row.state !== "closed" && Boolean(row.due && row.due < today);
 
-type Exception = { row: Row; reason: string; weight: number; age: number };
+export type Exception = { row: Row; reason: string; weight: number; age: number };
 
-function findExceptions(rows: Row[], today: Date): Exception[] {
+export function findExceptions(rows: Row[], today: Date): Exception[] {
   const list: Exception[] = [];
   rows.forEach((row) => {
     const age = row.opened ? Math.max(0, Math.floor((today.getTime() - row.opened.getTime()) / DAY)) : 0;
@@ -282,7 +293,7 @@ function findExceptions(rows: Row[], today: Date): Exception[] {
 
 // ---------- דוח תקופתי (Excel) ----------
 
-type Period = { from: Date; to: Date; label: string };
+export type Period = { from: Date; to: Date; label: string };
 
 export async function exportPeriodicReport(rows: Row[], period: Period, projectName: string) {
   const ExcelJS = (await import("exceljs")).default;
@@ -331,6 +342,32 @@ export async function exportPeriodicReport(rows: Row[], period: Period, projectN
       moduleRows.length,
     ]);
   });
+
+  // גיליון גרפים – אותם גרפים שבמערכת, כתמונות
+  try {
+    const chartsSheet = workbook.addWorksheet("גרפים", { views: [{ rightToLeft: true }] });
+    chartsSheet.getCell("A1").value = `${projectName} – גרפים`;
+    chartsSheet.getCell("A1").font = { bold: true, size: 14 };
+    chartsSheet.getCell("A2").value = `הופק: ${fmt(new Date())}`;
+    const charts = [
+      { title: "מצב רשומות לפי מודול", svg: moduleStatusSvg(rows, MODULES) },
+      { title: "רשומות חדשות לפי חודש", svg: monthlyActivitySvg(rows, today) },
+      { title: "אי־התאמות – נפתחו מול נסגרו (מצטבר)", svg: ncrCumulativeSvg(rows, today) },
+      { title: "אי־התאמות לפי אלמנט", svg: ncrParetoSvg(rows) },
+    ];
+    let rowCursor = 4;
+    for (const chart of charts) {
+      const size = svgSize(chart.svg);
+      const base64 = await svgToPngBase64(chart.svg, size.width, size.height);
+      chartsSheet.getCell(`A${rowCursor}`).value = chart.title;
+      chartsSheet.getCell(`A${rowCursor}`).font = { bold: true, size: 12 };
+      const imageId = workbook.addImage({ base64, extension: "png" });
+      chartsSheet.addImage(imageId, { tl: { col: 0, row: rowCursor }, ext: { width: size.width, height: size.height } });
+      rowCursor += Math.ceil(size.height / 20) + 3;
+    }
+  } catch (error) {
+    console.warn("Charts sheet could not be generated", error);
+  }
 
   const exceptions = addSheet("חריגים לטיפול", [
     { header: "מודול", width: 16 },
@@ -467,6 +504,8 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
   const [customTo, setCustomTo] = useState("");
   const [exporting, setExporting] = useState(false);
   const [showAllExceptions, setShowAllExceptions] = useState(false);
+  const [tab, setTab] = useState<"overview" | "charts">("overview");
+  const [auditMode, setAuditMode] = useState(false);
   const [drill, setDrill] = useState<{ title: string; rows: Row[]; module?: ModuleKey } | null>(null);
 
   const rows = useMemo(
@@ -588,6 +627,30 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
     }
   };
 
+  const runManagerReport = () => {
+    // החלון נפתח מיד בלחיצה כדי שהדפדפן לא יחסום אותו
+    const win = window.open("", "_blank");
+    openManagerReport(
+      {
+        projectName: props.projectName || "פרויקט",
+        period,
+        rows,
+        exceptions,
+        modules: MODULES,
+        today,
+        kpis: headlineTiles.map((tile) => ({ label: tile.label, value: tile.value, note: tile.note })),
+        activity: moduleStats.map((mod) => ({
+          label: mod.label,
+          opened: mod.openedInPeriod,
+          closed: mod.closedInPeriod,
+          open: rows.filter((row) => row.module === mod.key && isOpenAt(row, period.to)).length,
+          overdue: mod.overdue,
+        })),
+      },
+      win,
+    );
+  };
+
   const periodButton = (key: PeriodKey, label: string) => (
     <button
       key={key}
@@ -668,8 +731,50 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
           >
             {exporting ? "מפיק דוח..." : "⬇ הפק דוח תקופתי (Excel)"}
           </button>
+          <button
+            type="button"
+            onClick={runManagerReport}
+            style={{ border: "1px solid #d4a017", borderRadius: 10, padding: "10px 16px", fontWeight: 900, background: "transparent", color: "#d4a017", cursor: "pointer" }}
+          >
+            ⎙ הפק דוח מנהלים PDF
+          </button>
         </div>
       </div>
+
+      {/* לשוניות + מצב מבדק */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="תצוגת לוח הבקרה" style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 10, padding: 4 }}>
+          {([["overview", "סקירה וחריגים"], ["charts", "גרפים"]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              style={{ border: 0, borderRadius: 8, padding: "8px 16px", fontWeight: 900, cursor: "pointer", background: tab === key ? NAVY : "transparent", color: tab === key ? "#fff" : NAVY }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, color: NAVY, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={auditMode}
+            onChange={(event) => {
+              setAuditMode(event.target.checked);
+              if (event.target.checked) setTab("charts");
+            }}
+            style={{ width: 18, height: 18 }}
+          />
+          מצב מבדק (לנציגי אבטחת איכות)
+        </label>
+      </div>
+      {auditMode ? (
+        <div style={{ ...panel, background: "#fffbeb", borderColor: "#fcd34d", color: "#92400e", fontWeight: 800 }}>
+          תצוגת מבדק · {props.projectName} · נכון ל־{fmt(new Date())} · כל גרף ומספר מקושר לרשומות המקור במערכת. ניתן להפיק את אותה תמונה כדוח מנהלים PDF.
+        </div>
+      ) : null}
 
       {/* מדדים עיקריים */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 12 }}>
@@ -731,6 +836,30 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
         </div>
       ) : null}
 
+      {tab === "charts" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(520px, 100%), 1fr))", gap: 16 }}>
+          {[
+            { title: "אי־התאמות – נפתחו מול נסגרו (מצטבר)", hint: "12 חודשים אחרונים", svg: ncrCumulativeSvg(rows, today), open: () => showDrill("אי־התאמות פתוחות", openRows.filter((row) => row.module === "nonconformances"), "nonconformances") },
+            { title: "אי־התאמות לפי אלמנט (פארטו)", hint: "איפה מרוכזות הבעיות", svg: ncrParetoSvg(rows), open: () => showDrill("כל אי־ההתאמות", rows.filter((row) => row.module === "nonconformances"), "nonconformances") },
+            { title: "רשומות חדשות לפי חודש", hint: "כל המודולים · אדום = אי־התאמות", svg: monthlyActivitySvg(rows, today), open: undefined },
+            { title: "מצב רשומות לפי מודול", hint: "פתוחים / סה״כ", svg: moduleStatusSvg(rows, MODULES), open: () => showDrill("כל הפריטים הפתוחים", openRows) },
+            { title: "רצף פעילות בקרה יומית", hint: "26 שבועות · א׳–ו׳", svg: activityCalendarSvg(rows, today), open: undefined },
+            { title: "תוקף אישורי ספקים, קבלנים וחומרים", hint: "הקו המקווקו = היום", svg: approvalValiditySvg(rows, today), open: () => showDrill("אישורים עם תאריך תוקף", rows.filter((row) => row.module === "preliminary" && row.due), "preliminary") },
+          ].map((chart) => (
+            <div key={chart.title} style={panel}>
+              <PanelTitle hint={chart.hint}>{chart.title}</PanelTitle>
+              <div style={{ width: "100%", overflowX: "auto" }} dangerouslySetInnerHTML={{ __html: chart.svg }} />
+              {chart.open ? (
+                <button type="button" onClick={chart.open} style={{ marginTop: 8, border: 0, background: "none", color: "#1d4ed8", fontWeight: 800, cursor: "pointer", padding: 0 }}>
+                  הצג את הרשומות ←
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {tab === "overview" ? (<>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 16 }}>
         {/* מצב לפי מודול */}
         <div style={panel}>
@@ -933,6 +1062,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
           <div style={{ color: "#64748b" }}>עדיין אין רשומות המשויכות לעץ המבנה.</div>
         )}
       </div>
+      </>) : null}
     </section>
   );
 }
