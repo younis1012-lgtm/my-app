@@ -5268,6 +5268,32 @@ async function selectProjectTableInBatches(
   } as any;
 }
 
+// Fast concentrations mode: the database exposes computed columns
+// (app/supabase/12_concentrations_light_columns.sql) that return checklist
+// items / NCR details without the embedded base64 files. Probed once per page
+// load; when the SQL was not installed yet we fall back to the old full load.
+let concentrationLightColumnsSupport: boolean | null = null;
+let concentrationLightColumnsProbe: Promise<boolean> | null = null;
+function probeConcentrationLightColumns(): Promise<boolean> {
+  if (concentrationLightColumnsSupport !== null) return Promise.resolve(concentrationLightColumnsSupport);
+  if (!supabase) return Promise.resolve(false);
+  concentrationLightColumnsProbe ??= (async () => {
+    try {
+      const [checklists, ncr] = await Promise.all([
+        supabase!.from("checklists").select("id,items:checklist_items_light,details:checklist_details_light").limit(1),
+        supabase!.from(NONCONFORMANCE_TABLE).select("id,details:ncr_details_light").limit(1),
+      ]);
+      concentrationLightColumnsSupport = !checklists.error && !ncr.error;
+      if (!concentrationLightColumnsSupport)
+        console.warn("Concentrations fast mode unavailable (run app/supabase/12_concentrations_light_columns.sql)", checklists.error || ncr.error);
+    } catch {
+      concentrationLightColumnsSupport = false;
+    }
+    return concentrationLightColumnsSupport;
+  })();
+  return concentrationLightColumnsProbe;
+}
+
 async function loadProjectHoldPoints(projectIds: string[]): Promise<HoldPointRecord[]> {
   const [modern, legacy] = await Promise.all([
     selectProjectTable(HOLD_POINTS_TABLE, "serial_no", projectIds, false),
@@ -16128,6 +16154,14 @@ export default function Page() {
   const [concentrationsLoading, setConcentrationsLoading] = useState(false);
   const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
   const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
+  // Full certificate data for the concentrations screen only. Kept apart from
+  // savedChecklists/savedNonconformances on purpose: in fast mode the embedded
+  // files are replaced by short markers, so these rows must never be saved back.
+  const [concentrationSource, setConcentrationSource] = useState<{
+    projectId: string;
+    checklists: Map<string, ChecklistRecord>;
+    nonconformances: Map<string, NonconformanceRecord>;
+  } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(isSupabaseConfigured);
   const [authReady, setAuthReady] = useState(false);
@@ -17491,30 +17525,52 @@ export default function Page() {
     };
   }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
 
+  const concentrationsSectionActive = section === "concentrations";
+  const latestProjectIdRef = useRef("");
+  const latestSectionRef = useRef(section);
+  latestSectionRef.current = section;
+  latestProjectIdRef.current = normalizeStoredProjectId(currentProjectId);
+  const concentrationLoadInFlightRef = useRef("");
+
   useEffect(() => {
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
     if (
-      section !== "concentrations" ||
       !loaded ||
       !cloudEnabled ||
       !supabase ||
       !normalizedProjectId ||
-      hydratedConcentrationsProjectId === normalizedProjectId
+      hydratedConcentrationsProjectId === normalizedProjectId ||
+      concentrationLoadInFlightRef.current === normalizedProjectId
     ) return;
+    // Fast mode (embedded files stripped in the database): the data is small,
+    // so it is preloaded in the background right after login and the
+    // concentrations screen opens ready. Old (slow) mode: load only when the
+    // user actually opens the concentrations screen.
+    if (!concentrationsSectionActive && concentrationLightColumnsSupport === false) return;
 
-    let cancelled = false;
-    setConcentrationsLoading(true);
-    setConcentrationsLoadError("");
     const projectIds = projectCloudIdsForCanonicalId(normalizedProjectId);
-    (async () => {
+    const isCurrent = () => latestProjectIdRef.current === normalizedProjectId;
+    const timer = window.setTimeout(() => void (async () => {
+      if (concentrationLoadInFlightRef.current === normalizedProjectId || !isCurrent()) return;
+      concentrationLoadInFlightRef.current = normalizedProjectId;
       try {
+        const fast = await probeConcentrationLightColumns();
+        if (!fast && latestSectionRef.current !== "concentrations") return;
+        if (!isCurrent()) return;
+        setConcentrationsLoading(true);
+        setConcentrationsLoadError("");
+        const startedAt = Date.now();
         const [checklistsResult, preliminaryResult, nonconformancesResult] = await Promise.all([
           selectProjectTableInBatches(
             "checklists",
             "saved_at",
             projectIds,
-            "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
-            "items",
+            fast
+              ? "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details:checklist_details_light"
+              : "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
+            fast ? "items:checklist_items_light" : "items",
+            fast ? 25 : 4,
+            fast ? 4 : 3,
           ),
           selectProjectTable(
             "preliminary_records",
@@ -17528,50 +17584,56 @@ export default function Page() {
             "saved_at",
             projectIds,
             "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id",
-            "details",
-            8,
+            fast ? "details:ncr_details_light" : "details",
+            fast ? 25 : 8,
+            fast ? 4 : 3,
           ),
         ]);
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (checklistsResult.error || preliminaryResult.error || nonconformancesResult.error) {
           throw checklistsResult.error || preliminaryResult.error || nonconformancesResult.error;
         }
-        if (!checklistsResult.error) {
-          setSavedChecklists((checklistsResult.data ?? []).map(checklistRowToRecord));
+        console.info(`Concentration source data loaded in ${Date.now() - startedAt}ms (${fast ? "fast" : "full"} mode)`);
+        const checklistRecords: ChecklistRecord[] = (checklistsResult.data ?? []).map(checklistRowToRecord);
+        const nonconformanceRecords: NonconformanceRecord[] = (nonconformancesResult.data ?? []).map(nonconformanceRowToRecord);
+        if (!fast) {
+          // Old mode returns the complete records (real files), same as before.
+          setSavedChecklists(checklistRecords);
+          setSavedNonconformances(nonconformanceRecords);
         }
-        if (!preliminaryResult.error) {
-          setSavedPreliminary(
-            (preliminaryResult.data ?? []).map((row: any) => ({
-              id: row.id,
-              projectId: normalizeStoredProjectId(row.project_id),
-              subtype: row.subtype,
-              structureNodeId: row.structure_node_id ?? "",
-              title: row.title ?? "",
-              date: row.date ?? "",
-              status: row.status ?? "טיוטה",
-              supplier: row.supplier ?? undefined,
-              subcontractor: row.subcontractor ?? undefined,
-              material: row.material ?? undefined,
-              approval: normalizeApproval(row.approval),
-              savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
-            })),
-          );
-        }
-        if (!nonconformancesResult.error) {
-          setSavedNonconformances((nonconformancesResult.data ?? []).map(nonconformanceRowToRecord));
-        }
+        setSavedPreliminary(
+          (preliminaryResult.data ?? []).map((row: any) => ({
+            id: row.id,
+            projectId: normalizeStoredProjectId(row.project_id),
+            subtype: row.subtype,
+            structureNodeId: row.structure_node_id ?? "",
+            title: row.title ?? "",
+            date: row.date ?? "",
+            status: row.status ?? "טיוטה",
+            supplier: row.supplier ?? undefined,
+            subcontractor: row.subcontractor ?? undefined,
+            material: row.material ?? undefined,
+            approval: normalizeApproval(row.approval),
+            savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
+          })),
+        );
+        setConcentrationSource({
+          projectId: normalizedProjectId,
+          checklists: new Map(checklistRecords.map((record) => [record.id, record])),
+          nonconformances: new Map(nonconformanceRecords.map((record) => [record.id, record])),
+        });
         setHydratedConcentrationsProjectId(normalizedProjectId);
       } catch (error) {
         console.error("Failed loading full concentration source data", error);
-        if (!cancelled) setConcentrationsLoadError("טעינת נתוני התעודות המלאים לא הושלמה.");
+        if (isCurrent()) setConcentrationsLoadError("טעינת נתוני התעודות המלאים לא הושלמה.");
       } finally {
-        if (!cancelled) setConcentrationsLoading(false);
+        if (concentrationLoadInFlightRef.current === normalizedProjectId) concentrationLoadInFlightRef.current = "";
+        setConcentrationsLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [section, loaded, cloudEnabled, currentProjectId, hydratedConcentrationsProjectId]);
+    })(), concentrationsSectionActive ? 0 : 1500);
+    return () => window.clearTimeout(timer);
+  }, [concentrationsSectionActive, loaded, cloudEnabled, currentProjectId, hydratedConcentrationsProjectId]);
+
 
   useEffect(() => {
     if (!loaded || typeof window === "undefined") return;
@@ -18824,6 +18886,24 @@ export default function Page() {
       normalizedSearchTerm,
     ],
   );
+  // The concentration screen uses the fully loaded certificate rows, unless the
+  // user edited a record after they were loaded (then the newer record wins).
+  const concentrationChecklists = useMemo(() => {
+    if (!concentrationSource || concentrationSource.projectId !== currentProjectIdNormalized) return projectChecklists;
+    return projectChecklists.map((record) => {
+      const full = concentrationSource.checklists.get(record.id);
+      if (!full || (record.savedAt && full.savedAt && record.savedAt !== full.savedAt)) return record;
+      return { ...record, ...full, displayNumber: (record as any).displayNumber } as typeof record;
+    });
+  }, [projectChecklists, concentrationSource, currentProjectIdNormalized]);
+  const concentrationNonconformances = useMemo(() => {
+    if (!concentrationSource || concentrationSource.projectId !== currentProjectIdNormalized) return projectNonconformances;
+    return projectNonconformances.map((record) => {
+      const full = concentrationSource.nonconformances.get(record.id);
+      if (!full || (record.savedAt && full.savedAt && record.savedAt !== full.savedAt)) return record;
+      return { ...record, ...full } as typeof record;
+    });
+  }, [projectNonconformances, concentrationSource, currentProjectIdNormalized]);
   const projectRfis = useMemo(
     () =>
       savedRfis
@@ -26847,8 +26927,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <>
               <ConcentrationsSection
                 currentProjectId={currentProjectIdNormalized}
-                savedChecklists={projectChecklists}
-                savedNonconformances={projectNonconformances}
+                savedChecklists={concentrationChecklists}
+                savedNonconformances={concentrationNonconformances}
                 savedTrialSections={projectTrialSections}
                 savedPreliminary={projectPreliminary}
                 savedRfis={projectRfis}
