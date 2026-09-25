@@ -5333,6 +5333,51 @@ async function loadProjectHoldPoints(projectIds: string[]): Promise<HoldPointRec
   return [...records.values()];
 }
 
+// Returns the rows of a successful read, or undefined when the read failed.
+// undefined means "keep what is already on screen" — never replace a module
+// with an empty or stale list just because one request failed.
+function cloudRowsOrKeep<T = any>(
+  result: { data?: T[] | null; error?: unknown } | null | undefined,
+): T[] | undefined {
+  if (!result) return undefined;
+  if (result.error && !shouldIgnoreCloudError(result.error)) {
+    console.warn("Cloud table load failed; keeping the data already shown.", result.error);
+    return undefined;
+  }
+  return result.data ?? undefined;
+}
+
+// Supervision reports: fall back to reports kept in this browser only when
+// the cloud read succeeded but is empty (legacy local-only reports).
+function supervisionRowsOrKeep(
+  result: { data?: any[] | null; error?: unknown } | null | undefined,
+  browserReports: any[],
+): any[] | undefined {
+  const rows = cloudRowsOrKeep(result);
+  if (rows === undefined) return undefined;
+  return rows.length ? rows : browserReports;
+}
+
+// Transient failures (statement timeout, network blip, schema-cache reload)
+// used to make whole modules disappear until the next refresh. Retry a few
+// times before giving up.
+async function readWithRetry<R extends { error?: unknown } | null | undefined>(
+  read: () => Promise<R>,
+  attempts = 3,
+): Promise<R> {
+  let last: R = undefined as R;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      last = await read();
+      if (!last?.error || shouldIgnoreCloudError(last.error)) return last;
+    } catch (error) {
+      last = { data: null, error } as unknown as R;
+    }
+    if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+  }
+  return last;
+}
+
 function cloudRowsOrFallback<T = any>(
   result: { data?: T[] | null; error?: unknown } | null | undefined,
   fallback: T[] = [],
@@ -16156,6 +16201,8 @@ export default function Page() {
   const [concentrationsLoading, setConcentrationsLoading] = useState(false);
   const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
   const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
+  // Modules whose last cloud read failed even after retries (data on screen kept).
+  const [cloudLoadIssues, setCloudLoadIssues] = useState<string[]>([]);
   // Full certificate data for the concentrations screen only. Kept apart from
   // savedChecklists/savedNonconformances on purpose: in fast mode the embedded
   // files are replaced by short markers, so these rows must never be saved back.
@@ -17280,16 +17327,17 @@ export default function Page() {
 
   const loadFromCloudResults = (
     projectsRows: any[] | null,
-    checklistRows: any[] | null,
-    nonconRows: any[] | null,
-    trialRows: any[] | null,
-    preliminaryRows: any[] | null,
-    rfiRows: any[] | null = [],
-    controlProcessRows: any[] | null = [],
-    supervisionReportRows: any[] | null = [],
-    structureRows: any[] | null = [],
-    planRows: any[] | null = [],
+    checklistRows: any[] | null | undefined,
+    nonconRows: any[] | null | undefined,
+    trialRows: any[] | null | undefined,
+    preliminaryRows: any[] | null | undefined,
+    rfiRows: any[] | null | undefined,
+    controlProcessRows: any[] | null | undefined,
+    supervisionReportRows: any[] | null | undefined,
+    structureRows: any[] | null | undefined,
+    planRows: any[] | null | undefined,
   ) => {
+    // undefined = the read for that module failed: leave it exactly as shown.
     const availableProjects = normalizeProjectRows(projectsRows);
     setProjects(availableProjects);
     const requestedProjectId = readRequestedProjectIdFromUrl();
@@ -17315,9 +17363,9 @@ export default function Page() {
     setCurrentProjectId(
       active?.id ? normalizeStoredProjectId(active.id) : null,
     );
-    setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
-    setSavedNonconformances((nonconRows ?? []).map(nonconformanceRowToRecord));
-    setSavedTrialSections(
+    if (checklistRows !== undefined) setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
+    if (nonconRows !== undefined) setSavedNonconformances((nonconRows ?? []).map(nonconformanceRowToRecord));
+    if (trialRows !== undefined) setSavedTrialSections(
       (trialRows ?? []).map((row) => {
         const details = row.details ?? {};
         const pick = (...values: unknown[]) => {
@@ -17347,7 +17395,7 @@ export default function Page() {
         }, false), details) as TrialSectionRecord;
       }),
     );
-    setSavedPreliminary(
+    if (preliminaryRows !== undefined) setSavedPreliminary(
       (preliminaryRows ?? []).map((row) => ({
         id: row.id,
         projectId: normalizeStoredProjectId(row.project_id),
@@ -17375,18 +17423,18 @@ export default function Page() {
           : "",
       })),
     );
-    setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
-    setSavedControlProcesses(
+    if (rfiRows !== undefined) setSavedRfis((rfiRows ?? []).map(rfiRowToRecord));
+    if (controlProcessRows !== undefined) setSavedControlProcesses(
       (controlProcessRows ?? [])
         .map(normalizeControlProcess)
         .filter(Boolean) as ControlProcessRecord[],
     );
-    setSavedSupervisionReports(
+    if (supervisionReportRows !== undefined) setSavedSupervisionReports(
       (supervisionReportRows ?? [])
         .map(supervisionReportRowToRecord)
         .filter(Boolean) as SupervisionReportRecord[],
     );
-    setProjectStructureNodes((prev) => {
+    if (structureRows !== undefined) setProjectStructureNodes((prev) => {
       const cloudNodes = (structureRows ?? [])
         .map(normalizeProjectStructureNode)
         .filter(Boolean) as ProjectStructureNode[];
@@ -17414,7 +17462,7 @@ export default function Page() {
       });
       return merged;
     });
-    setSavedPlans(
+    if (planRows !== undefined) setSavedPlans(
       (planRows ?? [])
         .map(planRowToRecord)
         .filter(Boolean) as PlanRecord[],
@@ -17472,37 +17520,47 @@ export default function Page() {
           structureRes,
           plansRes,
         ] = await Promise.all([
-          selectTable("projects", "created_at"),
-          selectProjectTable("checklists", "saved_at", scopedProjectIds),
-          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-          preliminaryRequest,
-          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
-          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
+          readWithRetry(() => selectTable("projects", "created_at")),
+          readWithRetry(() => selectProjectTable("checklists", "saved_at", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable("trial_sections", "saved_at", scopedProjectIds)),
+          readWithRetry(async () => {
+            const first = await preliminaryRequest;
+            return first?.error ? selectProjectTable("preliminary_records", "saved_at", scopedProjectIds) : first;
+          }),
+          readWithRetry(() => selectProjectTable("rfi_records", "created_at", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds)),
+          readWithRetry(() => selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds)),
         ]);
         if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
+        setCloudLoadIssues(
+          ([
+            ["רשימות תיוג", checklistsRes],
+            ["אי־התאמות", nonconRes],
+            ["קטעי ניסוי", trialsRes],
+            ["בקרה מקדימה", prelimRes],
+            ["RFI", rfiRes],
+            ["תעודות ייחוס", controlRes],
+            ["פיקוח עליון", supervisionRes],
+            ["עץ המבנה", structureRes],
+            ["תוכניות", plansRes],
+          ] as Array<[string, any]>)
+            .filter(([, result]) => cloudRowsOrKeep(result) === undefined)
+            .map(([label]) => label),
+        );
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
-          cloudRowsOrFallback(checklistsRes, savedChecklists),
-          cloudRowsOrFallback(nonconRes, savedNonconformances),
-          cloudRowsOrFallback(trialsRes, savedTrialSections),
-          cloudRowsOrFallback(prelimRes, savedPreliminary),
-          cloudRowsOrFallback(rfiRes, savedRfis),
-          cloudRowsOrFallback(controlRes, savedControlProcesses),
-          cloudRowsOrFallback(
-            supervisionRes,
-            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-          ).length
-            ? cloudRowsOrFallback(
-                supervisionRes,
-                savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-              )
-            : browserSupervisionReports,
-          cloudRowsOrFallback(structureRes, projectStructureNodes),
-          cloudRowsOrFallback(plansRes, savedPlans),
+          cloudRowsOrKeep(checklistsRes),
+          cloudRowsOrKeep(nonconRes),
+          cloudRowsOrKeep(trialsRes),
+          cloudRowsOrKeep(prelimRes),
+          cloudRowsOrKeep(rfiRes),
+          cloudRowsOrKeep(controlRes),
+          supervisionRowsOrKeep(supervisionRes, browserSupervisionReports),
+          cloudRowsOrKeep(structureRes),
+          cloudRowsOrKeep(plansRes),
         );
       } catch (error) {
         if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
@@ -17754,36 +17812,28 @@ export default function Page() {
       structureRes,
       plansRes,
     ] = await Promise.all([
-      selectTable("projects", "created_at"),
-      selectProjectTable("checklists", "saved_at", scopedProjectIds),
-      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
-      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
-      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
-      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
-      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
-      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
+      readWithRetry(() => selectTable("projects", "created_at")),
+      readWithRetry(() => selectProjectTable("checklists", "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable("trial_sections", "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable("preliminary_records", "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable("rfi_records", "created_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds)),
+      readWithRetry(() => selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds)),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
-      cloudRowsOrFallback(checklistsRes, savedChecklists),
-      cloudRowsOrFallback(nonconRes, savedNonconformances),
-      cloudRowsOrFallback(trialsRes, savedTrialSections),
-      cloudRowsOrFallback(prelimRes, savedPreliminary),
-      cloudRowsOrFallback(rfiRes, savedRfis),
-      cloudRowsOrFallback(controlRes, savedControlProcesses),
-      cloudRowsOrFallback(
-        supervisionRes,
-        savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-      ).length
-        ? cloudRowsOrFallback(
-            supervisionRes,
-            savedSupervisionReports.length ? savedSupervisionReports : browserSupervisionReports,
-          )
-        : browserSupervisionReports,
-      cloudRowsOrFallback(structureRes, projectStructureNodes),
-      cloudRowsOrFallback(plansRes, savedPlans),
+      cloudRowsOrKeep(checklistsRes),
+      cloudRowsOrKeep(nonconRes),
+      cloudRowsOrKeep(trialsRes),
+      cloudRowsOrKeep(prelimRes),
+      cloudRowsOrKeep(rfiRes),
+      cloudRowsOrKeep(controlRes),
+      supervisionRowsOrKeep(supervisionRes, browserSupervisionReports),
+      cloudRowsOrKeep(structureRes),
+      cloudRowsOrKeep(plansRes),
     );
   };
 
@@ -26527,6 +26577,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 </button>
               </form>
             </section>
+          )}
+          {cloudLoadIssues.length > 0 && (
+            <div
+              dir="rtl"
+              style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 12, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", fontWeight: 800, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
+            >
+              <span>
+                לא ניתן היה לרענן כעת: {cloudLoadIssues.join(", ")}. מוצגים הנתונים האחרונים שנטענו – שום רשומה לא נמחקה.
+              </span>
+              <button type="button" onClick={() => window.location.reload()} style={{ border: 0, borderRadius: 8, padding: "6px 12px", fontWeight: 900, background: "#92400e", color: "#fff", cursor: "pointer" }}>
+                טען מחדש
+              </button>
+            </div>
           )}
           {section === "home" && (
             <HomeSection
