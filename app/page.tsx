@@ -5211,8 +5211,12 @@ async function selectProjectTableInBatches(
   const heavySelect = `id,${heavyColumns}`;
 
   const fetchHeavy = async (chunk: string[]): Promise<any[]> => {
+    const coversChunk = (data: any[]) => {
+      const got = new Set(data.map((row) => row?.id));
+      return chunk.every((id) => got.has(id));
+    };
     const result = await supabase!.from(table).select(heavySelect).in("id", chunk);
-    if (!result.error && result.data?.length) return result.data as any[];
+    if (!result.error && Array.isArray(result.data) && coversChunk(result.data)) return result.data as any[];
     // Anonymous REST fallback, same as selectProjectTable (stale RLS membership).
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -5224,11 +5228,12 @@ async function selectProjectTableInBatches(
       });
       if (response.ok) {
         const data = await response.json();
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data) && coversChunk(data)) return data;
       }
     }
-    if (result.error) throw result.error;
-    return [];
+    // Never return a partial batch as success: the concentration export must
+    // not be generated from incomplete certificate data.
+    throw result.error ?? new Error(`${table}: incomplete batch (${chunk.length} rows requested)`);
   };
 
   const loadChunk = async (chunk: string[]) => {
@@ -5252,8 +5257,13 @@ async function selectProjectTableInBatches(
     }),
   );
 
+  const missing = ids.filter((id) => !heavyById.has(id));
+  if (missing.length) {
+    throw new Error(`${table}: heavy data missing for ${missing.length} of ${ids.length} rows`);
+  }
+
   return {
-    data: rows.map((row) => ({ ...row, ...(heavyById.get(row.id) ?? {}) })),
+    data: rows.map((row) => ({ ...row, ...heavyById.get(row.id) })),
     error: null,
   } as any;
 }
