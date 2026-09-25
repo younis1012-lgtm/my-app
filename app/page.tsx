@@ -44,6 +44,7 @@ import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
 import { ManagementDashboard } from "./components/ManagementDashboard";
 import { MyTasks } from "./components/MyTasks";
+import { LayerTrackingView } from "./components/LayerTrackingView";
 import { QualityDocumentsSection } from "./components/QualityDocumentsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 import { extractEarthworksDensityFromFile, parseEarthworksDensityText } from "./components/densityCertificateParser";
@@ -15645,10 +15646,17 @@ const EMPTY_CHECKLIST_TRACKING_FILTERS: Record<
 function ChecklistTrackingSection({
   records,
   onOpen,
+  getFullRecord,
+  certificatesLoading = false,
+  projectName = "",
 }: {
   records: ChecklistRecord[];
   onOpen: (record: ChecklistRecord) => void;
+  getFullRecord?: (id: string) => any | undefined;
+  certificatesLoading?: boolean;
+  projectName?: string;
 }) {
+  const [trackingView, setTrackingView] = useState<"table" | "layers">("table");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("הכול");
   const [sortKey, setSortKey] = useState<ChecklistTrackingSortKey>("date");
@@ -15961,6 +15969,44 @@ function ChecklistTrackingSection({
         </button>
       </div>
 
+      <div role="tablist" aria-label="תצוגת מעקב" style={{ display: "inline-flex", gap: 6, background: "#fff", border: "1px solid #dbe3ee", borderRadius: 10, padding: 4, marginBottom: 16 }}>
+        {([["table", "טבלה"], ["layers", "מעקב שכבות (גרפי)"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={trackingView === key}
+            onClick={() => setTrackingView(key)}
+            style={{ border: 0, borderRadius: 8, padding: "8px 16px", fontWeight: 900, cursor: "pointer", background: trackingView === key ? "#0b1f3a" : "transparent", color: trackingView === key ? "#fff" : "#0b1f3a" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {trackingView === "layers" ? (
+        <LayerTrackingView
+          rows={trackingRows.map((row) => ({
+            id: row.record.id,
+            number: row.number,
+            title: row.title,
+            date: row.date,
+            status: row.status,
+            structure: String(row.structure ?? ""),
+            element: String(row.element ?? ""),
+            layer: String(row.layer ?? ""),
+            fromSection: String(row.fromSection ?? ""),
+            toSection: String(row.toSection ?? ""),
+            location: String(row.location ?? ""),
+            record: row.record,
+          }))}
+          getFullRecord={getFullRecord ?? (() => undefined)}
+          certificatesLoading={certificatesLoading}
+          projectName={projectName}
+          onOpen={(record) => onOpen(record)}
+        />
+      ) : (<>
+
       <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(170px, 240px)", gap: 12, marginBottom: 16 }}>
         <input
           style={styles.input}
@@ -16118,6 +16164,7 @@ function ChecklistTrackingSection({
           <button type="button" style={styles.secondaryBtn} disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>הבא</button>
         </div>
       </div>
+      </>)}
     </section>
   );
 }
@@ -17588,7 +17635,8 @@ export default function Page() {
     };
   }, [cloudEnabled, authReady, projectAccess, currentProjectId]);
 
-  const concentrationsSectionActive = section === "concentrations";
+  // מעקב השכבות צריך את התעודות והמדידות שבתוך רשימות התיוג – אותם נתונים של מסך הריכוזים
+  const concentrationsSectionActive = section === "concentrations" || section === "checklistTracking";
   const latestProjectIdRef = useRef("");
   const latestSectionRef = useRef(section);
   latestSectionRef.current = section;
@@ -17618,7 +17666,7 @@ export default function Page() {
       concentrationLoadInFlightRef.current = normalizedProjectId;
       try {
         const fast = await probeConcentrationLightColumns();
-        if (!fast && latestSectionRef.current !== "concentrations") return;
+        if (!fast && latestSectionRef.current !== "concentrations" && latestSectionRef.current !== "checklistTracking") return;
         if (!isCurrent()) return;
         setConcentrationsLoading(true);
         setConcentrationsLoadError("");
@@ -18951,6 +18999,13 @@ export default function Page() {
       return { ...record, ...full, displayNumber: (record as any).displayNumber } as typeof record;
     });
   }, [projectChecklists, concentrationSource, currentProjectIdNormalized]);
+  const getConcentrationChecklist = useMemo(
+    () => (id: string) =>
+      concentrationSource && concentrationSource.projectId === currentProjectIdNormalized
+        ? concentrationSource.checklists.get(id)
+        : undefined,
+    [concentrationSource, currentProjectIdNormalized],
+  );
   const concentrationNonconformances = useMemo(() => {
     if (!concentrationSource || concentrationSource.projectId !== currentProjectIdNormalized) return projectNonconformances;
     return projectNonconformances.map((record) => {
@@ -26763,6 +26818,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <ChecklistTrackingSection
               records={projectChecklists}
               onOpen={(record) => loadChecklist(record)}
+              getFullRecord={getConcentrationChecklist}
+              certificatesLoading={cloudEnabled && hydratedConcentrationsProjectId !== currentProjectIdNormalized}
+              projectName={currentProject?.name ?? projectName}
             />
           )}
           {section === "holdPoints" && currentProjectId && (
