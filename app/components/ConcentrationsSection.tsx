@@ -696,7 +696,7 @@ const recordText = (record: any): string => {
   if (Array.isArray(record?.items)) {
     record.items.forEach((item: any) => {
       parts.push(item?.description, item?.notes, item?.status, item?.inspector, item?.responsible, item?.executionDate);
-      if (Array.isArray(item?.attachments)) item.attachments.forEach((a: any) => parts.push(attachmentName(a), a?.kind, JSON.stringify(a?.results ?? a?.labResults ?? {})));
+      if (Array.isArray(item?.attachments)) item.attachments.forEach((a: any) => parts.push(attachmentName(a), a?.kind, safeStringify(a?.results ?? a?.labResults ?? {})));
     });
   }
   getAttachments(record).forEach((a) => parts.push(attachmentName(a), a?.description, a?.documentType, a?.type));
@@ -1079,15 +1079,15 @@ const checklistRows = (records: any[], keywords: string[], label: string, exclud
       const attachments = (Array.isArray(item?.attachments) ? item.attachments : []).filter(isRealAttachment);
       if (!attachments.length) return;
 
-      const itemText = [recordText(checklist), item?.description, item?.notes, JSON.stringify(item?.results ?? item?.labResults ?? {})].join(" ");
+      const itemText = [recordText(checklist), item?.description, item?.notes, safeStringify(item?.results ?? item?.labResults ?? {})].join(" ");
       // אם לפריט/לרשימה יש עדות לחומר ממשפחה אחרת (למשל A-2-4 בריכוז מצע א'),
       // לא נאפשר לו להיכנס גם אם מילת מפתח כללית ("אפיון מצע", CBR וכו') תואמת במקרה.
       if (excludeKeywords.length > 0 && includesAny(itemText, excludeKeywords)) return;
-      const relevant = checklistMatches || includesAny(itemText, keywords) || attachments.some((a: any) => includesAny([attachmentName(a), JSON.stringify(a?.results ?? a?.labResults ?? {})].join(" "), keywords));
+      const relevant = checklistMatches || includesAny(itemText, keywords) || attachments.some((a: any) => includesAny([attachmentName(a), safeStringify(a?.results ?? a?.labResults ?? {})].join(" "), keywords));
       if (!relevant) return;
 
       attachments.forEach((attachment: any) => {
-        const attachmentText = [attachmentName(attachment), JSON.stringify(attachment?.results ?? attachment?.labResults ?? {})].join(" ");
+        const attachmentText = [attachmentName(attachment), safeStringify(attachment?.results ?? attachment?.labResults ?? {})].join(" ");
         if (excludeKeywords.length > 0 && includesAny(attachmentText, excludeKeywords)) return;
         rows.push({
           "מס׳": rows.length + 1,
@@ -1103,7 +1103,7 @@ const checklistRows = (records: any[], keywords: string[], label: string, exclud
           "סטטוס": firstText(checklistApprovalStatus, item?.status, checklist?.status),
           "מספר תעודה": attachmentCertificateNo(attachment, firstText(item?.certificateNo)),
           "שם קובץ": attachmentName(attachment),
-          "תוצאות/הערות": firstText(item?.notes, JSON.stringify(attachment?.results ?? attachment?.labResults ?? item?.results ?? item?.labResults ?? {})),
+          "תוצאות/הערות": firstText(item?.notes, safeStringify(attachment?.results ?? attachment?.labResults ?? item?.results ?? item?.labResults ?? {})),
         });
       });
     });
@@ -1352,7 +1352,7 @@ const buildConcreteConcentrationRows = (
           attachment?.concreteResults ||
           item?.concreteResults ||
           includesAny(
-            `${attachmentName(attachment)} ${JSON.stringify(attachment?.labResults ?? {})}`,
+            `${attachmentName(attachment)} ${safeStringify(attachment?.labResults ?? {})}`,
             ["בטון", "קוביות", "חוזק", "7 ימים", "28 ימים"],
           ),
       );
@@ -2302,9 +2302,21 @@ const firstFromRecords = (records: any[], aliases: string[]): string => {
 const firstDateFromRecords = (records: any[], aliases: string[], ...fallbacks: unknown[]): string =>
   firstDateText(...records.map((record) => aliasesValue(record, aliases)), ...fallbacks);
 
+// Embedded file contents (data: URIs / long base64) are dropped: they are
+// megabytes of noise for the text searches below, freeze the browser during
+// export, and can randomly match short keywords such as "hwd" or "iso".
+const isEmbeddedBinaryText = (value: unknown): boolean =>
+  typeof value === "string" &&
+  value.length > 256 &&
+  (/^data:[^;,]{0,100};base64,/i.test(value.slice(0, 128)) ||
+    (value.length > 4096 && /^[A-Za-z0-9+/=]+$/.test(value.slice(0, 4096))));
+
+const stripEmbeddedBinary = (_key: string, value: unknown) =>
+  isEmbeddedBinaryText(value) ? undefined : value;
+
 const safeStringify = (value: unknown): string => {
   try {
-    return JSON.stringify(value ?? "");
+    return JSON.stringify(value ?? "", stripEmbeddedBinary);
   } catch {
     return "";
   }
