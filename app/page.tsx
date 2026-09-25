@@ -42,6 +42,7 @@ import {
 } from "./components/HoldPointsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
+import { ManagementDashboard } from "./components/ManagementDashboard";
 import { QualityDocumentsSection } from "./components/QualityDocumentsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 import { extractEarthworksDensityFromFile, parseEarthworksDensityText } from "./components/densityCertificateParser";
@@ -96,6 +97,7 @@ const PUBLIC_APP_URL = "https://yi-quality.vercel.app";
 type AppSection =
   | Section
   | "account"
+  | "managementDashboard"
   | "concentrations"
   | "projectDetails"
   | "projectUsers"
@@ -25272,6 +25274,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ? [
         ["account", "החשבון שלי"],
         ["home", "דף בית"],
+        ["managementDashboard", "לוח בקרה ניהולי"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
         ["projects", "פרויקטים"],
@@ -25292,6 +25295,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     : [
         ["account", "החשבון שלי"],
         ["home", "דף בית"],
+        ["managementDashboard", "לוח בקרה ניהולי"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
         ["projectStructure", "עץ מבנה פרויקט"],
@@ -25309,7 +25313,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["concentrations", "ריכוזים"],
       ];
   const navGroups = [
-    { title: "ראשי", keys: ["home", "account"] },
+    { title: "ראשי", keys: ["home", "managementDashboard", "account"] },
     { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
     { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
     { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
@@ -25318,7 +25322,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     items: navItems.filter(([key]) => group.keys.includes(key)),
   })).filter((group) => group.items.length);
   const navIcons: Partial<Record<AppSection, string>> = {
-    home: "⌂", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
+    home: "⌂", managementDashboard: "◧", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
     checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
     plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
   };
@@ -26537,6 +26541,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               projectPlans={projectPlans as any}
               homeModules={homeModules}
               setSection={setSection as any}
+            />
+          )}
+          {section === "managementDashboard" && (
+            <ManagementDashboard
+              projectName={currentProject?.name ?? projectName}
+              checklists={projectChecklists}
+              nonconformances={projectNonconformances}
+              trialSections={projectTrialSections}
+              preliminary={projectPreliminary}
+              rfis={projectRfis as any}
+              supervisionReports={projectSupervisionReports as any}
+              holdPoints={projectHoldPoints as any}
+              structureNodes={currentProjectStructureNodes as any}
+              getApprovalStatus={getApprovalDisplayStatus}
+              getPreliminaryExpiry={(record) => String(getPreliminaryExpiryDate(record) ?? "")}
+              onNavigate={(key) => setSection(key as AppSection)}
             />
           )}
           {section === "projects" && canCreateProjects && (
