@@ -15649,12 +15649,14 @@ function ChecklistTrackingSection({
   getFullRecord,
   certificatesLoading = false,
   projectName = "",
+  recordLink,
 }: {
   records: ChecklistRecord[];
   onOpen: (record: ChecklistRecord) => void;
   getFullRecord?: (id: string) => any | undefined;
   certificatesLoading?: boolean;
   projectName?: string;
+  recordLink?: (id: string) => string;
 }) {
   const [trackingView, setTrackingView] = useState<"table" | "layers">("table");
   const [search, setSearch] = useState("");
@@ -16004,6 +16006,7 @@ function ChecklistTrackingSection({
           certificatesLoading={certificatesLoading}
           projectName={projectName}
           onOpen={(record) => onOpen(record)}
+          recordLink={recordLink}
         />
       ) : (<>
 
@@ -25095,6 +25098,40 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     setSection(module as AppSection);
   };
 
+  // קישור ישיר לרשומה במערכת (לקבצי Excel / PDF): ‎?projectId=…&open=module:id
+  const buildRecordLink = (module: string, id: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : PUBLIC_APP_URL;
+    return `${origin}/?projectId=${encodeURIComponent(currentProjectIdNormalized)}&open=${encodeURIComponent(`${module}:${id}`)}`;
+  };
+
+  // פתיחת רשומה מקישור ישיר – פעם אחת, אחרי שהנתונים של הפרויקט נטענו
+  const openLinkHandledRef = useRef("");
+  useEffect(() => {
+    if (!loaded || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("open") || "";
+    if (!target || openLinkHandledRef.current === target) return;
+    const [module, id] = target.split(":");
+    if (!module || !id) return;
+    const lists: Record<string, Array<{ id: string }>> = {
+      checklists: projectChecklists,
+      nonconformances: projectNonconformances,
+      trialSections: projectTrialSections,
+      preliminary: projectPreliminary,
+      rfi: projectRfis,
+      supervisionReports: projectSupervisionReports,
+      holdPoints: projectHoldPoints,
+    };
+    const list = lists[module];
+    if (list && !list.some((record) => record.id === id)) return; // עדיין נטען
+    openLinkHandledRef.current = target;
+    params.delete("open");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    void openRecordFromDashboard(module, id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRfis, projectSupervisionReports, projectHoldPoints]);
+
   const loadSupervisionReport = async (record: SupervisionReportRecord) => {
     const fullRecord = await hydrateSupervisionReport(record);
     setEditingSupervisionReportId(fullRecord.id);
@@ -26821,6 +26858,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               getFullRecord={getConcentrationChecklist}
               certificatesLoading={cloudEnabled && hydratedConcentrationsProjectId !== currentProjectIdNormalized}
               projectName={currentProject?.name ?? projectName}
+              recordLink={(id) => buildRecordLink("checklists", id)}
             />
           )}
           {section === "holdPoints" && currentProjectId && (
