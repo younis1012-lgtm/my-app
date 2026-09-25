@@ -105,6 +105,45 @@ function layerKey(row: LayerTrackingInputRow, groupName: string) {
   return { key: `${element}|${label}`, label, rank: 100, category: "other" as const, element };
 }
 
+const CERTIFICATE_KEYS = [
+  "certificateNo",
+  "certificateNumber",
+  "documentNo",
+  "מספר תעודת בדיקה",
+  "מספר תעודה",
+  "מס' תעודה",
+  "מס׳ תעודה",
+  "מס' תעודת בדיקה צפיפות/ רטיבות שדה",
+  "מס׳ תעודת בדיקה צפיפות/ רטיבות שדה",
+  "מס' תעודת בדיקההידוק רגיל",
+  "מס׳ תעודת בדיקההידוק רגיל",
+  "מס' תעודת בדיקה",
+  "מס׳ תעודת בדיקה",
+];
+
+const pickCertificate = (source: any): string => {
+  if (!source || typeof source !== "object") return "";
+  for (const key of CERTIFICATE_KEYS) {
+    const value = String(source?.[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+};
+
+function certificateNumberOf(attachment: any, item: any, labAttachmentCount: number): string {
+  return (
+    pickCertificate(attachment) ||
+    pickCertificate(attachment?.densityResults) ||
+    pickCertificate(attachment?.labResults) ||
+    pickCertificate(attachment?.results) ||
+    pickCertificate(attachment?.concreteResults) ||
+    // מספר שנשמר ברמת הסעיף שייך לתעודה רק כשיש בסעיף תעודה אחת
+    (labAttachmentCount === 1
+      ? pickCertificate(item) || pickCertificate(item?.densityResults) || pickCertificate(item?.labResults) || pickCertificate(item?.concreteResults)
+      : "")
+  );
+}
+
 function certificatesOf(full: any): { certs: Cert[]; measurements: Measurement[]; failed: boolean } {
   const certs: Cert[] = [];
   const measurements: Measurement[] = [];
@@ -114,6 +153,7 @@ function certificatesOf(full: any): { certs: Cert[]; measurements: Measurement[]
   items.forEach((item: any) => {
     const itemFailed = String(item?.status ?? "").includes("לא תקין");
     const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+    const labAttachments = attachments.filter((attachment: any) => String(attachment?.kind ?? "") === "lab");
     attachments.forEach((attachment: any) => {
       const kind = String(attachment?.kind ?? "");
       if (kind === "measurement") {
@@ -121,8 +161,9 @@ function certificatesOf(full: any): { certs: Cert[]; measurements: Measurement[]
         return;
       }
       if (kind !== "lab") return;
-      const fromName = String(attachment?.name ?? "").match(/\d{3,}/)?.[0] ?? "";
-      const no = String(attachment?.certificateNo || attachment?.documentNo || fromName || "").trim();
+      // מספר התעודה נלקח רק משדות מספר התעודה שנשמרו (בקובץ, בתוצאות או בסעיף) –
+      // לא ממספרים שבשם הקובץ, שלרוב הם מספר פרויקט/חוזה שחוזר בכל הקבצים.
+      const no = certificateNumberOf(attachment, item, labAttachments.length);
       const key = no || String(attachment?.name ?? attachment?.id ?? certs.length);
       if (seen.has(key)) return;
       seen.add(key);
@@ -500,7 +541,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
               {hover.segment.certs.length
                 ? hover.segment.certs.map((cert, index) => (
                     <span key={`${cert.no}-${index}`} style={{ color: cert.failed ? "#fca5a5" : "#fff", fontWeight: 700 }}>
-                      {index ? ", " : ""}{cert.no}{cert.failed ? " ✗" : ""}
+                      {index ? ", " : ""}{cert.no}{cert.no === "ללא מס׳" && cert.label ? ` (${cert.label})` : ""}{cert.failed ? " ✗" : ""}
                     </span>
                   ))
                 : certificatesLoading ? "בטעינה…" : "לא שויכו"}
