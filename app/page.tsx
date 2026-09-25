@@ -16203,6 +16203,7 @@ export default function Page() {
   const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
   // Modules whose last cloud read failed even after retries (data on screen kept).
   const [cloudLoadIssues, setCloudLoadIssues] = useState<string[]>([]);
+  const [holdPointToOpen, setHoldPointToOpen] = useState("");
   // Full certificate data for the concentrations screen only. Kept apart from
   // savedChecklists/savedNonconformances on purpose: in fast mode the embedded
   // files are replaced by short markers, so these rows must never be saved back.
@@ -25014,6 +25015,29 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return fullRecord;
   };
 
+  // פתיחה ישירה של רשומה מלוח הבקרה הניהולי – ישר לטופס שלה
+  const openRecordFromDashboard = async (module: string, id: string) => {
+    const find = <T extends { id: string }>(list: T[]) => list.find((item) => item.id === id);
+    if (module === "checklists") { const record = find(projectChecklists); if (record) return loadChecklist(record); }
+    if (module === "nonconformances") { const record = find(projectNonconformances); if (record) return loadNonconformance(record); }
+    if (module === "trialSections") { const record = find(projectTrialSections); if (record) return loadTrialSection(record); }
+    if (module === "preliminary") { const record = find(projectPreliminary); if (record) return loadPreliminary(record); }
+    if (module === "rfi") { const record = find(projectRfis); if (record) return loadRfi(record); }
+    if (module === "supervisionReports") {
+      const record = find(projectSupervisionReports);
+      if (record) {
+        setSection("supervisionReports");
+        return loadSupervisionReport(record);
+      }
+    }
+    if (module === "holdPoints") {
+      setHoldPointToOpen(id);
+      setSection("holdPoints");
+      return;
+    }
+    setSection(module as AppSection);
+  };
+
   const loadSupervisionReport = async (record: SupervisionReportRecord) => {
     const fullRecord = await hydrateSupervisionReport(record);
     setEditingSupervisionReportId(fullRecord.id);
@@ -26620,6 +26644,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               getApprovalStatus={getApprovalDisplayStatus}
               getPreliminaryExpiry={(record) => String(getPreliminaryExpiryDate(record) ?? "")}
               onNavigate={(key) => setSection(key as AppSection)}
+              onOpenRecord={(module, id) => void openRecordFromDashboard(module, id)}
             />
           )}
           {section === "projects" && canCreateProjects && (
@@ -26719,6 +26744,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onSave={saveHoldPoint}
               onDelete={deleteHoldPoint}
               projectId={normalizeStoredProjectId(currentProjectId)}
+              openRecordId={holdPointToOpen}
+              onOpenRecordHandled={() => setHoldPointToOpen("")}
             />
           )}
           {section === "checklists" && (
