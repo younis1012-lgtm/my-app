@@ -52,7 +52,23 @@ type Segment = {
 
 type LayerRow = { key: string; label: string; rank: number; category: "earth" | "other"; segments: Segment[]; lanes: number };
 
-type StructureGroup = { key: string; name: string; layers: LayerRow[]; unplaced: LayerTrackingInputRow[]; min: number; max: number };
+type StructureGroup = {
+  key: string;
+  name: string;
+  layers: LayerRow[];
+  unplaced: LayerTrackingInputRow[];
+  min: number;
+  max: number;
+  // מבנים שאוחדו לתוך המבנה הזה (שם שונה לאותו מבנה)
+  mergedFrom: Array<{ key: string; name: string }>;
+};
+
+export type LayerGroupingOptions = {
+  // חפירה ושתית בשורה אחת ("חפירה / שתית") – תחתית החפירה היא השתית
+  mergeBase: boolean;
+  // איחוד מבנים: מפתח מבנה → מפתח המבנה שאליו הוא מאוחד
+  aliases: Record<string, string>;
+};
 
 const NAVY = "#0b1f3a";
 const TEAL = "#0f766e";
@@ -88,9 +104,12 @@ const normalizeName = (text: string) => String(text ?? "").replace(/\s+/g, " ").
 
 const isEarthworks = (element: string) => /חפיר|הידוק|מילוי|שתית|מצע|עפר|החלפת קרקע/.test(element);
 
-function layerKey(row: LayerTrackingInputRow, groupName: string) {
+function layerKey(row: LayerTrackingInputRow, groupName: string, mergeBase: boolean) {
   const layer = normalizeName(row.layer);
   const element = normalizeName(row.element) || "ללא אלמנט";
+  if (mergeBase && (/חפיר/.test(element) || /שתית|תחתית/.test(layer))) {
+    return { key: "base", label: "חפירה / שתית", rank: -1, category: "earth" as const, element };
+  }
   if (/חפיר/.test(element)) {
     return { key: "excavation", label: "חפירה", rank: -2, category: "earth" as const, element };
   }
@@ -178,22 +197,34 @@ function certificatesOf(full: any): { certs: Cert[]; measurements: Measurement[]
   return { certs, measurements, failed };
 }
 
-export function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string) => any): StructureGroup[] {
-  // שיוך למבנה: לפי קוד (RW01, DC01…) אם קיים, אחרת לפי שם המבנה
-  const groups = new Map<string, { names: Map<string, number>; rows: LayerTrackingInputRow[] }>();
+export const structureKeyOf = (row: LayerTrackingInputRow) => {
+  const structure = normalizeName(row.structure) || normalizeName(row.location) || "ללא מבנה";
+  const code = codeOf(structure) || codeOf(row.layer) || codeOf(row.location);
+  return { key: code || structure, structure };
+};
+
+export function buildGroups(
+  rows: LayerTrackingInputRow[],
+  getFull: (id: string) => any,
+  options: LayerGroupingOptions = { mergeBase: true, aliases: {} },
+): StructureGroup[] {
+  // שיוך למבנה: לפי קוד (RW01, DC01…) אם קיים, אחרת לפי שם המבנה; ואז איחודים שהמשתמש הגדיר
+  const groups = new Map<string, { names: Map<string, number>; ownNames: Map<string, number>; rows: LayerTrackingInputRow[]; merged: Map<string, string> }>();
   rows.forEach((row) => {
-    const structure = normalizeName(row.structure) || normalizeName(row.location) || "ללא מבנה";
-    const code = codeOf(structure) || codeOf(row.layer) || codeOf(row.location);
-    const key = code || structure;
-    const entry = groups.get(key) ?? { names: new Map<string, number>(), rows: [] as LayerTrackingInputRow[] };
+    const { key: rawKey, structure } = structureKeyOf(row);
+    const target = options.aliases[rawKey] && options.aliases[rawKey] !== rawKey ? options.aliases[rawKey] : rawKey;
+    const entry = groups.get(target) ?? { names: new Map<string, number>(), ownNames: new Map<string, number>(), rows: [] as LayerTrackingInputRow[], merged: new Map<string, string>() };
     entry.names.set(structure, (entry.names.get(structure) ?? 0) + 1);
+    if (target === rawKey) entry.ownNames.set(structure, (entry.ownNames.get(structure) ?? 0) + 1);
+    else if (!entry.merged.has(rawKey)) entry.merged.set(rawKey, structure);
     entry.rows.push(row);
-    groups.set(key, entry);
+    groups.set(target, entry);
   });
 
   const result: StructureGroup[] = [];
   groups.forEach((entry, key) => {
-    const names = [...entry.names.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
+    const pool = entry.ownNames.size ? entry.ownNames : entry.names;
+    const names = [...pool.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
     const codeName = names.find(([name]) => codeOf(name) === key)?.[0];
     const name = codeName || names[0]?.[0] || key;
     const layerMap = new Map<string, LayerRow & { elementDate: number }>();
@@ -212,7 +243,7 @@ export function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string)
       if (from > to) [from, to] = [to, from];
       min = Math.min(min, from);
       max = Math.max(max, to);
-      const layer = layerKey(row, name);
+      const layer = layerKey(row, name, options.mergeBase);
       const full = getFull(row.id) ?? row.record;
       const { certs, measurements, failed } = certificatesOf(full);
       const approved = String(row.status).includes("מאושר");
@@ -267,7 +298,15 @@ export function buildGroups(rows: LayerTrackingInputRow[], getFull: (id: string)
       return b.rank - a.rank;
     });
 
-    result.push({ key, name, layers, unplaced, min: Number.isFinite(min) ? min : 0, max: Number.isFinite(max) ? max : 1 });
+    result.push({
+      key,
+      name,
+      layers,
+      unplaced,
+      min: Number.isFinite(min) ? min : 0,
+      max: Number.isFinite(max) ? max : 1,
+      mergedFrom: [...entry.merged.entries()].map(([mergedKey, mergedName]) => ({ key: mergedKey, name: mergedName })),
+    });
   });
   return result.sort((a, b) => b.layers.reduce((s, l) => s + l.segments.length, 0) - a.layers.reduce((s, l) => s + l.segments.length, 0));
 }
@@ -485,6 +524,39 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
   const [structureFilter, setStructureFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [labelMode, setLabelMode] = useState<LabelMode>("certs");
+  const storageKey = `yk-layer-tracking:${projectName}`;
+  const readSettings = (): LayerGroupingOptions => {
+    try {
+      const stored = typeof window === "undefined" ? null : window.localStorage.getItem(storageKey);
+      const parsed = stored ? JSON.parse(stored) : null;
+      return { mergeBase: parsed?.mergeBase !== false, aliases: parsed?.aliases && typeof parsed.aliases === "object" ? parsed.aliases : {} };
+    } catch {
+      return { mergeBase: true, aliases: {} };
+    }
+  };
+  const [grouping, setGrouping] = useState<LayerGroupingOptions>(readSettings);
+  const updateGrouping = (next: LayerGroupingOptions) => {
+    setGrouping(next);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+  const mergeInto = (sourceKey: string, targetKey: string) => {
+    const aliases = { ...grouping.aliases };
+    // מבנים שכבר אוחדו למקור עוברים גם הם ליעד
+    Object.keys(aliases).forEach((key) => {
+      if (aliases[key] === sourceKey) aliases[key] = targetKey;
+    });
+    aliases[sourceKey] = targetKey;
+    updateGrouping({ ...grouping, aliases });
+  };
+  const unmerge = (sourceKey: string) => {
+    const aliases = { ...grouping.aliases };
+    delete aliases[sourceKey];
+    updateGrouping({ ...grouping, aliases });
+  };
   const [hover, setHover] = useState<{ segment: Segment; x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -497,7 +569,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
       }),
     [rows, statusFilter],
   );
-  const groups = useMemo(() => buildGroups(filteredRows, getFullRecord), [filteredRows, getFullRecord]);
+  const groups = useMemo(() => buildGroups(filteredRows, getFullRecord, grouping), [filteredRows, getFullRecord, grouping]);
   const visibleGroups = structureFilter ? groups.filter((group) => group.key === structureFilter) : groups;
   const usesPlus = rows.some((row) => /\+/.test(String(row.fromSection)) || /\+/.test(String(row.toSection)));
 
@@ -593,6 +665,15 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
               <option value="date">תאריך ביצוע</option>
             </select>
           </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 700 }}>
+            <input
+              type="checkbox"
+              checked={grouping.mergeBase}
+              onChange={(event) => updateGrouping({ ...grouping, mergeBase: event.target.checked })}
+              style={{ width: 17, height: 17 }}
+            />
+            חפירה ושתית בשורה אחת
+          </label>
         </div>
         <span style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={() => void exportExcel()} disabled={exportingExcel} style={{ border: `1px solid ${NAVY}`, background: "#fff", color: NAVY, borderRadius: 8, padding: "9px 16px", fontWeight: 900, cursor: exportingExcel ? "wait" : "pointer" }}>
@@ -640,7 +721,30 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
           return (
             <div key={group.key} className="yk-lt-panel" style={panel}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: NAVY }}>{group.name}</h3>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: NAVY }}>{group.name}</h3>
+                  {group.mergedFrom.map((merged) => (
+                    <span key={merged.key} style={{ display: "inline-flex", gap: 4, alignItems: "center", background: "#eef2ff", color: "#3730a3", borderRadius: 12, padding: "2px 4px 2px 10px", fontSize: 12, fontWeight: 700 }}>
+                      כולל: {merged.name}
+                      <button type="button" onClick={() => unmerge(merged.key)} aria-label={`בטל איחוד של ${merged.name}`} title="בטל איחוד" style={{ border: 0, background: "transparent", color: "#3730a3", cursor: "pointer", fontWeight: 900, padding: "0 4px" }}>✕</button>
+                    </span>
+                  ))}
+                  {groups.length > 1 ? (
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        if (event.target.value) mergeInto(group.key, event.target.value);
+                      }}
+                      aria-label={`אחד את ${group.name} עם מבנה אחר`}
+                      style={{ font: "inherit", fontSize: 12, padding: "3px 6px", borderRadius: 8, border: "1px solid #cbd5e1", color: "#475569" }}
+                    >
+                      <option value="">אחד עם מבנה אחר…</option>
+                      {groups.filter((other) => other.key !== group.key).map((other) => (
+                        <option key={other.key} value={other.key}>{other.name}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
                   <span style={{ background: "#f1f5f9", borderRadius: 8, padding: "4px 10px" }}><b>{all.length + group.unplaced.length}</b> רשימות תיוג</span>
                   <span style={{ background: "#ecfdf5", color: "#065f46", borderRadius: 8, padding: "4px 10px" }}><b>{all.length ? Math.round((approvedCount / all.length) * 100) : 0}%</b> מאושרות</span>
