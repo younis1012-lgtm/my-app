@@ -31,6 +31,8 @@ type Props = {
   certificatesLoading: boolean;
   projectName: string;
   onOpen: (record: any) => void;
+  // קישור ישיר לרשימת התיוג במערכת – לשימוש בקבצי ה־Excel וה־PDF
+  recordLink?: (id: string) => string;
 };
 
 type Cert = { no: string; failed: boolean; label: string };
@@ -294,6 +296,7 @@ export async function exportLayerTrackingExcel(
   projectName: string,
   usesPlus: boolean,
   labelFor: (segment: Segment) => string,
+  recordLink?: (id: string) => string,
 ) {
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
@@ -332,6 +335,16 @@ export async function exportLayerTrackingExcel(
           segment.measurements.map((m) => m.name).join(", "),
           segment.overlaps.map((o) => `רש״ת ${o.number} (${formatChainage(o.from, usesPlus)}–${formatChainage(o.to, usesPlus)})`).join(", "),
         ]);
+        if (recordLink) {
+          const link = recordLink(segment.row.id);
+          row.getCell(3).value = { text: String(segment.row.number), hyperlink: link, tooltip: "פתח את רשימת התיוג במערכת" };
+          row.getCell(3).font = { color: { argb: "FF1D4ED8" }, underline: true };
+          const certText = segment.certs.map((cert) => cert.no).join(", ");
+          if (certText) {
+            row.getCell(8).value = { text: certText, hyperlink: link, tooltip: "פתח את רשימת התיוג במערכת" };
+            row.getCell(8).font = { color: { argb: "FF1D4ED8" }, underline: true };
+          }
+        }
         row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: segment.approved ? "FFD1FAE5" : "FFFEF3C7" } };
         if (segment.failed) row.getCell(9).font = { bold: true, color: { argb: argb(RED) } };
       });
@@ -404,7 +417,8 @@ export async function exportLayerTrackingExcel(
         if (end > start) sheet.mergeCells(r, start, r, end);
         const cell = sheet.getCell(r, start);
         const label = labelFor(segment);
-        cell.value = `${label}${segment.measurements.length ? " (מ)" : ""}`;
+        const cellText = `${label}${segment.measurements.length ? " (מ)" : ""}`;
+        cell.value = recordLink ? { text: cellText, hyperlink: recordLink(segment.row.id), tooltip: "פתח את רשימת התיוג במערכת" } : cellText;
         cell.note = [
           `רשימת תיוג ${segment.row.number} · ${segment.row.status}`,
           `חתכים ${formatChainage(segment.from, usesPlus)}–${formatChainage(segment.to, usesPlus)} · ${segment.row.date}`,
@@ -467,7 +481,7 @@ function RulerIcon({ x, y }: { x: number; y: number }) {
   );
 }
 
-export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, projectName, onOpen }: Props) {
+export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, projectName, onOpen, recordLink }: Props) {
   const [structureFilter, setStructureFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [labelMode, setLabelMode] = useState<LabelMode>("certs");
@@ -491,7 +505,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
   const exportExcel = async () => {
     setExportingExcel(true);
     try {
-      await exportLayerTrackingExcel(visibleGroups, projectName || "פרויקט", usesPlus, labelFor);
+      await exportLayerTrackingExcel(visibleGroups, projectName || "פרויקט", usesPlus, labelFor, recordLink);
     } catch (error) {
       console.error("Layer tracking Excel export failed", error);
       window.alert("הפקת קובץ ה־Excel נכשלה. נסה שוב.");
@@ -501,7 +515,29 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
   };
 
   const exportPdf = () => {
-    const html = containerRef.current?.innerHTML ?? "";
+    let html = containerRef.current?.innerHTML ?? "";
+    if (recordLink && containerRef.current) {
+      // בדוח ה־PDF כל פס הוא קישור שפותח את רשימת התיוג במערכת
+      const clone = containerRef.current.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("g[data-record-id]").forEach((group) => {
+        const id = group.getAttribute("data-record-id") || "";
+        const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
+        anchor.setAttribute("href", recordLink(id));
+        anchor.setAttribute("target", "_blank");
+        group.parentNode?.insertBefore(anchor, group);
+        anchor.appendChild(group);
+      });
+      clone.querySelectorAll("button[data-record-id]").forEach((button) => {
+        const id = button.getAttribute("data-record-id") || "";
+        const anchor = document.createElement("a");
+        anchor.href = recordLink(id);
+        anchor.target = "_blank";
+        anchor.textContent = button.textContent;
+        anchor.setAttribute("style", "border:1px dashed #b45309;color:#92400e;border-radius:12px;padding:2px 10px;font-size:12px;text-decoration:none;margin-inline-end:4px");
+        button.replaceWith(anchor);
+      });
+      html = clone.innerHTML;
+    }
     const win = window.open("", "_blank");
     if (!win) {
       window.alert("הדפדפן חסם את פתיחת הדוח. אפשר חלונות קופצים לאתר זה ונסה שוב.");
@@ -649,6 +685,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
                               <g
                                 key={segment.row.id}
                                 style={{ cursor: "pointer" }}
+                                data-record-id={segment.row.id}
                                 onClick={() => onOpen(segment.row.record)}
                                 onMouseEnter={(event) => {
                                   const box = containerRef.current?.getBoundingClientRect();
@@ -692,6 +729,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
                     <button
                       key={row.id}
                       type="button"
+                      data-record-id={row.id}
                       onClick={() => onOpen(row.record)}
                       style={{ border: "1px dashed #b45309", color: "#92400e", background: "#fffbeb", borderRadius: 12, padding: "2px 10px", fontSize: 12, cursor: "pointer" }}
                     >
