@@ -43,6 +43,7 @@ import {
 import { PreliminarySection } from "./components/PreliminarySection";
 import { ConcentrationsSection } from "./components/ConcentrationsSection";
 import { ManagementDashboard } from "./components/ManagementDashboard";
+import { MyTasks } from "./components/MyTasks";
 import { QualityDocumentsSection } from "./components/QualityDocumentsSection";
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 import { extractEarthworksDensityFromFile, parseEarthworksDensityText } from "./components/densityCertificateParser";
@@ -98,6 +99,7 @@ type AppSection =
   | Section
   | "account"
   | "managementDashboard"
+  | "myTasks"
   | "concentrations"
   | "projectDetails"
   | "projectUsers"
@@ -25348,6 +25350,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ? [
         ["account", "החשבון שלי"],
         ["home", "דף בית"],
+        ["myTasks", "המשימות שלי"],
         ["managementDashboard", "לוח בקרה ניהולי"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
@@ -25369,6 +25372,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     : [
         ["account", "החשבון שלי"],
         ["home", "דף בית"],
+        ["myTasks", "המשימות שלי"],
         ["managementDashboard", "לוח בקרה ניהולי"],
         ["projectDetails", "פרטי הפרויקט"],
         ["projectUsers", "משתמשים"],
@@ -25387,7 +25391,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["concentrations", "ריכוזים"],
       ];
   const navGroups = [
-    { title: "ראשי", keys: ["home", "managementDashboard", "account"] },
+    { title: "ראשי", keys: ["home", "myTasks", "managementDashboard", "account"] },
     { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
     { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
     { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
@@ -25396,7 +25400,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     items: navItems.filter(([key]) => group.keys.includes(key)),
   })).filter((group) => group.items.length);
   const navIcons: Partial<Record<AppSection, string>> = {
-    home: "⌂", managementDashboard: "◧", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
+    home: "⌂", managementDashboard: "◧", myTasks: "☑", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
     checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
     plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
   };
@@ -26628,6 +26632,36 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               projectPlans={projectPlans as any}
               homeModules={homeModules}
               setSection={setSection as any}
+            />
+          )}
+          {section === "myTasks" && (
+            <MyTasks
+              projectName={currentProject?.name ?? projectName}
+              userName={projectAccess?.displayName || projectAccess?.username || ""}
+              checklists={projectChecklists}
+              nonconformances={projectNonconformances}
+              trialSections={projectTrialSections}
+              preliminary={projectPreliminary}
+              rfis={projectRfis as any}
+              supervisionReports={projectSupervisionReports as any}
+              holdPoints={projectHoldPoints as any}
+              structureNodes={currentProjectStructureNodes as any}
+              getApprovalStatus={getApprovalDisplayStatus}
+              getPreliminaryExpiry={(record) => String(getPreliminaryExpiryDate(record) ?? "")}
+              getPendingSignatureRoles={(record) => {
+                const signatures = [record?.approval?.signatures, record?.details?.approval?.signatures].find(Array.isArray) ?? [];
+                return signatures
+                  .filter((signature: any) => signature?.required !== false && !hasApprovalSignatureEvidence(signature))
+                  .map((signature: any) => String(signature?.role ?? "").trim())
+                  .filter(Boolean);
+              }}
+              labEmails={labEmailEvents as any}
+              onOpenLabEmail={(id) => {
+                void markLabEmailSeen(id);
+                setSection("preliminary");
+              }}
+              onOpenRecord={(module, id) => void openRecordFromDashboard(module, id)}
+              onNavigate={(key) => setSection(key as AppSection)}
             />
           )}
           {section === "managementDashboard" && (
