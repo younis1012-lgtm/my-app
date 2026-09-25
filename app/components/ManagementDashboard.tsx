@@ -33,9 +33,11 @@ export type ManagementDashboardProps = {
   getApprovalStatus: (record: AnyRecord) => string;
   getPreliminaryExpiry: (record: AnyRecord) => string;
   onNavigate: (section: string) => void;
+  // פתיחה ישירה של רשומה מסוימת (טופס העריכה שלה) מתוך לוח הבקרה
+  onOpenRecord?: (module: ModuleKey, id: string) => void;
 };
 
-type ModuleKey = "checklists" | "nonconformances" | "trialSections" | "preliminary" | "rfi" | "supervisionReports" | "holdPoints";
+export type ModuleKey = "checklists" | "nonconformances" | "trialSections" | "preliminary" | "rfi" | "supervisionReports" | "holdPoints";
 type State = "closed" | "progress" | "draft" | "rejected";
 
 type Row = {
@@ -465,6 +467,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
   const [customTo, setCustomTo] = useState("");
   const [exporting, setExporting] = useState(false);
   const [showAllExceptions, setShowAllExceptions] = useState(false);
+  const [drill, setDrill] = useState<{ title: string; rows: Row[]; module?: ModuleKey } | null>(null);
 
   const rows = useMemo(
     () => buildRows(props),
@@ -558,6 +561,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
     ];
     const cells = groups.map((group) => ({
       ...group,
+      cellRows: columns.map((column) => rows.filter((row) => groupOf(row.nodeId) === group.id && column.test(row))),
       values: columns.map((column) => rows.filter((row) => groupOf(row.nodeId) === group.id && column.test(row)).length),
       total: rows.filter((row) => groupOf(row.nodeId) === group.id).length,
     })).filter((group) => group.total > 0);
@@ -613,6 +617,23 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
 
   const visibleExceptions = showAllExceptions ? exceptions : exceptions.slice(0, 8);
 
+  const openRecord = (row: Row) => {
+    if (props.onOpenRecord) props.onOpenRecord(row.module, row.id);
+    else props.onNavigate(row.module);
+  };
+  const showDrill = (title: string, list: Row[], module?: ModuleKey) => {
+    setDrill({ title, rows: list, module });
+    setTimeout(() => document.getElementById("yk-dash-drill")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const openRows = rows.filter((row) => row.state === "progress" || row.state === "rejected");
+  const tileActions: Array<() => void> = [
+    () => showDrill("כל הפריטים הפתוחים", openRows),
+    () => showDrill("פריטים באיחור מתאריך יעד", rows.filter((row) => isOverdue(row, today))),
+    () => document.getElementById("yk-dash-exceptions")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    () => showDrill("אי־התאמות פתוחות", openRows.filter((row) => row.module === "nonconformances"), "nonconformances"),
+    () => showDrill("רשימות תיוג שטרם אושרו", rows.filter((row) => row.module === "checklists" && row.state !== "closed"), "checklists"),
+  ];
+
   return (
     <section dir="rtl" style={{ display: "grid", gap: 16 }}>
       {/* כותרת + בורר תקופה */}
@@ -652,19 +673,68 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
 
       {/* מדדים עיקריים */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 12 }}>
-        {headlineTiles.map((tile) => (
-          <div key={tile.label} style={{ ...panel, padding: "14px 16px", borderTop: `4px solid ${tile.tone}` }}>
+        {headlineTiles.map((tile, index) => (
+          <div
+            key={tile.label}
+            role="button"
+            tabIndex={0}
+            onClick={tileActions[index]}
+            onKeyDown={(event) => { if (event.key === "Enter") tileActions[index](); }}
+            title="לחץ לפירוט"
+            style={{ ...panel, padding: "14px 16px", borderTop: `4px solid ${tile.tone}`, cursor: "pointer" }}
+          >
             <div style={{ color: "#475569", fontWeight: 800, fontSize: 13 }}>{tile.label}</div>
             <div style={{ fontSize: 30, fontWeight: 900, color: tile.tone, marginTop: 4 }}>{tile.value}</div>
-            <div style={{ color: "#64748b", fontSize: 12 }}>{tile.note}</div>
+            <div style={{ color: "#64748b", fontSize: 12 }}>{tile.note} · <span style={{ color: "#1d4ed8", fontWeight: 800 }}>פירוט ←</span></div>
           </div>
         ))}
       </div>
 
+      {/* פירוט לפי בחירה – כל שורה פותחת את הרשומה עצמה */}
+      {drill ? (
+        <div id="yk-dash-drill" style={{ ...panel, border: `2px solid ${NAVY}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 900, color: NAVY }}>{drill.title} ({drill.rows.length})</h3>
+            <span style={{ display: "flex", gap: 8 }}>
+              {drill.module ? (
+                <button type="button" onClick={() => props.onNavigate(drill.module as string)} style={{ border: `1px solid ${NAVY}`, background: "#fff", color: NAVY, borderRadius: 8, padding: "6px 12px", fontWeight: 800, cursor: "pointer" }}>
+                  למסך המודול המלא
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setDrill(null)} style={{ border: 0, background: "#e2e8f0", color: NAVY, borderRadius: 8, padding: "6px 12px", fontWeight: 800, cursor: "pointer" }}>
+                סגור ✕
+              </button>
+            </span>
+          </div>
+          {drill.rows.length ? (
+            <div style={{ display: "grid", gap: 6, maxHeight: 420, overflowY: "auto" }}>
+              {drill.rows.map((row) => (
+                <div
+                  key={`${row.module}-${row.id}`}
+                  onClick={() => openRecord(row)}
+                  style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", gap: 12, alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0", cursor: "pointer" }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 900, color: NAVY }}>{MODULES.find((entry) => entry.key === row.module)?.short}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title}</b>
+                    <small style={{ color: STATE_META[row.state].color, fontWeight: 800 }}>{row.statusText}</small>
+                    {row.location ? <small style={{ color: "#64748b" }}> · {row.location}</small> : null}
+                    {row.due && row.state !== "closed" ? <small style={{ color: isOverdue(row, today) ? "#b91c1c" : "#64748b" }}> · יעד {fmt(row.due)}</small> : null}
+                  </span>
+                  <span style={{ color: "#1d4ed8", fontWeight: 900, fontSize: 13, whiteSpace: "nowrap" }}>פתח ←</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: "#0f766e", fontWeight: 800 }}>✓ אין פריטים</div>
+          )}
+        </div>
+      ) : null}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 16 }}>
         {/* מצב לפי מודול */}
         <div style={panel}>
-          <PanelTitle hint="לחיצה על שורה פותחת את המודול">מצב רשומות לפי מודול</PanelTitle>
+          <PanelTitle hint="לחיצה על שורה מציגה את הפריטים הפתוחים">מצב רשומות לפי מודול</PanelTitle>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
             {(Object.keys(STATE_META) as State[]).map((state) => (
               <span key={state} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#475569" }}>
@@ -677,7 +747,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
             {moduleStats.map((mod) => (
               <div
                 key={mod.key}
-                onClick={() => props.onNavigate(mod.key)}
+                onClick={() => showDrill(`${mod.label} – פריטים פתוחים`, openRows.filter((row) => row.module === mod.key), mod.key)}
                 style={{ display: "grid", gridTemplateColumns: "110px 1fr 76px", gap: 10, alignItems: "center", cursor: "pointer" }}
               >
                 <span style={{ fontWeight: 800, color: NAVY, fontSize: 14 }}>{mod.label}</span>
@@ -725,8 +795,8 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
       </div>
 
       {/* חריגים */}
-      <div style={panel}>
-        <PanelTitle hint={exceptions.length ? `${exceptions.length} פריטים, ממוינים לפי דחיפות` : undefined}>חריגים לטיפול</PanelTitle>
+      <div id="yk-dash-exceptions" style={panel}>
+        <PanelTitle hint={exceptions.length ? `${exceptions.length} פריטים, ממוינים לפי דחיפות · לחיצה פותחת את הרשומה` : undefined}>חריגים לטיפול</PanelTitle>
         {exceptions.length ? (
           <div style={{ display: "grid", gap: 6 }}>
             {visibleExceptions.map((item) => {
@@ -735,7 +805,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
               return (
                 <div
                   key={`${item.row.module}-${item.row.id}`}
-                  onClick={() => props.onNavigate(item.row.module)}
+                  onClick={() => openRecord(item.row)}
                   style={{
                     display: "grid",
                     gridTemplateColumns: "74px 1fr auto",
@@ -821,7 +891,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
 
       {/* מפת חום לפי עץ המבנה */}
       <div style={panel}>
-        <PanelTitle hint="ככל שהתא כהה יותר – ריכוז בעיות גבוה יותר">איתור חריגים לפי עץ המבנה</PanelTitle>
+        <PanelTitle hint="ככל שהתא כהה יותר – ריכוז בעיות גבוה יותר · לחיצה על תא מציגה את הפריטים">איתור חריגים לפי עץ המבנה</PanelTitle>
         {heatmap.cells.length ? (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 3, fontSize: 13, minWidth: 560 }}>
@@ -840,7 +910,9 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
                     {group.values.map((value, index) => (
                       <td
                         key={heatmap.columns[index].key}
+                        onClick={() => value && showDrill(`${group.name} – ${heatmap.columns[index].label}`, group.cellRows[index])}
                         style={{
+                          cursor: value ? "pointer" : "default",
                           textAlign: "center",
                           padding: "8px 4px",
                           borderRadius: 6,

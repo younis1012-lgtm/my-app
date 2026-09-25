@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type HoldPointRecord = {
   id: string;
@@ -58,6 +58,8 @@ type Props = {
   canWrite: boolean;
   onSave: (record: HoldPointRecord) => Promise<void> | void;
   onEmail?: (record: HoldPointRecord) => void;
+  openRecordId?: string;
+  onOpenRecordHandled?: () => void;
   onDelete: (id: string) => Promise<void> | void;
   projectId: string;
 };
@@ -265,12 +267,25 @@ export function HoldPointsSection({
   onDelete,
   onEmail,
   projectId,
+  openRecordId = "",
+  onOpenRecordHandled,
 }: Props) {
   const nextSerial = Math.max(0, ...records.map((record) => Number(record.serialNo) || 0)) + 1;
   const [draft, setDraft] = useState<HoldPointRecord>(() => emptyDraft(projectId, nextSerial, currentUserName));
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState("");
   const [filter, setFilter] = useState("");
+
+  // פתיחה ישירה מלוח הבקרה הניהולי
+  useEffect(() => {
+    if (!openRecordId) return;
+    const record = records.find((item) => item.id === openRecordId);
+    if (record) {
+      setDraft(record);
+      setShowForm(true);
+    }
+    onOpenRecordHandled?.();
+  }, [openRecordId, records, onOpenRecordHandled]);
 
   const update = <K extends keyof HoldPointRecord>(key: K, value: HoldPointRecord[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
