@@ -16323,6 +16323,9 @@ export default function Page() {
   // Modules whose last cloud read failed even after retries (data on screen kept).
   const [cloudLoadIssues, setCloudLoadIssues] = useState<string[]>([]);
   const [holdPointToOpen, setHoldPointToOpen] = useState("");
+  // מחוון "פותח רשימת תיוג…" – טעינת רשימה מלאה (כולל קבצים מצורפים) עלולה לקחת כמה שניות
+  const [openingChecklist, setOpeningChecklist] = useState("");
+  const openingChecklistRef = useRef("");
   // Full certificate data for the concentrations screen only. Kept apart from
   // savedChecklists/savedNonconformances on purpose: in fast mode the embedded
   // files are replaced by short markers, so these rows must never be saved back.
@@ -17961,14 +17964,15 @@ export default function Page() {
   const withSaving = async (
     action: () => Promise<void>,
     permitted = canWriteAccess(projectAccess),
-  ) => {
+  ): Promise<boolean> => {
     if (!permitted) {
       alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור, לעדכן או למחוק.");
-      return;
+      return false;
     }
     try {
       setIsSaving(true);
       await action();
+      return true;
     } catch (error) {
       console.error(error);
       alert(errorText(error) || "אירעה שגיאה בשמירה");
@@ -17977,6 +17981,7 @@ export default function Page() {
           await refreshCloudData();
         } catch {}
       }
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -21342,7 +21347,7 @@ export default function Page() {
       status: recordStatus,
       savedAt: nowLocal(),
     } as any;
-    await withSaving(async () => {
+    const saved = await withSaving(async () => {
       setSavedChecklists((prev) => {
         const exists = prev.some((item) => item.id === id);
         return exists
@@ -21377,15 +21382,45 @@ export default function Page() {
         );
       }
     });
+    if (!saved) {
+      // השמירה בענן נכשלה – לא מציגים "נשמרה בהצלחה" ולא מאבדים את מה שהוזן בטופס
+      return;
+    }
     setEditingChecklistId(id);
-    setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt }));
-    alert("רשימת התיוג נשמרה בהצלחה");
+    setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt, approval: record.approval }));
+    alert(
+      normalizeApprovalStatusValue((record as any).status) === "approved"
+        ? "רשימת התיוג נשמרה בהצלחה – סטטוס: מאושר"
+        : "רשימת התיוג נשמרה בהצלחה – סטטוס: בטיפול (יש סעיפים שעדיין לא נחתמו/אושרו)",
+    );
   };
   const loadChecklist = async (record: ChecklistRecord) => {
+    // לחיצה נוספת בזמן שהרשימה נטענת לא מתחילה טעינה נוספת
+    if (openingChecklistRef.current === record.id) return;
+    openingChecklistRef.current = record.id;
+    setOpeningChecklist(record.title || `רשימת תיוג ${record.checklistNo ?? ""}`);
     let fullRecord = record;
-    if (cloudEnabled && supabase) {
-      const { data, error } = await supabase.from("checklists").select("*").eq("id", record.id).maybeSingle();
-      if (!error && data) fullRecord = checklistRowToRecord(data);
+    try {
+      if (cloudEnabled && supabase) {
+        let loadedFull = false;
+        for (let attempt = 0; attempt < 3 && !loadedFull; attempt += 1) {
+          const { data, error } = await supabase.from("checklists").select("*").eq("id", record.id).maybeSingle();
+          if (!error && data) {
+            fullRecord = checklistRowToRecord(data);
+            loadedFull = true;
+          } else if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+          }
+        }
+        // לעולם לא פותחים לעריכה רשומה בלי הסעיפים שלה – שמירה שלה הייתה מוחקת אותם
+        if (!loadedFull && !(Array.isArray(record.items) && record.items.length)) {
+          alert("לא ניתן היה לטעון את רשימת התיוג המלאה (חיבור איטי). נסה שוב בעוד רגע.");
+          return;
+        }
+      }
+    } finally {
+      openingChecklistRef.current = "";
+      setOpeningChecklist("");
     }
     setSection("checklists");
     setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(fullRecord.templateKey));
@@ -26765,6 +26800,17 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               </form>
             </section>
           )}
+          {openingChecklist ? (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 1000, background: "#0b1f3a", color: "#fff", borderRadius: 12, padding: "12px 20px", fontWeight: 900, boxShadow: "0 10px 30px rgba(0,0,0,.25)", display: "flex", gap: 10, alignItems: "center" }}
+            >
+              <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: "50%", border: "3px solid #d4a017", borderTopColor: "transparent", display: "inline-block", animation: "yk-spin 0.8s linear infinite" }} />
+              פותח את {openingChecklist}…
+              <style>{"@keyframes yk-spin{to{transform:rotate(360deg)}}"}</style>
+            </div>
+          ) : null}
           {cloudLoadIssues.length > 0 && (
             <div
               dir="rtl"
