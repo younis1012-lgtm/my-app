@@ -1008,11 +1008,23 @@ const isClosedNonconformance = (record: any): boolean => {
 const nonconformanceGrade = (record: any): string =>
   firstText(record?.grade, record?.severity, record?.severityLevel, valueByKeyOrLabel(record, ["grade", "severity", "דרגה", "חומרה"]));
 
+// "QC – בקרת איכות" / "בקרת איכות" → QC ; "QA – הבטחת איכות" / "הבטחת איכות" → QA
+const nonconformanceActorCode = (value: unknown): string => {
+  const text = cleanText(value);
+  if (!text) return "";
+  const hasQa = /\bqa\b|הבטחת\s*איכות|^הא$/i.test(text);
+  const hasQc = /\bqc\b|בקר(ת)?\s*איכות/i.test(text);
+  if (hasQa && hasQc) return text;
+  if (hasQa) return "QA";
+  if (hasQc) return "QC";
+  return text;
+};
+
 const nonconformanceRow = (record: any, index: number): Row => {
   const ncrNumber = extractNonconformanceNumber(record, index);
   const grade = nonconformanceGrade(record);
   const closed = isClosedNonconformance(record);
-  const closingBy = firstText(record?.closedBy, record?.closingRole, record?.closedName, record?.closedByName);
+  const closingBy = nonconformanceActorCode(firstText(record?.closedBy, record?.closingRole, record?.closedName, record?.closedByName));
   return {
     "מס׳": index + 1,
     "מס'": index + 1,
@@ -1022,7 +1034,7 @@ const nonconformanceRow = (record: any, index: number): Row => {
     "מס סעיף במפרט": firstText(record?.specSection, record?.specNo, record?.spec, record?.specificationSection),
     "תאריך פתיחת": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
     "תאריך פתיחה": firstDateText(record?.date, record?.openDate, record?.createdAt, record?.savedAt),
-    "נפתחה": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
+    "נפתחה": nonconformanceActorCode(firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy)),
     "פותח/מדווח": firstText(record?.openedBy, record?.openedRole, record?.raisedBy, record?.reportedBy),
     "דרגת אי התאמה": grade,
     "חומרה": grade,
@@ -1041,13 +1053,14 @@ const nonconformanceRow = (record: any, index: number): Row => {
     "גורם המטפל": firstText(record?.handler, record?.handledBy, record?.responsible),
     "תאריך  סגירת אי התאמה משוער-מסוכם": firstDateText(record?.expectedCloseDate, record?.plannedCloseDate),
     "תאריך  סגירה משוער על פי החלטת מנה״פ": firstDateText(record?.updatedExpectedCloseDate, record?.managerExpectedCloseDate),
-    "שבר": yesNoText(record?.breakage),
+    // שבר: "לא" אלא אם סומן "כן" בטופס אי ההתאמה
+    "שבר": yesNoText(record?.breakage) === "כן" ? "כן" : "לא",
     "השפעה על איכות": firstText(record?.qualityImpact),
     "פירוט ביצוע פעולה מתקנת": firstText(record?.correctiveActionDetails, record?.correctiveAction, record?.actionTaken),
-    "נסגרה": firstText(closingBy, closed ? "כן" : ""),
+    "נסגרה": closed ? firstText(closingBy, "QC") : "",
     "תאריך  סגירה": firstDateText(record?.closingDate, record?.closedAt, record?.closeDate),
-    "אישור מנהל ה״א לסגירת אי התאמה QC": closed ? "מאושר" : firstText(record?.qcManagerApproval, record?.closeApproval, record?.approval?.status),
-    "סטטוס": firstText(record?.status, closed ? "סגור" : "פתוח"),
+    "אישור מנהל ה״א לסגירת אי התאמה QC": closed ? "מאושר" : "טרם נסגרה",
+    "סטטוס": closed ? "סגור" : "פתוח",
     "נושא": firstText(record?.title, record?.subject),
     "הערות": firstText(record?.notes),
   };
@@ -4524,6 +4537,7 @@ const definitions: ConcentrationDefinition[] = [
       "נסגרה",
       "תאריך  סגירה",
       "אישור מנהל ה״א לסגירת אי התאמה QC",
+      "סטטוס",
     ],
     buildRows: ({ savedNonconformances }) => savedNonconformances.map(nonconformanceRow),
   },
@@ -5214,8 +5228,9 @@ const buildNonconformanceWorksheetXml = (
       "נסגרה",
       "תאריך  סגירה",
       "אישור מנהל ה״א לסגירת אי התאמה QC",
+      "סטטוס",
     ], 3, 34),
-    rowXml(8, ["", "", "", "", "", "על ידי QA/QC", "", "", "", "מחתך", "לחתך", "", "מבנה", "", "", "", "", "", "", "", "", "", "", "על ידי QA/QC", "", ""], 3, 24),
+    rowXml(8, ["", "", "", "", "", "על ידי QA/QC", "", "", "", "מחתך", "לחתך", "", "מבנה", "", "", "", "", "", "", "", "", "", "", "על ידי QA/QC", "", "", "פתוח / סגור"], 3, 24),
   ];
 
   let r = 9;
@@ -5227,7 +5242,7 @@ const buildNonconformanceWorksheetXml = (
     sheetRows.push(rowXml(r++, ["אין נתונים שמורים לריכוז זה בפרויקט הנוכחי"], 4, 24));
   }
 
-  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 16, 14, 16, 14];
+  const widths = [8, 14, 16, 14, 14, 14, 14, 28, 22, 12, 12, 12, 16, 20, 20, 38, 38, 18, 22, 24, 10, 16, 16, 14, 16, 14, 12];
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
   const merges = [
     "C2:D2", "E2:J2", "K2:M2", "N2:P2",
@@ -5235,7 +5250,7 @@ const buildNonconformanceWorksheetXml = (
     "C4:D4", "E4:J4", "K4:L4", "N4:O4",
     "C5:D5", "E5:J5", "K5:L5", "N5:O5",
     "A7:A8", "B7:B8", "C7:C8", "D7:D8", "E7:E8", "G7:G8", "H7:H8", "I7:I8",
-    "J7:K7", "L7:L8", "N7:N8", "O7:O8", "P7:P8", "Q7:Q8", "R7:R8", "S7:S8", "T7:T8", "U7:U8", "V7:V8", "W7:W8", "Y7:Y8", "Z7:Z8",
+    "J7:K7", "L7:L8", "N7:N8", "O7:O8", "P7:P8", "Q7:Q8", "R7:R8", "S7:S8", "T7:T8", "U7:U8", "V7:V8", "W7:W8", "Y7:Y8", "Z7:Z8", "AA7:AA8",
   ];
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -5256,9 +5271,13 @@ const parseConcentrationDate = (value: unknown): Date | null => {
   return null;
 };
 
+// שיוך QA / QC לפי מי שפתח את אי ההתאמה
 const nonconformanceOwner = (row: Row): "QA" | "QC" => {
-  const text = normalize([row["נפתחה"], row["פותח/מדווח"], row["נסגרה"], row["אישור מנהל ה״א לסגירת אי התאמה QC"]].join(" "));
-  return text.includes("qa") || text.includes("הבטחת") ? "QA" : "QC";
+  const opener = cleanText(row["נפתחה"] ?? row["פותח/מדווח"]);
+  if (opener === "QA") return "QA";
+  if (opener === "QC") return "QC";
+  const text = normalize(opener);
+  return text.includes("qa") && !text.includes("qc") || text.includes("הבטחת") ? "QA" : "QC";
 };
 
 const nonconformanceStatusSummary = (rows: Row[]) => {
