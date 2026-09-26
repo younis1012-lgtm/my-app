@@ -3282,6 +3282,7 @@ const earthworksWorkTypeFromChecklist = (checklist: any): string => {
   if (includesAny(text, ["קרקע יסוד", "שתית"])) return "קרקע יסוד";
   if (
     templateKey === "controlledCompaction" ||
+    templateKey === "soilReplacement" ||
     templateKey === "standardCompaction" ||
     includesAny(text, ["מילוי", "הידוק מבוקר", "הידוק רגיל"])
   ) return "מילוי";
