@@ -4028,6 +4028,13 @@ const normalizeChecklistAttachments = (
 const textIncludesAny = (text: string, keywords: string[]) =>
   keywords.some((keyword) => text.includes(keyword));
 
+// סעיפי רשימת תיוג שאין בהם צירוף תעודה / מסמך (לפי הגדרת המשתמש).
+const CHECKLIST_ITEMS_WITHOUT_ATTACHMENT = new Set<string>([
+  "אישור תערובת בטון",
+  "בדיקת טפסנות וברזל",
+  "בדיקת ניקיון לפני יציקה",
+]);
+
 const getChecklistAttachmentRequirement = (
   description: unknown,
 ): ChecklistAttachmentKind | null => {
@@ -5455,7 +5462,11 @@ function ChecklistAttachmentsPanel({
   const relevantItems = items
     .map((item) => ({
       item,
-      kind: getChecklistAttachmentRequirement(item.description),
+      kind:
+        (item as any).noAttachment === true ||
+        CHECKLIST_ITEMS_WITHOUT_ATTACHMENT.has(String(item.description ?? "").trim())
+          ? null
+          : getChecklistAttachmentRequirement(item.description),
     }))
     .filter(
       (
@@ -6442,6 +6453,17 @@ function ChecklistsSection({
     item: ChecklistItem,
   ): ChecklistAttachmentKind[] => {
     const kinds = new Set<ChecklistAttachmentKind>();
+    // סעיפים שלא נדרש בהם צירוף תעודה/מסמך (למשל ביציקות באתר).
+    // אם כבר צורף מסמך בעבר – הוא ממשיך להופיע.
+    if (
+      (item as any).noAttachment === true ||
+      CHECKLIST_ITEMS_WITHOUT_ATTACHMENT.has(String(item.description ?? "").trim())
+    ) {
+      normalizeChecklistAttachments((item as any).attachments).forEach(
+        (attachment) => kinds.add(attachment.kind),
+      );
+      return Array.from(kinds);
+    }
     const requiredKind = getChecklistAttachmentRequirement(item.description);
     if (requiredKind) kinds.add(requiredKind);
     if (String(item.responsible ?? "").includes("מודד"))

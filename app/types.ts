@@ -34,6 +34,8 @@ export type ChecklistItem = {
   inspector: string;
   executionDate: string;
   attachments?: ChecklistAttachment[];
+  /** סעיף שלא נדרש בו צירוף תעודה / מסמך */
+  noAttachment?: boolean;
   labResults?: any;
   results?: any;
 };

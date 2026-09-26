@@ -167,7 +167,17 @@ export const checklistTemplates = {
     label: 'יציקות באתר',
     title: 'רשימת תיוג ליציקות באתר',
     category: 'יציקות באתר',
-    items: makeItems('siteConcrete', ['אישור תערובת בטון', 'בדיקת טפסנות וברזל', 'בדיקת ניקיון לפני יציקה', 'בדיקת שקיעה/מדגמים', 'ביצוע יציקה ורטוט', 'אשפרה ואישור סופי']),
+    // לפי תבנית המשתמש: סעיף 4 (לשעבר שקיעה/מדגמים) = בדיקת חוזק בטון; אשפרה ואישור סופי הופרדו, נוספו מדידות
+    items: [
+      { id: 'siteConcrete-1', description: 'אישור תערובת בטון', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '', noAttachment: true },
+      { id: 'siteConcrete-2', description: 'בדיקת טפסנות וברזל', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '', noAttachment: true },
+      { id: 'siteConcrete-3', description: 'בדיקת ניקיון לפני יציקה', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '', noAttachment: true },
+      { id: 'siteConcrete-4', description: 'בדיקת חוזק בטון', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'siteConcrete-5', description: 'ביצוע יציקה ורטוט', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'siteConcrete-6', description: 'אשפרה', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'siteConcrete-7', description: 'מדידות', responsible: 'מודד', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'siteConcrete-8', description: 'אישור סופי', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+    ],
   },
   stoneFacingGravityWall: {
     label: 'בניית קיר כובד – חזית אבן לקט',
