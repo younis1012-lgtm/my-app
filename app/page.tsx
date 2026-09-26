@@ -16541,7 +16541,15 @@ export default function Page() {
       resetLabSenderForm();
     } catch (error) {
       const text = errorText(error);
-      setLabSendersError(/duplicate|unique/i.test(text) ? "כתובת מייל זו כבר משויכת לפרויקט אחר" : "שמירת המעבדה נכשלה");
+      setLabSendersError(
+        /duplicate|unique/i.test(text)
+          ? "כתובת מייל זו כבר קיימת ברשימת המעבדות של הפרויקט"
+          : /project_lab_senders|does not exist|schema cache|42P01|PGRST205/i.test(text)
+            ? "שמירת המעבדה נכשלה: טבלת המעבדות עדיין לא קיימת במסד הנתונים. יש להריץ פעם אחת את הקובץ 13_project_lab_senders.sql ב-Supabase > SQL Editor."
+            : /row-level security|permission denied|42501|JWT|not authenticated/i.test(text)
+              ? "שמירת המעבדה נכשלה: אין הרשאת כתיבה לפרויקט זה (נדרש משתמש מחובר בהרשאת מנהל או קריאה וכתיבה)."
+              : `שמירת המעבדה נכשלה: ${text}`,
+      );
     }
   };
   const deleteLabSender = async (id: string) => {
