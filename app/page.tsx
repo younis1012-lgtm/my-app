@@ -2335,6 +2335,9 @@ type ProjectAccess = {
   occupationalWriteAccess?: boolean;
   signatureDataUrl?: string;
   signatureFileName?: string;
+  /** "electrical" = בקר איכות לחשמל ותאורה בלבד */
+  discipline?: "electrical" | "";
+  legacyUsername?: string;
 };
 
 // כאן מגדירים משתמשים והרשאות.
@@ -2448,16 +2451,34 @@ const accessLoginMatches = (access: ProjectAccess, value: string) => {
 const findProjectAccessByCode = (users: ProjectAccess[], value: string) =>
   users.find((access) => accessLoginMatches(access, value));
 
-const findProjectAccessByCredentials = (
+const findProjectAccessCandidates = (
   users: ProjectAccess[],
   usernameOrCode: string,
   password: string,
 ) =>
-  users.find(
+  users.filter(
     (access) =>
       accessLoginMatches(access, usernameOrCode) &&
       String(access.password) === String(password),
   );
+
+// שם משתמש אישי קודם לקוד פרויקט – קוד הפרויקט משותף לכל משתמשי הפרויקט,
+// ולכן אם כמה משתמשים חולקים קוד + סיסמה לא בוחרים אחד מהם "באקראי".
+const findProjectAccessByCredentials = (
+  users: ProjectAccess[],
+  usernameOrCode: string,
+  password: string,
+) => {
+  const normalized = normalizeAccessValue(usernameOrCode);
+  const candidates = findProjectAccessCandidates(users, usernameOrCode, password);
+  const personal = candidates.find(
+    (access) =>
+      normalizeAccessValue(access.username) === normalized ||
+      (access.aliases ?? []).some((alias) => normalizeAccessValue(alias) === normalized),
+  );
+  if (personal) return personal;
+  return candidates.length === 1 ? candidates[0] : candidates.find((access) => access.role === "admin");
+};
 
 const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
   if (!Array.isArray(value)) return DEFAULT_PROJECT_ACCESS_LIST;
@@ -2485,6 +2506,7 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
             : String(item.projectName ?? item.project_name ?? "").trim(),
         signatureDataUrl: String(item.signatureDataUrl ?? ""),
         signatureFileName: String(item.signatureFileName ?? ""),
+        discipline: normalizeAccessDiscipline(item.discipline),
       }),
     )
     .filter((item) => item.username && item.password);
@@ -2526,6 +2548,7 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
   signatureFileName: String(
     row?.signature_file_name ?? row?.signatureFileName ?? "",
   ),
+  discipline: normalizeAccessDiscipline(row?.discipline),
 });
 
 const projectAccessToRow = (access: ProjectAccess) => ({
@@ -2538,6 +2561,7 @@ const projectAccessToRow = (access: ProjectAccess) => ({
   project_ids:
     access.role === "admin" ? [] : Array.from(new Set(access.projectIds ?? [])),
   signature: access.signatureDataUrl ?? "",
+  discipline: access.role === "admin" ? "" : (access.discipline ?? ""),
 });
 
 type StoredAuthSession = {
@@ -2571,15 +2595,21 @@ const findUserForStoredSession = (
   session: StoredAuthSession | null,
 ): ProjectAccess | null => {
   if (!session) return null;
-  return (
-    users.find(
-      (user) =>
-        (session.username && user.username === session.username) ||
-        (session.code &&
+  const byUsername = session.username
+    ? users.find((user) => user.username === session.username)
+    : undefined;
+  if (byUsername) return byUsername;
+  const byCode = session.code
+    ? users.filter(
+        (user) =>
           normalizeAccessValue(user.code ?? "") ===
-            normalizeAccessValue(session.code)) ||
-        (session.role === "admin" && user.role === "admin"),
-    ) ?? null
+          normalizeAccessValue(session.code),
+      )
+    : [];
+  if (byCode.length === 1) return byCode[0];
+  return (
+    (session.role === "admin" ? users.find((user) => user.role === "admin") : undefined) ??
+    null
   );
 };
 
@@ -2715,6 +2745,31 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
     email,
     authProvider: "supabase",
     lastProjectId: normalizeStoredProjectId(user.user_metadata?.last_project_id),
+    legacyUsername: String(user.app_metadata?.legacy_username ?? "").trim() || undefined,
+  };
+};
+
+// פרטי הפרופיל (שם תצוגה, תחום אחריות) נשמרים בטבלת המשתמשים של המערכת
+const mergeAccessProfile = (
+  access: ProjectAccess,
+  users: ProjectAccess[],
+): ProjectAccess => {
+  const keys = [access.legacyUsername, access.username, access.email]
+    .map(normalizeAccessValue)
+    .filter(Boolean);
+  const profile = users.find((user) =>
+    keys.includes(normalizeAccessValue(user.username)),
+  );
+  if (!profile) return access;
+  return {
+    ...access,
+    username: profile.username,
+    code: profile.code,
+    displayName: profile.displayName,
+    aliases: profile.aliases,
+    projectName: profile.projectName,
+    discipline: profile.discipline,
+    signatureDataUrl: access.signatureDataUrl || profile.signatureDataUrl,
   };
 };
 
@@ -2735,6 +2790,8 @@ const signInWithSupabaseAuth = async (
   }
   return access;
 };
+
+let accessDisciplineColumnMissing = false;
 
 const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (!isSupabaseConfigured || !supabase) return;
@@ -2766,15 +2823,24 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
     if ((deleteResult.data ?? []).length !== removedUsernames.length)
       throw new Error("לא כל המשתמשים שנבחרו נמחקו מ-Supabase. בדוק את הרשאות המחיקה בטבלה.");
   }
-  const rows = normalized.map(projectAccessToRow);
-  let insertResult = await supabase
-    .from(ACCESS_USERS_TABLE)
-    .upsert(rows, { onConflict: "username" });
-  if (insertResult.error && isMissingColumnError(insertResult.error, "project_ids")) {
-    const legacyRows = rows.map(({ project_ids: _projectIds, ...row }) => row);
-    insertResult = await supabase
-      .from(ACCESS_USERS_TABLE)
-      .upsert(legacyRows, { onConflict: "username" });
+  let rows: any[] = normalized.map(projectAccessToRow);
+  accessDisciplineColumnMissing = false;
+  const upsertAccessRows = () =>
+    supabase!.from(ACCESS_USERS_TABLE).upsert(rows, { onConflict: "username" });
+  let insertResult: any = await upsertAccessRows();
+  // עמודות חדשות שעדיין לא נוספו לטבלה – שומרים בלעדיהן במקום להיכשל
+  for (let attempt = 0; attempt < 2 && insertResult.error; attempt += 1) {
+    const missingColumn = ["discipline", "project_ids"].find((column) =>
+      isMissingColumnError(insertResult.error, column),
+    );
+    if (!missingColumn) break;
+    if (missingColumn === "discipline") accessDisciplineColumnMissing = true;
+    rows = rows.map((row) => {
+      const next = { ...row };
+      delete next[missingColumn];
+      return next;
+    });
+    insertResult = await upsertAccessRows();
   }
   if (
     insertResult.error &&
@@ -2842,6 +2908,34 @@ const canWriteAccess = (access: ProjectAccess | null) =>
   access?.role === "admin" ||
   access?.role === "readwrite" ||
   access?.occupationalWriteAccess === true;
+
+// בקר איכות לתחום חשמל ותאורה: עובד כבקר איכות, אך רק בתחום שלו.
+const normalizeAccessDiscipline = (value: unknown): ProjectAccess["discipline"] =>
+  String(value ?? "").trim().toLowerCase() === "electrical" ? "electrical" : "";
+const isDisciplineRestricted = (access: ProjectAccess | null) =>
+  Boolean(access && access.role !== "admin" && access.discipline === "electrical");
+const DISCIPLINE_BLOCK_MESSAGE =
+  "בקר איכות לחשמל ותאורה רשאי לעבוד רק ברשימות תיוג לחשמל ותאורה, קטעי ניסוי, בקרה מקדימה, נקודות עצירה, דוחות פיקוח עליון ואי־התאמות.";
+const DISCIPLINE_CHECKLIST_MESSAGE =
+  "בקר איכות לחשמל ותאורה רשאי לפתוח ולשמור רק רשימות תיוג לעבודות חשמל ותאורה.";
+const isElectricalTemplateKey = (key: unknown) => {
+  const normalized = normalizeChecklistTemplateKey(String(key ?? ""));
+  const folder = CHECKLIST_TEMPLATE_FOLDERS.find((item) => item.id === "electrical");
+  if (folder?.templateKeys.includes(normalized)) return true;
+  return String((checklistTemplates as any)[normalized]?.category ?? "") === "חשמל";
+};
+const isElectricalChecklistRecord = (record: any) =>
+  isElectricalTemplateKey(record?.templateKey ?? record?.template_key) ||
+  /חשמל|תאורה/.test(`${record?.category ?? ""} ${record?.title ?? ""}`);
+// "בקרת איכות" / "מב"א" ברשימת חשמל = בקר איכות לחשמל ותאורה
+const isQualityControlResponsible = (responsible: unknown) => {
+  const text = String(responsible ?? "");
+  return /בקר|איכות|מב["״'׳]?א|qc/i.test(text) && !/הבטחת/.test(text) && !/חשמל|תאורה/.test(text);
+};
+const responsibleForTemplate = (responsible: unknown, templateKey: unknown) =>
+  isElectricalTemplateKey(templateKey) && isQualityControlResponsible(responsible)
+    ? "בקר חשמל ותאורה"
+    : String(responsible ?? "");
 
 const isSelfServiceProjectCreator = (access: ProjectAccess | null) =>
   Boolean(
@@ -2995,6 +3089,8 @@ const responsibleRoleMatchesUser = (
   if (responsibleText.includes("חשמל")) {
     return includesAny([
       "בקר חשמל",
+      "בקר תאורה",
+      "בקרת תאורה",
       "בקר איכות חשמל",
       "בקרת איכות חשמל",
       "בקרת חשמל",
@@ -5808,7 +5904,7 @@ type InlineChecklistSectionProps = {
   projectName: string;
   projectPlans: PlanRecord[];
   projectStructureNodes: ProjectStructureNode[];
-  resolveResponsibleNameForProject: (responsible: unknown) => string;
+  resolveResponsibleNameForProject: (responsible: unknown, templateKey?: unknown) => string;
   responsibleUsers: ProjectEmailUser[];
   onUploadAttachment: (
     itemId: string,
@@ -5820,6 +5916,7 @@ type InlineChecklistSectionProps = {
     item: ChecklistItem & { attachments?: ChecklistAttachment[] },
   ) => void;
   savedSignatureForSigner?: (signerName: string, role?: string) => string;
+  onlyElectricalTemplates?: boolean;
   concreteSupplierOptions?: Array<{ name: string; material: string }>;
 };
 
@@ -6135,6 +6232,7 @@ function ChecklistsSection({
   onOpenNonconformanceFromFinding,
   savedSignatureForSigner,
   concreteSupplierOptions = [],
+  onlyElectricalTemplates = false,
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: CSSProperties = {
@@ -6264,7 +6362,9 @@ function ChecklistsSection({
       }}
     />
   );
-  const templateGroups = CHECKLIST_TEMPLATE_FOLDERS.map((folder) => ({
+  const templateGroups = CHECKLIST_TEMPLATE_FOLDERS.filter(
+    (folder) => !onlyElectricalTemplates || folder.id === "electrical",
+  ).map((folder) => ({
     ...folder,
     templates: folder.templateKeys
       .map((key) => [key, checklistTemplates[key]] as [ChecklistTemplateKey, any])
@@ -7268,12 +7368,24 @@ function ChecklistsSection({
                       attachmentKinds.includes(attachment.kind),
                   );
                   const autoName =
-                    resolveResponsibleNameForProject(item.responsible) ||
+                    resolveResponsibleNameForProject(item.responsible, checklistForm.templateKey) ||
                     item.inspector ||
                     "";
-                  const matchingResponsibleUsers = responsibleUsers.filter((user) =>
-                    responsibleRoleMatchesUser(item.responsible, user),
+                  const electricalResponsible = responsibleForTemplate(
+                    item.responsible,
+                    checklistForm.templateKey,
                   );
+                  const electricalResponsibleUsers =
+                    electricalResponsible !== String(item.responsible ?? "")
+                      ? responsibleUsers.filter((user) =>
+                          responsibleRoleMatchesUser(electricalResponsible, user),
+                        )
+                      : [];
+                  const matchingResponsibleUsers = electricalResponsibleUsers.length
+                    ? electricalResponsibleUsers
+                    : responsibleUsers.filter((user) =>
+                        responsibleRoleMatchesUser(item.responsible, user),
+                      );
                   const matchingResponsibleNames = matchingResponsibleUsers
                     .map((user) => String(user.name || user.email || "").trim())
                     .filter(Boolean);
@@ -12310,6 +12422,7 @@ function UserAccessPanel({
                   {user.displayName || user.username || "משתמש חדש"}
                   <span style={{ color: "#64748b", fontWeight: 700, fontSize: 13, marginInlineStart: 8 }}>
                     {user.role === "readonly" ? "צפייה בלבד" : user.role === "admin" ? "מנהל מערכת" : "קריאה וכתיבה"}
+                    {user.discipline === "electrical" && !isAdmin ? " · בקר חשמל ותאורה" : ""}
                   </span>
                 </div>
                 <button
@@ -12368,6 +12481,27 @@ function UserAccessPanel({
                     <option value="readwrite">Read &amp; Write</option>
                     <option value="readonly">Read Only</option>
                   </select>
+                </label>
+                <label style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>תחום אחריות</span>
+                  <select
+                    value={isAdmin ? "" : (user.discipline ?? "")}
+                    disabled={isAdmin}
+                    onChange={(e) => onChangeUser(index, "discipline", e.target.value)}
+                    style={{
+                      ...fieldInput,
+                      fontWeight: 900,
+                      background: user.discipline === "electrical" && !isAdmin ? "#fef9c3" : "#fff",
+                    }}
+                  >
+                    <option value="">כל התחומים</option>
+                    <option value="electrical">בקר איכות – חשמל ותאורה בלבד</option>
+                  </select>
+                  {user.discipline === "electrical" && !isAdmin ? (
+                    <div style={{ color: "#854d0e", marginTop: 4, fontSize: 11, fontWeight: 800 }}>
+                      רשימות תיוג חשמל/תאורה, קטעי ניסוי, בקרה מקדימה, נקודות עצירה, דוחות פיקוח ואי־התאמות
+                    </div>
+                  ) : null}
                 </label>
                 <label style={{ minWidth: 0 }}>
                   <span style={fieldLabel}>שם פרויקט למשתמש רגיל</span>
@@ -16779,8 +16913,11 @@ export default function Page() {
       const hasSupabaseSession = Boolean(
         supabaseSession && "data" in supabaseSession && supabaseSession.data.session,
       );
-      const supabaseAuthUser =
+      const loadedSupabaseAuthUser =
         storedSession || hasSupabaseSession ? await loadSupabaseAuthAccess() : null;
+      const supabaseAuthUser = loadedSupabaseAuthUser
+        ? mergeAccessProfile(loadedSupabaseAuthUser, users)
+        : null;
       if (cancelled) return;
       if (supabaseAuthUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
@@ -16997,7 +17134,8 @@ export default function Page() {
     let supabaseLoginError = "";
     if (isSupabaseConfigured && isEmailAddress(loginCode)) {
       try {
-        const authAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
+        const signedInAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
+        const authAccess = signedInAccess ? mergeAccessProfile(signedInAccess, accessUsers) : null;
         if (authAccess) {
           const projectList = projects.length ? projects : getDefaultProjectList();
           const selectedProjectId = selectInitialProjectIdForAccess(
@@ -17027,8 +17165,15 @@ export default function Page() {
       loginPassword,
     );
     if (!access) {
+      const sharedCodeMatches = findProjectAccessCandidates(
+        accessUsers,
+        loginCode,
+        loginPassword,
+      ).length;
       setLoginError(
-        supabaseLoginError ||
+        sharedCodeMatches > 1
+          ? "קוד הפרויקט משותף לכמה משתמשים. יש להתחבר עם שם המשתמש האישי והסיסמה."
+          : supabaseLoginError ||
           "שם משתמש או סיסמה אינם נכונים",
       );
       return;
@@ -17039,7 +17184,7 @@ export default function Page() {
         const upgradeResponse = await fetch("/api/auth/legacy-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login: loginCode, password: loginPassword }),
+          body: JSON.stringify({ login: access.username || loginCode, password: loginPassword }),
         });
         const upgrade = await upgradeResponse.json();
         if (!upgradeResponse.ok) throw new Error(upgrade.error || "הפעלת שירותי המייל נכשלה");
@@ -17057,6 +17202,8 @@ export default function Page() {
               displayName: access.displayName,
               aliases: access.aliases,
               projectName: access.projectName,
+              discipline: access.discipline,
+              legacyUsername: access.username,
             }
           : access;
       } catch (error) {
@@ -17207,13 +17354,40 @@ export default function Page() {
     setAccessUsersDirty(true);
   };
 
+  const syncAccessMembershipsOnServer = async () => {
+    if (!isSupabaseConfigured || !supabase) return "";
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) return "";
+      const response = await fetch("/api/auth/sync-members", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return String(result?.error || "עדכון ההרשאות בשרת נכשל");
+      return "";
+    } catch (error) {
+      return errorText(error) || "עדכון ההרשאות בשרת נכשל";
+    }
+  };
+
   const approveAccessUsersChanges = async () => {
     try {
       await persistAccessUsers(draftAccessUsers);
+      const syncError = await syncAccessMembershipsOnServer();
+      const disciplineWarning =
+        accessDisciplineColumnMissing &&
+        draftAccessUsers.some((user) => user.discipline === "electrical")
+          ? "\n\nשים לב: הגדרת \"תחום אחריות\" לא נשמרה כי חסרה עמודה בטבלת המשתמשים. יש להריץ פעם אחת את הקובץ 14_access_users_discipline.sql ב-Supabase > SQL Editor ולשמור שוב."
+          : "";
       alert(
-        isSupabaseConfigured
-          ? "השינויים נשמרו בהצלחה ב-Supabase"
-          : "השינויים נשמרו בהצלחה בדפדפן",
+        (isSupabaseConfigured
+          ? "השינויים נשמרו בהצלחה ב-Supabase. משתמש שכבר מחובר יקבל את ההרשאה החדשה אחרי רענון הדף (F5)."
+          : "השינויים נשמרו בהצלחה בדפדפן") +
+          (syncError ? `\n\nעדכון ההרשאות בשרת לא הושלם: ${syncError}. המשתמש יקבל את ההרשאה החדשה אחרי התנתקות והתחברות מחדש.` : "") +
+          disciplineWarning,
       );
     } catch (error) {
       console.error("Failed to save access users", error);
@@ -18473,11 +18647,17 @@ export default function Page() {
   }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl, projectAccess]);
 
   const resolveResponsibleNameForCurrentProject = useMemo(
-    () => (responsible: unknown) => {
+    () => (responsible: unknown, templateKey?: unknown) => {
       const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
-      const matchingUsers = activeUsers.filter((user) =>
-        responsibleRoleMatchesUser(responsible, user),
-      );
+      // ברשימות חשמל/תאורה – "בקרת איכות" = בקר האיכות לחשמל ותאורה (אם הוגדר בפרויקט)
+      const effectiveResponsible = responsibleForTemplate(responsible, templateKey);
+      const electricalUsers =
+        effectiveResponsible !== String(responsible ?? "")
+          ? activeUsers.filter((user) => responsibleRoleMatchesUser(effectiveResponsible, user))
+          : [];
+      const matchingUsers = electricalUsers.length
+        ? electricalUsers
+        : activeUsers.filter((user) => responsibleRoleMatchesUser(responsible, user));
       const accessIdentities = [
         projectAccess?.email,
         projectAccess?.username,
@@ -18563,7 +18743,7 @@ export default function Page() {
     contractor: form.contractor || currentProjectDefaults.contractor,
     revision: form.revision || CHECKLIST_DEFAULT_REVISION,
     revisionDate: form.revisionDate || CHECKLIST_DEFAULT_REVISION_DATE,
-    items: applyProjectTeamToItems(form.items),
+    items: applyProjectTeamToItems(form.items, form.templateKey),
   });
 
   const applyProjectDefaultsToNonconformance = (form: any) => {
@@ -18888,11 +19068,11 @@ export default function Page() {
     return next;
   };
 
-  const applyProjectTeamToItems = (items: ChecklistItem[]) =>
+  const applyProjectTeamToItems = (items: ChecklistItem[], templateKey?: unknown) =>
     items.map((item) => ({
       ...item,
       inspector:
-        resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector,
+        resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector,
     }));
   const checklistTemplateLabel = (
     key: ChecklistTemplateKey | string | undefined,
@@ -19545,7 +19725,7 @@ export default function Page() {
       items: prev.items.map((item) => ({
         ...item,
         inspector:
-          resolveResponsibleNameForCurrentProject(item.responsible) ||
+          resolveResponsibleNameForCurrentProject(item.responsible, prev.templateKey) ||
           item.inspector,
       })),
     }));
@@ -19720,6 +19900,7 @@ export default function Page() {
   const saveProjectStructureNode = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור פריטים במבנה הפרויקט.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!currentProjectId) return alert("יש לבחור פרויקט לפני יצירת עץ מבנה.");
     if (!projectStructureForm.name.trim())
       return alert("יש להזין שם לפריט בעץ הפרויקט.");
@@ -19872,6 +20053,7 @@ export default function Page() {
   const deleteProjectStructureNode = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק פריטים במבנה הפרויקט.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     const hasChildren = projectStructureNodes.some((node) => node.parentId === id);
     if (hasChildren)
       return alert("לא ניתן למחוק פריט שיש לו פריטי משנה. מחק קודם את הילדים.");
@@ -20175,6 +20357,10 @@ export default function Page() {
   };
 
   const applyChecklistTemplate = (templateKey: ChecklistTemplateKey) => {
+    if (isDisciplineRestricted(projectAccess) && !isElectricalTemplateKey(templateKey)) {
+      alert(DISCIPLINE_CHECKLIST_MESSAGE);
+      return;
+    }
     setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(templateKey));
     setChecklistForm((prev) => {
       const next = createDefaultChecklist(templateKey);
@@ -20192,7 +20378,7 @@ export default function Page() {
         executionPlanNo: prev.executionPlanNo ?? "",
         executionPlanName: prev.executionPlanName ?? "",
         executionPlanRevision: prev.executionPlanRevision ?? "",
-        items: applyProjectTeamToItems(next.items),
+        items: applyProjectTeamToItems(next.items, templateKey),
         approval: prev.approval,
       };
     });
@@ -20207,7 +20393,7 @@ export default function Page() {
       items: prev.items.map((item) => {
         if (item.id !== id) return item;
         if (field === "responsible") {
-          const autoName = resolveResponsibleNameForCurrentProject(value);
+          const autoName = resolveResponsibleNameForCurrentProject(value, prev.templateKey);
           return {
             ...item,
             responsible: value,
@@ -20895,6 +21081,7 @@ export default function Page() {
   const saveControlProcess = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור תהליכי בקרה.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     if (!String(controlProcessForm.title ?? "").trim())
       return alert("יש להזין שם תהליך בקרה");
@@ -21385,6 +21572,7 @@ export default function Page() {
   const deleteControlProcess = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק תהליכי בקרה.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!window.confirm("למחוק את תהליך הבקרה?")) return;
     await withSaving(async () => {
       if (cloudEnabled) {
@@ -21418,6 +21606,8 @@ export default function Page() {
   const saveChecklist = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור רשימות תיוג.");
+    if (isDisciplineRestricted(projectAccess) && !isElectricalChecklistRecord(checklistForm))
+      return alert(DISCIPLINE_CHECKLIST_MESSAGE);
     // רשימה שנפתחה מהגרסה המהירה (בלי תוכן הקבצים) מושלמת לפני שמירה – לעולם לא נשמר סימון במקום קובץ
     const formToSave = await completeChecklistFormForSave(checklistForm);
     if (!formToSave) return;
@@ -21725,6 +21915,11 @@ export default function Page() {
   const deleteChecklist = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק רשימות תיוג.");
+    if (
+      isDisciplineRestricted(projectAccess) &&
+      !isElectricalChecklistRecord(savedChecklists.find((record: any) => record.id === id))
+    )
+      return alert(DISCIPLINE_CHECKLIST_MESSAGE);
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "checklists", id);
@@ -21833,6 +22028,7 @@ export default function Page() {
   const saveRfi = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור פניות RFI.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     if (!String((rfiForm as any).structureNodeId ?? "").trim())
       return alert("יש לשייך את ה-RFI לאלמנט בעץ הפרויקט.");
@@ -21919,6 +22115,7 @@ export default function Page() {
   const deleteRfi = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק פניות RFI.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     const record = savedRfis.find((item) => item.id === id);
     if (!window.confirm("למחוק את " + (record?.title ?? "RFI") + "?")) return;
     await withSaving(async () => {
@@ -22746,6 +22943,7 @@ export default function Page() {
   const importPlanRegisterFile = async (files: FileList | File[] | null) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לייבא תוכניות.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     const file = Array.from(files ?? [])[0];
     if (!file) return;
     if (!currentProjectId) return alert("יש לבחור פרויקט");
@@ -22857,6 +23055,7 @@ export default function Page() {
   const savePlan = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור תוכניות.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!currentProjectId) return alert("יש לבחור פרויקט");
     const hasManualPlanInput =
       Boolean(String(`${planForm.planNo} ${planForm.revision} ${planForm.title} ${planForm.discipline} ${planForm.notes}`).trim()) ||
@@ -22936,6 +23135,7 @@ export default function Page() {
   const deletePlan = async (id: string) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה למחוק תוכניות.");
+    if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
     if (!window.confirm("למחוק את התוכנית?")) return;
     await withSaving(async () => {
       if (cloudEnabled && supabase) {
@@ -23419,12 +23619,12 @@ export default function Page() {
       normalizeProcessSignature(
         item.signature,
         item.responsible || "גורם אחראי",
-        resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector || "",
+        resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector || "",
       );
 
     const itemSignerName = (item: any) => {
       const sig = getItemSignature(item);
-      return sig.signerName || resolveResponsibleNameForCurrentProject(item.responsible) || item.inspector || "";
+      return sig.signerName || resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector || "";
     };
 
     const itemSignature = (item: any) => {
@@ -26835,7 +27035,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               plans={currentProjectPlans}
               form={projectStructureForm}
               editingId={editingProjectStructureNodeId}
-              canWrite={canWriteAccess(projectAccess)}
+              canWrite={canWriteAccess(projectAccess) && !isDisciplineRestricted(projectAccess)}
               onChange={(patch) => setProjectStructureForm((current) => ({ ...current, ...patch }))}
               onSave={saveProjectStructureNode}
               onEdit={editProjectStructureNode}
@@ -26982,7 +27182,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <QualityDocumentsSection
               onEmail={(record) => openRecordEmail("qualityDocuments", record, record.id, record.title)}
               projectId={currentProjectIdNormalized}
-              canWrite={canWriteAccess(projectAccess)}
+              canWrite={canWriteAccess(projectAccess) && !isDisciplineRestricted(projectAccess)}
               supabase={isSupabaseConfigured ? supabase : null}
             />
           )}
@@ -27295,7 +27495,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                   marginBottom: 14,
                 }}
               >
-                {CHECKLIST_TEMPLATE_FOLDERS.map((folder) => {
+                {CHECKLIST_TEMPLATE_FOLDERS.filter(
+                  (folder) => !isDisciplineRestricted(projectAccess) || folder.id === "electrical",
+                ).map((folder) => {
                   const folderTemplates = folder.templateKeys
                     .map((key) => [key, checklistTemplates[key]] as [ChecklistTemplateKey, any])
                     .filter(([, template]) => Boolean(template));
@@ -27425,6 +27627,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onOpenNonconformanceFromFinding={openNonconformanceFromChecklistFinding}
                 savedSignatureForSigner={savedSignatureForSigner}
                 concreteSupplierOptions={concreteSupplierOptions}
+                onlyElectricalTemplates={isDisciplineRestricted(projectAccess)}
               />
             </>
           )}
