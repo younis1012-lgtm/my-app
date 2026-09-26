@@ -235,7 +235,17 @@ export const checklistTemplates = {
     label: 'הידוק מבוקר',
     title: 'רשימת תיוג לעבודות הידוק מבוקר',
     category: 'הידוק מבוקר',
-    items: withPreviousLayerApproval('controlledCompaction', makeItems('controlledCompaction', ['אישור חומר/סוג חומר', 'בדיקת שכבת מילוי', 'בדיקת עובי שכבה', 'ביצוע הידוק מבוקר', 'בדיקות צפיפות/רטיבות', 'אישור המשך עבודה'])),
+    // סדר ואחריות לפי רשימת התיוג המאושרת למילוי/הידוק מבוקר (מזהים קבועים – לא לשנות)
+    items: [
+      { id: 'controlledCompaction-1', description: 'אישור חומר/סוג חומר', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-previous-layer', description: 'אישור שכבה קודמת', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-2', description: 'בדיקת שכבת מילוי', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-3', description: 'בדיקת גבהים/מרחק מציר', responsible: 'מודד', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-4', description: 'ביצוע הידוק מבוקר', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-5', description: 'בדיקות צפיפות/רטיבות', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-fwd', description: 'ביצוע בדיקת FWD', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'controlledCompaction-6', description: 'אישור המשך עבודה', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+    ],
   },
   standardCompaction: {
     label: 'הידוק רגיל',
