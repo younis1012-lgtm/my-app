@@ -4596,7 +4596,7 @@ const createDefaultNonconformance = (): Omit<
     expectedCloseDate: "",
     updatedExpectedCloseDate: "",
     delayDays: "",
-    breakage: "",
+    breakage: "לא",
     qualityImpact: "",
     description: "",
     responsibleParty: "",
@@ -5189,7 +5189,7 @@ async function selectProjectTable(
   const selectHeavyTableSummaries = async () => {
     const summarySelect: Record<string, string> = {
       checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
-      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset",
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset,d_openedBy:details->>openedBy,d_openedName:details->>openedName,d_building:details->>building,d_grade:details->>grade,d_expectedCloseDate:details->>expectedCloseDate,d_updatedExpectedCloseDate:details->>updatedExpectedCloseDate,d_delayDays:details->>delayDays,d_breakage:details->>breakage,d_qualityImpact:details->>qualityImpact,d_responsibleParty:details->>responsibleParty,d_handler:details->>handler,d_correctiveActionDetails:details->>correctiveActionDetails,d_notes:details->>notes,d_closedBy:details->>closedBy,d_closingRole:details->>closingRole,d_closedName:details->>closedName,d_closingDate:details->>closingDate,d_sapNumber:details->>sapNumber,d_specSection:details->>specSection",
       trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id,details",
       preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
       rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
@@ -11995,6 +11995,23 @@ function RfiSection({
   );
 }
 
+// "נסגרה ע״י": בקרת איכות או הבטחת איכות. תפקיד הסגירה (QC/QA) נגזר מהבחירה,
+// ושם הסוגר מתמלא לפי המשתמשים המאושרים בפרויקט.
+const NCR_CLOSER_QC = "QC – בקרת איכות";
+const NCR_CLOSER_QA = "QA – הבטחת איכות";
+const NCR_CLOSER_OPTIONS = ["", NCR_CLOSER_QC, NCR_CLOSER_QA];
+const ncrCloserCode = (value: unknown): "QC" | "QA" | "" => {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/^qa\b|הבטחת\s*איכות|^הא$/i.test(text)) return "QA";
+  if (/^qc\b|בקר(ת)?\s*איכות/i.test(text)) return "QC";
+  return "";
+};
+const ncrCloserOption = (value: unknown) => {
+  const code = ncrCloserCode(value);
+  return code === "QA" ? NCR_CLOSER_QA : code === "QC" ? NCR_CLOSER_QC : String(value ?? "");
+};
+
 const NCR_FIELDS: FieldDef[] = [
   { key: "title", label: "אי התאמה מס׳", required: true },
   {
@@ -12026,7 +12043,7 @@ const NCR_FIELDS: FieldDef[] = [
     type: "date",
   },
   { key: "delayDays", label: "מס׳ ימי עיכוב לסגירה" },
-  { key: "breakage", label: "שבר" },
+  { key: "breakage", label: "שבר", type: "select", options: ["לא", "כן"] },
   {
     key: "qualityImpact",
     label: "השפעה על איכות",
@@ -12053,12 +12070,11 @@ const NCR_FIELDS: FieldDef[] = [
     type: "textarea",
   },
   { key: "notes", label: "הערות", type: "textarea" },
-  { key: "closedBy", label: "נסגרה ע״י" },
   {
-    key: "closingRole",
-    label: "תפקיד סגירה",
+    key: "closedBy",
+    label: "נסגרה ע״י",
     type: "select",
-    options: ["", "QC", "QA"],
+    options: NCR_CLOSER_OPTIONS,
   },
   { key: "closedName", label: "שם סוגר" },
   { key: "closingDate", label: "תאריך סגירה", type: "date" },
@@ -12086,6 +12102,7 @@ function EnhancedNonconformancesSection({
   closeNonconformance,
   uploadNonconformanceAttachment,
   removeNonconformanceAttachment,
+  resolveCloserName,
 }: {
   guardedBody: React.ReactNode;
   editingNonconformanceId: string | null;
@@ -12096,8 +12113,25 @@ function EnhancedNonconformancesSection({
   closeNonconformance: () => void;
   uploadNonconformanceAttachment: (file?: File) => void;
   removeNonconformanceAttachment: (index: number) => void;
+  resolveCloserName?: (code: "QC" | "QA") => string;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
+  // בחירת "נסגרה ע״י" ממלאת אוטומטית את תפקיד הסגירה ואת שם הסוגר
+  const setFormWithCloser: React.Dispatch<React.SetStateAction<any>> = (update) =>
+    setNonconformanceForm((prev: any) => {
+      const next = typeof update === "function" ? (update as (value: any) => any)(prev) : update;
+      if (!next || next.closedBy === prev?.closedBy) return next;
+      const code = ncrCloserCode(next.closedBy);
+      return {
+        ...next,
+        closingRole: code,
+        closedName: code ? resolveCloserName?.(code) || "" : next.closedName,
+      };
+    });
+  const closerFormView = {
+    ...nonconformanceForm,
+    closedBy: ncrCloserOption(nonconformanceForm?.closedBy),
+  };
   return (
     <section>
       <div
@@ -12154,8 +12188,8 @@ function EnhancedNonconformancesSection({
       >
         <FormGrid
           fields={NCR_FIELDS}
-          form={nonconformanceForm}
-          setForm={setNonconformanceForm}
+          form={closerFormView}
+          setForm={setFormWithCloser}
         />
         <div
           style={{
@@ -17678,7 +17712,13 @@ export default function Page() {
   };
 
   const nonconformanceRowToRecord = (row: any): NonconformanceRecord => {
-    const details = (row?.details ?? {}) as Record<string, any>;
+    // בטעינה המהירה (רשימה) שדות הטופס מגיעים כעמודות d_<שדה>; בטעינה מלאה – בתוך details
+    const summaryDetails = Object.fromEntries(
+      Object.entries(row ?? {})
+        .filter(([key, value]) => key.startsWith("d_") && value != null)
+        .map(([key, value]) => [key.slice(2), value]),
+    );
+    const details = { ...summaryDetails, ...(row?.details ?? {}) } as Record<string, any>;
     return {
       id: row.id,
       projectId: normalizeStoredProjectId(row.project_id),
@@ -17713,6 +17753,9 @@ export default function Page() {
       closingRole: details.closingRole ?? details.closing_role ?? "",
       closedName: details.closedName ?? details.closed_name ?? "",
       closingDate: details.closingDate ?? details.closing_date ?? "",
+      ...(details.openedName ? { openedName: details.openedName } : {}),
+      ...(details.sapNumber ? { sapNumber: details.sapNumber } : {}),
+      ...(details.specSection ? { specSection: details.specSection } : {}),
       images: normalizeAttachments(row.images ?? details.images),
       approval: normalizeApproval(row.approval ?? details.approval),
       savedAt: row.saved_at ? new Date(row.saved_at).toLocaleString("he-IL") : "",
@@ -18618,6 +18661,34 @@ export default function Page() {
     () => nonconformanceActor(projectAccess, currentProjectEmailUsers),
     [projectAccess, currentProjectEmailUsers],
   );
+
+  // שם הסוגר לאי־התאמה לפי התפקיד שנבחר (QC / QA) מתוך המשתמשים המאושרים בפרויקט.
+  // אם המשתמש המחובר עצמו בתפקיד הזה – השם שלו.
+  const resolveNcrCloserName = (code: "QC" | "QA") => {
+    const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
+    const roleMatches = (user: ProjectEmailUser) => {
+      const role = String(user.role ?? "").trim();
+      const isQa = /הבטחת\s*איכות|^qa$|^qa\b|^הא$/i.test(role);
+      if (code === "QA") return isQa;
+      return !isQa && !/חשמל|תאורה/.test(role) && isQualityControlProjectUser(user);
+    };
+    const candidates = activeUsers.filter(roleMatches);
+    const identities = [projectAccess?.email, projectAccess?.username, projectAccess?.displayName]
+      .map((value) => normalizeAccessValue(value))
+      .filter(Boolean);
+    const loggedIn = candidates.find((user) =>
+      [user.email, user.name]
+        .map((value) => normalizeAccessValue(value))
+        .some((identity) => identity && identities.includes(identity)),
+    );
+    const chosen = loggedIn ?? candidates[0];
+    return (
+      String(chosen?.name ?? "").trim() ||
+      String(chosen?.email ?? "").trim() ||
+      (code === "QA" ? currentProjectDefaults.qualityAssurance : currentProjectDefaults.qualityControl) ||
+      ""
+    );
+  };
 
   const qualityControlApproverName = useMemo(() => {
     const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
@@ -22427,9 +22498,12 @@ export default function Page() {
       ...prev,
       status: "סגור",
       closingDate: prev.closingDate || today,
-      closedBy: currentNonconformanceActor.roleLabel,
-      closingRole: currentNonconformanceActor.roleLabel,
-      closedName: currentNonconformanceActor.personalName,
+      closedBy: ncrCloserOption(prev.closedBy || currentNonconformanceActor.openedBy),
+      closingRole: ncrCloserCode(prev.closedBy || currentNonconformanceActor.openedBy),
+      closedName:
+        prev.closedName ||
+        resolveNcrCloserName(ncrCloserCode(prev.closedBy || currentNonconformanceActor.openedBy) || "QC") ||
+        currentNonconformanceActor.personalName,
     }));
     setTimeout(
       () =>
@@ -23738,7 +23812,7 @@ export default function Page() {
       ["תאריך סגירה משוער", f.expectedCloseDate],
       ["תאריך סגירה משוער מעודכן", f.updatedExpectedCloseDate],
       ["מס׳ ימי עיכוב לסגירה", f.delayDays],
-      ["שבר", f.breakage],
+      ["שבר", /^(כן|true|1|yes)$/i.test(String(f.breakage ?? "").trim()) ? "כן" : "לא"],
       ["השפעה על איכות", f.qualityImpact],
       ["חומרה", f.severity],
       ["סטטוס", exportStatusLabel(f.status)],
@@ -27662,6 +27736,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               closeNonconformance={closeNonconformance}
               uploadNonconformanceAttachment={uploadNonconformanceAttachment}
               removeNonconformanceAttachment={removeNonconformanceAttachment}
+              resolveCloserName={resolveNcrCloserName}
             />
             </>
           )}
