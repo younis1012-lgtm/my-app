@@ -8043,6 +8043,73 @@ function ChecklistsSection({
           </div>
         );
       })() : null}
+
+      {/* סרגל פעולות תחתון – שמירה / עדכון / רשימה חדשה בלי לגלול חזרה למעלה */}
+      <div
+        style={{
+          position: "sticky",
+          bottom: 0,
+          zIndex: 20,
+          marginTop: 18,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          padding: "12px 16px",
+          background: "rgba(255,255,255,0.97)",
+          border: "1px solid #dbe3ee",
+          borderRadius: 14,
+          boxShadow: "0 -6px 20px rgba(15,23,42,0.08)",
+        }}
+      >
+        <span style={{ color: "#475569", fontWeight: 800 }}>
+          {editingChecklistId ? "עריכת רשימת תיוג קיימת" : "רשימת תיוג חדשה"}
+          {checklistForm.title ? ` · ${checklistForm.title}` : ""}
+        </span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            style={styles.secondaryBtn}
+            onClick={() => {
+              resetChecklistForm();
+              if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            title="פתיחת רשימת תיוג חדשה (ניקוי הטופס)"
+          >
+            + רשימה חדשה
+          </button>
+          <button
+            type="button"
+            style={styles.primaryBtn}
+            onClick={saveChecklist}
+            title="שמירת רשימת תיוג חדשה או שמירת הרשימה הנוכחית"
+          >
+            שמור רשימה
+          </button>
+          <button
+            type="button"
+            style={
+              editingChecklistId
+                ? styles.primaryBtn
+                : {
+                    ...styles.secondaryBtn,
+                    opacity: 0.65,
+                    cursor: "not-allowed",
+                  }
+            }
+            onClick={saveChecklist}
+            disabled={!editingChecklistId}
+            title={
+              editingChecklistId
+                ? "עדכון רשימת התיוג שנפתחה לעריכה"
+                : "כדי לעדכן יש לפתוח רשימה קיימת לעריכה"
+            }
+          >
+            עדכן רשימה
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
