@@ -12182,12 +12182,16 @@ function UserAccessPanel({
     });
   return (
     <div
+      className="project-content"
       style={{
         border: "1px solid #cbd5e1",
         background: "#fff",
         borderRadius: 18,
         padding: 16,
         marginBottom: 16,
+        minWidth: 0,
+        maxWidth: "100%",
+        boxSizing: "border-box",
         boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
       }}
     >
@@ -12253,286 +12257,267 @@ function UserAccessPanel({
         </div>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
-        <table
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}
-        >
-          <thead>
-            <tr>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם לתצוגה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם משתמש
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>סיסמה</th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                סוג הרשאה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                קוד / קישור
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                שם פרויקט למשתמש רגיל
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                חתימה / חותמת שמורה
-              </th>
-              <th style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                פעולות
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {projectUsers.map(({ user, sourceIndex }) => {
-              const index = sourceIndex;
-              const isAdmin = user.role === "admin";
-              const isProjectInvite = isSelfServiceProjectCreator(user);
-              const linkedProjectId =
-                accessProjectIds(user)[0] || normalizedProjectId;
-              const projectLink =
-                user.code
-                  ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
-                  : (user.code ?? "");
-              return (
-                <tr key={`access-user-${user.username}-${index}`}>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <input
-                      value={user.displayName}
-                      onChange={(e) =>
-                        onChangeUser(index, "displayName", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                      }}
-                    />
-                  </td>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <input
-                      value={user.username}
-                      onChange={(e) =>
-                        onChangeUser(index, "username", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        direction: "ltr",
-                      }}
-                    />
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 190,
-                    }}
+      <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
+        {projectUsers.map(({ user, sourceIndex }) => {
+          const index = sourceIndex;
+          const isAdmin = user.role === "admin";
+          const isProjectInvite = isSelfServiceProjectCreator(user);
+          const linkedProjectId =
+            accessProjectIds(user)[0] || normalizedProjectId;
+          const projectLink =
+            user.code
+              ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
+              : (user.code ?? "");
+          const fieldInput: CSSProperties = {
+            width: "100%",
+            minWidth: 0,
+            boxSizing: "border-box",
+            border: "1px solid #cbd5e1",
+            borderRadius: 10,
+            padding: 8,
+            fontWeight: 800,
+            background: "#fff",
+          };
+          const fieldLabel: CSSProperties = {
+            display: "block",
+            fontSize: 12,
+            fontWeight: 900,
+            color: "#475569",
+            marginBottom: 4,
+          };
+          return (
+            <div
+              key={`access-user-${user.username}-${index}`}
+              style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: 14,
+                padding: 12,
+                background: "#f8fafc",
+                minWidth: 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ fontWeight: 950, fontSize: 16 }}>
+                  {user.displayName || user.username || "משתמש חדש"}
+                  <span style={{ color: "#64748b", fontWeight: 700, fontSize: 13, marginInlineStart: 8 }}>
+                    {user.role === "readonly" ? "צפייה בלבד" : user.role === "admin" ? "מנהל מערכת" : "קריאה וכתיבה"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={users.length <= 1 || isAdmin}
+                  onClick={() => onRemoveUser(index)}
+                  style={{
+                    ...styles.dangerBtn,
+                    padding: "6px 12px",
+                    opacity: users.length <= 1 || isAdmin ? 0.45 : 1,
+                  }}
+                >
+                  מחיקה
+                </button>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+                  gap: 10,
+                  alignItems: "start",
+                }}
+              >
+                <label style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>שם לתצוגה</span>
+                  <input
+                    value={user.displayName}
+                    onChange={(e) => onChangeUser(index, "displayName", e.target.value)}
+                    style={fieldInput}
+                  />
+                </label>
+                <label style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>שם משתמש</span>
+                  <input
+                    value={user.username}
+                    onChange={(e) => onChangeUser(index, "username", e.target.value)}
+                    style={{ ...fieldInput, direction: "ltr" }}
+                  />
+                </label>
+                <div style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>סיסמה</span>
+                  <PasswordField
+                    value={user.password}
+                    onChange={(value) => onChangeUser(index, "password", value)}
+                    autoComplete="new-password"
+                  />
+                </div>
+                <label style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>סוג הרשאה</span>
+                  <select
+                    value={user.role}
+                    onChange={(e) => onChangeUser(index, "role", e.target.value)}
+                    style={{ ...fieldInput, fontWeight: 900 }}
                   >
-                    <PasswordField
-                      value={user.password}
-                      onChange={(value) =>
-                        onChangeUser(index, "password", value)
-                      }
-                      autoComplete="new-password"
-                    />
-                  </td>
-                  <td style={{ border: "1px solid #e2e8f0", padding: 8 }}>
-                    <select
-                      value={user.role}
-                      onChange={(e) =>
-                        onChangeUser(index, "role", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 900,
-                      }}
-                    >
-                      {allowAdminRole ? <option value="admin">Administrator</option> : null}
-                      <option value="readwrite">Read &amp; Write</option>
-                      <option value="readonly">Read Only</option>
-                    </select>
-                  </td>
-                  <td
+                    {allowAdminRole ? <option value="admin">Administrator</option> : null}
+                    <option value="readwrite">Read &amp; Write</option>
+                    <option value="readonly">Read Only</option>
+                  </select>
+                </label>
+                <label style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>שם פרויקט למשתמש רגיל</span>
+                  <input
+                    disabled={isAdmin || isProjectInvite}
+                    value={
+                      isAdmin
+                        ? "כל הפרויקטים"
+                        : isProjectInvite
+                          ? "ימולא אוטומטית לאחר פתיחת הפרויקט"
+                          : (user.projectName ?? "")
+                    }
+                    onChange={(e) => onChangeUser(index, "projectName", e.target.value)}
                     style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 210,
+                      ...fieldInput,
+                      background: isAdmin || isProjectInvite ? "#f1f5f9" : "#fff",
                     }}
-                  >
+                  />
+                  {isProjectInvite ? (
+                    <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
+                      המשתמש יפתח פרויקט חדש בעצמו, והשם יתמלא כאן אוטומטית.
+                    </div>
+                  ) : null}
+                </label>
+                <div style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>קוד / קישור</span>
+                  <div style={{ display: "flex", gap: 6, minWidth: 0 }}>
                     <input
                       value={user.code ?? ""}
-                      onChange={(e) =>
-                        onChangeUser(index, "code", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        direction: "ltr",
-                      }}
+                      onChange={(e) => onChangeUser(index, "code", e.target.value)}
+                      style={{ ...fieldInput, direction: "ltr", fontSize: 12 }}
+                      title={projectLink || undefined}
                     />
                     {!isAdmin && projectLink ? (
-                      <div style={{ marginTop: 6 }}>
-                        <div
-                          style={{
-                            color: "#64748b",
-                            fontSize: 12,
-                            direction: "ltr",
-                            textAlign: "left",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {projectLink}
-                        </div>
-                        <button
-                          type="button"
-                          style={{ ...styles.secondaryBtn, marginTop: 6, padding: "6px 10px" }}
-                          onClick={() => {
-                            void navigator.clipboard.writeText(projectLink);
-                            alert("הקישור הראשי הועתק");
-                          }}
-                        >
-                          העתק קישור
-                        </button>
-                      </div>
-                    ) : null}
-                    {isProjectInvite ? (
-                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                        קישור הזמנה: המשתמש יפתח פרויקט חדש בעצמו.
-                      </div>
-                    ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 260,
-                    }}
-                  >
-                    <input
-                      disabled={isAdmin || isProjectInvite}
-                      value={
-                        isAdmin
-                          ? "כל הפרויקטים"
-                          : isProjectInvite
-                            ? "ימולא אוטומטית לאחר פתיחת הפרויקט"
-                            : (user.projectName ?? "")
-                      }
-                      onChange={(e) =>
-                        onChangeUser(index, "projectName", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 10,
-                        padding: 8,
-                        fontWeight: 800,
-                        background: isAdmin || isProjectInvite ? "#f1f5f9" : "#fff",
-                      }}
-                    />
-                    {isProjectInvite ? (
-                      <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                        אין צורך לציין שם פרויקט. המשתמש יפתח פרויקט חדש בעצמו, והשם יתמלא כאן אוטומטית.
-                      </div>
-                    ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      minWidth: 190,
-                      textAlign: "center",
-                    }}
-                  >
-                    {user.signatureDataUrl ? (
-                      <img
-                        src={user.signatureDataUrl}
-                        alt="חתימה/חותמת"
-                        style={{
-                          maxWidth: 130,
-                          maxHeight: 52,
-                          display: "block",
-                          margin: "0 auto 6px",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: 8,
-                          background: "#fff",
-                          padding: 4,
-                        }}
-                      />
-                    ) : (
-                      <div style={{ color: "#64748b", marginBottom: 6 }}>
-                        לא הועלתה חתימה
-                      </div>
-                    )}
-                    <FileDropZone
-                      accept="image/*"
-                      multiple={false}
-                      buttonLabel="העלה חתימה/חותמת"
-                      helperText="גרור לכאן חתימה"
-                      onFiles={(files) => onUploadSignature(index, Array.from(files)[0])}
-                    />
-                    {user.signatureDataUrl ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          onChangeUser(index, "signatureDataUrl", "")
-                        }
-                        style={{
-                          border: 0,
-                          background: "transparent",
-                          color: "#b91c1c",
-                          fontWeight: 900,
-                          cursor: "pointer",
-                          display: "block",
-                          margin: "6px auto 0",
+                        title={projectLink}
+                        style={{ ...styles.secondaryBtn, padding: "6px 10px", whiteSpace: "nowrap", flexShrink: 0 }}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(projectLink);
+                          alert("הקישור הראשי הועתק");
                         }}
                       >
-                        נקה
+                        העתק קישור
                       </button>
                     ) : null}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      padding: 8,
-                      textAlign: "center",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      disabled={users.length <= 1 || isAdmin}
-                      onClick={() => onRemoveUser(index)}
-                      style={{
-                        ...styles.dangerBtn,
-                        opacity: users.length <= 1 || isAdmin ? 0.45 : 1,
-                      }}
+                  </div>
+                  {isProjectInvite ? (
+                    <div style={{ color: "#166534", marginTop: 6, fontSize: 12, fontWeight: 900 }}>
+                      קישור הזמנה: המשתמש יפתח פרויקט חדש בעצמו.
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={fieldLabel}>חתימה / חותמת שמורה</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    {user.signatureDataUrl ? (
+                      <>
+                        <img
+                          src={user.signatureDataUrl}
+                          alt="חתימה/חותמת"
+                          style={{
+                            maxWidth: 110,
+                            maxHeight: 44,
+                            border: "1px solid #cbd5e1",
+                            borderRadius: 8,
+                            background: "#fff",
+                            padding: 3,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onChangeUser(index, "signatureDataUrl", "")}
+                          style={{
+                            border: 0,
+                            background: "transparent",
+                            color: "#b91c1c",
+                            fontWeight: 900,
+                            cursor: "pointer",
+                          }}
+                        >
+                          נקה
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ color: "#64748b", fontSize: 12 }}>לא הועלתה חתימה</span>
+                    )}
+                    <label
+                      style={{ ...styles.secondaryBtn, padding: "6px 10px", cursor: "pointer", fontSize: 13 }}
                     >
-                      מחיקה
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-            {!projectUsers.length ? (
-              <tr>
-                <td colSpan={8} style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
-                  עדיין אין משתמשים המשויכים לפרויקט זה.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+                      {user.signatureDataUrl ? "החלף" : "העלה חתימה"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => {
+                          onUploadSignature(index, e.target.files?.[0]);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {!projectUsers.length ? (
+          <div style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
+            עדיין אין משתמשים המשויכים לפרויקט זה.
+          </div>
+        ) : null}
+      </div>
+      <div
+        style={{
+          position: "sticky",
+          bottom: 0,
+          zIndex: 5,
+          marginTop: 12,
+          padding: "10px 0 2px",
+          background: "#fff",
+          borderTop: "1px solid #e2e8f0",
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <button type="button" onClick={onAddUser} style={{ ...styles.secondaryBtn }}>
+          + הוסף משתמש לפרויקט זה
+        </button>
+        <button
+          type="button"
+          onClick={onApproveChanges}
+          disabled={!hasUnsavedChanges}
+          style={{ ...styles.primaryBtn, opacity: hasUnsavedChanges ? 1 : 0.5 }}
+        >
+          אישור שמירת שינויים
+        </button>
+        <button
+          type="button"
+          onClick={onCancelChanges}
+          disabled={!hasUnsavedChanges}
+          style={{ ...styles.secondaryBtn, opacity: hasUnsavedChanges ? 1 : 0.5 }}
+        >
+          בטל שינויים
+        </button>
+        {hasUnsavedChanges ? (
+          <span style={{ color: "#b45309", fontWeight: 950 }}>יש שינויים שלא נשמרו</span>
+        ) : null}
       </div>
     </div>
   );
