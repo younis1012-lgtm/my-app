@@ -4306,6 +4306,7 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
       "excavation",
       "baseCourseSpreading",
       "controlledCompaction",
+      "soilReplacement",
       "standardCompaction",
       "milling",
       "asphaltSite",
@@ -5361,26 +5362,6 @@ function supervisionRowsOrKeep(
   return rows.length ? rows : browserReports;
 }
 
-// Transient failures (statement timeout, network blip, schema-cache reload)
-// used to make whole modules disappear until the next refresh. Retry a few
-// times before giving up.
-async function readWithRetry<R extends { error?: unknown } | null | undefined>(
-  read: () => Promise<R>,
-  attempts = 3,
-): Promise<R> {
-  let last: R = undefined as R;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      last = await read();
-      if (!last?.error || shouldIgnoreCloudError(last.error)) return last;
-    } catch (error) {
-      last = { data: null, error } as unknown as R;
-    }
-    if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
-  }
-  return last;
-}
-
 function cloudRowsOrFallback<T = any>(
   result: { data?: T[] | null; error?: unknown } | null | undefined,
   fallback: T[] = [],
@@ -6286,7 +6267,7 @@ function ChecklistsSection({
     /כלונס/.test(`${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`);
   const isSewerChecklist = String(checklistForm.templateKey) === "sewerLines";
   const isEarthworksChecklistForm =
-    ["excavation", "baseCourseSpreading", "controlledCompaction", "standardCompaction", "asphaltSite", "asphaltWorks"].includes(String(checklistForm.templateKey)) ||
+    ["excavation", "baseCourseSpreading", "controlledCompaction", "soilReplacement", "standardCompaction", "asphaltSite", "asphaltWorks"].includes(String(checklistForm.templateKey)) ||
     /עבודות\s*עפר|הידוק|מילוי|חפירה|שתית|קרקע\s*יסוד|מצע|מצעים|אספלט/.test(
       `${checklistForm.title ?? ""} ${checklistForm.category ?? ""}`,
     );
@@ -17643,36 +17624,55 @@ export default function Page() {
           structureRes,
           plansRes,
         ] = await Promise.all([
-          readWithRetry(() => selectTable("projects", "created_at")),
-          readWithRetry(() => selectProjectTable("checklists", "saved_at", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable("trial_sections", "saved_at", scopedProjectIds)),
-          readWithRetry(async () => {
-            const first = await preliminaryRequest;
-            return first?.error ? selectProjectTable("preliminary_records", "saved_at", scopedProjectIds) : first;
-          }),
-          readWithRetry(() => selectProjectTable("rfi_records", "created_at", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds)),
-          readWithRetry(() => selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds)),
+          // ניסיון אחד בזמן הטעינה – המסך לא מחכה לניסיונות חוזרים של טבלה איטית.
+          // טבלה שנכשלה נטענת שוב ברקע (למטה) ומתעדכנת כשהיא מגיעה.
+          selectTable("projects", "created_at"),
+          selectProjectTable("checklists", "saved_at", scopedProjectIds),
+          selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+          preliminaryRequest,
+          selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+          selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+          selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+          selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
         ]);
         if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
-        setCloudLoadIssues(
-          ([
-            ["רשימות תיוג", checklistsRes],
-            ["אי־התאמות", nonconRes],
-            ["קטעי ניסוי", trialsRes],
-            ["בקרה מקדימה", prelimRes],
-            ["RFI", rfiRes],
-            ["תעודות ייחוס", controlRes],
-            ["פיקוח עליון", supervisionRes],
-            ["עץ המבנה", structureRes],
-            ["תוכניות", plansRes],
-          ] as Array<[string, any]>)
-            .filter(([, result]) => cloudRowsOrKeep(result) === undefined)
-            .map(([label]) => label),
-        );
+        const projectRowsForRetry = cloudRowsOrFallback(projectsRes, projects);
+        const retryPlan: Array<{ label: string; failed: boolean; read: () => Promise<any>; apply: (result: any) => void }> = [
+          { label: "רשימות תיוג", failed: cloudRowsOrKeep(checklistsRes) === undefined, read: () => selectProjectTable("checklists", "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, cloudRowsOrKeep(r), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined) },
+          { label: "אי־התאמות", failed: cloudRowsOrKeep(nonconRes) === undefined, read: () => selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, cloudRowsOrKeep(r), undefined, undefined, undefined, undefined, undefined, undefined, undefined) },
+          { label: "קטעי ניסוי", failed: cloudRowsOrKeep(trialsRes) === undefined, read: () => selectProjectTable("trial_sections", "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, cloudRowsOrKeep(r), undefined, undefined, undefined, undefined, undefined, undefined) },
+          { label: "בקרה מקדימה", failed: cloudRowsOrKeep(prelimRes) === undefined, read: () => selectProjectTable("preliminary_records", "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, cloudRowsOrKeep(r), undefined, undefined, undefined, undefined, undefined) },
+          { label: "RFI", failed: cloudRowsOrKeep(rfiRes) === undefined, read: () => selectProjectTable("rfi_records", "created_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, undefined, cloudRowsOrKeep(r), undefined, undefined, undefined, undefined) },
+          { label: "תעודות ייחוס", failed: cloudRowsOrKeep(controlRes) === undefined, read: () => selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, undefined, undefined, cloudRowsOrKeep(r), undefined, undefined, undefined) },
+          { label: "פיקוח עליון", failed: cloudRowsOrKeep(supervisionRes) === undefined, read: () => selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, undefined, undefined, undefined, supervisionRowsOrKeep(r, browserSupervisionReports), undefined, undefined) },
+          { label: "עץ המבנה", failed: cloudRowsOrKeep(structureRes) === undefined, read: () => selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, undefined, undefined, undefined, undefined, cloudRowsOrKeep(r), undefined) },
+          { label: "תוכניות", failed: cloudRowsOrKeep(plansRes) === undefined, read: () => selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds), apply: (r) => loadFromCloudResults(projectRowsForRetry, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, cloudRowsOrKeep(r)) },
+        ];
+        const failedModules = retryPlan.filter((entry) => entry.failed);
+        if (failedModules.length) {
+          // ניסיונות חוזרים ברקע – בלי לעכב את הצגת המסך
+          void (async () => {
+            const stillFailing = new Set(failedModules.map((entry) => entry.label));
+            for (let attempt = 0; attempt < 2 && stillFailing.size; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+              for (const entry of failedModules) {
+                if (!stillFailing.has(entry.label)) continue;
+                if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
+                const result = await entry.read().catch((error: unknown) => ({ data: null, error }));
+                if (cancelled || loadGeneration !== cloudLoadGenerationRef.current) return;
+                if (cloudRowsOrKeep(result) !== undefined) {
+                  entry.apply(result);
+                  stillFailing.delete(entry.label);
+                }
+              }
+            }
+            if (!cancelled && loadGeneration === cloudLoadGenerationRef.current) setCloudLoadIssues([...stillFailing]);
+          })();
+        }
+        // הפס הצהוב מוצג רק אם גם הניסיונות החוזרים ברקע נכשלו
+        if (!failedModules.length) setCloudLoadIssues([]);
         loadFromCloudResults(
           cloudRowsOrFallback(projectsRes, projects),
           cloudRowsOrKeep(checklistsRes),
@@ -17936,16 +17936,16 @@ export default function Page() {
       structureRes,
       plansRes,
     ] = await Promise.all([
-      readWithRetry(() => selectTable("projects", "created_at")),
-      readWithRetry(() => selectProjectTable("checklists", "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable("trial_sections", "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable("preliminary_records", "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable("rfi_records", "created_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds)),
-      readWithRetry(() => selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds)),
+      selectTable("projects", "created_at"),
+      selectProjectTable("checklists", "saved_at", scopedProjectIds),
+      selectProjectTable(NONCONFORMANCE_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable("trial_sections", "saved_at", scopedProjectIds),
+      selectProjectTable("preliminary_records", "saved_at", scopedProjectIds),
+      selectProjectTable("rfi_records", "created_at", scopedProjectIds),
+      selectProjectTable(CONTROL_PROCESS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(SUPERVISION_REPORTS_TABLE, "saved_at", scopedProjectIds),
+      selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
+      selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
     ]);
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
@@ -21265,13 +21265,16 @@ export default function Page() {
   const saveChecklist = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור רשימות תיוג.");
+    // רשימה שנפתחה מהגרסה המהירה (בלי תוכן הקבצים) מושלמת לפני שמירה – לעולם לא נשמר סימון במקום קובץ
+    const formToSave = await completeChecklistFormForSave(checklistForm);
+    if (!formToSave) return;
     if (!currentProjectId) return alert("יש לבחור פרויקט");
-    if (!String((checklistForm as any).structureNodeId ?? "").trim())
+    if (!String((formToSave as any).structureNodeId ?? "").trim())
       return alert("יש לשייך את רשימת התיוג לאלמנט בעץ הפרויקט.");
-    if (!checklistForm.title.trim()) return alert("יש להזין שם רשימת תיוג");
+    if (!formToSave.title.trim()) return alert("יש להזין שם רשימת תיוג");
     const id = editingChecklistId ?? crypto.randomUUID();
     const existingChecklistNo = getExistingEditingChecklistNo();
-    const currentChecklistNo = Number((checklistForm as any).checklistNo);
+    const currentChecklistNo = Number((formToSave as any).checklistNo);
     const requestedChecklistNo =
       Number.isFinite(currentChecklistNo) &&
       currentChecklistNo > 0 &&
@@ -21296,31 +21299,31 @@ export default function Page() {
     );
     const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
     const checklistDetails = {
-      projectNameDisplay: String((checklistForm as any).projectNameDisplay || currentProjectDefaults.projectName || ""),
-      roadStructure: String((checklistForm as any).roadStructure ?? ""),
-      layerThickness: String((checklistForm as any).layerThickness ?? ""),
-      areaSquareMeters: String((checklistForm as any).areaSquareMeters ?? ""),
-      castingVolumeCubicMeters: String((checklistForm as any).castingVolumeCubicMeters ?? ""),
-      stationSection: String((checklistForm as any).stationSection ?? ""),
-      toStationSection: String((checklistForm as any).toStationSection ?? ""),
-      offset: String((checklistForm as any).offset ?? ""),
-      selectedPlanId: String((checklistForm as any).selectedPlanId ?? ""),
-      executionPlanNo: String((checklistForm as any).executionPlanNo ?? ""),
-      executionPlanName: String((checklistForm as any).executionPlanName ?? ""),
-      executionPlanRevision: String((checklistForm as any).executionPlanRevision ?? ""),
-      revision: String((checklistForm as any).revision || CHECKLIST_DEFAULT_REVISION),
-      revisionDate: String((checklistForm as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
-      structureNodeId: String((checklistForm as any).structureNodeId ?? ""),
+      projectNameDisplay: String((formToSave as any).projectNameDisplay || currentProjectDefaults.projectName || ""),
+      roadStructure: String((formToSave as any).roadStructure ?? ""),
+      layerThickness: String((formToSave as any).layerThickness ?? ""),
+      areaSquareMeters: String((formToSave as any).areaSquareMeters ?? ""),
+      castingVolumeCubicMeters: String((formToSave as any).castingVolumeCubicMeters ?? ""),
+      stationSection: String((formToSave as any).stationSection ?? ""),
+      toStationSection: String((formToSave as any).toStationSection ?? ""),
+      offset: String((formToSave as any).offset ?? ""),
+      selectedPlanId: String((formToSave as any).selectedPlanId ?? ""),
+      executionPlanNo: String((formToSave as any).executionPlanNo ?? ""),
+      executionPlanName: String((formToSave as any).executionPlanName ?? ""),
+      executionPlanRevision: String((formToSave as any).executionPlanRevision ?? ""),
+      revision: String((formToSave as any).revision || CHECKLIST_DEFAULT_REVISION),
+      revisionDate: String((formToSave as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
+      structureNodeId: String((formToSave as any).structureNodeId ?? ""),
       pileDetails:
-        (checklistForm as any).pileDetails &&
-        typeof (checklistForm as any).pileDetails === "object"
-          ? { ...(checklistForm as any).pileDetails }
+        (formToSave as any).pileDetails &&
+        typeof (formToSave as any).pileDetails === "object"
+          ? { ...(formToSave as any).pileDetails }
           : {},
     };
-    const items = normalizeChecklistItems(checklistForm.items);
-    const normalizedApproval = approvalForEditableSave(checklistForm.approval);
+    const items = normalizeChecklistItems(formToSave.items);
+    const normalizedApproval = approvalForEditableSave(formToSave.approval);
     const approvalDerivedRecord = {
-      ...checklistForm,
+      ...formToSave,
       ...checklistDetails,
       items,
       approval: normalizedApproval,
@@ -21335,12 +21338,12 @@ export default function Page() {
       : normalizedApproval;
     const recordStatus = shouldPersistApprovedStatus
       ? "approved"
-      : String((checklistForm as any).status || "");
+      : String((formToSave as any).status || "");
     const record: ChecklistRecord = {
       id,
       projectId: normalizedProjectId,
       checklistNo: Number(checklistNo),
-      ...checklistForm,
+      ...formToSave,
       ...checklistDetails,
       items,
       approval,
@@ -21386,6 +21389,13 @@ export default function Page() {
       // השמירה בענן נכשלה – לא מציגים "נשמרה בהצלחה" ולא מאבדים את מה שהוזן בטופס
       return;
     }
+    // הגרסה ששמרנו היא עכשיו הגרסה העדכנית גם למסכי הריכוזים/מעקב ולפתיחה מהירה
+    setConcentrationSource((current) => {
+      if (!current || current.projectId !== normalizeStoredProjectId(record.projectId)) return current;
+      const checklists = new Map(current.checklists);
+      checklists.set(record.id, record);
+      return { ...current, checklists };
+    });
     setEditingChecklistId(id);
     setChecklistForm((prev: any) => ({ ...prev, ...checklistDetails, checklistNo: Number(checklistNo), items: record.items, savedAt: record.savedAt, approval: record.approval }));
     alert(
@@ -21394,7 +21404,111 @@ export default function Page() {
         : "רשימת התיוג נשמרה בהצלחה – סטטוס: בטיפול (יש סעיפים שעדיין לא נחתמו/אושרו)",
     );
   };
+  // ---- פתיחה מהירה של רשימת תיוג ----
+  // אם כבר נטענה ברקע גרסה "קלה" של הרשימה (כל הנתונים בלי תוכן הקבצים המצורפים),
+  // הטופס נפתח מיד ממנה, והקבצים עצמם נטענים ברקע ומושלמים לתוך הטופס.
+  const fullChecklistRequestsRef = useRef(new Map<string, Promise<any | null>>());
+  const EMBEDDED_MARKER = /^embedded:[0-9a-f]{32}$/;
+  const containsEmbeddedMarker = (value: unknown): boolean => {
+    if (typeof value === "string") return EMBEDDED_MARKER.test(value);
+    if (Array.isArray(value)) return value.some(containsEmbeddedMarker);
+    if (value && typeof value === "object") return Object.values(value).some(containsEmbeddedMarker);
+    return false;
+  };
+  // מחליף כל סימון "embedded:" בערך המקביל מהגרסה המלאה (לפי מזהה סעיף ומזהה קובץ)
+  const patchEmbedded = (current: any, full: any): any => {
+    if (typeof current === "string") return EMBEDDED_MARKER.test(current) && typeof full === "string" ? full : current;
+    if (Array.isArray(current)) {
+      const fullArray = Array.isArray(full) ? full : [];
+      return current.map((entry, index) => {
+        const byId = entry && typeof entry === "object" && "id" in entry ? fullArray.find((candidate: any) => candidate?.id === entry.id) : undefined;
+        return patchEmbedded(entry, byId ?? fullArray[index]);
+      });
+    }
+    if (current && typeof current === "object") {
+      const result: Record<string, any> = {};
+      Object.entries(current).forEach(([key, value]) => {
+        result[key] = patchEmbedded(value, full && typeof full === "object" ? (full as any)[key] : undefined);
+      });
+      return result;
+    }
+    return current;
+  };
+  const fetchFullChecklist = (id: string): Promise<any | null> => {
+    const existing = fullChecklistRequestsRef.current.get(id);
+    if (existing) return existing;
+    const request = (async () => {
+      if (!cloudEnabled || !supabase) return null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const { data, error } = await supabase.from("checklists").select("*").eq("id", id).maybeSingle();
+        if (!error && data) return checklistRowToRecord(data);
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+      }
+      return null;
+    })();
+    fullChecklistRequestsRef.current.set(id, request);
+    void request.then((result) => {
+      if (!result) fullChecklistRequestsRef.current.delete(id);
+      else setTimeout(() => fullChecklistRequestsRef.current.delete(id), 60_000);
+    });
+    return request;
+  };
+  const completeChecklistFormForSave = async (form: any): Promise<any | null> => {
+    if (!containsEmbeddedMarker(form?.items)) return form;
+    const id = String(editingChecklistId || form?.id || "");
+    setOpeningChecklist("השלמת הקבצים המצורפים לפני שמירה");
+    try {
+      const full = id ? await fetchFullChecklist(id) : null;
+      if (!full) {
+        alert("הקבצים המצורפים עדיין נטענים ולא הושלמו. המתן רגע ונסה לשמור שוב.");
+        return null;
+      }
+      const patched = { ...form, items: patchEmbedded(form.items, full.items) };
+      if (containsEmbeddedMarker(patched.items)) {
+        alert("לא ניתן היה להשלים את כל הקבצים המצורפים. רענן את הרשימה ונסה שוב.");
+        return null;
+      }
+      setChecklistForm(patched);
+      return patched;
+    } finally {
+      setOpeningChecklist("");
+    }
+  };
+
   const loadChecklist = async (record: ChecklistRecord) => {
+    // פתיחה מיידית מהגרסה הקלה שכבר נטענה ברקע (אם קיימת)
+    const light = getConcentrationChecklist(record.id);
+    // רק אם הגרסה הקלה עדכנית (אותו זמן שמירה) – אחרת טוענים מהשרת
+    const lightIsCurrent = Boolean(light) && String((light as any).savedAt ?? "") === String(record.savedAt ?? "");
+    if (cloudEnabled && light && lightIsCurrent && Array.isArray((light as any).items) && (light as any).items.length) {
+      const lightRecord = { ...record, ...(light as any), displayNumber: (record as any).displayNumber } as ChecklistRecord;
+      setSection("checklists");
+      setSelectedChecklistTemplateKey(normalizeChecklistTemplateKey(lightRecord.templateKey));
+      setEditingChecklistId(lightRecord.id);
+      setChecklistForm({
+        ...(lightRecord as any),
+        checklistNo: lightRecord.checklistNo,
+        templateKey: lightRecord.templateKey,
+        title: lightRecord.title,
+        category: lightRecord.category,
+        location: lightRecord.location,
+        date: lightRecord.date,
+        contractor: lightRecord.contractor,
+        notes: lightRecord.notes,
+        items: normalizeChecklistItems(lightRecord.items),
+        approval: normalizeApproval(lightRecord.approval),
+      });
+      // הקבצים עצמם – ברקע, ומושלמים לתוך הטופס בלי לגעת במה שהמשתמש כבר שינה
+      void fetchFullChecklist(record.id).then((full) => {
+        if (!full) return;
+        setChecklistForm((current: any) =>
+          current?.id === record.id && containsEmbeddedMarker(current?.items)
+            ? { ...current, items: patchEmbedded(current.items, full.items) }
+            : current,
+        );
+      });
+      return;
+    }
     // לחיצה נוספת בזמן שהרשימה נטענת לא מתחילה טעינה נוספת
     if (openingChecklistRef.current === record.id) return;
     openingChecklistRef.current = record.id;

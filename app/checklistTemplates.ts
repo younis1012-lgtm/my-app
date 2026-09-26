@@ -247,6 +247,21 @@ export const checklistTemplates = {
       { id: 'controlledCompaction-6', description: 'אישור המשך עבודה', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
     ],
   },
+  soilReplacement: {
+    label: 'החלפת קרקע',
+    title: 'רשימת תיוג לעבודות החלפת קרקע',
+    category: 'החלפת קרקע',
+    items: [
+      { id: 'soilReplacement-1', description: 'אישור חומר/סוג חומר', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-previous-layer', description: 'אישור שכבה קודמת', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-2', description: 'בדיקת עומק ומפלס תחתית החפירה להחלפה', responsible: 'מודד', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-3', description: 'בדיקת שכבת מילוי', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-4', description: 'בדיקת גבהים/מרחק מציר', responsible: 'מודד', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-5', description: 'ביצוע הידוק מבוקר', responsible: 'מנהל עבודה', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-6', description: 'בדיקות צפיפות/רטיבות', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+      { id: 'soilReplacement-7', description: 'אישור המשך עבודה', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+    ],
+  },
   standardCompaction: {
     label: 'הידוק רגיל',
     title: 'רשימת תיוג לעבודות הידוק רגיל',
