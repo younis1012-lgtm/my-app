@@ -3868,6 +3868,9 @@ type ChecklistAttachmentKind = "lab" | "measurement" | "other";
 type DensityReviewState = {
   fileName: string;
   results: Record<string, any>;
+  supplierOptions?: Array<{ name: string; material: string }>;
+  certificateSource?: string;
+  supplierAutoFilled?: boolean;
 };
 
 type DensityReviewResolver = (results: Record<string, any> | null) => void;
@@ -5806,6 +5809,7 @@ type InlineChecklistSectionProps = {
     item: ChecklistItem & { attachments?: ChecklistAttachment[] },
   ) => void;
   savedSignatureForSigner?: (signerName: string, role?: string) => string;
+  concreteSupplierOptions?: Array<{ name: string; material: string }>;
 };
 
 type ProcessSignature = {
@@ -6119,6 +6123,7 @@ function ChecklistsSection({
   onRemoveAttachment,
   onOpenNonconformanceFromFinding,
   savedSignatureForSigner,
+  concreteSupplierOptions = [],
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: CSSProperties = {
@@ -7886,9 +7891,10 @@ function ChecklistsSection({
                   />
                 </label>
                 <label>
-                  <span style={labelStyle}>מקור בטון</span>
+                  <span style={labelStyle}>מקור בטון (ספק)</span>
                   <input
                     value={results.concreteSource ?? ""}
+                    list={concreteSupplierOptions.length ? "concrete-review-supplier-options" : undefined}
                     onChange={(event) =>
                       updateConcreteResults(reviewItem.id, {
                         concreteSource: event.target.value,
@@ -7896,6 +7902,22 @@ function ChecklistsSection({
                     }
                     style={modalInputStyle}
                   />
+                  {concreteSupplierOptions.length ? (
+                    <datalist id="concrete-review-supplier-options">
+                      {concreteSupplierOptions.map((option) => (
+                        <option key={option.name} value={option.name}>
+                          {option.material}
+                        </option>
+                      ))}
+                    </datalist>
+                  ) : null}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#047857" }}>
+                    {concreteSupplierOptions.some((option) => option.name === results.concreteSource)
+                      ? "ספק מאושר מבקרה מקדימה"
+                      : concreteSupplierOptions.length
+                        ? "ניתן לבחור ספק מאושר מהרשימה"
+                        : "אין ספקים מאושרים בבקרה מקדימה"}
+                  </span>
                 </label>
                 <label>
                   <span style={labelStyle}>מספר תעודת סומך</span>
@@ -10010,6 +10032,85 @@ function getSupplierName(record: any) {
 function getSuppliedMaterial(record: any) {
   const n = getPreliminaryNested(record);
   return n?.suppliedMaterial || n?.materialName || record?.suppliedMaterial || record?.materialName || "";
+}
+
+// בחירת ספק מאושר מתוך "בקרה מקדימה – ספקים" לשדה "מקור החומר" / "מקור בטון".
+// fill = חומרי מילוי / עפר / מצעים, concrete = בטון.
+const SUPPLIER_FILL_PATTERN = /מילוי|נברר|מצע|עפר|אגו["״']?ם|אגרגט|חצץ|חול|קרקע|מחצב|סלע|גרוס|טפס|כורכר|חומר\s*מקומי/;
+const SUPPLIER_CONCRETE_PATTERN = /בטון|מבטון|רדימיקס|readymix|תערובת\s*מוכנה/i;
+
+type ApprovedSupplierPick = {
+  name: string;
+  options: Array<{ name: string; material: string }>;
+};
+
+function normalizeSupplierText(value: unknown) {
+  return String(value ?? "")
+    .toLocaleLowerCase("he")
+    .replace(/["״'׳.,()\-_/\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickApprovedSupplier(
+  preliminaryRecords: any[],
+  kind: "fill" | "concrete",
+  hints: unknown[],
+  currentSource?: unknown,
+): ApprovedSupplierPick {
+  const approved = preliminaryRecords
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record?.subtype === "suppliers")
+    .filter(({ record }) => normalizeApprovalStatusValue(getApprovalDisplayStatus(record)) === "approved")
+    .map(({ record, index }) => ({
+      index,
+      name: String(getSupplierName(record) || "").trim(),
+      material: String(getSuppliedMaterial(record) || "").trim(),
+      expired: isExpiredDate(getPreliminaryExpiryDate(record)),
+    }))
+    .filter((item) => item.name);
+  if (!approved.length) return { name: "", options: [] };
+  const valid = approved.some((item) => !item.expired)
+    ? approved.filter((item) => !item.expired)
+    : approved;
+  const pattern = kind === "concrete" ? SUPPLIER_CONCRETE_PATTERN : SUPPLIER_FILL_PATTERN;
+  const otherPattern = kind === "concrete" ? SUPPLIER_FILL_PATTERN : SUPPLIER_CONCRETE_PATTERN;
+  const relevant = valid.filter(
+    (item) => pattern.test(`${item.material} ${item.name}`) ||
+      (!item.material && !otherPattern.test(item.name)),
+  );
+  const source = normalizeSupplierText(currentSource);
+  const hintWords = hints
+    .map(normalizeSupplierText)
+    .join(" ")
+    .split(" ")
+    .filter((word) => word.length >= 3);
+  const score = (item: { name: string; material: string; index: number }) => {
+    const name = normalizeSupplierText(item.name);
+    const material = normalizeSupplierText(item.material);
+    let value = 0;
+    if (source && name && (source.includes(name) || name.includes(source))) value += 100;
+    for (const word of hintWords) {
+      if (material.includes(word)) value += 5;
+      if (name.includes(word)) value += 3;
+    }
+    if (pattern.test(`${item.material} ${item.name}`)) value += 2;
+    return value;
+  };
+  // ספק שמופיע בתעודה עצמה גובר תמיד, גם אם תחום החומר שלו לא סווג.
+  const pool = relevant.length ? relevant : [];
+  const sourceMatch = valid.find((item) => score({ ...item, material: "" }) >= 100);
+  const ranked = [...pool].sort((a, b) => score(b) - score(a) || b.index - a.index);
+  const best = sourceMatch ?? ranked[0];
+  const seen = new Set<string>();
+  const options = [...(sourceMatch ? [sourceMatch] : []), ...ranked, ...valid]
+    .filter((item) => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    })
+    .map((item) => ({ name: item.name, material: item.material }));
+  return { name: best?.name ?? "", options };
 }
 
 function getContractorName(record: any) {
@@ -19288,6 +19389,10 @@ export default function Page() {
     currentProjectIdentitySignature,
     normalizedSearchTerm,
   ]);
+  const concreteSupplierOptions = useMemo(
+    () => pickApprovedSupplier(projectPreliminary as any[], "concrete", []).options,
+    [projectPreliminary],
+  );
   const approvedPreliminarySupplierNames = useMemo(
     () =>
       Array.from(
@@ -20154,10 +20259,33 @@ export default function Page() {
   const requestDensityReview = (fileName: string, results: Record<string, any>) =>
     new Promise<Record<string, any> | null>((resolve) => {
       densityReviewResolverRef.current = resolve;
+      // מקור החומר = הספק המאושר ב"בקרה מקדימה – ספקים" (חומרי מילוי).
+      // חומר מקומי מהאתר נשאר "מקומי" – אין לו ספק.
+      const certificateSource = String(results["מקור החומר"] ?? "").trim();
+      const materialHints = [
+        results["תאור החומר"],
+        results["מיון החומר"],
+        (checklistForm as any).title,
+        checklistTemplateLabel(String(checklistForm.templateKey ?? "")),
+      ];
+      const isLocalMaterial =
+        /^מקומי$/.test(certificateSource) ||
+        /חומר\s*מקומי|מקומי\s*מהאתר/.test(String(results["תאור החומר"] ?? ""));
+      const supplierPick = pickApprovedSupplier(
+        projectPreliminary as any[],
+        "fill",
+        materialHints,
+        certificateSource,
+      );
+      const autoSupplier = !isLocalMaterial ? supplierPick.name : "";
       setDensityReview({
         fileName,
+        supplierOptions: supplierPick.options,
+        certificateSource,
+        supplierAutoFilled: Boolean(autoSupplier && autoSupplier !== certificateSource),
         results: {
           ...results,
+          ...(autoSupplier ? { "מקור החומר": autoSupplier } : {}),
           sampleRows: Array.isArray(results.sampleRows)
             ? results.sampleRows
             : Array.isArray(results.rows)
@@ -20461,6 +20589,16 @@ export default function Page() {
           console.warn("Concrete strength certificate extraction failed", error);
         }
         autoConcreteResults ??= {};
+        // מקור בטון = ספק הבטון המאושר ב"בקרה מקדימה – ספקים".
+        const concreteSupplier = pickApprovedSupplier(
+          projectPreliminary as any[],
+          "concrete",
+          [autoConcreteResults.concreteType, (checklistForm as any).title],
+          autoConcreteResults.concreteSource,
+        ).name;
+        if (concreteSupplier) {
+          autoConcreteResults = { ...autoConcreteResults, concreteSource: concreteSupplier };
+        }
       }
       if (kind === "lab" && !shouldExtractAsphalt && !shouldExtractConcrete) {
         try {
@@ -26233,18 +26371,45 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                     gap: 12,
                   }}
                 >
-                  {summaryFields.map((field) => (
-                    <label key={field} style={{ display: "grid", gap: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 900, color: "#334155" }}>
-                        {field}
-                      </span>
-                      <input
-                        value={String(densityReview.results[field] ?? "")}
-                        onChange={(event) => updateDensityReviewValue(field, event.target.value)}
-                        style={dialogInputStyle}
-                      />
-                    </label>
-                  ))}
+                  {summaryFields.map((field) => {
+                    const isSourceField = field === "מקור החומר";
+                    const supplierOptions = isSourceField ? densityReview.supplierOptions ?? [] : [];
+                    return (
+                      <label key={field} style={{ display: "grid", gap: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: "#334155" }}>
+                          {isSourceField ? "מקור החומר (ספק)" : field}
+                        </span>
+                        <input
+                          value={String(densityReview.results[field] ?? "")}
+                          onChange={(event) => updateDensityReviewValue(field, event.target.value)}
+                          list={supplierOptions.length ? "density-review-supplier-options" : undefined}
+                          style={
+                            isSourceField && densityReview.supplierAutoFilled
+                              ? { ...dialogInputStyle, background: "#ecfdf5", borderColor: "#6ee7b7" }
+                              : dialogInputStyle
+                          }
+                        />
+                        {isSourceField && supplierOptions.length ? (
+                          <datalist id="density-review-supplier-options">
+                            {supplierOptions.map((option) => (
+                              <option key={option.name} value={option.name}>
+                                {option.material}
+                              </option>
+                            ))}
+                          </datalist>
+                        ) : null}
+                        {isSourceField ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#047857" }}>
+                            {densityReview.supplierAutoFilled
+                              ? `מולא אוטומטית מאישור ספקים${densityReview.certificateSource ? ` · בתעודה: ${densityReview.certificateSource}` : ""}`
+                              : supplierOptions.length
+                                ? "ניתן לבחור ספק מאושר מהרשימה"
+                                : "אין ספקים מאושרים בבקרה מקדימה"}
+                          </span>
+                        ) : null}
+                      </label>
+                    );
+                  })}
                 </div>
 
                 <div>
@@ -27244,6 +27409,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onRemoveAttachment={removeChecklistItemAttachment}
                 onOpenNonconformanceFromFinding={openNonconformanceFromChecklistFinding}
                 savedSignatureForSigner={savedSignatureForSigner}
+                concreteSupplierOptions={concreteSupplierOptions}
               />
             </>
           )}
