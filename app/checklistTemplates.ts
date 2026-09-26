@@ -47,6 +47,14 @@ const makeItems = (key: string, descriptions: string[]): ChecklistItem[] =>
     executionDate: '',
   }));
 
+// "אישור שכבה קודמת" באחריות בקרת איכות – נוסף לכל רשימות התיוג לעבודות עפר (הידוק)
+// מזהה קבוע כדי שמזהי שאר הסעיפים לא ישתנו
+const withPreviousLayerApproval = (key: string, items: ChecklistItem[]): ChecklistItem[] => [
+  ...items.slice(0, 1),
+  { id: `${key}-previous-layer`, description: 'אישור שכבה קודמת', responsible: 'בקרת איכות', status: 'לא נבדק', notes: '', inspector: '', executionDate: '' },
+  ...items.slice(1),
+];
+
 export const checklistTemplates = {
   general: {
     label: 'כללי',
@@ -227,13 +235,13 @@ export const checklistTemplates = {
     label: 'הידוק מבוקר',
     title: 'רשימת תיוג לעבודות הידוק מבוקר',
     category: 'הידוק מבוקר',
-    items: makeItems('controlledCompaction', ['אישור חומר/סוג חומר', 'בדיקת שכבת מילוי', 'בדיקת עובי שכבה', 'ביצוע הידוק מבוקר', 'בדיקות צפיפות/רטיבות', 'אישור המשך עבודה']),
+    items: withPreviousLayerApproval('controlledCompaction', makeItems('controlledCompaction', ['אישור חומר/סוג חומר', 'בדיקת שכבת מילוי', 'בדיקת עובי שכבה', 'ביצוע הידוק מבוקר', 'בדיקות צפיפות/רטיבות', 'אישור המשך עבודה'])),
   },
   standardCompaction: {
     label: 'הידוק רגיל',
     title: 'רשימת תיוג לעבודות הידוק רגיל',
     category: 'הידוק רגיל',
-    items: makeItems('standardCompaction', ['אישור חומר/סוג חומר', 'בדיקת שטח לפני מילוי', 'פיזור שכבה', 'ביצוע הידוק', 'בדיקת מפלסים וגמר', 'אישור סופי']),
+    items: withPreviousLayerApproval('standardCompaction', makeItems('standardCompaction', ['אישור חומר/סוג חומר', 'בדיקת שטח לפני מילוי', 'פיזור שכבה', 'ביצוע הידוק', 'בדיקת מפלסים וגמר', 'אישור סופי'])),
   },
   guardrails: {
     label: 'מעקות',
