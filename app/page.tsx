@@ -4336,6 +4336,7 @@ const normalizeChecklistItems = (
             concreteReviewApproved: Boolean(item?.concreteReviewApproved),
             concreteReviewRequested: Boolean(item?.concreteReviewRequested),
             excludedFromPrint: Boolean(item?.excludedFromPrint),
+            ...(item?.stage ? { stage: String(item.stage) } : {}),
             signature: item?.signature ? {
               role: String(item.signature?.role ?? item?.responsible ?? "גורם אחראי"),
               signerName: String(item.signature?.signerName ?? item?.inspector ?? ""),
@@ -4346,6 +4347,35 @@ const normalizeChecklistItems = (
           }) as ChecklistItem & { attachments?: ChecklistAttachment[] },
       )
     : [];
+
+// שדות כותרת לטפסי ניקוז (נוהל 57.01) – לפי הטופס המאושר
+const DRAINAGE_HEADER_FIELDS: Record<string, Array<[string, string]>> = {
+  drainagePiping: [
+    ["roadName", "כביש"],
+    ["lineNo", "קו מס׳"],
+    ["pipeTypeDiameter", "סוג וקוטר צינור"],
+    ["fromManhole", "משוחה מס׳"],
+    ["toManhole", "לשוחה מס׳"],
+    ["pipeSupplier", "ספק צינורות"],
+    ["fillMaterialSource", "מקור חומר מילוי"],
+    ["fillMaterialType", "סוג חומר מילוי"],
+    ["beddingSand", "חול עטיפה"],
+  ],
+  drainageManholesInlets: [
+    ["roadName", "כביש"],
+    ["lineNo", "קו מס׳"],
+    ["pipeTypeDiameter", "סוג וקוטר צינור"],
+    ["fromManhole", "משוחה מס׳"],
+    ["inletNo", "מספר קולטן"],
+    ["backfillDescription", "תיאור חומר מילוי חוזר"],
+  ],
+};
+// שדות כותרת נוספים שנשמרים עם רשימת התיוג (ניקוז + קווי ביוב)
+const CHECKLIST_EXTRA_HEADER_KEYS = [
+  "roadName", "lineNo", "pipeTypeDiameter", "fromManhole", "toManhole", "pipeSupplier",
+  "fillMaterialSource", "fillMaterialType", "beddingSand", "inletNo", "backfillDescription",
+  "betweenManholes", "pipeMaterial", "pipeDiameter", "lineLengthMeters",
+] as const;
 
 const CHECKLIST_DEFAULT_REVISION = "1";
 const CHECKLIST_DEFAULT_REVISION_DATE = "2025-12-01";
@@ -4401,8 +4431,8 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
   {
     id: "water-drainage",
     title: "רשימות תיוג מים וניקוז",
-    description: "מערכות מים, קווי ביוב, צנרת ניקוז וריצוף תעלות",
-    templateKeys: ["waterSystems", "sewerLines", "drainagePiping", "channelPaving"],
+    description: "מערכות מים, קווי ביוב, צנרת ניקוז, שוחות וקולטנים וריצוף תעלות",
+    templateKeys: ["waterSystems", "sewerLines", "drainagePiping", "drainageManholesInlets", "channelPaving"],
   },
   {
     id: "roadworks",
@@ -6999,6 +7029,16 @@ function ChecklistsSection({
                 style={inputStyle}
               />
             </label>
+            {(DRAINAGE_HEADER_FIELDS[String(checklistForm.templateKey)] ?? []).map(([key, label]) => (
+              <label key={key}>
+                <span style={labelStyle}>{label}</span>
+                <input
+                  value={(checklistForm as any)[key] ?? ""}
+                  onChange={(event) => setField(key, event.target.value)}
+                  style={inputStyle}
+                />
+              </label>
+            ))}
             {isSewerChecklist ? (
               <>
                 <label><span style={labelStyle}>מס׳ קו</span><input value={(checklistForm as any).lineNo ?? ""} onChange={(event) => setField("lineNo", event.target.value)} style={inputStyle} /></label>
@@ -7461,8 +7501,28 @@ function ChecklistsSection({
                     String(item.status ?? "").trim() === "לא תקין" ||
                     concreteStatus === "לא מתאים" ||
                     attachments.some(checklistAttachmentHasNonconformingResult);
+                  const itemStage = String((item as any).stage ?? "").trim();
+                  const previousStage = index > 0 ? String((checklistForm.items[index - 1] as any)?.stage ?? "").trim() : "";
+                  const showStageRow = Boolean(itemStage) && itemStage !== previousStage;
                   return (
-                    <tr key={item.id}>
+                    <Fragment key={item.id}>
+                    {showStageRow ? (
+                      <tr>
+                        <td
+                          colSpan={10}
+                          style={{
+                            border: "1px solid #94a3b8",
+                            padding: "7px 10px",
+                            background: "#e0e7ff",
+                            color: "#1e3a8a",
+                            fontWeight: 950,
+                          }}
+                        >
+                          שלב: {itemStage}
+                        </td>
+                      </tr>
+                    ) : null}
+                    <tr>
                       <td style={cellStyle}>
                         <textarea
                           value={item.description ?? ""}
@@ -7938,6 +7998,7 @@ function ChecklistsSection({
                         </button>
                       </td>
                     </tr>
+                    </Fragment>
                   );
                 },
               )}
@@ -17715,6 +17776,9 @@ export default function Page() {
       executionPlanRevision: details.executionPlanRevision ?? details.execution_plan_revision ?? details.planRevision ?? "",
       revision: String(details.revision ?? CHECKLIST_DEFAULT_REVISION),
       revisionDate: String(details.revisionDate ?? details.revision_date ?? CHECKLIST_DEFAULT_REVISION_DATE),
+      ...Object.fromEntries(
+        CHECKLIST_EXTRA_HEADER_KEYS.map((key) => [key, String(details[key] ?? "")]),
+      ),
       pileDetails:
         details.pileDetails && typeof details.pileDetails === "object"
           ? details.pileDetails
@@ -21747,6 +21811,9 @@ export default function Page() {
       revision: String((formToSave as any).revision || CHECKLIST_DEFAULT_REVISION),
       revisionDate: String((formToSave as any).revisionDate || CHECKLIST_DEFAULT_REVISION_DATE),
       structureNodeId: String((formToSave as any).structureNodeId ?? ""),
+      ...Object.fromEntries(
+        CHECKLIST_EXTRA_HEADER_KEYS.map((key) => [key, String((formToSave as any)[key] ?? "")]),
+      ),
       pileDetails:
         (formToSave as any).pileDetails &&
         typeof (formToSave as any).pileDetails === "object"
@@ -23705,6 +23772,7 @@ export default function Page() {
     const offset = sourceRecord.offset || sourceRecord.side || "";
     const notes = sourceRecord.notes || "";
     const isSewerExport = String(templateKey) === "sewerLines";
+    const drainageHeaderFields = DRAINAGE_HEADER_FIELDS[String(templateKey)] ?? [];
 
     const displayedItems = rawItems.filter((item) => !Boolean((item as any).excludedFromPrint));
 
@@ -23737,7 +23805,13 @@ export default function Page() {
     };
 
     const rowsHtml = displayedItems.length
-      ? displayedItems.map((item) => `<tr>
+      ? displayedItems.map((item, itemIndex) => {
+          const stage = String((item as any).stage ?? "").trim();
+          const previousStage = itemIndex > 0 ? String((displayedItems[itemIndex - 1] as any)?.stage ?? "").trim() : "";
+          const stageRow = stage && stage !== previousStage
+            ? `<tr><td colspan="7" class="activity" style="background:#e5e7eb;font-weight:900">שלב: ${safeText(stage)}</td></tr>`
+            : "";
+          return `${stageRow}<tr>
           <td class="activity">${valueOrBlank(item.description, 42)}</td>
           <td>${valueOrBlank(item.responsible, 28)}</td>
           <td>${valueOrBlank(itemSignerName(item), 28)}</td>
@@ -23745,7 +23819,8 @@ export default function Page() {
           <td>${valueOrBlank(itemDate(item), 22)}</td>
           <td>${valueOrBlank(itemLabDocument(item), 32)}</td>
           <td>${valueOrBlank((item as any).remarks, 38)}</td>
-        </tr>`).join("")
+        </tr>`;
+        }).join("")
       : `<tr><td colspan="7">לא מולאו סעיפי בקרה</td></tr>`;
 
     return `<div class="checklist-export-title">${safeText(title)}</div>
@@ -23769,6 +23844,14 @@ export default function Page() {
       <tbody>
         <tr><th>מס׳ קו</th><th>בין שוחות / קטע</th><th>חומר הצינור</th><th>קוטר הצינור</th><th>אורך הקו במטרים</th></tr>
         <tr><td>${valueOrBlank(sourceRecord.lineNo, 18)}</td><td>${valueOrBlank(sourceRecord.betweenManholes, 28)}</td><td>${valueOrBlank(sourceRecord.pipeMaterial, 22)}</td><td>${valueOrBlank(sourceRecord.pipeDiameter, 18)}</td><td>${valueOrBlank(sourceRecord.lineLengthMeters, 18)}</td></tr>
+      </tbody>
+    </table>` : ""}
+    ${drainageHeaderFields.length ? `<table class="checklist-top-table source-meta">
+      <tbody>
+        ${Array.from({ length: Math.ceil(drainageHeaderFields.length / 3) }, (_, rowIndex) => {
+          const cells = drainageHeaderFields.slice(rowIndex * 3, rowIndex * 3 + 3);
+          return `<tr>${cells.map(([, label]) => `<th>${safeText(label)}</th>`).join("")}</tr><tr>${cells.map(([key]) => `<td>${valueOrBlank(sourceRecord[key], 24)}</td>`).join("")}</tr>`;
+        }).join("")}
       </tbody>
     </table>` : ""}
     <table class="check-table">

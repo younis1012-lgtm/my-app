@@ -1,6 +1,6 @@
 export type Section = 'home' | 'projects' | 'checklists' | 'nonconformances' | 'trialSections' | 'preliminary' | 'rfi' | 'supervisionReports';
 export type PreliminaryTab = 'suppliers' | 'subcontractors' | 'materials';
-export type ChecklistTemplateKey = 'general' | 'paintWorks' | 'milling' | 'rockWall' | 'excavation' | 'channelPaving' | 'baseCourseSpreading' | 'curbstones' | 'asphaltSite' | 'castCurbstone' | 'catsEyes' | 'siteConcrete' | 'stoneFacingGravityWall' | 'dryMethodPiles' | 'jkWorks' | 'controlledCompaction' | 'standardCompaction' | 'soilReplacement' | 'guardrails' | 'signage' | 'waterSystems' | 'sewerLines' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping' | 'electricalControlCells' | 'electricalCrossingPipesCables' | 'electricalLightingPole' | 'electricalLightingCabinet' | 'electricalLightingFoundation';
+export type ChecklistTemplateKey = 'general' | 'paintWorks' | 'milling' | 'rockWall' | 'excavation' | 'channelPaving' | 'baseCourseSpreading' | 'curbstones' | 'asphaltSite' | 'castCurbstone' | 'catsEyes' | 'siteConcrete' | 'stoneFacingGravityWall' | 'dryMethodPiles' | 'jkWorks' | 'controlledCompaction' | 'standardCompaction' | 'soilReplacement' | 'guardrails' | 'signage' | 'waterSystems' | 'sewerLines' | 'paving' | 'steelGuardrailsSupply' | 'asphaltWorks' | 'drainagePiping' | 'drainageManholesInlets' | 'electricalControlCells' | 'electricalCrossingPipesCables' | 'electricalLightingPole' | 'electricalLightingCabinet' | 'electricalLightingFoundation';
 export type ChecklistStatus = 'לא נבדק' | 'תקין' | 'לא תקין' | 'לא רלוונטי';
 export type RecordStatus = 'טיוטה' | 'מאושר' | 'לא מאושר';
 export type NonconformanceStatus = 'פתוח' | 'בטיפול' | 'נסגר';
@@ -33,6 +33,8 @@ export type ChecklistItem = {
   remarks?: string;
   inspector: string;
   executionDate: string;
+  /** שלב בטופס (בקרה מוקדמת / בקרה שוטפת / אישור סופי) */
+  stage?: string;
   attachments?: ChecklistAttachment[];
   /** סעיף שלא נדרש בו צירוף תעודה / מסמך */
   noAttachment?: boolean;
