@@ -9440,6 +9440,8 @@ function SupervisionReportsSection({
   onClose,
   onDownloadPdf,
   onSendEmail,
+  onSendSelectedEmail,
+  onDownloadSelectedPdf,
 }: {
   records: SupervisionReportRecord[];
   form: Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">;
@@ -9453,7 +9455,10 @@ function SupervisionReportsSection({
   onClose: () => void;
   onDownloadPdf: (record: SupervisionReportRecord) => void;
   onSendEmail: (record: SupervisionReportRecord) => void;
+  onSendSelectedEmail?: (records: SupervisionReportRecord[]) => void | Promise<void>;
+  onDownloadSelectedPdf?: (records: SupervisionReportRecord[]) => void | Promise<void>;
 }) {
+  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
   const [recordsPage, setRecordsPage] = useState(1);
   const [recordFilters, setRecordFilters] = useState<Record<string, string>>({});
@@ -9613,7 +9618,31 @@ function SupervisionReportsSection({
       </div>
 
       <div style={styles.card}>
-        <h3 style={{ marginTop: 0, fontWeight: 950 }}>רשומות שנשמרו</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontWeight: 950 }}>רשומות שנשמרו</h3>
+          {records.length && (onSendSelectedEmail || onDownloadSelectedPdf) ? (() => {
+            const selectedReports = records.filter((record) => selectedReportIds.includes(record.id));
+            const actionReports = selectedReports.length ? selectedReports : filteredSupervisionRecords;
+            return (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {onDownloadSelectedPdf ? (
+                  <button type="button" style={styles.secondaryBtn} disabled={!actionReports.length} onClick={() => onDownloadSelectedPdf(actionReports)}>
+                    {selectedReports.length
+                      ? `${selectedReports.length > 1 ? "הורד מסומנים כ-ZIP" : "הורד מסומנים כ-PDF"} (${selectedReports.length})`
+                      : `${actionReports.length > 1 ? "הורד את כל הרשומות כ-ZIP" : "הורד את הרשומה כ-PDF"} (${actionReports.length})`}
+                  </button>
+                ) : null}
+                {onSendSelectedEmail ? (
+                  <button type="button" style={styles.secondaryBtn} disabled={!actionReports.length} onClick={() => onSendSelectedEmail(actionReports)}>
+                    {selectedReports.length
+                      ? `שלח מסומנים במייל (${selectedReports.length})`
+                      : `שלח את כל הרשומות במייל (${actionReports.length})`}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })() : null}
+        </div>
         {records.length ? (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
@@ -9637,7 +9666,22 @@ function SupervisionReportsSection({
               <tbody>
                 {visibleRecords.map((record, index) => (
                   <tr key={record.id}>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center" }}>{(safeRecordsPage - 1) * recordsPageSize + index + 1}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", textAlign: "center", whiteSpace: "nowrap" }}>
+                      {onSendSelectedEmail || onDownloadSelectedPdf ? (
+                        <input
+                          type="checkbox"
+                          aria-label="סמן רשומה"
+                          checked={selectedReportIds.includes(record.id)}
+                          onChange={(event) =>
+                            setSelectedReportIds((prev) =>
+                              event.target.checked ? Array.from(new Set([...prev, record.id])) : prev.filter((item) => item !== record.id),
+                            )
+                          }
+                          style={{ width: 18, height: 18, marginInlineEnd: 6, verticalAlign: "middle" }}
+                        />
+                      ) : null}
+                      {(safeRecordsPage - 1) * recordsPageSize + index + 1}
+                    </td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
@@ -10998,12 +11042,17 @@ function TrialSectionsRecordsTable({
   onOpen,
   onDelete,
   onNew,
+  onSendSelectedEmail,
+  onDownloadSelectedPdf,
 }: {
   records: any[];
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
+  onSendSelectedEmail?: (records: any[]) => void | Promise<void>;
+  onDownloadSelectedPdf?: (records: any[]) => void | Promise<void>;
 }) {
+  const [selectedTrialIds, setSelectedTrialIds] = useState<string[]>([]);
   const trialDateValue = (record: any) => {
     const raw = pickTrialValue(record, "executionDate", "date", "approvalDate", "savedAt", "createdAt");
     const normalized = normalizeLooseText(raw);
@@ -11167,6 +11216,11 @@ function TrialSectionsRecordsTable({
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const visibleRecords = filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const canSelectTrials = Boolean(onSendSelectedEmail || onDownloadSelectedPdf);
+  const selectedTrialRecords = sortedRecords.filter((record) => selectedTrialIds.includes(String(record?.id ?? "")));
+  const trialActionRecords = selectedTrialRecords.length ? selectedTrialRecords : filteredRecords;
+  const visibleTrialIds = visibleRecords.map((record, index) => String(record?.id ?? index));
+  const allVisibleTrialsSelected = visibleTrialIds.length > 0 && visibleTrialIds.every((id) => selectedTrialIds.includes(id));
   const activeFilterCount = Object.values(columnFilters).filter((value) => normalizeTableFilter(value)).length;
   const updateColumnFilter = (label: string, value: string) => {
     setColumnFilters((current) => ({ ...current, [label]: value }));
@@ -11220,6 +11274,30 @@ function TrialSectionsRecordsTable({
           {filteredRecords.length !== sortedRecords.length ? ` (סה״כ ${sortedRecords.length})` : ""}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {onDownloadSelectedPdf ? (
+            <button
+              type="button"
+              style={trialActionRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              disabled={!trialActionRecords.length}
+              onClick={() => onDownloadSelectedPdf(trialActionRecords)}
+            >
+              {selectedTrialRecords.length
+                ? `${selectedTrialRecords.length > 1 ? "הורד מסומנים כ-ZIP" : "הורד מסומנים כ-PDF"} (${selectedTrialRecords.length})`
+                : `${trialActionRecords.length > 1 ? "הורד את כל הרשומות כ-ZIP" : "הורד את הרשומה כ-PDF"} (${trialActionRecords.length})`}
+            </button>
+          ) : null}
+          {onSendSelectedEmail ? (
+            <button
+              type="button"
+              style={trialActionRecords.length ? styles.secondaryBtn : { ...styles.secondaryBtn, opacity: 0.55, cursor: "not-allowed" }}
+              disabled={!trialActionRecords.length}
+              onClick={() => onSendSelectedEmail(trialActionRecords)}
+            >
+              {selectedTrialRecords.length
+                ? `שלח מסומנים במייל (${selectedTrialRecords.length})`
+                : `שלח את כל הרשומות במייל (${trialActionRecords.length})`}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onNew}
@@ -11280,6 +11358,21 @@ function TrialSectionsRecordsTable({
                   fontWeight: 950,
                 }}
               >
+                {canSelectTrials ? (
+                  <input
+                    type="checkbox"
+                    aria-label="סמן את כל הרשומות בעמוד"
+                    checked={allVisibleTrialsSelected}
+                    onChange={(event) =>
+                      setSelectedTrialIds((prev) =>
+                        event.target.checked
+                          ? Array.from(new Set([...prev, ...visibleTrialIds]))
+                          : prev.filter((id) => !visibleTrialIds.includes(id)),
+                      )
+                    }
+                    style={{ width: 18, height: 18, marginInlineEnd: 8, verticalAlign: "middle" }}
+                  />
+                ) : null}
                 פעולות
               </th>
               {columns.map((column) => (
@@ -11329,6 +11422,20 @@ function TrialSectionsRecordsTable({
                       }}
                     >
                       <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center" }}>
+                        {canSelectTrials ? (
+                          <input
+                            type="checkbox"
+                            aria-label="סמן רשומה"
+                            checked={selectedTrialIds.includes(id)}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              setSelectedTrialIds((prev) =>
+                                event.target.checked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id),
+                              )
+                            }
+                            style={{ width: 18, height: 18 }}
+                          />
+                        ) : null}
                         <button
                           type="button"
                           title="פתח / ערוך"
@@ -23894,8 +24001,8 @@ export default function Page() {
     return status === "טיוטה" || status.toLowerCase() === "draft" ? "בתהליך / בטיפול" : status;
   };
 
-  const nonconformanceExportHtml = () => {
-    const f: any = enrichNonconformanceRecordWithProjectDetails(nonconformanceForm);
+  const nonconformanceExportHtml = (source: any = nonconformanceForm) => {
+    const f: any = enrichNonconformanceRecordWithProjectDetails(source);
     return `${baseRows([
       ...nonconformanceProjectDetailRows(f),
       ["אי התאמה מס׳", f.title],
@@ -23931,8 +24038,8 @@ export default function Page() {
     ])}${nonconformanceAttachmentsSummary(f.images)}${signaturesTable(f.approval)}`;
   };
 
-  const trialSectionExportHtml = () => {
-    const f: any = enrichTrialSectionRecord(trialSectionForm as any);
+  const trialSectionExportHtml = (source: any = trialSectionForm) => {
+    const f: any = enrichTrialSectionRecord(source as any);
     const details: any = (f as any).details ?? {};
     const profile = currentProjectProfile ?? getProjectProfile(projectName);
     const get = (...keys: string[]) => {
@@ -26170,6 +26277,164 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }, true);
   };
 
+  // ===== שליחה / הורדה מרוכזת של כמה רשומות – אותו מנגנון כמו בבקרה מקדימה =====
+  type BatchModule = "nonconformances" | "checklists" | "rfi" | "trialSections" | "supervisionReports" | "controlProcesses";
+  const BATCH_MODULE_LABELS: Record<BatchModule, string> = {
+    nonconformances: "אי התאמות",
+    checklists: "רשימות תיוג",
+    rfi: "RFI",
+    trialSections: "קטעי ניסוי",
+    supervisionReports: "דוחות פיקוח עליון",
+    controlProcesses: "תעודות ייחוס",
+  };
+
+  // הרשימות מחזיקות גרסה קלה (בלי קבצים) – לפני הפקת PDF טוענים את הרשומה המלאה
+  const hydrateBatchRecord = async (module: BatchModule, record: any): Promise<any> => {
+    try {
+      if (module === "rfi") return await hydrateRfiRecord(record);
+      if (module === "supervisionReports") return await hydrateSupervisionReport(record);
+      if (!cloudEnabled || !supabase || !record?.id) return record;
+      if (module === "checklists") {
+        const full = await fetchFullChecklist(String(record.id));
+        return full ? { ...record, ...full } : record;
+      }
+      const table =
+        module === "nonconformances" ? NONCONFORMANCE_TABLE : module === "trialSections" ? "trial_sections" : CONTROL_PROCESS_TABLE;
+      const { data, error } = await supabase.from(table).select("*").eq("id", record.id).maybeSingle();
+      if (error || !data) return record;
+      if (module === "nonconformances") return { ...record, ...nonconformanceRowToRecord(data) };
+      if (module === "controlProcesses") return normalizeControlProcess(data) ?? record;
+      const details = data.details && typeof data.details === "object" ? data.details : {};
+      return applyProjectDefaultsToTrialSection(enrichTrialSectionRecord({
+        ...record,
+        ...details,
+        id: data.id,
+        title: details.title ?? data.title ?? record.title ?? "",
+        location: details.location ?? data.location ?? record.location ?? "",
+        date: details.date ?? data.date ?? record.date ?? "",
+        status: details.status ?? data.status ?? record.status ?? "",
+        images: normalizeAttachments(details.images ?? data.images),
+        approval: normalizeApproval(details.approval ?? data.approval),
+        details,
+      }));
+    } catch (error) {
+      console.warn(`Full record load failed for ${module}`, error);
+      return record;
+    }
+  };
+
+  // טעינה מלאה של עד 3 רשומות במקביל – רשומות עם תמונות כבדות ולא כדאי להעמיס על המסד
+  const hydrateBatchRecords = async (module: BatchModule, records: any[]) => {
+    const results: any[] = new Array(records.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < records.length) {
+        const index = next++;
+        results[index] = await hydrateBatchRecord(module, records[index]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, records.length) }, worker));
+    return results;
+  };
+
+  const batchRecordTitle = (module: BatchModule, record: any, index: number) => {
+    if (module === "rfi") return rfiExportTitle(record);
+    if (module === "checklists")
+      return `${record?.title || "רשימת תיוג"} מס׳ ${getChecklistDisplayNumber(record, index)}`;
+    if (module === "nonconformances") return String(record?.title || `אי התאמה ${index + 1}`);
+    if (module === "trialSections") return String(record?.title || `קטע ניסוי ${index + 1}`);
+    if (module === "supervisionReports")
+      return [record?.reportNo, record?.title || "דוח פיקוח עליון"].filter(Boolean).join(" - ");
+    return [record?.processNo, record?.title || "תעודת ייחוס"].filter(Boolean).join(" ");
+  };
+
+  // אותו טופס PDF כמו בשליחה של רשומה בודדת, כולל הנספחים שצורפו לרשומה
+  const batchRecordPdfBlob = async (module: BatchModule, record: any, title: string, index: number) => {
+    if (module === "rfi") return buildRfiMergedPdfBlob(record);
+    const appendices = archiveRecordPdfAppendices(record);
+    if (module === "supervisionReports") return buildMergedPdfBlob(title, supervisionReportHtml(record), appendices);
+    const body =
+      module === "nonconformances"
+        ? nonconformanceExportHtml(record)
+        : module === "trialSections"
+          ? trialSectionExportHtml(record)
+          : module === "checklists"
+            ? checklistExportHtml(getChecklistDisplayNumber(record, index), record)
+            : controlProcessRecordArchiveBody(record);
+    return buildMergedPdfBlob(title, archivePrintableHtml(title, body), appendices);
+  };
+
+  const sendRecordsBatchEmail = async (module: BatchModule, recordsToSend: any[]) => {
+    const selected = (recordsToSend ?? []).filter(Boolean);
+    if (!selected.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
+    if (!currentProject?.id) return alert("יש לבחור פרויקט");
+    const records = await hydrateBatchRecords(module, selected);
+    const titles = records.map((record, index) => batchRecordTitle(module, record, index));
+    const title = records.length === 1 ? titles[0] : `${BATCH_MODULE_LABELS[module]} (${records.length})`;
+    setCentralMailContext({
+      projectId: currentProject.id,
+      module,
+      recordId: records.length === 1 ? String(records[0]?.id || `draft-${crypto.randomUUID()}`) : `batch-${crypto.randomUUID()}`,
+      recordIds: records.map((record: any) => String(record?.id || "")).filter(Boolean),
+      title,
+      data: { records, title, projectName, status: records[0]?.status },
+      attachments: [],
+      generateDocuments: async () => {
+        const documents: MailAttachment[] = [];
+        for (const [index, record] of records.entries()) {
+          const blob = await batchRecordPdfBlob(module, record, titles[index], index);
+          const attachment = await pdfBlobToEmailAttachment(`${titles[index]} - כולל נספחים.pdf`, blob);
+          documents.push({
+            id: crypto.randomUUID(),
+            filename: attachment.filename,
+            mimeType: attachment.mimeType || "application/pdf",
+            ...(attachment.url ? { url: attachment.url } : {}),
+            ...(attachment.contentBase64 ? { contentBase64: attachment.contentBase64 } : {}),
+          });
+        }
+        return documents;
+      },
+    });
+  };
+
+  const downloadRecordsBatchPdf = async (module: BatchModule, recordsToDownload: any[]) => {
+    const selected = (recordsToDownload ?? []).filter(Boolean);
+    if (!selected.length) return alert("יש לסמן לפחות רשומה אחת להורדה");
+    const triggerDownload = (blob: Blob, filename: string) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    try {
+      const records = await hydrateBatchRecords(module, selected);
+      const titles = records.map((record, index) => batchRecordTitle(module, record, index));
+      if (records.length === 1) {
+        const blob = await batchRecordPdfBlob(module, records[0], titles[0], 0);
+        triggerDownload(blob, `${sanitizeZipSegment(titles[0])} - כולל נספחים.pdf`);
+        return;
+      }
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const usedPaths = new Set<string>();
+      const archiveRoot = sanitizeZipSegment(`${BATCH_MODULE_LABELS[module]} - ${projectName || "פרויקט"}`);
+      for (const [index, record] of records.entries()) {
+        const recordFolder = `${archiveRoot}/${sanitizeZipSegment(`${index + 1} - ${titles[index]}`)}`;
+        const blob = await batchRecordPdfBlob(module, record, titles[index], index);
+        zip.file(uniqueZipPath(usedPaths, `${recordFolder}/${sanitizeZipSegment(`${titles[index]} - כולל נספחים.pdf`)}`), blob);
+        await addRecordAttachmentsToZip(zip, usedPaths, recordFolder, record);
+      }
+      const archiveBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      triggerDownload(archiveBlob, `${archiveRoot}.zip`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "יצירת ה-PDF נכשלה");
+    }
+  };
+
   const showExportButtons = [
     "checklists",
     "nonconformances",
@@ -27270,6 +27535,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onOpen={(id) => { const record = projectControlProcesses.find((item) => item.id === id); if (record) loadControlProcess(record); }}
                 onDelete={deleteControlProcess}
                 onNew={resetControlProcessForm}
+                onSendSelectedEmail={(records) => sendRecordsBatchEmail("controlProcesses", records)}
+                onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("controlProcesses", records)}
               />
             <ControlProcessesSection
               guardedBody={guardedBody}
@@ -27303,6 +27570,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onOpen={(id) => { const record = projectRfis.find((item) => item.id === id); if (record) loadRfi(record); }}
                 onDelete={deleteRfi}
                 onNew={resetRfiForm}
+                onSendSelectedEmail={(records) => sendRecordsBatchEmail("rfi", records)}
+                onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("rfi", records)}
               />
             <RfiSection
               guardedBody={guardedBody}
@@ -27337,6 +27606,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onClose={closeSupervisionReport}
               onDownloadPdf={downloadSupervisionReportPdf}
               onSendEmail={sendSupervisionReportEmail}
+              onSendSelectedEmail={(records) => sendRecordsBatchEmail("supervisionReports", records)}
+              onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("supervisionReports", records)}
             />
           )}
           {section === "plans" && (
@@ -27776,6 +28047,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onOpen={(id) => { const record = projectChecklists.find((item) => item.id === id); if (record) loadChecklist(record); }}
                 onDelete={deleteChecklist}
                 onNew={() => resetChecklistForm(selectedChecklistTemplateKey)}
+                onSendSelectedEmail={(records) => sendRecordsBatchEmail("checklists", records)}
+                onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("checklists", records)}
               />
               <ChecklistsSection
                 guardedBody={guardedBody}
@@ -27811,7 +28084,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <>
               <FolderRecordsTable
                 title="אי התאמות"
-                description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות."
+                description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות. ניתן לסמן כמה רשומות ולשלוח את כולן יחד במייל אחד או להוריד כ-ZIP."
                 records={projectNonconformances as any[]}
                 columns={[
                   { label: "גורם פותח (QC/QA)", value: (record) => nonconformanceOpeningParty(record) },
@@ -27827,6 +28100,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onOpen={(id) => { const record = projectNonconformances.find((item) => item.id === id); if (record) loadNonconformance(record); }}
                 onDelete={deleteNonconformance}
                 onNew={resetNonconformanceEditor}
+                onSendSelectedEmail={(records) => sendRecordsBatchEmail("nonconformances", records)}
+                onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("nonconformances", records)}
               />
             <EnhancedNonconformancesSection
               guardedBody={guardedBody}
@@ -27852,6 +28127,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 }}
                 onDelete={deleteTrialSection}
                 onNew={resetTrialSectionEditor}
+                onSendSelectedEmail={(records) => sendRecordsBatchEmail("trialSections", records)}
+                onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("trialSections", records)}
               />
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
               <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - ניתן לבחור יותר ממשתתף אחד מתוך גורמי הפרויקט</label>
