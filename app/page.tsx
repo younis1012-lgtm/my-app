@@ -5165,6 +5165,10 @@ async function selectTable(table: string, orderColumn?: string) {
   }
 }
 
+// גיבוי לרשימת אי־התאמות אם עמודת ncr_details_light לא קיימת במסד.
+const NCR_SUMMARY_FALLBACK_SELECT =
+  "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset,d_openedBy:details->>openedBy,d_openedName:details->>openedName,d_building:details->>building,d_grade:details->>grade,d_expectedCloseDate:details->>expectedCloseDate,d_updatedExpectedCloseDate:details->>updatedExpectedCloseDate,d_delayDays:details->>delayDays,d_breakage:details->>breakage,d_qualityImpact:details->>qualityImpact,d_responsibleParty:details->>responsibleParty,d_handler:details->>handler,d_correctiveActionDetails:details->>correctiveActionDetails,d_notes:details->>notes,d_closedBy:details->>closedBy,d_closingRole:details->>closingRole,d_closedName:details->>closedName,d_closingDate:details->>closingDate,d_sapNumber:details->>sapNumber,d_specSection:details->>specSection";
+
 async function selectProjectTable(
   table: string,
   orderColumn: string | undefined,
@@ -5189,7 +5193,9 @@ async function selectProjectTable(
   const selectHeavyTableSummaries = async () => {
     const summarySelect: Record<string, string> = {
       checklists: "id,project_id,checklist_no,template_key,title,category,location,date,contractor,notes,saved_at,approval,status,structure_node_id,details",
-      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,title:details->>title,status:details->>status,date:details->>date,location:details->>location,severity:details->>severity,opened_role:details->>openedRole,raised_by:details->>raisedBy,element:details->>element,sub_element:details->>subElement,from_section:details->>fromSection,to_section:details->>toSection,offset:details->>offset,d_openedBy:details->>openedBy,d_openedName:details->>openedName,d_building:details->>building,d_grade:details->>grade,d_expectedCloseDate:details->>expectedCloseDate,d_updatedExpectedCloseDate:details->>updatedExpectedCloseDate,d_delayDays:details->>delayDays,d_breakage:details->>breakage,d_qualityImpact:details->>qualityImpact,d_responsibleParty:details->>responsibleParty,d_handler:details->>handler,d_correctiveActionDetails:details->>correctiveActionDetails,d_notes:details->>notes,d_closedBy:details->>closedBy,d_closingRole:details->>closingRole,d_closedName:details->>closedName,d_closingDate:details->>closingDate,d_sapNumber:details->>sapNumber,d_specSection:details->>specSection",
+      // אי־התאמות: עמודת ncr_details_light מחזירה את כל שדות הטופס בלי הקבצים המוטמעים.
+      // חילוץ ~40 שדות נפרדים מתוך details (details->>x) גרם ל-statement timeout והרשימה נטענה ריקה.
+      [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,details:ncr_details_light",
       trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id,details",
       preliminary_records: "id,project_id,subtype,title,date,status,saved_at,approval,structure_node_id,supplier,subcontractor,material",
       rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
@@ -5214,7 +5220,20 @@ async function selectProjectTable(
         `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
         { headers, cache: "no-store" },
       );
-      if (!response.ok) return null;
+      if (!response.ok) {
+        if (table === NONCONFORMANCE_TABLE && select !== NCR_SUMMARY_FALLBACK_SELECT) {
+          console.warn("NCR light summary failed, retrying with field extraction", response.status);
+          query.set("select", NCR_SUMMARY_FALLBACK_SELECT);
+          const fallback = await fetch(
+            `${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`,
+            { headers, cache: "no-store" },
+          );
+          if (!fallback.ok) return null;
+          const fallbackRows = await fallback.json();
+          return { data: Array.isArray(fallbackRows) ? fallbackRows : [], error: null } as any;
+        }
+        return null;
+      }
       const rows = await response.json();
       return { data: Array.isArray(rows) ? rows : [], error: null } as any;
     } catch (error) {
