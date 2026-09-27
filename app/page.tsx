@@ -9442,6 +9442,8 @@ function SupervisionReportsSection({
   onSendEmail,
   onSendSelectedEmail,
   onDownloadSelectedPdf,
+  selectedRecordIds: controlledReportIds,
+  onSelectedRecordIdsChange: onReportSelectionChange,
 }: {
   records: SupervisionReportRecord[];
   form: Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">;
@@ -9457,8 +9459,16 @@ function SupervisionReportsSection({
   onSendEmail: (record: SupervisionReportRecord) => void;
   onSendSelectedEmail?: (records: SupervisionReportRecord[]) => void | Promise<void>;
   onDownloadSelectedPdf?: (records: SupervisionReportRecord[]) => void | Promise<void>;
+  selectedRecordIds?: string[];
+  onSelectedRecordIdsChange?: (ids: string[]) => void;
 }) {
-  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
+  const [localSelectedReportIds, setLocalSelectedReportIds] = useState<string[]>([]);
+  const selectedReportIds = controlledReportIds ?? localSelectedReportIds;
+  const setSelectedReportIds = (update: (previous: string[]) => string[]) => {
+    const next = update(selectedReportIds);
+    if (onReportSelectionChange) onReportSelectionChange(next);
+    else setLocalSelectedReportIds(next);
+  };
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
   const [recordsPage, setRecordsPage] = useState(1);
   const [recordFilters, setRecordFilters] = useState<Record<string, string>>({});
@@ -11044,6 +11054,8 @@ function TrialSectionsRecordsTable({
   onNew,
   onSendSelectedEmail,
   onDownloadSelectedPdf,
+  selectedRecordIds: controlledTrialIds,
+  onSelectedRecordIdsChange: onTrialSelectionChange,
 }: {
   records: any[];
   onOpen: (id: string) => void;
@@ -11051,8 +11063,16 @@ function TrialSectionsRecordsTable({
   onNew: () => void;
   onSendSelectedEmail?: (records: any[]) => void | Promise<void>;
   onDownloadSelectedPdf?: (records: any[]) => void | Promise<void>;
+  selectedRecordIds?: string[];
+  onSelectedRecordIdsChange?: (ids: string[]) => void;
 }) {
-  const [selectedTrialIds, setSelectedTrialIds] = useState<string[]>([]);
+  const [localSelectedTrialIds, setLocalSelectedTrialIds] = useState<string[]>([]);
+  const selectedTrialIds = controlledTrialIds ?? localSelectedTrialIds;
+  const setSelectedTrialIds = (update: (previous: string[]) => string[]) => {
+    const next = update(selectedTrialIds);
+    if (onTrialSelectionChange) onTrialSelectionChange(next);
+    else setLocalSelectedTrialIds(next);
+  };
   const trialDateValue = (record: any) => {
     const raw = pickTrialValue(record, "executionDate", "date", "approvalDate", "savedAt", "createdAt");
     const normalized = normalizeLooseText(raw);
@@ -16710,6 +16730,12 @@ export default function Page() {
   const [preliminaryTab, setPreliminaryTab] =
     useState<PreliminaryTab>("suppliers");
   const [preliminaryEmailSelectionIds, setPreliminaryEmailSelectionIds] = useState<string[]>([]);
+  // רשומות שסומנו בטבלאות (לכל מודול) – משמשות גם את כפתור "שליחה במייל" העליון
+  const [batchSelectionIds, setBatchSelectionIds] = useState<Record<string, string[]>>({});
+  const batchSelectionProps = (module: string) => ({
+    selectedRecordIds: batchSelectionIds[module] ?? [],
+    onSelectedRecordIdsChange: (ids: string[]) => setBatchSelectionIds((current) => ({ ...current, [module]: ids })),
+  });
   const [projects, setProjects] = useState<Project[]>(getDefaultProjectList());
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(
     readLocalCurrentProjectId(),
@@ -25520,9 +25546,41 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }
   };
 
+  const batchPoolFor = (module: string): any[] =>
+    module === "nonconformances" ? projectNonconformances
+      : module === "checklists" ? projectChecklists
+      : module === "rfi" ? projectRfis
+      : module === "trialSections" ? projectTrialSections
+      : module === "supervisionReports" ? projectSupervisionReports
+      : module === "controlProcesses" ? projectControlProcesses
+      : [];
+  const selectedBatchRecordsFor = (module: string) => {
+    const ids = batchSelectionIds[module] ?? [];
+    return ids.length ? batchPoolFor(module).filter((record: any) => ids.includes(String(record?.id ?? ""))) : [];
+  };
+  const openFormRecordFor = (module: string): any | null => {
+    const withId = (form: any, id: string | null) => (id ? { ...form, id } : null);
+    if (module === "nonconformances") return withId(nonconformanceForm, editingNonconformanceId);
+    if (module === "checklists") return withId(checklistForm, editingChecklistId);
+    if (module === "rfi") return withId(rfiForm, editingRfiId);
+    if (module === "trialSections") return withId(trialSectionForm, editingTrialSectionId);
+    if (module === "supervisionReports") return withId(supervisionReportForm, editingSupervisionReportId);
+    if (module === "controlProcesses") return withId(controlProcessForm, editingControlProcessId);
+    return null;
+  };
+
   const sendCurrentFormEmail = async () => {
-    if (section === "rfi") return sendRfiEmail({ ...rfiForm, id: editingRfiId || "" } as RfiRecord);
-    if (section === "supervisionReports") return sendSupervisionReportEmail({ ...supervisionReportForm, id: editingSupervisionReportId || "" } as SupervisionReportRecord);
+    if (["nonconformances", "checklists", "rfi", "trialSections", "supervisionReports", "controlProcesses"].includes(section)) {
+      const module = section as BatchModule;
+      const selected = selectedBatchRecordsFor(module);
+      // 1. רשומות שסומנו בטבלה – כל רשומה כקובץ PDF נפרד הכולל את הנספחים שלה
+      if (selected.length) return sendRecordsBatchEmail(module, selected);
+      // 2. רשומה שפתוחה בטופס
+      const openRecord = openFormRecordFor(module);
+      if (openRecord) return sendRecordsBatchEmail(module, [openRecord], true);
+      // 3. אין מה לשלוח – לא שולחים טופס ריק
+      return alert("לא נבחרה רשומה לשליחה.\nיש לסמן רשומה אחת או יותר בטבלה (תיבת הסימון בתחילת השורה) או לפתוח רשומה שמורה, ואז ללחוץ שוב על שליחה במייל.");
+    }
     if (section === "preliminary")
       return sendPreliminaryRecordsEmail(
         [{ ...currentPreliminaryForm, id: editingPreliminaryId }],
@@ -26109,10 +26167,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   };
 
   const sendSupervisionReportEmail = async (record: SupervisionReportRecord) => {
-    record = await hydrateSupervisionReport(record);
-    const title = record.title || "דוח פיקוח עליון";
-    const html = supervisionReportHtml(record);
-    openRecordEmail("supervisionReports", record, record.id, title, async () => [await documentForEmail(html, title)]);
+    return sendRecordsBatchEmail("supervisionReports", [record]);
   };
 
   const rfiExportTitle = (record: RfiRecord) => record.title || "RFI";
@@ -26364,11 +26419,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return buildMergedPdfBlob(title, archivePrintableHtml(title, body), appendices);
   };
 
-  const sendRecordsBatchEmail = async (module: BatchModule, recordsToSend: any[]) => {
+  const sendRecordsBatchEmail = async (module: BatchModule, recordsToSend: any[], useCurrentDraft = false) => {
     const selected = (recordsToSend ?? []).filter(Boolean);
     if (!selected.length) return alert("יש לסמן לפחות רשומה אחת לשליחה");
     if (!currentProject?.id) return alert("יש לבחור פרויקט");
-    const records = await hydrateBatchRecords(module, selected);
+    // טופס פתוח: שולחים בדיוק את מה שמוצג בטופס (כולל שינויים שעוד לא נשמרו),
+    // ורק משלימים קבצים של רשימת תיוג שעדיין נטענים ברקע
+    const records = useCurrentDraft
+      ? await Promise.all(selected.map(async (record) => {
+          if (module !== "checklists" || !record?.id || !containsEmbeddedMarker(record.items)) return record;
+          const full = await fetchFullChecklist(String(record.id));
+          return full ? { ...record, items: patchEmbedded(record.items, full.items) } : record;
+        }))
+      : await hydrateBatchRecords(module, selected);
     const titles = records.map((record, index) => batchRecordTitle(module, record, index));
     const title = records.length === 1 ? titles[0] : `${BATCH_MODULE_LABELS[module]} (${records.length})`;
     setCentralMailContext({
@@ -27418,7 +27481,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         <main style={styles.mainCard}>
           {currentProject && !guardedBody && (
             <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
-              <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>שליחה במייל / היסטוריה</button>
+              <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>
+                {(batchSelectionIds[section] ?? []).length && selectedBatchRecordsFor(section).length
+                  ? `שליחה במייל – ${selectedBatchRecordsFor(section).length} רשומות מסומנות`
+                  : "שליחה במייל / היסטוריה"}
+              </button>
             </div>
           )}
           {showExportButtons && section !== "preliminary" && !guardedBody && (
@@ -27537,6 +27604,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onNew={resetControlProcessForm}
                 onSendSelectedEmail={(records) => sendRecordsBatchEmail("controlProcesses", records)}
                 onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("controlProcesses", records)}
+                {...batchSelectionProps("controlProcesses")}
               />
             <ControlProcessesSection
               guardedBody={guardedBody}
@@ -27572,6 +27640,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onNew={resetRfiForm}
                 onSendSelectedEmail={(records) => sendRecordsBatchEmail("rfi", records)}
                 onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("rfi", records)}
+                {...batchSelectionProps("rfi")}
               />
             <RfiSection
               guardedBody={guardedBody}
@@ -27608,6 +27677,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onSendEmail={sendSupervisionReportEmail}
               onSendSelectedEmail={(records) => sendRecordsBatchEmail("supervisionReports", records)}
               onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("supervisionReports", records)}
+              {...batchSelectionProps("supervisionReports")}
             />
           )}
           {section === "plans" && (
@@ -28049,6 +28119,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onNew={() => resetChecklistForm(selectedChecklistTemplateKey)}
                 onSendSelectedEmail={(records) => sendRecordsBatchEmail("checklists", records)}
                 onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("checklists", records)}
+                {...batchSelectionProps("checklists")}
               />
               <ChecklistsSection
                 guardedBody={guardedBody}
@@ -28102,6 +28173,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onNew={resetNonconformanceEditor}
                 onSendSelectedEmail={(records) => sendRecordsBatchEmail("nonconformances", records)}
                 onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("nonconformances", records)}
+                {...batchSelectionProps("nonconformances")}
               />
             <EnhancedNonconformancesSection
               guardedBody={guardedBody}
@@ -28129,6 +28201,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 onNew={resetTrialSectionEditor}
                 onSendSelectedEmail={(records) => sendRecordsBatchEmail("trialSections", records)}
                 onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("trialSections", records)}
+                {...batchSelectionProps("trialSections")}
               />
             <div style={{ border: "1px solid #dbe3ef", borderRadius: 16, padding: 14, marginBottom: 14, background: "#f8fafc" }}>
               <label style={{ display: "block", fontWeight: 900, marginBottom: 8 }}>משתתפים בקטע ניסוי - ניתן לבחור יותר ממשתתף אחד מתוך גורמי הפרויקט</label>
