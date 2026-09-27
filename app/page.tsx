@@ -25553,9 +25553,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       : module === "trialSections" ? projectTrialSections
       : module === "supervisionReports" ? projectSupervisionReports
       : module === "controlProcesses" ? projectControlProcesses
+      : module === "preliminary" ? projectPreliminary
       : [];
   const selectedBatchRecordsFor = (module: string) => {
-    const ids = batchSelectionIds[module] ?? [];
+    const ids = module === "preliminary" ? preliminaryEmailSelectionIds : batchSelectionIds[module] ?? [];
     return ids.length ? batchPoolFor(module).filter((record: any) => ids.includes(String(record?.id ?? ""))) : [];
   };
   const openFormRecordFor = (module: string): any | null => {
@@ -25569,6 +25570,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return null;
   };
 
+  const NO_RECORD_TO_SEND_MESSAGE =
+    "לא נבחרה רשומה לשליחה.\nיש לסמן רשומה אחת או יותר בטבלה (תיבת הסימון בתחילת השורה) או לפתוח רשומה שמורה, ואז ללחוץ שוב על שליחה במייל.";
   const sendCurrentFormEmail = async () => {
     if (["nonconformances", "checklists", "rfi", "trialSections", "supervisionReports", "controlProcesses"].includes(section)) {
       const module = section as BatchModule;
@@ -25579,13 +25582,20 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const openRecord = openFormRecordFor(module);
       if (openRecord) return sendRecordsBatchEmail(module, [openRecord], true);
       // 3. אין מה לשלוח – לא שולחים טופס ריק
-      return alert("לא נבחרה רשומה לשליחה.\nיש לסמן רשומה אחת או יותר בטבלה (תיבת הסימון בתחילת השורה) או לפתוח רשומה שמורה, ואז ללחוץ שוב על שליחה במייל.");
+      return alert(NO_RECORD_TO_SEND_MESSAGE);
     }
-    if (section === "preliminary")
-      return sendPreliminaryRecordsEmail(
-        [{ ...currentPreliminaryForm, id: editingPreliminaryId }],
-        true,
-      );
+    if (section === "preliminary") {
+      // אותו סדר כמו בשאר המערכת: מסומנים בטבלה → רשומה פתוחה → אחרת הודעה (לא טופס ריק)
+      const selected = selectedBatchRecordsFor("preliminary");
+      if (selected.length) return sendPreliminaryRecordsEmail(selected);
+      if (editingPreliminaryId)
+        return sendPreliminaryRecordsEmail(
+          [{ ...currentPreliminaryForm, id: editingPreliminaryId }],
+          true,
+        );
+      return alert(NO_RECORD_TO_SEND_MESSAGE);
+    }
+    if (section === "plans" && !editingPlanId) return alert(NO_RECORD_TO_SEND_MESSAGE);
     const current: Record<string, [Record<string, any>, string | null]> = {
       checklists: [checklistForm, editingChecklistId], nonconformances: [nonconformanceForm, editingNonconformanceId],
       trialSections: [trialSectionForm, editingTrialSectionId], controlProcesses: [controlProcessForm, editingControlProcessId],
@@ -27482,7 +27492,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           {currentProject && !guardedBody && (
             <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
               <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>
-                {(batchSelectionIds[section] ?? []).length && selectedBatchRecordsFor(section).length
+                {selectedBatchRecordsFor(section).length
                   ? `שליחה במייל – ${selectedBatchRecordsFor(section).length} רשומות מסומנות`
                   : "שליחה במייל / היסטוריה"}
               </button>
