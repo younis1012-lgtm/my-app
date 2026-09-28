@@ -2884,6 +2884,29 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
     throw new Error(
       errorText(insertResult.error) || "שגיאה בשמירת משתמשים ל-Supabase",
     );
+
+  // שורות כפולות של אותו משתמש (הבדל באותיות גדולות/קטנות או ברווחים בשם המשתמש):
+  // השמירה מעדכנת רק שורה אחת, והשורה הישנה נשארת ודורסת בטעינה הבאה
+  // (למשל מחזירה "צפייה בלבד" ו"כל התחומים"). אחרי שמירה מוצלחת מוחקים את השורות הישנות.
+  const savedExactUsernames = new Set(
+    rows.map((row: any) => String(row?.username ?? "")),
+  );
+  const staleDuplicateUsernames = (existingRows ?? [])
+    .map((row: any) => String(row?.username ?? ""))
+    .filter(
+      (username) =>
+        username &&
+        !savedExactUsernames.has(username) &&
+        retainedUsernames.has(normalizeAccessValue(username)),
+    );
+  if (staleDuplicateUsernames.length) {
+    const duplicateDelete = await supabase
+      .from(ACCESS_USERS_TABLE)
+      .delete()
+      .in("username", staleDuplicateUsernames);
+    if (duplicateDelete.error)
+      console.warn("Failed to remove duplicate access user rows", duplicateDelete.error);
+  }
 };
 
 const isAdminAccess = (access: ProjectAccess | null) =>
