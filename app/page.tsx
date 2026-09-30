@@ -33,6 +33,9 @@ import {
 import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { FileDropZone } from "./components/FileDropZone";
+import { NavIcon } from "./components/NavIcon";
+import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
+import { checklistAutoLinkKind, resolvePreliminaryLink, resolvePreviousLayerLink, type ChecklistAutoLink } from "./lib/checklistAutoLinks";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
 import { ProjectsSection } from "./components/ProjectsSection";
 import { TrialSectionsSection } from "./components/TrialSectionsSection";
@@ -4360,6 +4363,7 @@ const normalizeChecklistItems = (
             concreteReviewRequested: Boolean(item?.concreteReviewRequested),
             excludedFromPrint: Boolean(item?.excludedFromPrint),
             ...(item?.stage ? { stage: String(item.stage) } : {}),
+            ...(item?.linkedRecordId ? { linkedRecordId: String(item.linkedRecordId) } : {}),
             signature: item?.signature ? {
               role: String(item.signature?.role ?? item?.responsible ?? "גורם אחראי"),
               signerName: String(item.signature?.signerName ?? item?.inspector ?? ""),
@@ -6004,6 +6008,8 @@ type InlineChecklistSectionProps = {
     value: string,
   ) => void;
   toggleChecklistItemPrintExclusion: (id: string) => void;
+  resolveAutoLink?: (item: any, form: any) => ChecklistAutoLink | null;
+  onOpenLinkedRecord?: (link: ChecklistAutoLink) => void;
   addChecklistItem: () => void;
   insertChecklistItem: (
     itemId: string,
@@ -6319,6 +6325,53 @@ function ProcessSignatureFields({
   );
 }
 
+function ChecklistProgressStrip({ items }: { items: any[] }) {
+  const total = items.length;
+  const excluded = items.filter((item) => Boolean(item?.excludedFromPrint)).length;
+  const relevant = total - excluded;
+  const signed = items.filter(
+    (item) => !item?.excludedFromPrint && String(item?.signature?.signature ?? "").trim(),
+  ).length;
+  const pending = Math.max(relevant - signed, 0);
+  const percent = relevant ? Math.round((signed / relevant) * 100) : 0;
+  const stat = (label: string, value: number, color: string) => (
+    <div style={{ flex: "1 1 120px", padding: "14px 18px", display: "grid", gap: 2, borderInlineEnd: "1px solid #eef1f5" }}>
+      <span style={{ fontSize: 13, color: "#55657d" }}>{label}</span>
+      <span style={{ fontSize: 24, fontWeight: 800, color, lineHeight: 1.1 }}>{value}</span>
+    </div>
+  );
+  return (
+    <section
+      aria-label="סיכום רשימת התיוג"
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        background: "#fff",
+        border: "1px solid #dde3ec",
+        borderRadius: 14,
+        overflow: "hidden",
+        marginBottom: 14,
+      }}
+    >
+      {stat("סעיפים", total, "#0b1f3a")}
+      {stat("נחתמו", signed, "#15803d")}
+      {stat("ממתינים לחתימה", pending, "#9a5b00")}
+      {stat("לא רלוונטי", excluded, "#55657d")}
+      <div style={{ flex: "2 1 300px", padding: "14px 18px", display: "grid", alignContent: "center", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13 }}>
+          <span style={{ fontWeight: 700 }}>התקדמות</span>
+          <span style={{ color: "#55657d" }}>
+            {signed} מתוך {relevant} סעיפים רלוונטיים נחתמו
+          </span>
+        </div>
+        <div style={{ height: 8, borderRadius: 999, overflow: "hidden", background: "#eef1f5" }}>
+          <div style={{ width: `${percent}%`, height: "100%", background: "#15803d", borderRadius: 999 }} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ChecklistsSection({
   guardedBody,
   editingChecklistId,
@@ -6328,6 +6381,8 @@ function ChecklistsSection({
   applyChecklistTemplate,
   updateChecklistItem,
   toggleChecklistItemPrintExclusion,
+  resolveAutoLink,
+  onOpenLinkedRecord,
   addChecklistItem,
   insertChecklistItem,
   removeChecklistItem,
@@ -6348,24 +6403,26 @@ function ChecklistsSection({
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: CSSProperties = {
     width: "100%",
-    border: "1px solid #cbd5e1",
+    border: "1px solid #c9d2df",
     borderRadius: 10,
     padding: "10px 12px",
     background: "#fff",
-    fontWeight: 700,
+    fontWeight: 500,
+    color: "#0f1b2d",
     minHeight: 44,
   };
   const labelStyle: CSSProperties = {
-    fontWeight: 900,
+    fontWeight: 600,
+    fontSize: 13,
     marginBottom: 6,
     display: "block",
-    color: "#0f172a",
+    color: "#334155",
   };
   const cardStyle: CSSProperties = {
-    border: "1px solid #e2e8f0",
-    borderRadius: 18,
-    padding: 16,
-    background: "#f8fafc",
+    border: "1px solid #dde3ec",
+    borderRadius: 14,
+    padding: 18,
+    background: "#fff",
     marginBottom: 14,
   };
   const setField = (field: string, value: string) =>
@@ -6712,10 +6769,10 @@ function ChecklistsSection({
         }}
       >
         <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>
+          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: "#0b1f3a" }}>
             רשימות תיוג
           </h2>
-          <div style={{ color: "#64748b", marginTop: 4 }}>
+          <div style={{ color: "#55657d", marginTop: 4, fontSize: 14 }}>
             {editingChecklistId
               ? "עריכת רשימת תיוג קיימת"
               : "מילוי רשימת תיוג חדשה"}
@@ -7328,6 +7385,7 @@ function ChecklistsSection({
           </div>
         </div>
       ) : null}
+      <ChecklistProgressStrip items={checklistForm.items ?? []} />
       <div style={{ ...cardStyle, background: "#fff" }}>
         <div
           style={{
@@ -7340,13 +7398,12 @@ function ChecklistsSection({
           }}
         >
           <div>
-            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0b1f3a" }}>
               סעיפי בקרה
             </h3>
-            <div style={{ color: "#64748b", marginTop: 4 }}>
-              כל רשימות התיוג מוצגות במבנה טבלאי אחיד: תיאור פעולה, אחריות, שם,
-              חתימה, תאריך, תעודת מעבדה והערות. ניתן לשמור, לעדכן, לצרף
-              מסמך מול מודד ולצרף מסמכי בדיקה/מעבדה לפי תיאור התהליך.
+            <div style={{ color: "#55657d", marginTop: 4, fontSize: 13 }}>
+              שורה שמסומנת ל.ר (לא רלוונטי) לא תודפס בטופס. סעיפים של בקרה מקדימה
+              ושכבה קודמת מקושרים אוטומטית לרשומות המאושרות במערכת.
             </div>
           </div>
           <button
@@ -7373,99 +7430,116 @@ function ChecklistsSection({
               <tr>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "31%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   תיאור פעולת הבקרה
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "12%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   באחריות
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "11%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   שם
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "12%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   חתימה
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "9%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   תאריך
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "16%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   תעודת מעבדה / מסמך
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: "14%",
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   הערות
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 8,
                     width: 88,
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
                   }}
                 >
                   פעולות
                 </th>
                 <th
                   style={{
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 4,
-                    width: 38,
-                    background: "#f8fafc",
-                    fontWeight: 950,
+                    width: 44,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontWeight: 700,
                     fontSize: 12,
                   }}
                 >
@@ -7526,16 +7600,17 @@ function ChecklistsSection({
                   const isExcludedFromPrint = Boolean(
                     (item as any).excludedFromPrint,
                   );
+                  const autoLink = isExcludedFromPrint
+                    ? null
+                    : (resolveAutoLink?.(item, checklistForm) ?? null);
                   const cellStyle: CSSProperties = {
-                    border: "1px solid #94a3b8",
+                    border: "1px solid #dde3ec",
                     padding: 6,
                     verticalAlign: "top",
                     background: isExcludedFromPrint
-                      ? "#f1f5f9"
-                      : index % 2
-                        ? "#f8fafc"
-                        : "#fff",
-                    opacity: isExcludedFromPrint ? 0.72 : 1,
+                      ? "#f3f5f9"
+                      : "#fff",
+                    opacity: isExcludedFromPrint ? 0.62 : 1,
                   };
                   const compactInputStyle: CSSProperties = {
                     width: "100%",
@@ -7573,7 +7648,7 @@ function ChecklistsSection({
                         <td
                           colSpan={10}
                           style={{
-                            border: "1px solid #94a3b8",
+                            border: "1px solid #dde3ec",
                             padding: "7px 10px",
                             background: "#e0e7ff",
                             color: "#1e3a8a",
@@ -7602,6 +7677,17 @@ function ChecklistsSection({
                             resize: "vertical",
                           }}
                         />
+                        {isExcludedFromPrint ? (
+                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: "#55657d" }}>
+                            לא רלוונטי · השורה לא תודפס בטופס
+                          </div>
+                        ) : autoLink ? (
+                          <ChecklistAutoLinkBox
+                            link={autoLink}
+                            onChoose={(id) => updateChecklistItem(item.id, "linkedRecordId" as keyof ChecklistItem, id)}
+                            onOpen={onOpenLinkedRecord}
+                          />
+                        ) : null}
                       </td>
                       <td style={cellStyle}>
                         <select
@@ -7830,7 +7916,16 @@ function ChecklistsSection({
                               event.target.value,
                             )
                           }
-                          placeholder="מספר תעודה / מסמך"
+                          placeholder={
+                            autoLink && autoLink.state !== "missing"
+                              ? autoLink.printText
+                              : "מספר תעודה / מסמך"
+                          }
+                          title={
+                            autoLink && autoLink.state !== "missing" && !item.notes
+                              ? `יודפס אוטומטית: ${autoLink.printText}`
+                              : undefined
+                          }
                           style={compactInputStyle}
                         />
                         {attachmentKinds.length ? (
@@ -7953,44 +8048,46 @@ function ChecklistsSection({
                         >
                           <details style={{ position: "relative" }}>
                             <summary
-                              title="הוספת שורה מעל או מתחת"
+                              title="פעולות על השורה: הוספה מעל / מתחת, מחיקה"
+                              aria-label="פעולות על השורה"
                               style={{
-                                width: 32,
-                                height: 32,
-                                border: "1px solid #cbd5e1",
+                                width: 36,
+                                height: 36,
+                                border: "1px solid #dde3ec",
                                 borderRadius: 8,
                                 background: "#fff",
-                                color: "#0f172a",
+                                color: "#0b1f3a",
                                 cursor: "pointer",
-                                fontWeight: 950,
+                                fontWeight: 800,
                                 fontSize: 18,
-                                lineHeight: "30px",
+                                lineHeight: "32px",
                                 textAlign: "center",
                                 listStyle: "none",
                                 userSelect: "none",
                               }}
                             >
-                              +
+                              ⋯
                             </summary>
                             <div
                               style={{
                                 position: "absolute",
                                 zIndex: 30,
                                 left: 0,
-                                top: 36,
+                                top: 40,
                                 display: "grid",
-                                gap: 4,
-                                minWidth: 92,
+                                gap: 2,
+                                minWidth: 150,
                                 padding: 6,
-                                border: "1px solid #cbd5e1",
+                                border: "1px solid #dde3ec",
                                 borderRadius: 10,
                                 background: "#fff",
-                                boxShadow: "0 12px 24px rgba(15, 23, 42, 0.16)",
+                                boxShadow: "0 12px 24px rgba(11, 31, 58, 0.16)",
+                                textAlign: "right",
                               }}
                             >
                               {[
-                                ["before", "מעל"],
-                                ["after", "מתחת"],
+                                ["before", "הוספת שורה מעל"],
+                                ["after", "הוספת שורה מתחת"],
                               ].map(([position, label]) => (
                                 <button
                                   key={position}
@@ -8007,27 +8104,48 @@ function ChecklistsSection({
                                     );
                                   }}
                                   style={{
-                                    border: "1px solid #e2e8f0",
+                                    border: 0,
                                     borderRadius: 8,
-                                    background: "#f8fafc",
-                                    color: "#0f172a",
+                                    background: "transparent",
+                                    color: "#0b1f3a",
                                     cursor: "pointer",
-                                    fontWeight: 900,
-                                    padding: "7px 10px",
+                                    fontWeight: 600,
+                                    padding: "9px 10px",
+                                    textAlign: "right",
                                   }}
                                 >
                                   {label}
                                 </button>
                               ))}
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  (
+                                    event.currentTarget.closest(
+                                      "details",
+                                    ) as HTMLDetailsElement | null
+                                  )?.removeAttribute("open");
+                                  const label = String(item.description ?? "").trim();
+                                  if (window.confirm(`למחוק את השורה${label ? ` "${label.slice(0, 60)}"` : ""}?`)) {
+                                    removeChecklistItem(item.id);
+                                  }
+                                }}
+                                style={{
+                                  border: 0,
+                                  borderTop: "1px solid #eef1f5",
+                                  borderRadius: 8,
+                                  background: "transparent",
+                                  color: "#b42318",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  padding: "9px 10px",
+                                  textAlign: "right",
+                                }}
+                              >
+                                מחיקת שורה
+                              </button>
                             </div>
                           </details>
-                        <button
-                          type="button"
-                          onClick={() => removeChecklistItem(item.id)}
-                          style={{ ...styles.dangerBtn, padding: "7px 10px" }}
-                        >
-                          מחק
-                        </button>
                         </div>
                       </td>
                       <td
@@ -8037,27 +8155,20 @@ function ChecklistsSection({
                           verticalAlign: "middle",
                         }}
                       >
-                        <button
-                          type="button"
-                          title="סמן כדי להסתיר שורה זו בקובץ הסופי להדפסה"
-                          onClick={() =>
-                            toggleChecklistItemPrintExclusion(item.id)
-                          }
-                          style={{
-                            width: 18,
-                            height: 18,
-                            border: "1.2px solid #334155",
-                            borderRadius: 2,
-                            background: "#fff",
-                            cursor: "pointer",
-                            fontWeight: 950,
-                            fontSize: 13,
-                            lineHeight: "13px",
-                            padding: 0,
-                          }}
+                        <label
+                          title="סמן כשהשורה לא רלוונטית – היא לא תודפס בטופס"
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, cursor: "pointer" }}
                         >
-                          {isExcludedFromPrint ? "*" : ""}
-                        </button>
+                          <input
+                            type="checkbox"
+                            checked={isExcludedFromPrint}
+                            onChange={() =>
+                              toggleChecklistItemPrintExclusion(item.id)
+                            }
+                            aria-label="לא רלוונטי – לא יודפס"
+                            style={{ width: 18, height: 18, margin: 0, accentColor: "#0b1f3a", cursor: "pointer" }}
+                          />
+                        </label>
                       </td>
                     </tr>
                     </Fragment>
@@ -23810,7 +23921,7 @@ export default function Page() {
 
   const exportStyles = `
     body{font-family:Arial,sans-serif;direction:rtl;padding:5px;color:#0f172a;font-size:9.5px;background:#fff}
-    .export-page{width:100%;box-sizing:border-box;margin:0 auto;page-break-after:avoid;break-after:avoid}
+    .export-page{font-family:Arial,sans-serif;width:100%;box-sizing:border-box;margin:0 auto;page-break-after:avoid;break-after:avoid}
     h1{display:none}
     h2{font-size:11px;margin:4px 0 2px;border-bottom:1px solid #111827;padding-bottom:3px;text-align:right}
     table{border-collapse:collapse;width:100%;margin:0 0 8px;table-layout:fixed;page-break-inside:auto}
@@ -23928,6 +24039,50 @@ export default function Page() {
     return `<h2>אישורים וחתימות</h2><table class="signature"><thead><tr><th>תפקיד</th><th>שם</th><th>חתימה</th><th>תאריך</th><th>הערות</th></tr></thead><tbody>${normalized.signatures.map((sig) => `<tr><td>${safeText(sig.role)}</td><td>${valueOrBlank(sig.signerName)}</td><td>${signatureCell(sig.signature)}</td><td>${valueOrBlank(sig.signedAt)}</td><td>${blankCell()}</td></tr>`).join("")}</tbody></table>`;
   };
 
+  // קישור אוטומטי של סעיפים לבקרה מקדימה מאושרת ולרשימת התיוג של השכבה הקודמת
+  const resolveChecklistAutoLink = (
+    item: any,
+    form: any,
+    currentId: string | null | undefined,
+  ): ChecklistAutoLink | null => {
+    const kind = checklistAutoLinkKind(item?.description);
+    if (!kind) return null;
+    const helpers = {
+      approvalStatus: (record: any) => getApprovalDisplayStatus(record),
+      checklistNumber: (record: any) => {
+        const index = projectChecklists.findIndex((entry) => entry.id === record?.id);
+        return getChecklistDisplayNumber(record, index >= 0 ? index : 0);
+      },
+      treeInfo: (record: any) => {
+        const nodeId = linkedStructureNodeId(record);
+        if (!nodeId) return null;
+        const byId = new Map(currentProjectStructureNodes.map((node) => [node.id, node]));
+        const names: string[] = [];
+        const seen = new Set<string>();
+        let node = byId.get(nodeId);
+        while (node && !seen.has(node.id)) {
+          seen.add(node.id);
+          names.unshift(node.name);
+          node = node.parentId ? byId.get(node.parentId) : undefined;
+        }
+        return names.length ? { structure: names[0], path: names.join(" / ") } : null;
+      },
+    };
+    return kind === "preliminary"
+      ? resolvePreliminaryLink(item, form, projectPreliminary as any[], helpers)
+      : resolvePreviousLayerLink(item, form, projectChecklists as any[], currentId ?? form?.id, helpers);
+  };
+
+  const openChecklistLinkedRecord = (link: ChecklistAutoLink) => {
+    if (!link.record) return;
+    const proceed = window.confirm(
+      "לפתוח את הרשומה המקושרת? שינויים שלא נשמרו ברשימת התיוג הנוכחית לא יישמרו.",
+    );
+    if (!proceed) return;
+    if (link.kind === "previousLayer") void loadChecklist(link.record as ChecklistRecord);
+    else void loadPreliminary(link.record as PreliminaryRecord);
+  };
+
   const checklistExportHtml = (
     forcedChecklistNo?: number,
     sourceRecord: any = checklistForm,
@@ -23997,7 +24152,10 @@ export default function Page() {
     const itemLabDocument = (item: ChecklistItem & { attachments?: ChecklistAttachment[] }) => {
       const attachments = normalizeChecklistAttachments((item as any).attachments);
       const attachmentNames = attachments.map((attachment) => attachment.name).filter(Boolean).join(" / ");
-      return attachmentNames || item.notes || "";
+      const own = attachmentNames || item.notes || "";
+      if (own) return own;
+      const link = resolveChecklistAutoLink(item, sourceRecord, sourceRecord === checklistForm ? editingChecklistId : sourceRecord?.id);
+      return link && link.state !== "missing" ? link.printText : "";
     };
 
     const rowsHtml = displayedItems.length
@@ -26637,11 +26795,6 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     ...group,
     items: navItems.filter(([key]) => group.keys.includes(key)),
   })).filter((group) => group.items.length);
-  const navIcons: Partial<Record<AppSection, string>> = {
-    home: "⌂", managementDashboard: "◧", myTasks: "☑", account: "👤", projectStructure: "🌳", projectDetails: "▤", projectUsers: "👥", projects: "📁",
-    checklists: "☷", checklistTracking: "▥", holdPoints: "⚑", nonconformances: "⚠", trialSections: "⚗", preliminary: "◯",
-    plans: "📐", qualityDocuments: "✓", controlProcesses: "◫", rfi: "✉", supervisionReports: "▥", concentrations: "▤",
-  };
   const topbarAccountName = projectAccess?.displayName || projectAccess?.username || "משתמש מערכת";
   const topbarAvatarInitials = topbarAccountName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).filter(Boolean).join("").toUpperCase() || "מ";
   const isTopbarRecordOpen = (value: unknown) => {
@@ -27401,7 +27554,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         <div className="yk-topbar-spacer" />
 
         <div className="yk-topbar-brand">
-          <div className="yk-topbar-brand-name">Y.K QUALITY</div>
+          <div className="yk-topbar-brand-name"><span className="yk-topbar-brand-mark">YK</span>Y.K QUALITY</div>
           <div className="yk-topbar-brand-tag">QA/QC · workflow with signatures</div>
         </div>
       </header>
@@ -27434,34 +27587,29 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         {navGroups.map((group) => <div className="project-navigation-group" key={group.title}>
           <div className="project-navigation-title">{group.title}</div>
           {group.items.map(([key, label]) => (
-            <button key={key} style={{ ...styles.navBtn, borderColor: section === key ? "#3b82f6" : "transparent", background: section === key ? "#1d4ed8" : "transparent", color: "#fff", padding: "9px 10px" }} onClick={() => setSection(key)}>
-              <span aria-hidden="true" style={{ display: "inline-block", width: 24, marginInlineEnd: 7, textAlign: "center" }}>{navIcons[key] ?? "•"}</span>{label}
+            <button key={key} type="button" className="yk-nav-item" aria-current={section === key ? "page" : undefined} onClick={() => setSection(key)}>
+              <span className="yk-nav-icon"><NavIcon name={key} /></span>{label}
             </button>
           ))}
         </div>)}
         <button
           type="button"
-          style={{
-            ...styles.navBtn,
-            background: "transparent",
-            color: "#fff",
-            borderColor: "#334155",
-          }}
+          className="yk-nav-extra"
           onClick={() => {
             const params = new URLSearchParams();
             if (currentProjectIdNormalized) params.set("projectId", currentProjectIdNormalized);
             window.location.href = `/engineering-templates${params.size ? `?${params.toString()}` : ""}`;
           }}
         >
-          🏗️ ספריית תבניות / עץ פרויקט חדש
+          <NavIcon name="templates" size={16} />ספריית תבניות / עץ פרויקט חדש
         </button>
         <button
           type="button"
-          style={{ ...styles.secondaryBtn, background: "transparent", color: "#fff", borderColor: "#334155" }}
+          className="yk-nav-extra"
           onClick={() => setShowArchiveSelection(true)}
           disabled={!currentProject || isSaving}
         >
-          הורד חומר פרויקט
+          <NavIcon name="download" size={16} />הורד חומר פרויקט
         </button>
       </nav>
 
@@ -28205,6 +28353,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 toggleChecklistItemPrintExclusion={
                   toggleChecklistItemPrintExclusion
                 }
+                resolveAutoLink={(item, form) => resolveChecklistAutoLink(item, form, editingChecklistId)}
+                onOpenLinkedRecord={openChecklistLinkedRecord}
                 addChecklistItem={addChecklistItem}
                 insertChecklistItem={insertChecklistItem}
                 removeChecklistItem={removeChecklistItem}

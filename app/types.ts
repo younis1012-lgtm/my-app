@@ -40,6 +40,8 @@ export type ChecklistItem = {
   noAttachment?: boolean;
   labResults?: any;
   results?: any;
+  /** בחירה ידנית של רשומה מקושרת (בקרה מקדימה / רשימת תיוג של שכבה קודמת) */
+  linkedRecordId?: string;
 };
 
 export type ChecklistRecord = { id: string; projectId: string; checklistNo?: number; templateKey: ChecklistTemplateKey; title: string; category: string; location: string; date: string; contractor: string; notes: string; items: ChecklistItem[]; approval: ApprovalFlow; savedAt: string; controlProcessId?: string; specSection?: string; workType?: string; layerThickness?: string; areaSquareMeters?: string; castingVolumeCubicMeters?: string; selectedPlanId?: string; executionPlanNo?: string; executionPlanName?: string; executionPlanRevision?: string; };
