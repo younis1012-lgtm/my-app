@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 // מעקב שכבות גרפי – לשונית במסך "מעקב רשימות תיוג".
 // לכל מבנה: שורה לכל שכבה/אלמנט, ציר חתכים, פס לכל רשימת תיוג (מחתך–עד חתך),
 // צבע לפי סטטוס, על הפס מספרי תעודות המעבדה, ואייקון מדידה רק כשצורפה מדידה בפועל.
@@ -580,7 +581,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
       await exportLayerTrackingExcel(visibleGroups, projectName || "פרויקט", usesPlus, labelFor, recordLink);
     } catch (error) {
       console.error("Layer tracking Excel export failed", error);
-      window.alert("הפקת קובץ ה־Excel נכשלה. נסה שוב.");
+      alert("הפקת קובץ ה־Excel נכשלה. נסה שוב.");
     } finally {
       setExportingExcel(false);
     }
@@ -612,7 +613,7 @@ export function LayerTrackingView({ rows, getFullRecord, certificatesLoading, pr
     }
     const win = window.open("", "_blank");
     if (!win) {
-      window.alert("הדפדפן חסם את פתיחת הדוח. אפשר חלונות קופצים לאתר זה ונסה שוב.");
+      alert("הדפדפן חסם את פתיחת הדוח. אפשר חלונות קופצים לאתר זה ונסה שוב.");
       return;
     }
     win.document.open();

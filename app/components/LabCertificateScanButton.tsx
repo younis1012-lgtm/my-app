@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 import { useRef, useState } from "react";
 import { parseLabCertificateText, type LabCertificateResults } from "../lib/labCertificateParser";
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "./common";
 

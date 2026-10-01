@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import JSZip from "jszip";

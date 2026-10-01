@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 // לוח בקרה ניהולי + דוח תקופתי
 // מענה לדרישת מפרט נתיבי ישראל 00.02.04.08 – "רכיב הפקת הדו"חות":
 //   (2) דו"חות מנהלים המציגים בצורה מסוכמת וגרפית את המידע ומאפשרת איתור חריגים
@@ -621,7 +622,7 @@ export function ManagementDashboard(props: ManagementDashboardProps) {
       await exportPeriodicReport(rows, period, props.projectName || "פרויקט");
     } catch (error) {
       console.error("Periodic report export failed", error);
-      window.alert("הפקת הדוח התקופתי נכשלה. נסה שוב.");
+      alert("הפקת הדוח התקופתי נכשלה. נסה שוב.");
     } finally {
       setExporting(false);
     }

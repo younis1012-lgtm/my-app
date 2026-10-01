@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./Toaster";
 import { useEffect, useMemo, useState } from "react";
 
 export type HoldPointRecord = {
@@ -362,18 +363,17 @@ export function HoldPointsSection({
   };
 
   return (
-    <div dir="rtl" style={{ display: "grid", gap: 14 }}>
-      <section style={{ ...card, background: "linear-gradient(135deg,#0f172a,#1e3a5f)", color: "#fff" }}>
+    <div dir="rtl" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 14, minWidth: 0 }}>
+      <section style={{ ...card, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <div>
-            <h2 style={{ margin: 0 }}>⛔ נקודות עצירה</h2>
-            <p style={{ margin: "6px 0 0", color: "#cbd5e1" }}>
-              יצירה, שיוך ומעקב אחר רשימות תיוג, אי־התאמות, קטעי ניסוי ומסמכים לפי אלמנט בפרויקט.
+            <p style={{ margin: 0, color: "#64748b" }}>
+              שיוך ומעקב של רשימות תיוג, אי־התאמות, קטעי ניסוי ומסמכים לפי אלמנט בפרויקט.
             </p>
           </div>
           <button
             type="button"
-            style={{ ...primary, background: "#fff", color: "#0f172a" }}
+            style={{ ...primary, background: "#0b1f3a", color: "#fff" }}
             disabled={!canWrite}
             onClick={() => {
               setDraft(emptyDraft(projectId, nextSerial, currentUserName));
@@ -385,13 +385,13 @@ export function HoldPointsSection({
         </div>
       </section>
 
-      <section style={card}>
+      <section style={{ ...card, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <div>
             <h3 style={{ margin: 0 }}>מעקב נקודות עצירה</h3>
             <span style={{ color: "#64748b" }}>{records.length} נקודות בפרויקט</span>
           </div>
-          <input style={{ ...input, width: 300 }} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="חיפוש לפי שם, אלמנט או סטטוס" />
+          <input style={{ ...input, width: 300, maxWidth: "100%" }} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="חיפוש לפי שם, אלמנט או סטטוס" />
         </div>
         <div style={{ overflowX: "auto", marginTop: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1150 }}>

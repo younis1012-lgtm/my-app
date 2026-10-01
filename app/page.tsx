@@ -1,5 +1,6 @@
 "use client";
 
+import { showToast as alert } from "./components/Toaster";
 import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMissingHoldPointsTable, LEGACY_HOLD_POINT_PREFIX } from "./lib/legacyHoldPoints";
 import { ColumnFilter } from "./components/ColumnFilter";
 import { assignmentProjectIds, matchesProjectAssignment } from "./lib/projectAssignments";
@@ -8574,8 +8575,8 @@ function ProjectLegendPanel({
   return (
     <section
       style={{
-        border: missing ? "1px solid #fecaca" : "1px solid #cbd5e1",
-        background: missing ? "#fff7ed" : "#f8fafc",
+        border: "1px solid #dde3ec",
+        background: "#fff",
         borderRadius: 20,
         padding: 16,
         marginBottom: 16,
@@ -8593,8 +8594,7 @@ function ProjectLegendPanel({
         }}
       >
         <div>
-          <div style={{ fontSize: 20, fontWeight: 950 }}>פרטי הפרויקט</div>
-          <div style={{ color: "#475569", marginTop: 4 }}>
+          <div style={{ color: "#475569" }}>
             הנתונים כאן ימולאו אוטומטית בראש הריכוזים ובטפסים, לפי הפרויקט
             הפעיל.
           </div>
@@ -9765,9 +9765,8 @@ function SupervisionReportsSection({
     <section>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ display: "grid", gap: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: "#0b1f3a" }}>דוחות פיקוח עליון</h2>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#0b1f3a" }}>{editingId ? `עריכת דוח ${form.reportNo || ""}` : "דוח חדש"}</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14, color: "#55657d" }}>
-            <span>{editingId ? `עריכת דוח ${form.reportNo || ""}` : "דוח חדש"}</span>
             {details.discipline ? <span style={{ color: "#13305a", background: "#e8eef7", borderRadius: 999, padding: "2px 10px", fontWeight: 700, fontSize: 12 }}>{details.discipline}</span> : null}
             <span style={supervisionStatusChip(form.status, overdue)}>{overdue ? "חורג מיעד" : supervisionStatusLabel(form.status)}</span>
           </div>
@@ -10648,39 +10647,39 @@ function HomeSection({ projectName, projectChecklists, projectNonconformances, p
   return <div className="yk-dashboard" dir="rtl">
     <section className="yk-dashboard-hero">
       <div><h1>תמונת מצב לפרויקט</h1><p>{projectName}</p></div>
-      <div className="yk-dashboard-date">📅 {new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long" }).format(today)}</div>
+      <div className="yk-dashboard-date">{new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long" }).format(today)}</div>
     </section>
 
     <section className="yk-kpi-grid">
-      {dashboardKpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} onClick={() => setSection(item.section)} style={{ background: tone.bg, borderColor: tone.border }}>
-        <span className="yk-kpi-icon" style={{ background: tone.soft }}>{item.icon}</span><strong>{item.value}</strong><span>{item.label}</span>
+      {dashboardKpis.map((item) => { const tone = statusTone(item.tone as any); return <button key={item.label} onClick={() => setSection(item.section)}>
+        <span className="yk-kpi-icon"><NavIcon name={item.section} size={22} /></span><strong>{item.value}</strong><span>{item.label}</span>
       </button>; })}
     </section>
 
     <section className="yk-dashboard-middle">
       <article className="yk-panel yk-hold-panel">
-        <h2>⚑ נקודות עצירה</h2>
+        <h2>נקודות עצירה</h2>
         <div className="yk-hold-stats"><span className="open"><b>{homeModules.find((m) => m.key === "holdPoints")?.count ?? 0}</b> פתוחות</span><span className="late"><b>{metrics.overdue}</b> באיחור</span><span className="done"><b>0</b> הושלמו</span></div>
         <button onClick={() => setSection("holdPoints")}>מעבר לכל נקודות העצירה ←</button>
       </article>
       <article className="yk-panel yk-urgent-panel">
-        <h2>⚠ דורש טיפול עכשיו</h2>
+        <h2>דורש טיפול עכשיו</h2>
         <div className="yk-task-list">{urgentTasks.length ? urgentTasks.slice(0, 3).map((task, index) => { const tone = statusTone(task.tone); return <button key={`${task.title}-${index}`} className="yk-urgent-row" onClick={() => setSection(task.section)} style={{ background: tone.bg, borderColor: tone.border }}>
           <span className="yk-urgent-tag" style={{ background: tone.pill }}>{task.tagLabel}</span>
           <span className="yk-urgent-body"><b>{task.title}</b><small style={{ color: tone.text }}>{task.subtitle}</small></span>
-          <span className="yk-urgent-meta"><span aria-hidden="true">{task.icon}</span>{task.date && <small>{task.date}</small>}</span>
+          <span className="yk-urgent-meta"><span aria-hidden="true" style={{ color: "#13305a", display: "inline-flex" }}><NavIcon name={task.section} size={16} /></span>{task.date && <small>{task.date}</small>}</span>
         </button>; }) : <p>✅ אין כרגע משימות דחופות פתוחות</p>}</div>
       </article>
       <article className="yk-panel yk-progress-panel">
-        <h2>▥ התקדמות ובקרה</h2>
+        <h2>התקדמות ובקרה</h2>
         {distribution.slice(0, 5).map((row) => <button key={row.label} onClick={() => setSection(row.section)}><span>{row.label}</span><b>{row.value}</b><i><em style={{ width: `${Math.max(4, Math.round((row.value / totalRecords) * 100))}%` }} /></i></button>)}
       </article>
     </section>
 
     <section className="yk-panel yk-quick-section">
-      <h2>⚡ גישה מהירה</h2>
+      <h2>גישה מהירה</h2>
       <div className="yk-quick-grid">{highlightedModules.map((module) => <button className={`accent-${quickAccessTone[String(module.key)] ?? "blue"}`} key={String(module.key)} onClick={() => setSection(module.key as AppSection)}>
-        <span className="yk-quick-icon">{module.icon}</span><div><strong>{module.title}</strong><small>{module.description}</small></div><b>{module.count}</b><span className="yk-quick-link">מעבר למסך ←</span>
+        <span className="yk-quick-icon"><NavIcon name={String(module.key)} size={22} /></span><div><strong>{module.title}</strong><small>{module.description}</small></div><b>{module.count}</b><span className="yk-quick-link">מעבר למסך ←</span>
       </button>)}</div>
     </section>
   </div>;
@@ -11722,30 +11721,15 @@ function TrialSectionsRecordsTable({
             onClick={onNew}
             style={{
               border: 0,
-              borderRadius: 4,
-              background: "#22c55e",
+              borderRadius: 10,
+              background: "#0b1f3a",
               color: "#fff",
-              fontWeight: 900,
-              padding: "10px 26px",
-              cursor: "pointer",
-            }}
-          >
-            אפס
-          </button>
-          <button
-            type="button"
-            onClick={onNew}
-            style={{
-              border: "1px solid #d1d5db",
-              borderRadius: 4,
-              background: "#fff",
-              color: "#111827",
               fontWeight: 900,
               padding: "10px 18px",
               cursor: "pointer",
             }}
           >
-            חדש
+            + קטע ניסוי חדש
           </button>
         </div>
       </div>
@@ -28053,7 +28037,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
         <div className="yk-topbar-brand">
           <div className="yk-topbar-brand-name"><span className="yk-topbar-brand-mark">YK</span>Y.K QUALITY</div>
-          <div className="yk-topbar-brand-tag">QA/QC · workflow with signatures</div>
+          <div className="yk-topbar-brand-tag">מערכת בקרת איכות</div>
         </div>
       </header>
 
@@ -28198,31 +28182,38 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
 
       <div className="project-content" style={styles.layout}>
         <main style={styles.mainCard}>
-          {currentProject && !guardedBody && (
-            <div style={{ ...styles.buttonRow, marginBottom: 14 }}>
-              <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>
-                {selectedBatchRecordsFor(section).length
-                  ? `שליחה במייל – ${selectedBatchRecordsFor(section).length} רשומות מסומנות`
-                  : "שליחה במייל / היסטוריה"}
-              </button>
-            </div>
-          )}
-          {showExportButtons && section !== "preliminary" && !guardedBody && (
+          {/* ראש מסך אחיד: כותרת, ולידה שורת הפעולות. הסינון מופיע מתחת */}
+          {!guardedBody && (section !== "home" || currentProject) && (
             <div
+              className="yk-section-head"
               style={{
-                ...styles.buttonRow,
-                justifyContent: "flex-start",
-                marginBottom: 14,
+                display: "flex",
+                justifyContent: section === "home" ? "flex-end" : "space-between",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+                marginBottom: 16,
               }}
             >
-              <button
-                type="button"
-                style={styles.secondaryBtn}
-                onClick={exportPdf}
-              >
-                הורד PDF
-              </button>
-
+              {section !== "home" ? (
+                <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, color: "#0b1f3a", lineHeight: 1.2 }}>
+                  {navItems.find(([key]) => key === section)?.[1] ?? ""}
+                </h1>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {showExportButtons && section !== "preliminary" && (
+                  <button type="button" style={styles.secondaryBtn} onClick={exportPdf}>
+                    הורד PDF
+                  </button>
+                )}
+                {currentProject && (
+                  <button type="button" style={styles.secondaryBtn} onClick={sendCurrentFormEmail}>
+                    {selectedBatchRecordsFor(section).length
+                      ? `שליחה במייל – ${selectedBatchRecordsFor(section).length} רשומות מסומנות`
+                      : "שליחה במייל / היסטוריה"}
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {section === "preliminary" && !guardedBody && (
@@ -28345,7 +28336,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           {section === "rfi" && (
             <>
               <FolderRecordsTable
-                title="RFI / אישורי מתכנן"
+                title="רשימת פניות RFI ואישורי מתכנן"
                 description="רשימת כל פניות RFI ואישורי המתכנן בפרויקט."
                 records={projectRfis as any[]}
                 columns={[
@@ -28879,7 +28870,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           {section === "nonconformances" && (
             <>
               <FolderRecordsTable
-                title="אי התאמות"
+                title="רשימת אי ההתאמות"
                 description="כל אי ההתאמות של הפרויקט מוצגות כאן בשורות מסודרות. ניתן לסמן כמה רשומות ולשלוח את כולן יחד במייל אחד או להוריד כ-ZIP."
                 records={projectNonconformances as any[]}
                 columns={[
@@ -28979,7 +28970,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           {section === "preliminary" && (
             <>
               <FolderRecordsTable
-                title={`בקרה מקדימה - ${labelForPreliminary(preliminaryTab)}`}
+                title={`רשימת ${labelForPreliminary(preliminaryTab)}`}
                 description="ניתן לסמן רשומות, לעבור בין ספקים, חומרים וקבלני משנה, ואז לשלוח את כולן יחד במייל אחד."
                 records={projectPreliminary.filter((record) => record.subtype === preliminaryTab) as any[]}
                 columns={preliminaryFolderColumns(preliminaryTab)}

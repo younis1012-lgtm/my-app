@@ -181,3 +181,12 @@ button, input, select, textarea { font-family: inherit; }
 
 /* דוח פיקוח עליון: פאנל הצד יורד מתחת בטלפון */
 @media (max-width: 900px) { .yk-sup-grid { grid-template-columns: 1fr !important; } }
+
+/* דף הבית: כרטיסים לבנים אחידים ואייקוני קו כמו בתפריט */
+.yk-kpi-grid button { background:#fff !important; border-color:#dde3ec !important; color:#0b1f3a; }
+.yk-kpi-icon { width:46px; height:46px; border-radius:12px; background:#e8eef7; color:#13305a; font-size:0; }
+.yk-kpi-grid strong { color:#0b1f3a; }
+.yk-kpi-grid button>span:not(.yk-kpi-icon) { color:#55657d; font-weight:700; }
+.yk-quick-grid>button, .yk-quick-grid .accent-blue, .yk-quick-grid .accent-green, .yk-quick-grid .accent-amber, .yk-quick-grid .accent-red { background:#fff; border-color:#dde3ec; }
+.yk-quick-icon { width:46px; height:46px; border-radius:12px; background:#e8eef7; color:#13305a; font-size:0; }
+.yk-quick-link { color:#13305a; }

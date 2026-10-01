@@ -1,3 +1,4 @@
+import { showToast as alert } from "./Toaster";
 // דוח מנהלים להדפסה / שמירה כ־PDF (A4), מתוך לוח הבקרה הניהולי.
 // נפתח בחלון חדש עם חלון ההדפסה של הדפדפן – שם בוחרים "שמור כ־PDF".
 // הגרפים הם אותם גרפים שמוצגים במערכת (dashboardCharts).
@@ -140,7 +141,7 @@ window.addEventListener("load", function () { setTimeout(function () { window.pr
 export function openManagerReport(input: ManagerReportInput, target?: Window | null) {
   const win = target ?? window.open("", "_blank");
   if (!win) {
-    window.alert("הדפדפן חסם את פתיחת הדוח. אפשר חלונות קופצים לאתר זה ונסה שוב.");
+    alert("הדפדפן חסם את פתיחת הדוח. אפשר חלונות קופצים לאתר זה ונסה שוב.");
     return;
   }
   win.document.open();
