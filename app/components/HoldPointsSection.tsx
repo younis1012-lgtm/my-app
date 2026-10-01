@@ -1,7 +1,7 @@
 "use client";
 
 import { showToast as alert } from "./Toaster";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type HoldPointRecord = {
   id: string;
@@ -277,6 +277,14 @@ export function HoldPointsSection({
   const [expandedId, setExpandedId] = useState("");
   const [filter, setFilter] = useState("");
 
+  // פתיחת נקודת עצירה גוללת ישר אל הטופס
+  const formRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!showForm) return;
+    const timer = window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    return () => window.clearTimeout(timer);
+  }, [showForm, draft.id]);
+
   // פתיחה ישירה מלוח הבקרה הניהולי
   useEffect(() => {
     if (!openRecordId) return;
@@ -447,7 +455,7 @@ export function HoldPointsSection({
       </section>
 
       {showForm && (
-        <section style={card}>
+        <section ref={formRef} style={{ ...card, scrollMarginTop: 110 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div><h3 style={{ margin: 0 }}>{draft.id ? "עריכת נקודת עצירה" : "יצירת נקודת עצירה"}</h3><p style={{ margin: "5px 0", color: "#64748b" }}>בחר אלמנט ושייך אליו את הרשומות הרלוונטיות.</p></div>
             <button style={secondary} onClick={reset}>סגור</button>

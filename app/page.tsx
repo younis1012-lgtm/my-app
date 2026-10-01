@@ -11053,7 +11053,7 @@ function FolderRecordsTable({
   };
 
   return (
-    <section
+    <section data-records-table=""
       style={{
         border: "1px solid #dbe3ef",
         borderRadius: 18,
@@ -11683,7 +11683,7 @@ function TrialSectionsRecordsTable({
   }, [page, totalPages]);
 
   return (
-    <section
+    <section data-records-table=""
       style={{
         border: "1px solid #e5e7eb",
         borderRadius: 4,
@@ -17149,6 +17149,11 @@ export default function Page() {
     window.localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
   }, []);
   const [section, setSection] = useState<AppSection>("home");
+  // פתיחת רשומה (מטבלה, ממעקב, מקישור) גוללת אוטומטית אל טופס הרשומה
+  const editorScrollRequestRef = useRef(false);
+  const requestEditorScroll = () => {
+    editorScrollRequestRef.current = true;
+  };
   const [selectedChecklistTemplateKey, setSelectedChecklistTemplateKey] =
     useState<ChecklistTemplateKey>(() => normalizeChecklistTemplateKey(undefined));
   const [preliminaryTab, setPreliminaryTab] =
@@ -22381,7 +22386,30 @@ export default function Page() {
     return newSampleRows.length;
   };
 
+  useEffect(() => {
+    if (!editorScrollRequestRef.current) return;
+    const timer = window.setTimeout(() => {
+      editorScrollRequestRef.current = false;
+      const main = document.querySelector(".project-content main");
+      const table = main?.querySelector("[data-records-table]");
+      const editor = (table?.nextElementSibling as HTMLElement | null) ?? null;
+      (editor ?? (main as HTMLElement | null))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [
+    section,
+    editingChecklistId,
+    editingNonconformanceId,
+    editingTrialSectionId,
+    editingPreliminaryId,
+    editingRfiId,
+    editingControlProcessId,
+    editingSupervisionReportId,
+    editingPlanId,
+  ]);
+
   const loadControlProcess = async (record: ControlProcessRecord) => {
+    requestEditorScroll();
     let fullRecord = record;
     if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from(CONTROL_PROCESS_TABLE).select("*").eq("id", record.id).maybeSingle();
@@ -22672,6 +22700,7 @@ export default function Page() {
   };
 
   const loadChecklist = async (record: ChecklistRecord) => {
+    requestEditorScroll();
     // פתיחה מיידית מהגרסה הקלה שכבר נטענה ברקע (אם קיימת)
     const light = getConcentrationChecklist(record.id);
     // רק אם הגרסה הקלה עדכנית (אותו זמן שמירה) – אחרת טוענים מהשרת
@@ -22958,6 +22987,7 @@ export default function Page() {
   };
 
   const loadRfi = async (record: RfiRecord) => {
+    requestEditorScroll();
     const fullRecord = await hydrateRfiRecord(record);
     setSection("rfi");
     setEditingRfiId(fullRecord.id);
@@ -23115,6 +23145,7 @@ export default function Page() {
     resetNonconformanceEditor();
   };
   const loadNonconformance = async (record: NonconformanceRecord) => {
+    requestEditorScroll();
     if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from(NONCONFORMANCE_TABLE).select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
@@ -23408,6 +23439,7 @@ export default function Page() {
     resetTrialSectionEditor();
   };
   const loadTrialSection = async (record: TrialSectionRecord) => {
+    requestEditorScroll();
     if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from("trial_sections").select("*").eq("id", record.id).maybeSingle();
       if (!error && data) {
@@ -23605,6 +23637,7 @@ export default function Page() {
     return record;
   };
   const loadPreliminary = async (record: PreliminaryRecord) => {
+    requestEditorScroll();
     record = await hydratePreliminaryRecord(record);
     setSection("preliminary");
     setPreliminaryTab(record.subtype);
@@ -23968,6 +24001,7 @@ export default function Page() {
   };
 
   const loadPlan = async (record: PlanRecord) => {
+    requestEditorScroll();
     let fullRecord = record;
     if (cloudEnabled && supabase) {
       const { data, error } = await supabase.from(PLANS_TABLE).select("*").eq("id", record.id).maybeSingle();
@@ -26798,6 +26832,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   }, [loaded, projectChecklists, projectNonconformances, projectTrialSections, projectPreliminary, projectRfis, projectSupervisionReports, projectHoldPoints]);
 
   const loadSupervisionReport = async (record: SupervisionReportRecord) => {
+    requestEditorScroll();
     const fullRecord = await hydrateSupervisionReport(record);
     setEditingSupervisionReportId(fullRecord.id);
     setSupervisionReportForm({
