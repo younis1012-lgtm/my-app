@@ -7765,7 +7765,7 @@ function ChecklistsSection({
                               />
                             ) : null}
                             <span className="yk-chip yk-chip-ok">
-                              ✓ נחתם
+                              ✓ מאושר
                               {!isImageSignature && !["מאושר", "חתום"].includes(String(signatureValue.signature).trim())
                                 ? ` · ${String(signatureValue.signature).trim().slice(0, 18)}`
                                 : ""}
