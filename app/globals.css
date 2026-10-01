@@ -178,3 +178,6 @@ button, input, select, textarea { font-family: inherit; }
 .yk-menu-panel > button { border: 0; border-radius: 8px; background: transparent; color: var(--yk-navy); font-weight: 600; font-size: 13px; padding: 9px 10px; text-align: right; cursor: pointer; }
 .yk-menu-panel > button:hover { background: #f3f5f9; }
 .yk-menu-panel > input { border: 1px solid var(--yk-border) !important; background: #fff !important; }
+
+/* דוח פיקוח עליון: פאנל הצד יורד מתחת בטלפון */
+@media (max-width: 900px) { .yk-sup-grid { grid-template-columns: 1fr !important; } }
