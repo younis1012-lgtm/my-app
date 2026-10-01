@@ -5323,6 +5323,72 @@ const nonconformanceStatusSummary = (rows: Row[]) => {
   };
 };
 
+// ---------- סטטוס אי התאמות לדוח החודשי (טבלה קומפקטית להעתקה לוורד) ----------
+type NcPair = { QC: number; QA: number };
+const ncGradeOf = (row: Row): number => {
+  const text = cleanText(row["דרגת אי התאמה"]);
+  const digit = text.match(/[123]/);
+  if (digit) return Number(digit[0]);
+  // ללא מספר דרגה: גיבוי לפי שדה החומרה בטופס
+  if (/גבוה/.test(text)) return 3;
+  if (/בינונ/.test(text)) return 2;
+  if (/נמוכ/.test(text)) return 1;
+  return 0;
+};
+const ncIsClosed = (row: Row) =>
+  includesAny(row["סטטוס"], ["סגור", "נסגר", "closed"]) || Boolean(cleanText(row["תאריך  סגירה"]));
+
+export const nonconformanceMonthlyStatus = (rows: Row[], year: number, month: number) => {
+  const pair = (items: Row[]): NcPair => ({
+    QC: items.filter((row) => nonconformanceOwner(row) === "QC").length,
+    QA: items.filter((row) => nonconformanceOwner(row) === "QA").length,
+  });
+  const inMonth = (row: Row) => {
+    const date = parseConcentrationDate(row["תאריך פתיחת"] ?? row["תאריך פתיחה"]);
+    return Boolean(date && date.getFullYear() === year && date.getMonth() === month);
+  };
+  const group = (items: Row[]) => ({
+    total: pair(items),
+    grades: [1, 2, 3].map((grade) => pair(items.filter((row) => ncGradeOf(row) === grade))),
+  });
+  return {
+    project: group(rows),
+    month: group(rows.filter(inMonth)),
+    open: group(rows.filter((row) => !ncIsClosed(row))),
+    ungraded: rows.filter((row) => !ncGradeOf(row)).length,
+  };
+};
+
+export const nonconformanceStatusTableHtml = (status: ReturnType<typeof nonconformanceMonthlyStatus>) => {
+  const groups = [status.project, status.month, status.open];
+  const border = "border:1px solid #000;";
+  const cell = (content: string | number, bg: string, extra = "") =>
+    `<td style="${border}background:${bg};text-align:center;vertical-align:middle;padding:2pt 4pt;font-family:Arial,sans-serif;font-size:10pt;font-weight:bold;${extra}">${content}</td>`;
+  const label = (text: string, bg: string) =>
+    `<td style="${border}background:${bg};text-align:center;vertical-align:middle;padding:2pt 6pt;font-family:Arial,sans-serif;font-size:10pt;font-weight:bold;width:5.4cm;white-space:nowrap;">${text}</td>`;
+  const pairCells = (pairValue: NcPair, bg: string) => cell(pairValue.QC, bg) + cell(pairValue.QA, bg);
+  const sum = (pairValue: NcPair) => pairValue.QC + pairValue.QA;
+  const head = "#bfbfbf";
+  const totalBg = "#b4c7d0";
+  const gradeBg = ["#d9d9d9", "#c0c0c0", "#a6a6a6"];
+  const pinkLabel = "#e6b9b8";
+  const pink = "#f2dcdb";
+  const rows = [
+    `<tr>${label("פירוט דרגה", head).replace("<td ", '<td rowspan="2" ')}${["נפתחו מתחילת הפרויקט", "אי התאמות שנפתחו בחודש המדווח", "אי התאמות שטרם נסגרו"]
+      .map((title) => cell(title, head, "width:3.2cm;").replace("<td ", '<td colspan="2" '))
+      .join("")}</tr>`,
+    `<tr>${groups.map(() => cell("QC", head, "width:1.6cm;") + cell("QA", head, "width:1.6cm;")).join("")}</tr>`,
+    `<tr>${label("סה״כ בקרה/הבטחה", "#ffffff")}${groups.map((g) => pairCells(g.total, totalBg)).join("")}</tr>`,
+    `<tr>${label("סה״כ בקרה+הבטחה", "#ffffff")}${groups.map((g) => cell(sum(g.total), totalBg).replace("<td ", '<td colspan="2" ')).join("")}</tr>`,
+    `<tr><td colspan="7" style="border:none;height:6pt;font-size:4pt;">&nbsp;</td></tr>`,
+    ...[0, 1, 2].map((gi) => `<tr>${label(`סה״כ אי התאמות דרגה ${gi + 1}`, gradeBg[gi])}${groups.map((g) => pairCells(g.grades[gi], gradeBg[gi])).join("")}</tr>`),
+    `<tr>${label("סה״כ דרגות 1–3 בקרה+הבטחה", pinkLabel)}${groups
+      .map((g) => cell(g.grades.reduce((total, p) => total + sum(p), 0), pink).replace("<td ", '<td colspan="2" '))
+      .join("")}</tr>`,
+  ];
+  return `<table dir="rtl" style="border-collapse:collapse;direction:rtl;margin:0 auto;">${rows.join("")}</table>`;
+};
+
 const buildNonconformanceStatusWorksheetXml = (
   rows: Row[],
   meta: Required<ProjectConcentrationMeta>,
@@ -6350,6 +6416,13 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
   const [selectedIds, setSelectedIds] = useState<ConcentrationId[]>([]);
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const [openId, setOpenId] = useState<ConcentrationId | null>(null);
+  const [ncStatusOpen, setNcStatusOpen] = useState(false);
+  const [ncStatusMonth, setNcStatusMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [ncStatusCopied, setNcStatusCopied] = useState(false);
+  const ncStatusTableRef = useRef<HTMLDivElement | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConcentrationGroupKey>>(new Set());
   const [soilSurveyImporting, setSoilSurveyImporting] = useState(false);
   const [asphaltMixPicker, setAsphaltMixPicker] = useState<{
@@ -6621,6 +6694,16 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
               </button>
             </>
           )}
+          {definition.id === "nonconformances" ? (
+            <button
+              type="button"
+              disabled={!sourceDataReady}
+              onClick={() => { setNcStatusCopied(false); setNcStatusOpen(true); }}
+              style={{ border: "1px solid #c9a227", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0b1f3a", background: "#fffaf0", cursor: sourceDataReady ? "pointer" : "not-allowed", opacity: sourceDataReady ? 1 : 0.55 }}
+            >
+              סטטוס אי התאמות לדוח החודשי
+            </button>
+          ) : null}
           <button type="button" disabled={!sourceDataReady && !isOpen} onClick={() => setOpenId(isOpen ? null : definition.id)} style={{ border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontWeight: 900, color: "#0f172a", background: "#fff", opacity: sourceDataReady || isOpen ? 1 : 0.55, cursor: sourceDataReady || isOpen ? "pointer" : "not-allowed" }}>
             {isOpen ? "סגור תצוגה מקדימה" : "פתח תצוגה מקדימה"}
           </button>
@@ -6840,6 +6923,69 @@ export function ConcentrationsSection({ currentProjectId = "", savedChecklists =
           </div>
         </div>
       ) : null}
+      {ncStatusOpen ? (() => {
+        const ncDefinition = definitions.find((item) => item.id === "nonconformances");
+        const ncRows = ncDefinition ? (rowsById[ncDefinition.id] ?? buildRowsForDefinition(ncDefinition)) : [];
+        const [yearText, monthText] = ncStatusMonth.split("-");
+        const status = nonconformanceMonthlyStatus(ncRows, Number(yearText), Number(monthText) - 1);
+        const tableHtml = nonconformanceStatusTableHtml(status);
+        const copyTable = async () => {
+          const html = `<html><body dir="rtl">${tableHtml}</body></html>`;
+          try {
+            const ClipboardItemCtor = (window as any).ClipboardItem;
+            if (navigator.clipboard?.write && ClipboardItemCtor) {
+              await navigator.clipboard.write([
+                new ClipboardItemCtor({
+                  "text/html": new Blob([html], { type: "text/html" }),
+                  "text/plain": new Blob([ncStatusTableRef.current?.innerText ?? ""], { type: "text/plain" }),
+                }),
+              ]);
+            } else throw new Error("no clipboard api");
+          } catch {
+            const node = ncStatusTableRef.current;
+            if (!node) return;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            document.execCommand("copy");
+            selection?.removeAllRanges();
+          }
+          setNcStatusCopied(true);
+        };
+        return (
+          <div role="dialog" aria-modal="true" aria-label="סטטוס אי התאמות לדוח החודשי" onClick={() => setNcStatusOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(11,31,58,0.55)", display: "grid", placeItems: "center", padding: 20 }}>
+            <div onClick={(event) => event.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "min(760px, 100%)", maxHeight: "90vh", overflow: "auto", display: "grid", gap: 14, boxShadow: "0 24px 60px rgba(11,31,58,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0b1f3a" }}>סטטוס אי התאמות לדוח החודשי</div>
+                  <div style={{ color: "#55657d", fontSize: 13, marginTop: 4 }}>{meta.projectName || "-"} · מחושב מכל אי ההתאמות השמורות בפרויקט</div>
+                </div>
+                <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700, color: "#334155" }}>
+                  חודש מדווח
+                  <input type="month" value={ncStatusMonth} onChange={(event) => { setNcStatusMonth(event.target.value); setNcStatusCopied(false); }} style={{ border: "1px solid #c9d2df", borderRadius: 10, padding: "8px 10px", fontWeight: 600 }} />
+                </label>
+              </div>
+              <div ref={ncStatusTableRef} style={{ background: "#fff", padding: "6px 0" }} dangerouslySetInnerHTML={{ __html: tableHtml }} />
+              {status.ungraded ? (
+                <div style={{ fontSize: 13, color: "#9a5b00", background: "#fff5e0", borderRadius: 10, padding: "8px 12px" }}>
+                  {status.ungraded} אי התאמות ללא דרגה – הן נספרות בסיכומים העליונים אך לא בשורות הדרגה.
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button type="button" onClick={copyTable} style={{ ...btnStyle, background: "#0b1f3a" }}>
+                  העתק טבלה לוורד
+                </button>
+                <button type="button" onClick={() => setNcStatusOpen(false)} style={{ border: "1px solid #c9d2df", borderRadius: 12, padding: "11px 16px", fontWeight: 700, background: "#fff", cursor: "pointer" }}>
+                  סגור
+                </button>
+                {ncStatusCopied ? <span style={{ color: "#15803d", fontWeight: 700 }}>✓ הועתק – הדבק בוורד עם Ctrl+V</span> : null}
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
     </section>
   );
 }
