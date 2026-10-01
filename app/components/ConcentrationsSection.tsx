@@ -1816,6 +1816,26 @@ const controlProcessRow = (record: any, index: number): Row => {
   };
 };
 
+// תיאור ארוך מקוצר לתמצית קריאה בתא אחד בריכוז (הטקסט המלא נשאר בטופס ה-RFI)
+const RFI_SUMMARY_MAX = 160;
+const condenseText = (value: unknown, max = RFI_SUMMARY_MAX): string => {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  const sentences = text.split(/(?<=[.!?;:])\s+|\s*\n+\s*/).filter(Boolean);
+  let summary = "";
+  for (const sentence of sentences) {
+    const next = summary ? `${summary} ${sentence}` : sentence;
+    if (next.length > max) break;
+    summary = next;
+  }
+  if (summary.length < 40) {
+    const cut = text.slice(0, max);
+    const lastSpace = cut.lastIndexOf(" ");
+    summary = (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.\-–]+$/, "");
+  }
+  return `${summary.replace(/[\s,;:\-–]+$/, "")}…`;
+};
+
 const rfiRow = (record: any, index: number): Row => ({
   "מס׳": index + 1,
   "מספר RFI": firstText(record?.rfiNumber, record?.referenceNo, record?.title),
@@ -1823,7 +1843,7 @@ const rfiRow = (record: any, index: number): Row => ({
   "מיקום": firstText(record?.location, record?.building, record?.fromSection, record?.toSection),
   "תאריך פתיחה": dateText(record?.openDate ?? record?.savedAt),
   "סטטוס": firstText(record?.status),
-  "תיאור הבקשה": firstText(record?.requestDescription),
+  "תיאור הבקשה": condenseText(firstText(record?.requestDescription, record?.description, record?.details?.requestDescription)),
   "תשובה/טיפול": firstText(record?.response),
   "נספחים": Array.isArray(record?.documents) ? record.documents.length : "",
   "הערות": firstText(record?.notes),
