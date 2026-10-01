@@ -5147,10 +5147,17 @@ const readRequestedProjectIdFromUrl = () => {
 const consumeRequestedProjectRoute = () => {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("projectId") && !url.searchParams.has("returnToProject"))
+  // גם הפרמטר project (קישור הזמנה) נמחק אחרי ההתחברות: אחרת המערכת ממשיכה
+  // "לבקש" את פרויקט ההזמנה ומחזירה את המשתמש אליו בכל פעם שהוא עובר פרויקט.
+  if (
+    !url.searchParams.has("projectId") &&
+    !url.searchParams.has("returnToProject") &&
+    !url.searchParams.has("project")
+  )
     return;
   url.searchParams.delete("projectId");
   url.searchParams.delete("returnToProject");
+  url.searchParams.delete("project");
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 };
 
@@ -17561,6 +17568,7 @@ export default function Page() {
             writeLocalCurrentProjectId(selectedProjectId, authAccess);
           }
           setLoginError("");
+          consumeRequestedProjectRoute();
           setProjectAccess(authAccess);
           setShowProjectPicker(true);
           writeAuthSession(authAccess);
@@ -17635,6 +17643,7 @@ export default function Page() {
       setCurrentProjectId(selectedProjectId);
       writeLocalCurrentProjectId(selectedProjectId, authenticatedAccess);
     }
+    consumeRequestedProjectRoute();
     setProjectAccess(authenticatedAccess);
     setShowProjectPicker(true);
     writeAuthSession(authenticatedAccess);
@@ -18004,14 +18013,21 @@ export default function Page() {
           id: normalizeStoredProjectId(project.id),
         })),
       );
-      setCurrentProjectId(
-        normalizeStoredProjectId(
+      // אם כבר נבחר פרויקט קיים – שומרים אותו (הנתון השמור בדפדפן עלול להיות ישן)
+      setCurrentProjectId((prev) => {
+        const normalizedPrev = normalizeStoredProjectId(prev);
+        if (
+          normalizedPrev &&
+          loadedProjects.some((project) => normalizeStoredProjectId(project.id) === normalizedPrev)
+        )
+          return prev;
+        return normalizeStoredProjectId(
           parsed.currentProjectId ??
             loadedProjects[0]?.id ??
             fallbackProjects[0]?.id ??
             null,
-        ),
-      );
+        );
+      });
       setSavedChecklists(
         (parsed.savedChecklists ?? []).map((item) => ({
           ...item,
@@ -18161,7 +18177,6 @@ export default function Page() {
     setProjects(availableProjects);
     const requestedProjectId = readRequestedProjectIdFromUrl();
     const storedProjectId = normalizeStoredProjectId(readLocalCurrentProjectId(projectAccess));
-    const selectedProjectId = normalizeStoredProjectId(requestedProjectId || currentProjectId);
     // אבטחה: אסור לעולם לבחור כברירת מחדל פרויקט שהמשתמש המחובר אינו מורשה
     // אליו - לא לפי כתובת URL, לא לפי מה ששמור בדפדפן, ולא לפי "פרויקט פעיל"
     // כללי. תמיד יש לצמצם קודם לרשימת הפרויקטים שהמשתמש הזה מורשה לראות.
@@ -18169,19 +18184,22 @@ export default function Page() {
       availableProjects,
       projectAccess,
     );
-    const active =
-      (selectedProjectId
-        ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
-        : undefined) ??
-      (storedProjectId
-        ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
-        : undefined) ??
-      allowedProjects.find((p) => p.isActive) ??
-      allowedProjects[0] ??
-      getDefaultProjectList()[0];
-    setCurrentProjectId(
-      active?.id ? normalizeStoredProjectId(active.id) : null,
-    );
+    // הבחירה מחושבת מול הערך העדכני (prev) ולא מול ערך שנשמר כשהטעינה התחילה –
+    // טעינה איטית שהסתיימה אחרי שהמשתמש עבר פרויקט החזירה אותו לפרויקט הקודם.
+    setCurrentProjectId((prev) => {
+      const selectedProjectId = normalizeStoredProjectId(requestedProjectId || prev);
+      const active =
+        (selectedProjectId
+          ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === selectedProjectId)
+          : undefined) ??
+        (storedProjectId
+          ? allowedProjects.find((p) => normalizeStoredProjectId(p.id) === storedProjectId)
+          : undefined) ??
+        allowedProjects.find((p) => p.isActive) ??
+        allowedProjects[0] ??
+        getDefaultProjectList()[0];
+      return active?.id ? normalizeStoredProjectId(active.id) : null;
+    });
     if (checklistRows !== undefined) setSavedChecklists((checklistRows ?? []).map(checklistRowToRecord));
     if (nonconRows !== undefined) setSavedNonconformances((nonconRows ?? []).map(nonconformanceRowToRecord));
     if (trialRows !== undefined) setSavedTrialSections(
@@ -18800,6 +18818,16 @@ export default function Page() {
     setCurrentProjectId((prev) => {
       const normalizedPrev = normalizeStoredProjectId(prev);
       if (normalizedPrev === nextProjectId) return prev;
+      // הפרויקט שהמשתמש בחר זה עתה (הערך העדכני ביותר) תקין ומורשה – לא מחליפים
+      // אותו. בלי זה, הפעלה "מאוחרת" של האפקט עם ערך ישן החזירה משתמש עם כמה
+      // פרויקטים לפרויקט הקודם מיד אחרי שבחר פרויקט אחר.
+      if (
+        !requestedId &&
+        normalizedPrev &&
+        sourceProjects.some((project) => normalizeStoredProjectId(project.id) === normalizedPrev)
+      ) {
+        return prev;
+      }
       writeLocalCurrentProjectId(nextProjectId, projectAccess);
       return nextProjectId;
     });
@@ -20697,6 +20725,8 @@ export default function Page() {
     options: { persistGlobalActive?: boolean } = {},
   ) => {
       projectId = normalizeStoredProjectId(projectId);
+      // בחירה מפורשת של המשתמש גוברת על פרויקט שהגיע מקישור (הזמנה / קישור לרשומה)
+      consumeRequestedProjectRoute();
       const allProjects = effectiveProjects.length
         ? effectiveProjects
         : getDefaultProjectList();
