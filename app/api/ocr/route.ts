@@ -351,6 +351,8 @@ const concreteStrengthEmptyData = {
   strength28Days: '',
   testDate: '',
   castDate: '',
+  test7Date: '',
+  test28Date: '',
   concreteSource: '',
   quantity: '',
   slumpCertificateNo: '',
@@ -377,6 +379,8 @@ const concreteStrengthJsonSchema = {
     strength28Days: { type: 'string' },
     testDate: { type: 'string' },
     castDate: { type: 'string' },
+    test7Date: { type: 'string' },
+    test28Date: { type: 'string' },
     concreteSource: { type: 'string' },
     quantity: { type: 'string' },
     slumpCertificateNo: { type: 'string' },
@@ -394,6 +398,48 @@ const concreteStrengthJsonSchema = {
   },
   required: Object.keys(concreteStrengthEmptyData),
 };
+
+// בדיקות שפיות לתוצאות חוזק בטון: חוזק 28 ימים לא יכול להיות נמוך משמעותית מחוזק 7 ימים,
+// ותאריך היציקה חייב להיות לפני תאריכי הבדיקה.
+const isoDate = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  const iso = text.match(/(20\d{2})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const dmy = text.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+  if (dmy) {
+    const year = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
+    return `${year}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  }
+  return '';
+};
+const dayDiff = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86400000;
+
+function sanitizeConcreteStrengthData(data: Record<string, any>) {
+  const next = { ...data };
+  const notes: string[] = [];
+  const s7 = Number(String(next.strength7Days ?? '').replace(',', '.'));
+  const s28 = Number(String(next.strength28Days ?? '').replace(',', '.'));
+  if (s7 > 0 && s28 > 0 && s7 > s28 * 1.05) {
+    [next.strength7Days, next.strength28Days] = [next.strength28Days, next.strength7Days];
+    notes.push('תוצאות 7 ו-28 ימים הוחלפו (התוצאה הגבוהה שייכת ל-28 ימים)');
+  }
+  let cast = isoDate(next.castDate);
+  const test7 = isoDate(next.test7Date);
+  const test28 = isoDate(next.test28Date);
+  const test = isoDate(next.testDate);
+  const testDates = [test7, test28, test].filter(Boolean);
+  // תאריך יציקה ששווה לתאריך בדיקה או מאוחר ממנו – נלקח בטעות מתאריך הבדיקה
+  if (cast && testDates.some((date) => dayDiff(cast, date) <= 0)) {
+    cast = '';
+    notes.push('תאריך היציקה שנקרא היה תאריך בדיקה – יש להשלים ידנית');
+  }
+  // אין תאריך יציקה מפורש: גוזרים מגיל הבדיקה כשיש תאריך בדיקה ייעודי לגיל
+  if (!cast && test7) cast = new Date(Date.parse(test7) - 7 * 86400000).toISOString().slice(0, 10);
+  else if (!cast && test28) cast = new Date(Date.parse(test28) - 28 * 86400000).toISOString().slice(0, 10);
+  next.castDate = cast;
+  if (notes.length) next.notes = [String(next.notes ?? '').trim(), ...notes].filter(Boolean).join(' | ');
+  return next;
+}
 
 function normalizeDataUrl(dataUrl: string, mimeType: string) {
   const raw = String(dataUrl || '').trim();
@@ -1160,8 +1206,10 @@ export async function POST(req: NextRequest) {
 - concreteType: סוג/דרגת הבטון. החזר רק אחד מהערכים ב-30, ב-40, ב-50, ב-60 כאשר הוא מופיע.
 - strength7Days: תוצאת חוזק הלחיצה בגיל 7 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-7 ימים.
 - strength28Days: תוצאת חוזק הלחיצה בגיל 28 ימים. אם יש מספר קוביות, החזר את הממוצע המסכם המודפס; אם אין ממוצע מודפס, חשב ממוצע רק מתוצאות שמסומנות בבירור כ-28 ימים.
-- testDate: תאריך הבדיקה בפורמט yyyy-mm-dd אם ניתן.
-- castDate: תאריך היציקה או תאריך נטילת הדגימה בפורמט yyyy-mm-dd.
+- testDate: תאריך הבדיקה האחרונה בפורמט yyyy-mm-dd אם ניתן.
+- castDate: תאריך היציקה / תאריך נטילת המדגם / תאריך הדיגום בלבד, בפורמט yyyy-mm-dd. לעולם לא תאריך בדיקה, תאריך הנפקת התעודה או תאריך שמופיע בכותרת של עמודת גיל (7 / 28 ימים). אם אין שדה כזה – השאר ריק.
+- test7Date: תאריך הבדיקה בגיל 7 ימים, אם מופיע. אחרת ריק.
+- test28Date: תאריך הבדיקה בגיל 28 ימים, אם מופיע. אחרת ריק.
 - concreteSource: שם מפעל הבטון / ספק הבטון.
 - quantity: כמות הבטון ביציקה במ"ק.
 - slumpCertificateNo: מספר תעודת בדיקת הסומך, רק אם מצוין במפורש.
@@ -1176,6 +1224,8 @@ export async function POST(req: NextRequest) {
 - strength7Days ו-strength28Days הם ערכי חוזק בלבד, ללא יחידות.
 - חפש את עמודת "חוזק לחיצה", "ממוצע", "תוצאה" או MPa. אל תחזיר את גיל הבדיקה 7/28, מספר מדגם, משקל, שטח, עומס או מידות בתור תוצאת חוזק.
 - אם יש טבלה עם שורות של קוביות, קבץ לפי גיל הבדיקה. תוצאה מודפסת מסכמת או ממוצע גוברים על חישוב עצמאי.
+- זהה כל תוצאה לפי הכותרת או הגיל שכתוב לידה ("7 ימים" / "28 ימים" / "גיל"), ולא לפי מיקום העמודה. התעודות כתובות מימין לשמאל: העמודה הימנית אינה בהכרח 7 ימים.
+- חוזק בגיל 28 ימים כמעט תמיד גבוה מחוזק בגיל 7 ימים. אם יצא הפוך – בדוק שוב את שיוך העמודות.
 - אם גיל 28 ימים טרם הגיע או אין תוצאה, השאר strength28Days ריק.
 - אם אין מספר תעודת סומך מפורש, השאר slumpCertificateNo, slumpRequirement ו-slumpResult ריקים.
 - אין להחזיר גיל בדיקה, טווח ימים, מספר מדגם, שם מבצע או תיאור אלמנט בתור סוג אשפרה או סומך.
@@ -1230,7 +1280,7 @@ export async function POST(req: NextRequest) {
       }
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       return NextResponse.json({
-        data: { ...concreteStrengthEmptyData, ...(safeJsonParse(outputText) ?? {}), ...(systemStrength ?? {}) },
+        data: sanitizeConcreteStrengthData({ ...concreteStrengthEmptyData, ...(safeJsonParse(outputText) ?? {}), ...(systemStrength ?? {}) }),
       });
     }
 

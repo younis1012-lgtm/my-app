@@ -4058,6 +4058,40 @@ type ConcreteStrengthResults = {
   confidence?: number;
 };
 
+// מאחד תוצאות של כמה תעודות לאותה יציקה: ערך חדש שאינו ריק גובר, ערך ריק לא מוחק ערך קיים
+const mergeConcreteResults = (
+  ...sources: Array<ConcreteStrengthResults | undefined | null>
+): ConcreteStrengthResults => {
+  const merged: Record<string, any> = {};
+  sources.forEach((source) => {
+    Object.entries(source ?? {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      merged[key] = value;
+    });
+  });
+  return merged as ConcreteStrengthResults;
+};
+
+// האם תעודה קיימת היא גרסה קודמת של התעודה החדשה (אותו מספר תעודה,
+// או תעודת 7 ימים של אותה יציקה כשהחדשה כוללת תוצאת 28 ימים)
+const isSupersededConcreteCertificate = (
+  existing: ConcreteStrengthResults | undefined,
+  incoming: ConcreteStrengthResults | undefined,
+) => {
+  if (!existing || !incoming) return false;
+  const key = (value: unknown) => String(value ?? "").replace(/\s+/g, "").trim();
+  if (key(existing.certificateNo) && key(existing.certificateNo) === key(incoming.certificateNo)) return true;
+  const incomingHas28 = Boolean(key(incoming.strength28Days));
+  const existingHas28 = Boolean(key(existing.strength28Days));
+  if (!incomingHas28 || existingHas28) return false;
+  const existingCast = normalizeDateValue(existing.castDate);
+  const incomingCast = normalizeDateValue(incoming.castDate);
+  const sameCast = !existingCast || !incomingCast || existingCast === incomingCast;
+  const sameType =
+    !existing.concreteType || !incoming.concreteType || existing.concreteType === incoming.concreteType;
+  return sameCast && sameType;
+};
+
 const CONCRETE_STRENGTH_LIMITS: Record<ConcreteType, { min: number; max: number }> = {
   "ב-30": { min: 33, max: 100 },
   "ב-40": { min: 43, max: 100 },
@@ -8279,10 +8313,10 @@ function ChecklistsSection({
                   </select>
                 </label>
                 <label>
-                  <span style={labelStyle}>תאריך יציקה / בדיקה</span>
+                  <span style={labelStyle}>תאריך יציקה</span>
                   <input
                     type="date"
-                    value={results.castDate || results.testDate || ""}
+                    value={results.castDate || ""}
                     onChange={(event) =>
                       updateConcreteResults(reviewItem.id, {
                         castDate: event.target.value,
@@ -21571,6 +21605,18 @@ export default function Page() {
           console.warn("Concrete strength certificate extraction failed", error);
         }
         autoConcreteResults ??= {};
+        // אם בתעודה אין תאריך יציקה מפורש – לוקחים את תאריך הביצוע של סעיף היציקה ברשימה
+        if (!autoConcreteResults.castDate) {
+          const castingDates = Array.from(
+            new Set(
+              (checklistForm.items as any[])
+                .filter((entry) => /^(?:ביצוע\s+)?יציק[הת](?:\s|$)/.test(String(entry?.description ?? "").trim()))
+                .map((entry) => normalizeDateValue(entry?.executionDate))
+                .filter(Boolean),
+            ),
+          );
+          if (castingDates.length === 1) autoConcreteResults = { ...autoConcreteResults, castDate: castingDates[0] };
+        }
         // מקור בטון = ספק הבטון המאושר ב"בקרה מקדימה – ספקים".
         const concreteSupplier = pickApprovedSupplier(
           projectPreliminary as any[],
@@ -21756,6 +21802,24 @@ export default function Page() {
           : {}),
       } as ChecklistAttachment;
 
+      // תעודת בטון חדשה (למשל תוצאת 28 ימים) מחליפה את התעודה הקודמת של אותה יציקה,
+      // כדי שלא יופיעו שתי תעודות בסעיף ושלא תיספר אותה יציקה פעמיים בריכוז הבטון.
+      const existingAttachments = normalizeChecklistAttachments(currentItem?.attachments);
+      const replacedConcreteAttachments = autoConcreteResults
+        ? existingAttachments.filter((existing: any) =>
+            isSupersededConcreteCertificate(existing?.concreteResults, autoConcreteResults),
+          )
+        : [];
+      if (replacedConcreteAttachments.length && autoConcreteResults) {
+        autoConcreteResults = mergeConcreteResults(
+          ...replacedConcreteAttachments.map((existing: any) => existing.concreteResults),
+          autoConcreteResults,
+        );
+        (attachment as any).concreteResults = autoConcreteResults;
+        (attachment as any).replacesAttachmentNames = replacedConcreteAttachments.map((existing: any) => existing.name);
+      }
+      const replacedIds = new Set(replacedConcreteAttachments.map((existing: any) => existing.id));
+
       setChecklistForm((prev) => ({
         ...prev,
         items: prev.items.map((item: any) =>
@@ -21763,7 +21827,9 @@ export default function Page() {
             ? {
                 ...item,
                 attachments: [
-                  ...normalizeChecklistAttachments(item.attachments),
+                  ...normalizeChecklistAttachments(item.attachments).filter(
+                    (existing: any) => !replacedIds.has(existing.id),
+                  ),
                   attachment,
                 ],
                 ...(Object.keys(combinedLabResults).length
@@ -21782,10 +21848,10 @@ export default function Page() {
                         : {}),
                       ...(autoConcreteResults
                         ? {
-                            concreteResults: {
-                              ...(item.concreteResults ?? {}),
-                              ...autoConcreteResults,
-                            },
+                            concreteResults: mergeConcreteResults(
+                              item.concreteResults,
+                              autoConcreteResults,
+                            ),
                             concreteReviewApproved: false,
                             concreteReviewRequested: true,
                             ...(concreteStrengthStatus(
@@ -21817,6 +21883,9 @@ export default function Page() {
         ),
       }));
 
+      if (replacedConcreteAttachments.length) {
+        alert(`התעודה החדשה עודכנה במקום התעודה הקודמת של אותה יציקה (${replacedConcreteAttachments.map((existing: any) => existing.name).join(", ")}). יש ללחוץ שמירה.`);
+      }
       if (kind === "lab" && shouldExtractAsphalt) {
         window.setTimeout(() => {
           const asphaltValuesCount = Object.keys(autoAsphaltResults).length;

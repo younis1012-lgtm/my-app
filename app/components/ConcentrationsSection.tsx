@@ -1376,11 +1376,41 @@ const buildConcreteConcentrationRows = (
           ? [null]
           : [];
 
-      sources.forEach((attachment: any) => {
-        const result = {
-          ...(item?.concreteResults ?? {}),
-          ...(attachment?.concreteResults ?? {}),
-        };
+      // תעודה שהוחלפה בתעודה עדכנית של אותה יציקה (אותו מספר תעודה, או 7 ימים שהושלמה ב-28 ימים)
+      // לא נספרת פעמיים – נשארת שורה אחת עם התוצאות המאוחדות.
+      const concreteKey = (value: unknown) => String(value ?? "").replace(/\s+/g, "").trim();
+      const sourceResults: Array<{ attachment: any; result: Record<string, any> }> = sources.map((attachment: any) => ({
+        attachment,
+        result: { ...(item?.concreteResults ?? {}), ...(attachment?.concreteResults ?? {}) } as Record<string, any>,
+      }));
+      const supersedes = (newer: Record<string, any>, older: Record<string, any>) => {
+        if (concreteKey(older.certificateNo) && concreteKey(older.certificateNo) === concreteKey(newer.certificateNo)) return true;
+        if (!concreteKey(newer.strength28Days) || concreteKey(older.strength28Days)) return false;
+        const sameCast = !dateText(older.castDate) || !dateText(newer.castDate) || dateText(older.castDate) === dateText(newer.castDate);
+        const sameType = !older.concreteType || !newer.concreteType || older.concreteType === newer.concreteType;
+        return sameCast && sameType;
+      };
+      const keptSources = sourceResults
+        .map((entry, index) => {
+          const isSuperseded = sourceResults.some((other, otherIndex) =>
+            otherIndex !== index &&
+            supersedes(other.result, entry.result) &&
+            // באותו מספר תעודה נשארת התעודה האחרונה שצורפה
+            (otherIndex > index || concreteKey(other.result.strength28Days) !== "" && concreteKey(entry.result.strength28Days) === ""),
+          );
+          if (isSuperseded) return null;
+          const olderVersions = sourceResults.filter((other, otherIndex) => otherIndex !== index && supersedes(entry.result, other.result));
+          const merged: Record<string, any> = {};
+          [...olderVersions.map((other) => other.result), entry.result].forEach((source) =>
+            Object.entries(source).forEach(([key, value]) => {
+              if (value !== undefined && value !== null && String(value).trim() !== "") merged[key] = value;
+            }),
+          );
+          return { attachment: entry.attachment, result: merged };
+        })
+        .filter(Boolean) as Array<{ attachment: any; result: Record<string, any> }>;
+
+      keptSources.forEach(({ attachment, result }) => {
         const concreteType = normalizeConcreteTypeForConcentration(
           result.concreteType,
         );
