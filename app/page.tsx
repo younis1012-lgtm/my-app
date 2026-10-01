@@ -6817,6 +6817,7 @@ function ChecklistsSection({
           </button>
         </div>
       </div>
+      <ChecklistProgressStrip items={checklistForm.items ?? []} />
       <div style={cardStyle}>
         <div
           style={{
@@ -7385,7 +7386,6 @@ function ChecklistsSection({
           </div>
         </div>
       ) : null}
-      <ChecklistProgressStrip items={checklistForm.items ?? []} />
       <div style={{ ...cardStyle, background: "#fff" }}>
         <div
           style={{
@@ -7418,9 +7418,10 @@ function ChecklistsSection({
         <div style={{ overflowX: "auto" }}>
           <table
             dir="rtl"
+            className="yk-cl-table"
             style={{
               width: "100%",
-              minWidth: 980,
+              minWidth: 1020,
               borderCollapse: "collapse",
               background: "#fff",
               tableLayout: "fixed",
@@ -7432,7 +7433,20 @@ function ChecklistsSection({
                   style={{
                     border: "1px solid #dde3ec",
                     padding: 8,
-                    width: "31%",
+                    width: 36,
+                    background: "#f3f5f9",
+                    color: "#55657d",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  #
+                </th>
+                <th
+                  style={{
+                    border: "1px solid #dde3ec",
+                    padding: 8,
+                    width: "29%",
                     background: "#f3f5f9",
                     color: "#55657d",
                     fontSize: 13,
@@ -7646,7 +7660,7 @@ function ChecklistsSection({
                     {showStageRow ? (
                       <tr>
                         <td
-                          colSpan={10}
+                          colSpan={11}
                           style={{
                             border: "1px solid #dde3ec",
                             padding: "7px 10px",
@@ -7659,9 +7673,13 @@ function ChecklistsSection({
                         </td>
                       </tr>
                     ) : null}
-                    <tr>
+                    <tr className={isExcludedFromPrint ? "yk-cl-row is-excluded" : "yk-cl-row"}>
+                      <td style={{ ...cellStyle, color: "#55657d", textAlign: "center", fontSize: 13, paddingTop: 12 }}>
+                        {index + 1}
+                      </td>
                       <td style={cellStyle}>
                         <textarea
+                          className="yk-cl-desc"
                           value={item.description ?? ""}
                           onChange={(event) =>
                             updateChecklistItem(
@@ -7673,7 +7691,7 @@ function ChecklistsSection({
                           placeholder="תיאור פעולת הבקרה"
                           style={{
                             ...compactInputStyle,
-                            minHeight: 70,
+                            minHeight: 52,
                             resize: "vertical",
                           }}
                         />
@@ -7737,139 +7755,115 @@ function ChecklistsSection({
                         )}
                       </td>
                       <td style={cellStyle}>
-                        {isImageSignature ? (
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <img
-                              src={signatureValue.signature}
-                              alt="חתימה"
-                              style={{
-                                maxWidth: "100%",
-                                maxHeight: 54,
-                                border: "1px solid #cbd5e1",
-                                borderRadius: 8,
-                                background: "#fff",
-                                padding: 3,
-                              }}
-                            />
+                        {String(signatureValue.signature || "").trim() ? (
+                          <div style={{ display: "grid", gap: 4, justifyItems: "start" }}>
+                            {isImageSignature ? (
+                              <img
+                                src={signatureValue.signature}
+                                alt="חתימה"
+                                style={{ maxWidth: "100%", maxHeight: 44, borderRadius: 6, background: "#fff" }}
+                              />
+                            ) : null}
+                            <span className="yk-chip yk-chip-ok">
+                              ✓ נחתם
+                              {!isImageSignature && !["מאושר", "חתום"].includes(String(signatureValue.signature).trim())
+                                ? ` · ${String(signatureValue.signature).trim().slice(0, 18)}`
+                                : ""}
+                            </span>
                             <button
                               type="button"
-                              style={{
-                                ...styles.secondaryBtn,
-                                padding: "6px 8px",
-                              }}
+                              className="yk-link-btn"
                               onClick={() =>
                                 updateItemSignature(item.id, {
                                   ...signatureValue,
                                   signature: "",
-                                  signedAt:
-                                    signatureValue.signedAt ||
-                                    item.executionDate ||
-                                    "",
+                                  signedAt: signatureValue.signedAt || item.executionDate || "",
                                 })
                               }
                             >
-                              נקה
+                              ביטול חתימה
                             </button>
                           </div>
                         ) : (
-                          <input
-                            value={signatureValue.signature}
-                            onChange={(event) =>
-                              updateItemSignature(item.id, {
-                                ...signatureValue,
-                                role: item.responsible || "גורם אחראי",
-                                signerName:
-                                  signatureValue.signerName || (isRoad806Checklist && isSurveyorRole(item.responsible) ? ROAD_806_SURVEYOR_NAME : autoName),
-                                signature: event.target.value,
-                                signedAt:
-                                  signatureValue.signedAt ||
-                                  item.executionDate ||
-                                  "",
-                              })
-                            }
-                            placeholder="חתימה"
-                            style={compactInputStyle}
-                          />
+                          <details className="yk-menu">
+                            <summary className="yk-chip-btn">חתימה ▾</summary>
+                            <div className="yk-menu-panel">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                  updateItemSignature(item.id, {
+                                    ...signatureValue,
+                                    role: item.responsible || "גורם אחראי",
+                                    signerName: signatureValue.signerName || autoName,
+                                    signature:
+                                      isRoad806Checklist && isSurveyorRole(item.responsible)
+                                        ? ROAD_806_SURVEYOR_SIGNATURE_URL
+                                        : "מאושר",
+                                    signedAt:
+                                      signatureValue.signedAt ||
+                                      item.executionDate ||
+                                      new Date().toISOString().slice(0, 10),
+                                  });
+                                }}
+                              >
+                                חתום
+                              </button>
+                              {savedSignatureForSigner?.(autoName, item.responsible) ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                    updateItemSignature(item.id, {
+                                      ...signatureValue,
+                                      role: item.responsible || "גורם אחראי",
+                                      signerName: signatureValue.signerName || autoName,
+                                      signature: savedSignatureForSigner?.(autoName, item.responsible) || "",
+                                      signedAt:
+                                        signatureValue.signedAt ||
+                                        item.executionDate ||
+                                        new Date().toISOString().slice(0, 10),
+                                    });
+                                  }}
+                                >
+                                  חתימה שמורה
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                  setDigitalSignatureItemId((current) => (current === item.id ? null : item.id));
+                                }}
+                              >
+                                חתימה דיגיטלית
+                              </button>
+                              <input
+                                defaultValue=""
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                onBlur={(event) => {
+                                  const typed = event.currentTarget.value.trim();
+                                  if (!typed) return;
+                                  updateItemSignature(item.id, {
+                                    ...signatureValue,
+                                    role: item.responsible || "גורם אחראי",
+                                    signerName:
+                                      signatureValue.signerName || (isRoad806Checklist && isSurveyorRole(item.responsible) ? ROAD_806_SURVEYOR_NAME : autoName),
+                                    signature: typed,
+                                    signedAt: signatureValue.signedAt || item.executionDate || "",
+                                  });
+                                }}
+                                placeholder="או הקלד חתימה + Enter"
+                                style={{ ...compactInputStyle, marginTop: 4 }}
+                              />
+                            </div>
+                          </details>
                         )}
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            flexWrap: "wrap",
-                            marginTop: 6,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            style={{
-                              ...styles.secondaryBtn,
-                              padding: "6px 8px",
-                            }}
-                            onClick={() =>
-                              updateItemSignature(item.id, {
-                                ...signatureValue,
-                                role: item.responsible || "גורם אחראי",
-                                signerName:
-                                  signatureValue.signerName || autoName,
-                                signature:
-                                  isRoad806Checklist && isSurveyorRole(item.responsible)
-                                    ? ROAD_806_SURVEYOR_SIGNATURE_URL
-                                    : "מאושר",
-                                signedAt:
-                                  signatureValue.signedAt ||
-                                  item.executionDate ||
-                                  new Date().toISOString().slice(0, 10),
-                              })
-                            }
-                          >
-                            חתום
-                          </button>
-                          <button
-                            type="button"
-                            style={{
-                              ...styles.secondaryBtn,
-                              padding: "6px 8px",
-                            }}
-                            onClick={() =>
-                              setDigitalSignatureItemId((current) =>
-                                current === item.id ? null : item.id,
-                              )
-                            }
-                          >
-                            חתימה דיגיטלית
-                          </button>
-                          {savedSignatureForSigner?.(
-                            autoName,
-                            item.responsible,
-                          ) ? (
-                            <button
-                              type="button"
-                              style={{
-                                ...styles.secondaryBtn,
-                                padding: "6px 8px",
-                              }}
-                              onClick={() =>
-                                updateItemSignature(item.id, {
-                                  ...signatureValue,
-                                  role: item.responsible || "גורם אחראי",
-                                  signerName:
-                                    signatureValue.signerName || autoName,
-                                  signature:
-                                    savedSignatureForSigner?.(
-                                      autoName,
-                                      item.responsible,
-                                    ) || "",
-                                  signedAt:
-                                    signatureValue.signedAt ||
-                                    item.executionDate ||
-                                    new Date().toISOString().slice(0, 10),
-                                })
-                              }
-                            >
-                              חתימה שמורה
-                            </button>
-                          ) : null}
-                        </div>
                         {digitalSignatureItemId === item.id ? (
                           <div style={{ marginTop: 8 }}>
                             <DigitalSignaturePad
@@ -7939,6 +7933,7 @@ function ChecklistsSection({
                                 multiple={false}
                                 buttonLabel={checklistAttachmentActionLabel(kind, item)}
                                 helperText="גרור לכאן קובץ"
+                                compact
                                 onFiles={(files) => {
                                   const file = Array.from(files)[0];
                                   if (file) onUploadAttachment(item.id, kind, file);
@@ -7956,9 +7951,11 @@ function ChecklistsSection({
                                       justifyContent: "space-between",
                                       gap: 6,
                                       fontSize: 12,
-                                      border: "1px solid #e2e8f0",
+                                      fontWeight: 600,
+                                      color: "#13305a",
+                                      background: "#eef3fa",
                                       borderRadius: 8,
-                                      padding: "4px 6px",
+                                      padding: "4px 8px",
                                     }}
                                   >
                                     <span
@@ -7969,7 +7966,7 @@ function ChecklistsSection({
                                         whiteSpace: "nowrap",
                                       }}
                                     >
-                                      ✅ {attachment.name}
+                                      ✓ {attachment.name}
                                     </span>
                                     <button
                                       type="button"
@@ -7992,11 +7989,7 @@ function ChecklistsSection({
                                   </div>
                                 ))}
                               </div>
-                            ) : (
-                              <span style={{ color: "#64748b", fontSize: 12 }}>
-                                טרם צורף מסמך
-                              </span>
-                            )}
+                            ) : null}
                           </div>
                         ) : null}
                         {isConcreteChecklist && concreteResults ? (
@@ -8031,7 +8024,7 @@ function ChecklistsSection({
                           placeholder="הקלד הערה"
                           style={{
                             ...compactInputStyle,
-                            minHeight: 70,
+                            minHeight: 52,
                             resize: "vertical",
                           }}
                         />

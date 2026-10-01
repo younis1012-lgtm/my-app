@@ -138,3 +138,43 @@ button, input, select, textarea { font-family: inherit; }
 
 @media (max-width:1200px) { .yk-kpi-grid { grid-template-columns:repeat(3,1fr); }.yk-dashboard-middle { grid-template-columns:1fr 1fr; }.yk-progress-panel { grid-column:1/3; }.yk-quick-grid { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:700px) { .yk-dashboard-hero { align-items:flex-start; flex-direction:column; }.yk-dashboard-date { border-right:0; padding:0; }.yk-kpi-grid,.yk-dashboard-middle,.yk-quick-grid { grid-template-columns:1fr; }.yk-progress-panel { grid-column:auto; } }
+
+/* ---- רשימת תיוג: טבלת סעיפים נקייה (שדות "שקופים" שנראים כטקסט עד מעבר/עריכה) ---- */
+.yk-cl-table { border-collapse: separate !important; border-spacing: 0; }
+.yk-cl-table th { border: 0 !important; border-bottom: 1px solid var(--yk-border) !important; text-align: right; padding: 10px 8px !important; }
+.yk-cl-table td { border: 0 !important; border-bottom: 1px solid #eef1f5 !important; padding: 8px 6px !important; vertical-align: top; }
+.yk-cl-table tr.yk-cl-row:hover > td { background: #fafbfd !important; }
+.yk-cl-table tr.yk-cl-row.is-excluded > td { background: #f7f9fc !important; }
+.yk-cl-table tr.yk-cl-row.is-excluded .yk-cl-desc { text-decoration: line-through; text-decoration-color: #b7c2d3; color: #8a97ab; }
+.yk-cl-table td input:not([type="checkbox"]):not([type="file"]),
+.yk-cl-table td select,
+.yk-cl-table td textarea {
+  border-color: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  font-weight: 500;
+  color: var(--yk-text);
+  transition: border-color .12s, background-color .12s;
+}
+.yk-cl-table td input:not([type="checkbox"]):not([type="file"]):hover,
+.yk-cl-table td select:hover,
+.yk-cl-table td textarea:hover { border-color: var(--yk-border) !important; background-color: #fff !important; }
+.yk-cl-table td input:not([type="checkbox"]):not([type="file"]):focus,
+.yk-cl-table td select:focus,
+.yk-cl-table td textarea:focus { border-color: var(--yk-navy-2) !important; background-color: #fff !important; outline: none; }
+.yk-cl-table td textarea { min-height: 38px !important; resize: vertical; }
+.yk-cl-table td textarea.yk-cl-desc { font-weight: 600; font-size: 14px; }
+.yk-cl-table td input::placeholder, .yk-cl-table td textarea::placeholder { color: #a3aec0; }
+.yk-cl-table td select { appearance: auto; }
+
+.yk-chip { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 3px 9px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.yk-chip-ok { background: var(--yk-ok-bg); color: var(--yk-ok); }
+.yk-chip-btn { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border: 1px solid var(--yk-border-strong); border-radius: 8px; background: #fff; color: var(--yk-navy); font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; user-select: none; }
+.yk-chip-btn::-webkit-details-marker { display: none; }
+.yk-link-btn { border: 0; background: transparent; padding: 0; color: var(--yk-muted); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.yk-link-btn:hover { color: var(--yk-bad); }
+.yk-menu { position: relative; }
+.yk-menu-panel { position: absolute; z-index: 40; top: 36px; right: 0; min-width: 230px; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--yk-border); border-radius: 10px; background: #fff; box-shadow: 0 12px 24px rgba(11,31,58,.16); }
+.yk-menu-panel > button { border: 0; border-radius: 8px; background: transparent; color: var(--yk-navy); font-weight: 600; font-size: 13px; padding: 9px 10px; text-align: right; cursor: pointer; }
+.yk-menu-panel > button:hover { background: #f3f5f9; }
+.yk-menu-panel > input { border: 1px solid var(--yk-border) !important; background: #fff !important; }
