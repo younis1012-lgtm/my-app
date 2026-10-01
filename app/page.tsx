@@ -2447,7 +2447,9 @@ type ProjectAccess = {
 const DEFAULT_PROJECT_ACCESS_LIST: ProjectAccess[] = [
   {
     username: "admin",
-    password: "admin123",
+    // כשהמערכת מחוברת ל-Supabase אין סיסמת ברירת מחדל – הסיסמאות נבדקות רק בשרת.
+    // admin123 נשאר רק למצב עבודה מקומי (בלי Supabase) לצורך פיתוח.
+    password: isSupabaseConfigured ? "" : "admin123",
     displayName: "מנהל מערכת",
     role: "admin",
     code: "admin",
@@ -2559,6 +2561,7 @@ const findProjectAccessCandidates = (
   users.filter(
     (access) =>
       accessLoginMatches(access, usernameOrCode) &&
+      String(access.password ?? "") !== "" &&
       String(access.password) === String(password),
   );
 
@@ -2609,7 +2612,8 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
         discipline: normalizeAccessDiscipline(item.discipline),
       }),
     )
-    .filter((item) => item.username && item.password);
+    // ב-Supabase הסיסמאות לא נשלחות לדפדפן, ולכן משתמש בלי סיסמה בדפדפן הוא תקין
+    .filter((item) => item.username && (isSupabaseConfigured || item.password));
   const unique = Array.from(
     normalized
       .reduce((map, item) => {
@@ -2625,7 +2629,7 @@ const normalizeProjectAccessList = (value: unknown): ProjectAccess[] => {
       .values(),
   );
 
-  return unique.some((item) => item.role === "admin")
+  return unique.some((item) => item.role === "admin") || (isSupabaseConfigured && unique.length)
     ? unique
     : DEFAULT_PROJECT_ACCESS_LIST;
 };
@@ -2743,18 +2747,28 @@ const loadAccessUsersFromSupabase = async (): Promise<
   ProjectAccess[] | null
 > => {
   if (!isSupabaseConfigured || !supabase) return null;
-  const { data, error } = await supabase
-    .from(ACCESS_USERS_TABLE)
-    .select("*")
-    .order("created_at", { ascending: true });
-  if (error) {
-    console.error("Failed to load access users from Supabase", error);
+  // רשימת המשתמשים נטענת דרך השרת, בלי סיסמאות, ורק אחרי התחברות
+  const session = await supabase.auth.getSession().catch(() => null);
+  const token = session?.data.session?.access_token;
+  if (!token) return null;
+  try {
+    const response = await fetch("/api/auth/access-users", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error("Failed to load access users", result?.error);
+      return null;
+    }
+    const users = normalizeProjectAccessList(
+      (Array.isArray(result?.users) ? result.users : []).map(rowToProjectAccess),
+    );
+    return users.length ? users : null;
+  } catch (error) {
+    console.error("Failed to load access users", error);
     return null;
   }
-  const users = normalizeProjectAccessList(
-    (data ?? []).map(rowToProjectAccess),
-  );
-  return users.length ? users : null;
 };
 
 const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
@@ -2896,117 +2910,19 @@ let accessDisciplineColumnMissing = false;
 const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   if (!isSupabaseConfigured || !supabase) return;
   const normalized = normalizeProjectAccessList(users);
-  const { data: existingRows, error: existingError } = await supabase
-    .from(ACCESS_USERS_TABLE)
-    .select("username");
-  if (existingError)
-    throw new Error(errorText(existingError) || "שגיאה בקריאת המשתמשים מ-Supabase");
-  const retainedUsernames = new Set(
-    normalized.map((user) => normalizeAccessValue(user.username)),
-  );
-  const removedUsernames = (existingRows ?? [])
-    .map((row: any) => String(row?.username ?? "").trim())
-    .filter(
-      (username) =>
-        username && !retainedUsernames.has(normalizeAccessValue(username)),
-    );
-  if (removedUsernames.length) {
-    const deleteResult = await supabase
-      .from(ACCESS_USERS_TABLE)
-      .delete()
-      .in("username", removedUsernames)
-      .select("username");
-    if (deleteResult.error)
-      throw new Error(
-        errorText(deleteResult.error) || "שגיאה במחיקת משתמשים מ-Supabase",
-      );
-    if ((deleteResult.data ?? []).length !== removedUsernames.length)
-      throw new Error("לא כל המשתמשים שנבחרו נמחקו מ-Supabase. בדוק את הרשאות המחיקה בטבלה.");
-  }
-  let rows: any[] = normalized.map(projectAccessToRow);
-  accessDisciplineColumnMissing = false;
-  const upsertAccessRows = () =>
-    supabase!.from(ACCESS_USERS_TABLE).upsert(rows, { onConflict: "username" });
-  let insertResult: any = await upsertAccessRows();
-  // עמודות חדשות שעדיין לא נוספו לטבלה – שומרים בלעדיהן במקום להיכשל
-  for (let attempt = 0; attempt < 2 && insertResult.error; attempt += 1) {
-    const missingColumn = ["discipline", "project_ids"].find((column) =>
-      isMissingColumnError(insertResult.error, column),
-    );
-    if (!missingColumn) break;
-    if (missingColumn === "discipline") accessDisciplineColumnMissing = true;
-    rows = rows.map((row) => {
-      const next = { ...row };
-      delete next[missingColumn];
-      return next;
-    });
-    insertResult = await upsertAccessRows();
-  }
-  if (
-    insertResult.error &&
-    /no unique or exclusion constraint|ON CONFLICT specification/i.test(
-      errorText(insertResult.error),
-    )
-  ) {
-    const existingUsernames = new Set(
-      (existingRows ?? []).map((row: any) =>
-        normalizeAccessValue(String(row?.username ?? "")),
-      ),
-    );
-    for (const sourceRow of rows) {
-      const row: any = isMissingColumnError(insertResult.error, "project_ids")
-        ? (({ project_ids: _projectIds, ...legacyRow }) => legacyRow)(sourceRow)
-        : sourceRow;
-      const usernameKey = normalizeAccessValue(sourceRow.username);
-      let result: any = existingUsernames.has(usernameKey)
-        ? await supabase
-            .from(ACCESS_USERS_TABLE)
-            .update(row)
-            .eq("username", sourceRow.username)
-        : await supabase.from(ACCESS_USERS_TABLE).insert(row);
-      if (result.error && isMissingColumnError(result.error, "project_ids")) {
-        const { project_ids: _projectIds, ...legacyRow } = sourceRow;
-        result = existingUsernames.has(usernameKey)
-          ? await supabase
-              .from(ACCESS_USERS_TABLE)
-              .update(legacyRow)
-              .eq("username", sourceRow.username)
-          : await supabase.from(ACCESS_USERS_TABLE).insert(legacyRow);
-      }
-      if (result.error) {
-        insertResult = result;
-        break;
-      }
-      insertResult = result;
-    }
-  }
-  if (insertResult.error)
-    throw new Error(
-      errorText(insertResult.error) || "שגיאה בשמירת משתמשים ל-Supabase",
-    );
-
-  // שורות כפולות של אותו משתמש (הבדל באותיות גדולות/קטנות או ברווחים בשם המשתמש):
-  // השמירה מעדכנת רק שורה אחת, והשורה הישנה נשארת ודורסת בטעינה הבאה
-  // (למשל מחזירה "צפייה בלבד" ו"כל התחומים"). אחרי שמירה מוצלחת מוחקים את השורות הישנות.
-  const savedExactUsernames = new Set(
-    rows.map((row: any) => String(row?.username ?? "")),
-  );
-  const staleDuplicateUsernames = (existingRows ?? [])
-    .map((row: any) => String(row?.username ?? ""))
-    .filter(
-      (username) =>
-        username &&
-        !savedExactUsernames.has(username) &&
-        retainedUsernames.has(normalizeAccessValue(username)),
-    );
-  if (staleDuplicateUsernames.length) {
-    const duplicateDelete = await supabase
-      .from(ACCESS_USERS_TABLE)
-      .delete()
-      .in("username", staleDuplicateUsernames);
-    if (duplicateDelete.error)
-      console.warn("Failed to remove duplicate access user rows", duplicateDelete.error);
-  }
+  const session = await supabase.auth.getSession().catch(() => null);
+  const token = session?.data.session?.access_token;
+  if (!token) throw new Error("יש להתחבר מחדש כדי לשמור משתמשים");
+  // השמירה מתבצעת בשרת: הסיסמאות מוצפנות שם, ושדה סיסמה ריק פירושו "ללא שינוי"
+  const response = await fetch("/api/auth/access-users", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ users: normalized.map(projectAccessToRow) }),
+    cache: "no-store",
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(result?.error || "שגיאה בשמירת המשתמשים"));
+  accessDisciplineColumnMissing = Boolean(result?.disciplineMissing);
 };
 
 const isAdminAccess = (access: ProjectAccess | null) =>
@@ -13191,6 +13107,7 @@ function UserAccessPanel({
                   <PasswordField
                     value={user.password}
                     onChange={(value) => onChangeUser(index, "password", value)}
+                    placeholder={user.password ? "סיסמה" : "ללא שינוי – הקלד סיסמה חדשה"}
                     autoComplete="new-password"
                   />
                 </div>
@@ -16710,7 +16627,13 @@ function ChecklistTrackingSection({
           element: raw.element || raw.workType || record.category || "",
           subElement: raw.subElement || raw.sub_element || raw.details?.subElement || "",
           side: raw.side || raw.offset || raw.details?.side || "",
+          // מס׳ השכבה נלקח קודם מהשדה שממלאים בטופס (מס׳ שכבה), כדי שטבלת המעקב
+          // ומעקב השכבות הגרפי יציגו תמיד את אותו ערך. ברשימות בטון השדה הוא מבנה/אלמנט.
           layer:
+            (!(["siteConcrete", "stoneFacingGravityWall"].includes(String(record.templateKey)) ||
+              /בטון\s*יצוק|יציקות?\s*באתר/.test(`${record.title ?? ""} ${record.category ?? ""}`))
+              ? String(record.location ?? "").trim()
+              : "") ||
             raw.layerNo ||
             raw.layerNumber ||
             raw.layer ||
@@ -17617,9 +17540,15 @@ export default function Page() {
     const loadUsers = async () => {
       let users = DEFAULT_PROJECT_ACCESS_LIST;
       const cloudUsers = await loadAccessUsersFromSupabase();
+      if (isSupabaseConfigured) {
+        // עותקים ישנים של רשימת המשתמשים (עם סיסמאות) בדפדפן – נמחקים
+        try {
+          window.localStorage.removeItem(ACCESS_USERS_STORAGE_KEY);
+        } catch {}
+      }
       if (cloudUsers?.length) {
         users = cloudUsers;
-      } else {
+      } else if (!isSupabaseConfigured) {
         try {
           const storedUsers = window.localStorage.getItem(
             ACCESS_USERS_STORAGE_KEY,
@@ -17684,7 +17613,8 @@ export default function Page() {
 
       // שומרים התחברות פעילה עד 10 דקות חוסר פעילות.
       // רענון דף בתוך הטווח לא מנתק את המשתמש.
-      const storedUser = findUserForStoredSession(users, storedSession);
+      // כשהמערכת מחוברת ל-Supabase, שחזור התחברות מחייב התחברות מאובטחת פעילה (למעלה)
+      const storedUser = isSupabaseConfigured ? null : findUserForStoredSession(users, storedSession);
       if (storedUser) {
         const projectList = projects.length ? projects : getDefaultProjectList();
         const selectedProjectId =
@@ -17866,7 +17796,13 @@ export default function Page() {
     if (isSupabaseConfigured && isEmailAddress(loginCode)) {
       try {
         const signedInAccess = await signInWithSupabaseAuth(loginCode, loginPassword);
-        const authAccess = signedInAccess ? mergeAccessProfile(signedInAccess, accessUsers) : null;
+        const loadedUsers = signedInAccess ? await loadAccessUsersFromSupabase() : null;
+        if (loadedUsers?.length) {
+          setAccessUsers(loadedUsers);
+          setDraftAccessUsers(loadedUsers);
+          setAccessUsersDirty(false);
+        }
+        const authAccess = signedInAccess ? mergeAccessProfile(signedInAccess, loadedUsers ?? accessUsers) : null;
         if (authAccess) {
           const projectList = projects.length ? projects : getDefaultProjectList();
           const selectedProjectId = selectInitialProjectIdForAccess(
@@ -17889,6 +17825,70 @@ export default function Page() {
       } catch (error) {
         supabaseLoginError = errorText(error);
       }
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      // הסיסמה נבדקת בשרת בלבד – הדפדפן לא מחזיק את סיסמאות המשתמשים
+      try {
+        const upgradeResponse = await fetch("/api/auth/legacy-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: loginCode, password: loginPassword }),
+        });
+        const upgrade = await upgradeResponse.json().catch(() => ({}));
+        if (!upgradeResponse.ok)
+          throw new Error(
+            upgradeResponse.status === 401 && supabaseLoginError
+              ? supabaseLoginError
+              : upgrade.error || "שם משתמש או סיסמה אינם נכונים",
+          );
+        const signIn = await supabase.auth.signInWithPassword({
+          email: upgrade.email,
+          password: upgrade.password,
+        });
+        if (signIn.error) throw signIn.error;
+        const profile = upgrade.profile ? rowToProjectAccess(upgrade.profile) : null;
+        const cloudAccess = await loadSupabaseAuthAccess();
+        if (!cloudAccess) throw new Error("לא נמצאו הרשאות פעילות למשתמש");
+        const signedInAccess: ProjectAccess = profile
+          ? {
+              ...cloudAccess,
+              username: profile.username,
+              code: profile.code,
+              displayName: profile.displayName,
+              aliases: profile.aliases,
+              projectName: profile.projectName,
+              discipline: profile.discipline,
+              signatureDataUrl: cloudAccess.signatureDataUrl || profile.signatureDataUrl,
+              legacyUsername: profile.username,
+            }
+          : cloudAccess;
+        const cloudUsers = await loadAccessUsersFromSupabase();
+        if (cloudUsers?.length) {
+          setAccessUsers(cloudUsers);
+          setDraftAccessUsers(cloudUsers);
+          setAccessUsersDirty(false);
+        }
+        setLoginError("");
+        const projectList = projects.length ? projects : getDefaultProjectList();
+        const selectedProjectId = selectInitialProjectIdForAccess(
+          projectList,
+          signedInAccess,
+          readLocalCurrentProjectId(signedInAccess),
+        );
+        if (selectedProjectId) {
+          setCurrentProjectId(selectedProjectId);
+          writeLocalCurrentProjectId(selectedProjectId, signedInAccess);
+        }
+        consumeRequestedProjectRoute();
+        setProjectAccess(signedInAccess);
+        setShowProjectPicker(true);
+        writeAuthSession(signedInAccess);
+        setSection("home");
+      } catch (error) {
+        setLoginError(errorText(error) || "שם משתמש או סיסמה אינם נכונים");
+      }
+      return;
     }
 
     const access = findProjectAccessByCredentials(
@@ -17977,8 +17977,11 @@ export default function Page() {
   const persistAccessUsers = async (nextUsers: ProjectAccess[]) => {
     const normalized = normalizeProjectAccessList(nextUsers);
 
+    let savedUsers = normalized;
     if (isSupabaseConfigured) {
       await saveAccessUsersToSupabase(normalized);
+      // הסיסמאות שהוקלדו נשמרו מוצפנות בשרת – לא משאירים אותן בדפדפן
+      savedUsers = normalized.map((user) => ({ ...user, password: "" }));
     } else if (typeof window !== "undefined") {
       window.localStorage.setItem(
         ACCESS_USERS_STORAGE_KEY,
@@ -17986,8 +17989,8 @@ export default function Page() {
       );
     }
 
-    setAccessUsers(normalized);
-    setDraftAccessUsers(normalized);
+    setAccessUsers(savedUsers);
+    setDraftAccessUsers(savedUsers);
     setAccessUsersDirty(false);
 
     if (projectAccess) {
@@ -17997,58 +18000,18 @@ export default function Page() {
           user.code === projectAccess.code ||
           (projectAccess.role === "admin" && user.role === "admin"),
       );
-      if (updatedCurrentUser) setProjectAccess(updatedCurrentUser);
-    }
-  };
-
-  const resetAdminPasswordFromLogin = async () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("לאפס את סיסמת מנהל המערכת ל-admin123?")
-    ) {
-      return;
-    }
-
-    try {
-      let adminFound = false;
-      const sourceUsers = accessUsers.length
-        ? accessUsers
-        : DEFAULT_PROJECT_ACCESS_LIST;
-      const nextUsers = sourceUsers.map((user) => {
-        const isAdminUser =
-          user.role === "admin" ||
-          normalizeAccessValue(user.username) === "admin" ||
-          normalizeAccessValue(user.code) === "admin";
-        if (!isAdminUser) return user;
-        adminFound = true;
-        return {
-          ...user,
-          username: user.username || "admin",
-          password: "admin123",
-          displayName: user.displayName || "מנהל מערכת",
-          role: "admin" as const,
-          code: user.code || "admin",
-          aliases: Array.from(
-            new Set([...(user.aliases ?? []), "younis1012@gmail.com"]),
-          ),
-          projectName: null,
-        };
-      });
-
-      if (!adminFound) {
-        nextUsers.unshift({
-          ...DEFAULT_PROJECT_ACCESS_LIST[0],
-          password: "admin123",
+      if (updatedCurrentUser)
+        setProjectAccess({
+          ...projectAccess,
+          ...updatedCurrentUser,
+          password: "",
+          // פרטי ההתחברות המאובטחת של המשתמש המחובר נשמרים
+          authProvider: projectAccess.authProvider,
+          authUserId: projectAccess.authUserId,
+          email: projectAccess.email,
+          legacyUsername: projectAccess.legacyUsername,
+          projectIds: projectAccess.authProvider === "supabase" ? projectAccess.projectIds : updatedCurrentUser.projectIds,
         });
-      }
-
-      await persistAccessUsers(nextUsers);
-      setLoginCode("younis1012@gmail.com");
-      setLoginPassword("admin123");
-      setLoginError("סיסמת מנהל אופסה. לחץ כניסה למערכת.");
-    } catch (error) {
-      console.error("Failed to reset admin password", error);
-      setLoginError(`שגיאה באיפוס סיסמת מנהל: ${errorText(error)}`);
     }
   };
 
@@ -18140,7 +18103,10 @@ export default function Page() {
       ...prevUsers,
       {
         username: `user${prevUsers.length + 1}`,
-        password: "1234",
+        // סיסמה זמנית אקראית – מוצגת למנהל עד השמירה, ואז נשמרת מוצפנת
+        password: Array.from({ length: 8 }, () =>
+          "abcdefghjkmnpqrstuvwxyz23456789"[Math.floor(Math.random() * 31)],
+        ).join(""),
         displayName: `משתמש ${prevUsers.length + 1}`,
         role: "readonly",
         code: activeProjectId || `project-user-${prevUsers.length + 1}`,
@@ -18178,10 +18144,46 @@ export default function Page() {
 
     if (!nextUsername) return alert("יש להזין שם משתמש.");
     if (!currentPassword) return alert("יש להזין את הסיסמה הנוכחית.");
-    if (nextPassword && nextPassword.length < 4)
-      return alert("הסיסמה החדשה חייבת להכיל לפחות 4 תווים.");
+    if (nextPassword && nextPassword.length < 6)
+      return alert("הסיסמה החדשה חייבת להכיל לפחות 6 תווים.");
     if (nextPassword !== confirmPassword)
       return alert("אישור הסיסמה אינו תואם לסיסמה החדשה.");
+
+    // משתמשי המערכת (לא משתמשי מייל של Supabase) – שינוי הסיסמה מתבצע בשרת
+    if (isSupabaseConfigured && supabase && projectAccess.legacyUsername) {
+      try {
+        const session = await supabase.auth.getSession();
+        const token = session.data.session?.access_token;
+        if (!token) return alert("יש להתחבר מחדש.");
+        const response = await fetch("/api/auth/access-users", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "changeOwnPassword",
+            currentPassword,
+            newPassword: nextPassword,
+            newUsername: nextUsername,
+          }),
+          cache: "no-store",
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) return alert(String(result?.error || "שמירת פרטי החשבון נכשלה"));
+        setAccountForm({
+          username: String(result?.username || nextUsername),
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+        alert(
+          normalizeAccessValue(result?.username) !== normalizeAccessValue(projectAccess.legacyUsername)
+            ? "פרטי החשבון נשמרו. בכניסה הבאה יש להשתמש בשם המשתמש ובסיסמה החדשים."
+            : "פרטי החשבון נשמרו בהצלחה.",
+        );
+      } catch (error) {
+        alert(`שגיאה בשמירת פרטי החשבון: ${errorText(error)}`);
+      }
+      return;
+    }
 
     if (projectAccess.authProvider === "supabase") {
       if (!supabase || !projectAccess.email)
@@ -20017,10 +20019,10 @@ export default function Page() {
 
   const checklistLayerOrderValue = (record: any, fallbackIndex: number) => {
     const directLayer = checklistNumericOrderValue(
-      record?.layerNo ??
+      (String(record?.location ?? "").trim() || undefined) ??
+        record?.layerNo ??
         record?.layerNumber ??
         record?.layer ??
-        record?.location ??
         record?.details?.layerNo ??
         record?.details?.layerNumber ??
         record?.details?.layer,

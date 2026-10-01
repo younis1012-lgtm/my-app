@@ -1,5 +1,6 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { hashPassword, isHashedPassword, publicAccessRow, verifyPassword } from "./accessUsersServer";
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -7,12 +8,6 @@ const normalize = (value: unknown) =>
     .replace(/\s+/g, "")
     .trim()
     .toLowerCase();
-
-const sameSecret = (left: unknown, right: unknown) => {
-  const a = Buffer.from(String(left ?? ""));
-  const b = Buffer.from(String(right ?? ""));
-  return a.length === b.length && timingSafeEqual(a, b);
-};
 
 const stableUserId = (username: string) => {
   const hex = createHash("sha256").update(`yk-quality:${normalize(username)}`).digest("hex");
@@ -49,14 +44,23 @@ export async function createLegacySupabaseSession(request: Request) {
     const rows = accessRows.data ?? [];
     // שם משתמש אישי קודם לקוד פרויקט: קוד הפרויקט משותף לכל משתמשי הפרויקט,
     // ולכן התחברות לפיו עלולה לשייך את המשתמש לשורה של משתמש אחר (למשל "צופה").
-    const byUsername = rows.find((row) => normalize(row.username) === loginKey && sameSecret(row.password, password));
+    const byUsername = rows.find((row) => normalize(row.username) === loginKey && verifyPassword(row.password, password));
     const byCode = byUsername
       ? []
-      : rows.filter((row) => normalize(row.code) === loginKey && sameSecret(row.password, password));
+      : rows.filter((row) => normalize(row.code) === loginKey && verifyPassword(row.password, password));
+    // כניסת מנהל המערכת בכתובת המייל שלו
+    const byAdminEmail =
+      !byUsername && !byCode.length && loginKey === "younis1012@gmail.com"
+        ? rows.filter((row) => accessRole(row.role) === "admin" && verifyPassword(row.password, password))
+        : [];
     if (!byUsername && byCode.length > 1)
       return Response.json({ error: "קוד הפרויקט משותף לכמה משתמשים. יש להתחבר עם שם המשתמש האישי והסיסמה" }, { status: 409 });
-    const access = byUsername ?? byCode[0];
+    const access = byUsername ?? byCode[0] ?? byAdminEmail[0];
     if (!access) return Response.json({ error: "שם משתמש או סיסמה אינם נכונים" }, { status: 401 });
+    // סיסמה ישנה שנשמרה כטקסט גלוי – מוצפנת עכשיו, בהתחברות המוצלחת
+    if (!isHashedPassword(access.password)) {
+      await db.from("project_access_users").update({ password: hashPassword(password) }).eq("username", access.username);
+    }
 
     const role = accessRole(access.role);
     const resolved = await resolveAccessProjectIds(db, access, role);
@@ -78,7 +82,7 @@ export async function createLegacySupabaseSession(request: Request) {
     const memberships = projectIds.map((projectId) => ({ user_id: userId, project_id: projectId, role, active: true }));
     const membershipResult = await db.from("project_members").upsert(memberships, { onConflict: "user_id,project_id" });
     if (membershipResult.error) return Response.json({ error: "עדכון הרשאות הפרויקטים נכשל" }, { status: 503 });
-    return Response.json({ email, password: authPassword }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ email, password: authPassword, profile: publicAccessRow(access) }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json({ error: "ההתחברות המאובטחת נכשלה" }, { status: 500 });
   }

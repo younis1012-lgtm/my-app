@@ -3436,6 +3436,7 @@ const earthworksRowFromSources = (sources: any[], attachment: any, serial: numbe
     parsedLocation.location,
   );
   const exactLayer = firstText(
+    numericLike(checklistSource?.location),
     checklistSource?.layerNo,
     checklistSource?.layerNumber,
     checklistSource?.layer,
