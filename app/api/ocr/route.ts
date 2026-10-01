@@ -10,7 +10,9 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register' | 'supervision-report';
+  /** דוח פיקוח עליון: עמודי הדוח כתמונות (עד 5), כדי לקרוא את כל ההערות */
+  pages?: string[];
   workType?: string;
   expectedMetrics?: string[];
 };
@@ -1000,6 +1002,69 @@ export async function POST(req: NextRequest) {
     const subtype = body.subtype ?? 'suppliers';
 
     if (!dataUrl) return NextResponse.json({ data: emptyData });
+
+    if (subtype === 'supervision-report') {
+      const pageImages = (Array.isArray(body.pages) && body.pages.length ? body.pages : [dataUrl])
+        .map((item) => String(item ?? ''))
+        .filter(Boolean)
+        .slice(0, 5);
+      const prompt = `אתה קורא דוח פיקוח עליון (דוח סיור / ביקור של מתכנן באתר בנייה של פרויקט תשתית בישראל) עבור מערכת בקרת איכות.
+החזר JSON בלבד לפי הסכמה. אם שדה לא מופיע בדוח – החזר מחרוזת ריקה, אל תנחש ואל תמציא.
+
+- visitDate: תאריך הביקור בפורמט yyyy-mm-dd.
+- plannerName: שם המתכנן / המפקח העליון שכתב את הדוח (אדם, לא חברה, אם מופיע).
+- plannerEmail: מייל המתכנן אם מופיע.
+- discipline: תחום התכנון בעברית, אחד מ: קונסטרוקציה, גאוטכניקה / יועץ קרקע, ניקוז, כבישים ותנועה, חשמל ותקשורת, מים וביוב, פיתוח ונוף, אחר.
+- plannerReportNo: מספר הדוח / מספר המסמך של המתכנן.
+- structure: המבנה / האלמנט שנבדק (למשל: מעביר מים BC01, קיר תמך 3, תקרה).
+- location: מיקום / חתך / קטע אם מופיע.
+- visitPurpose: מטרת הביקור במשפט קצר (למשל: בדיקת זיון לפני יציקה).
+- subject: נושא הדוח בשורה אחת קצרה.
+- summary: סיכום הביקור בעברית, 1–3 משפטים, בניסוח עצמאי ותמציתי (מה נבדק ומה המסקנה, כולל אם אושרה יציקה / המשך עבודה).
+- comments: רשימת ההערות / הדרישות / הליקויים שהמתכנן כתב, כל הערה כפריט נפרד, בניסוח המקורי ובקיצור סביר. אל תכלול כותרות, פרטי קשר, תפוצה או חתימות.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      pageImages.forEach((image, index) => {
+        content.push({ type: 'input_text', text: `עמוד ${index + 1}` });
+        if (isImage(image.slice(5, image.indexOf(';')) || mimeType)) {
+          content.push({ type: 'input_image', image_url: image, detail: 'high' });
+        } else {
+          content.push({ type: 'input_file', filename: fileName, file_data: normalizeDataUrl(image, mimeType) });
+        }
+      });
+      const stringProps = ['visitDate', 'plannerName', 'plannerEmail', 'discipline', 'plannerReportNo', 'structure', 'location', 'visitPurpose', 'subject', 'summary'];
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'supervision_report_extract',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  ...Object.fromEntries(stringProps.map((key) => [key, { type: 'string' }])),
+                  comments: { type: 'array', items: { type: 'string' } },
+                },
+                required: [...stringProps, 'comments'],
+              },
+            },
+          },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI supervision report OCR error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Supervision report OCR failed' }, { status: 500 });
+      }
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      return NextResponse.json({ data: safeJsonParse(outputText) ?? { comments: [] } });
+    }
 
     if (subtype === 'plan-register') {
       const normalizedFileData = normalizeDataUrl(dataUrl, mimeType);
