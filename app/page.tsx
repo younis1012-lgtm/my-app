@@ -2011,7 +2011,96 @@ type SupervisionReportRecord = {
   notes: string;
   attachment?: StoredAttachment | null;
   attachments?: StoredAttachment[];
+  details?: SupervisionReportDetails;
   savedAt: string;
+};
+
+// פרטי דוח פיקוח עליון (נשמרים בעמודת details) – פרטי הביקור, הערות המתכנן,
+// טיפול כולל לדוח, קישורים ואישור בקרת איכות
+type SupervisionReportDetails = {
+  discipline: string;
+  plannerName: string;
+  plannerEmail: string;
+  visitPurpose: string;
+  plannerReportNo: string;
+  structureText: string;
+  summary: string;
+  comments: string[];
+  responsible: string;
+  dueDate: string;
+  linkedNcrIds: string[];
+  qcApprovedBy: string;
+  qcApprovedAt: string;
+  fileNames: string[];
+  autoFilledFields: string[];
+};
+
+const SUPERVISION_DISCIPLINE_OPTIONS = [
+  "קונסטרוקציה",
+  "גאוטכניקה / יועץ קרקע",
+  "ניקוז",
+  "כבישים ותנועה",
+  "חשמל ותקשורת",
+  "מים וביוב",
+  "פיתוח ונוף",
+  "אחר",
+];
+
+const SUPERVISION_VISIT_PURPOSE_OPTIONS = [
+  "ביקור מתוכנן לפי המפרט",
+  "בדיקה לפני יציקה / כיסוי",
+  "לבקשת בקרת האיכות",
+  "לבקשת הקבלן",
+  "בעקבות אי התאמה",
+];
+
+const createDefaultSupervisionReportDetails = (): SupervisionReportDetails => ({
+  discipline: "",
+  plannerName: "",
+  plannerEmail: "",
+  visitPurpose: "",
+  plannerReportNo: "",
+  structureText: "",
+  summary: "",
+  comments: [],
+  responsible: "",
+  dueDate: "",
+  linkedNcrIds: [],
+  qcApprovedBy: "",
+  qcApprovedAt: "",
+  fileNames: [],
+  autoFilledFields: [],
+});
+
+const normalizeSupervisionReportDetails = (value: any): SupervisionReportDetails => {
+  const source = value && typeof value === "object" ? value : {};
+  const text = (item: unknown) => String(item ?? "").trim();
+  const list = (item: unknown) =>
+    Array.isArray(item) ? item.map((entry) => String(entry ?? "").trim()).filter(Boolean) : [];
+  return {
+    discipline: text(source.discipline),
+    plannerName: text(source.plannerName),
+    plannerEmail: text(source.plannerEmail),
+    visitPurpose: text(source.visitPurpose),
+    plannerReportNo: text(source.plannerReportNo),
+    structureText: text(source.structureText),
+    summary: String(source.summary ?? ""),
+    comments: list(source.comments),
+    responsible: text(source.responsible),
+    dueDate: text(source.dueDate),
+    linkedNcrIds: list(source.linkedNcrIds),
+    qcApprovedBy: text(source.qcApprovedBy),
+    qcApprovedAt: text(source.qcApprovedAt),
+    fileNames: list(source.fileNames),
+    autoFilledFields: list(source.autoFilledFields),
+  };
+};
+
+const isSupervisionReportOverdue = (record: { status?: string; details?: SupervisionReportDetails }) => {
+  const due = String(record.details?.dueDate ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return false;
+  if (record.status === "הושלם" || record.status === "מאושר") return false;
+  return due < new Date().toISOString().slice(0, 10);
 };
 
 const SUPERVISION_REPORT_STATUS_OPTIONS: SupervisionReportStatus[] = [
@@ -2034,6 +2123,7 @@ const createDefaultSupervisionReport = (): Omit<SupervisionReportRecord, "id" | 
   notes: "",
   attachment: null,
   attachments: [],
+  details: createDefaultSupervisionReportDetails(),
 });
 
 const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null => {
@@ -2058,6 +2148,7 @@ const normalizeSupervisionReport = (value: any): SupervisionReportRecord | null 
     notes: String(value.notes ?? ""),
     attachments,
     attachment: attachments.at(0) ?? null,
+    details: normalizeSupervisionReportDetails(value.details),
     savedAt: String(value.savedAt ?? value.saved_at ?? ""),
   };
 };
@@ -2077,6 +2168,7 @@ const supervisionReportRowToRecord = (row: any): SupervisionReportRecord | null 
     treatmentDate: row?.treatment_date,
     notes: row?.notes,
     attachments: row?.attachments,
+    details: row?.details,
     savedAt: row?.saved_at
       ? new Date(row.saved_at).toLocaleDateString("he-IL")
       : "",
@@ -2096,6 +2188,11 @@ const supervisionReportRecordToRow = (record: SupervisionReportRecord) => ({
   treatment_date: record.treatmentDate || null,
   notes: record.notes,
   attachments: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])),
+  details: {
+    ...normalizeSupervisionReportDetails(record.details),
+    // שמות הקבצים נשמרים גם כאן כדי שהריכוז יציג אותם בלי לטעון את הקבצים עצמם
+    fileNames: normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file) => file.name),
+  },
   saved_at: nowIso(),
 });
 
@@ -5272,7 +5369,7 @@ async function selectProjectTable(
       preliminary_records: PRELIMINARY_LIGHT_SELECT,
       rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,request_description,budget_impact,schedule_impact,response,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
       [CONTROL_PROCESS_TABLE]: "id,project_id,process_no,title,work_type,spec_section,location,from_section,to_section,status,checklist_ids,rfi_ids,nonconformance_ids,audit_log,approval,locked_at,saved_at,created_at,structure_node_id",
-      [SUPERVISION_REPORTS_TABLE]: "id,project_id,title,report_no,date,structure_node_id,location,author,status,treatment_date,saved_at",
+      [SUPERVISION_REPORTS_TABLE]: "id,project_id,title,report_no,date,structure_node_id,location,author,status,treatment,treatment_date,notes,details,saved_at",
       [PLANS_TABLE]: "id,project_id,plan_no,revision,title,discipline,date,status,saved_at",
     };
     const select = summarySelect[table];
@@ -9600,6 +9697,22 @@ function ProjectStructureSection({
 }
 
 
+const supervisionStatusLabel = (status: string) =>
+  status === "פתוח" ? "התקבל" : status === "הושלם" ? "ממתין לאישור בקרה" : status === "מאושר" ? "אושר ונסגר" : status;
+
+const supervisionStatusChip = (status: string, overdue: boolean): CSSProperties => {
+  const tone = overdue
+    ? { color: "#b42318", background: "#fdecea" }
+    : status === "מאושר"
+      ? { color: "#15803d", background: "#ecf8f0" }
+      : status === "הושלם"
+        ? { color: "#13305a", background: "#e8eef7" }
+        : status === "בטיפול"
+          ? { color: "#9a5b00", background: "#fff5e0" }
+          : { color: "#55657d", background: "#eef1f5" };
+  return { ...tone, display: "inline-block", borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" };
+};
+
 function SupervisionReportsSection({
   records,
   form,
@@ -9611,6 +9724,10 @@ function SupervisionReportsSection({
   onLoad,
   onDelete,
   onClose,
+  onApprove,
+  autoFill,
+  nonconformances = [],
+  canApprove = true,
   onDownloadPdf,
   onSendEmail,
   onSendSelectedEmail,
@@ -9628,6 +9745,10 @@ function SupervisionReportsSection({
   onLoad: (record: SupervisionReportRecord) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  onApprove?: () => void;
+  autoFill?: { status: "idle" | "running" | "done" | "error"; message: string };
+  nonconformances?: Array<{ id: string; label: string }>;
+  canApprove?: boolean;
   onDownloadPdf: (record: SupervisionReportRecord) => void;
   onSendEmail: (record: SupervisionReportRecord) => void;
   onSendSelectedEmail?: (records: SupervisionReportRecord[]) => void | Promise<void>;
@@ -9648,14 +9769,14 @@ function SupervisionReportsSection({
   const recordsPageSize = 10;
   const supervisionFilterColumns = [
     { key: "serial", label: "מס׳", value: (_record: SupervisionReportRecord, index: number) => index + 1 },
+    { key: "reportNo", label: "מספר דוח", value: (record: SupervisionReportRecord) => record.reportNo },
+    { key: "date", label: "תאריך ביקור", value: (record: SupervisionReportRecord) => record.date },
+    { key: "discipline", label: "תחום", value: (record: SupervisionReportRecord) => record.details?.discipline ?? "" },
+    { key: "planner", label: "מתכנן", value: (record: SupervisionReportRecord) => record.details?.plannerName || record.author },
     { key: "title", label: "נושא", value: (record: SupervisionReportRecord) => record.title || "דוח פיקוח" },
-    { key: "reportNo", label: "מספר", value: (record: SupervisionReportRecord) => record.reportNo },
-    { key: "date", label: "תאריך", value: (record: SupervisionReportRecord) => record.date },
-    { key: "treatmentDate", label: "תאריך טיפול", value: (record: SupervisionReportRecord) => record.treatmentDate },
-    { key: "location", label: "מיקום", value: (record: SupervisionReportRecord) => record.location },
-    { key: "author", label: "עורך", value: (record: SupervisionReportRecord) => record.author },
-    { key: "status", label: "סטטוס", value: (record: SupervisionReportRecord) => record.status },
-    { key: "files", label: "קבצים", value: (record: SupervisionReportRecord) => (record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file) => file.name).join(" ") },
+    { key: "dueDate", label: "יעד טיפול", value: (record: SupervisionReportRecord) => record.details?.dueDate ?? "" },
+    { key: "status", label: "סטטוס", value: (record: SupervisionReportRecord) => (isSupervisionReportOverdue(record) ? "חורג מיעד" : supervisionStatusLabel(record.status)) },
+    { key: "files", label: "קבצים", value: (record: SupervisionReportRecord) => (record.attachments?.length ? record.attachments.map((file) => file.name) : record.details?.fileNames ?? []).join(" ") },
   ];
   const filteredSupervisionRecords = records.filter((record, index) =>
     supervisionFilterColumns.every((column) => {
@@ -9692,112 +9813,294 @@ function SupervisionReportsSection({
     minHeight: 44,
   };
   const activeRecord = records.find((record) => record.id === editingId) ?? records[0] ?? null;
+  const details = normalizeSupervisionReportDetails(form.details);
+  const autoFilled = new Set(details.autoFilledFields);
+  const setDetail = <K extends keyof SupervisionReportDetails>(key: K, value: SupervisionReportDetails[K]) => {
+    onChange("details", {
+      ...details,
+      [key]: value,
+      // אחרי עריכה ידנית השדה כבר לא מסומן כ"מולא אוטומטית"
+      autoFilledFields: details.autoFilledFields.filter((field) => field !== key),
+    });
+  };
+  const setTopField = (key: "title" | "date" | "location", value: string) => {
+    onChange(key, value);
+    if (autoFilled.has(key))
+      onChange("details", { ...details, autoFilledFields: details.autoFilledFields.filter((field) => field !== key) });
+  };
+  const fillMark = (key: string): CSSProperties =>
+    autoFilled.has(key) ? { background: "#fff8df", borderColor: "#c9a227", boxShadow: "inset 0 -2px 0 #c9a227" } : {};
+  const card: CSSProperties = { background: "#fff", border: "1px solid #dde3ec", borderRadius: 14, padding: "18px 20px", display: "grid", gap: 14 };
+  const cardTitle: CSSProperties = { margin: 0, fontSize: 17, fontWeight: 700, color: "#0b1f3a" };
+  const fieldLabel: CSSProperties = { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 600, color: "#334155" };
+  const fieldInput: CSSProperties = { ...input, fontWeight: 500, borderRadius: 10, border: "1px solid #c9d2df" };
+  const overdue = isSupervisionReportOverdue({ status: form.status, details });
+  const steps = [
+    { key: "פתוח", label: "דוח המתכנן התקבל" },
+    { key: "בטיפול", label: "בטיפול" },
+    { key: "הושלם", label: "הטיפול הושלם – ממתין לאישור בקרה" },
+    { key: "מאושר", label: "אושר ע״י בקרת איכות ונסגר" },
+  ];
+  const stepIndex = Math.max(0, steps.findIndex((step) => step.key === form.status));
+  const linkedNcrs = nonconformances.filter((item) => details.linkedNcrIds.includes(item.id));
+  const availableNcrs = nonconformances.filter((item) => !details.linkedNcrIds.includes(item.id));
 
   return (
     <section>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            <button
-              type="button"
-              onClick={() => activeRecord && onDownloadPdf(activeRecord)}
-              disabled={!activeRecord}
-              style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}
-            >
-              הורד PDF
-            </button>
-            <button
-              type="button"
-              onClick={() => activeRecord && onSendEmail(activeRecord)}
-              disabled={!activeRecord}
-              style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}
-            >
-              שלח מייל
-            </button>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: "#0b1f3a" }}>דוחות פיקוח עליון</h2>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14, color: "#55657d" }}>
+            <span>{editingId ? `עריכת דוח ${form.reportNo || ""}` : "דוח חדש"}</span>
+            {details.discipline ? <span style={{ color: "#13305a", background: "#e8eef7", borderRadius: 999, padding: "2px 10px", fontWeight: 700, fontSize: 12 }}>{details.discipline}</span> : null}
+            <span style={supervisionStatusChip(form.status, overdue)}>{overdue ? "חורג מיעד" : supervisionStatusLabel(form.status)}</span>
           </div>
-          <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>🏛️ דוחות פיקוח עליון</h2>
         </div>
-        <button type="button" onClick={onNew} style={styles.secondaryBtn}>הוספה</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => activeRecord && onDownloadPdf(activeRecord)} disabled={!activeRecord} style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}>הורד PDF</button>
+          <button type="button" onClick={() => activeRecord && onSendEmail(activeRecord)} disabled={!activeRecord} style={{ ...styles.secondaryBtn, opacity: activeRecord ? 1 : 0.5 }}>שלח מייל</button>
+          <button type="button" onClick={onNew} style={styles.secondaryBtn}>+ דוח חדש</button>
+          <button type="button" onClick={onSave} style={primaryBtn}>שמירה</button>
+        </div>
       </div>
 
-      <div style={{ ...styles.card, marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
-          <label style={label}>נושא הדוח
-            <input style={input} value={form.title} onChange={(e) => onChange("title", e.target.value)} />
-          </label>
-          <label style={label}>מספר דוח
-            <input style={input} value={form.reportNo} onChange={(e) => onChange("reportNo", e.target.value)} />
-          </label>
-          <label style={label}>תאריך
-            <input style={input} type="date" value={form.date} onChange={(e) => onChange("date", e.target.value)} />
-          </label>
-          <label style={label}>סטטוס
-            <select style={input} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
-              {SUPERVISION_REPORT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
-          <label style={label}>מיקום
-            <input style={input} value={form.location} onChange={(e) => onChange("location", e.target.value)} />
-          </label>
-          <label style={label}>מבצע / עורך
-            <input style={input} value={form.author} onChange={(e) => onChange("author", e.target.value)} />
-          </label>
-          <div style={{ ...label, gridColumn: "1 / -1" }}>
-            <span>קבצי דוח / תמונות</span>
-            <div style={{ border: "1px solid #dbeafe", borderRadius: 14, padding: 12, background: "#f8fafc" }}>
-              <div style={{ display: "grid", gap: 10 }}>
-                <FileDropZone
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
-                  buttonLabel="צרף קבצים"
-                  helperText="גרור לכאן קבצי דוח או תמונות"
-                  onFiles={onAttachmentChange}
-                />
-                <span style={{ color: "#475569", fontWeight: 850 }}>
-                  {formAttachments.length ? `${formAttachments.length} קבצים מצורפים` : "עדיין לא צורפו קבצים"}
-                </span>
-              </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 340px)", gap: 16, alignItems: "start", marginBottom: 18 }} className="yk-sup-grid">
+        <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
+          {/* צירוף דוח המתכנן + מילוי אוטומטי */}
+          <div style={{ ...card, gridTemplateColumns: "minmax(180px, 240px) minmax(0, 1fr)", alignItems: "center" }}>
+            <FileDropZone
+              accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+              buttonLabel="צירוף דוח המתכנן"
+              helperText="גרור לכאן את דוח המתכנן (PDF)"
+              onFiles={onAttachmentChange}
+            />
+            <div style={{ display: "grid", gap: 8 }}>
+              {autoFill?.status === "running" ? (
+                <div style={{ fontWeight: 700, color: "#13305a" }}>⏳ {autoFill.message}</div>
+              ) : autoFill?.status === "done" ? (
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ fontWeight: 700, color: "#15803d" }}>✓ {autoFill.message}</div>
+                  {autoFilled.size ? (
+                    <button type="button" onClick={() => onChange("details", { ...details, autoFilledFields: [] })} style={{ ...styles.secondaryBtn, width: "fit-content", minHeight: 34, padding: "6px 12px", fontSize: 13 }}>
+                      בדקתי – אישור הנתונים
+                    </button>
+                  ) : null}
+                </div>
+              ) : autoFill?.status === "error" ? (
+                <div style={{ fontWeight: 600, color: "#9a5b00" }}>{autoFill.message}</div>
+              ) : (
+                <div style={{ color: "#55657d", fontSize: 14, lineHeight: 1.6 }}>
+                  מצרפים את דוח הפיקוח העליון שהתקבל מהמתכנן, והמערכת ממלאת אוטומטית את תאריך הביקור, המתכנן, התחום, המבנה, הסיכום והערות המתכנן. השדות שמולאו מסומנים בצהוב לבדיקה.
+                </div>
+              )}
               {formAttachments.length ? (
-                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {formAttachments.map((file, fileIndex) => (
-                    <div key={`${file.name}-${fileIndex}`} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "8px 10px", border: "1px solid #dbeafe", borderRadius: 10, background: "#eff6ff", flexWrap: "wrap" }}>
-                      <a href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" style={{ color: "#15803d", fontWeight: 900, overflowWrap: "anywhere" }}>{file.name}</a>
+                    <span key={`${file.name}-${fileIndex}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#eef3fa", color: "#13305a", borderRadius: 8, padding: "4px 8px", fontSize: 12, fontWeight: 600 }}>
+                      <a href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" style={{ color: "#13305a", overflowWrap: "anywhere" }}>{file.name}</a>
                       <button
                         type="button"
+                        aria-label={`הסרת ${file.name}`}
                         onClick={() => {
                           const next = formAttachments.filter((_, idx) => idx !== fileIndex);
                           onChange("attachments", next);
                           onChange("attachment", next.at(0) ?? null);
                         }}
-                        style={styles.dangerBtn}
+                        style={{ border: 0, background: "transparent", color: "#b42318", fontWeight: 800, cursor: "pointer" }}
                       >
-                        הסר
+                        ×
                       </button>
-                    </div>
+                    </span>
                   ))}
                 </div>
-              ) : (
-                <div style={{ ...styles.emptyBox, marginTop: 10, padding: 14 }}>
-                  ניתן לצרף PDF, תמונות, Word או Excel לדוח הפיקוח העליון.
-                </div>
-              )}
+              ) : null}
             </div>
           </div>
-          <label style={label}>תאריך טיפול
-            <input style={input} type="date" value={form.treatmentDate} onChange={(e) => onChange("treatmentDate", e.target.value)} />
-          </label>
-          <label style={{ ...label, gridColumn: "span 3" }}>טיפול
-            <textarea style={{ ...input, minHeight: 90 }} value={form.treatment} onChange={(e) => onChange("treatment", e.target.value)} />
-          </label>
-          <label style={{ ...label, gridColumn: "span 2" }}>הערות
-            <textarea style={{ ...input, minHeight: 90 }} value={form.notes} onChange={(e) => onChange("notes", e.target.value)} />
-          </label>
+
+          {/* פרטי הביקור */}
+          <div style={card}>
+            <h3 style={cardTitle}>פרטי הביקור</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: 12 }}>
+              <label style={fieldLabel}>תאריך הביקור
+                <input type="date" style={{ ...fieldInput, ...fillMark("date") }} value={form.date} onChange={(e) => setTopField("date", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>תחום תכנון
+                <input list="yk-sup-disciplines" style={{ ...fieldInput, ...fillMark("discipline") }} value={details.discipline} onChange={(e) => setDetail("discipline", e.target.value)} />
+                <datalist id="yk-sup-disciplines">{SUPERVISION_DISCIPLINE_OPTIONS.map((option) => <option key={option} value={option} />)}</datalist>
+              </label>
+              <label style={fieldLabel}>מתכנן מבקר
+                <input style={{ ...fieldInput, ...fillMark("plannerName") }} value={details.plannerName} onChange={(e) => setDetail("plannerName", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>מייל המתכנן
+                <input dir="ltr" style={{ ...fieldInput, ...fillMark("plannerEmail"), textAlign: "right" }} value={details.plannerEmail} onChange={(e) => setDetail("plannerEmail", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>מס׳ דוח המתכנן
+                <input style={{ ...fieldInput, ...fillMark("plannerReportNo") }} value={details.plannerReportNo} onChange={(e) => setDetail("plannerReportNo", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>מספר דוח במערכת
+                <input style={fieldInput} value={form.reportNo} onChange={(e) => onChange("reportNo", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>מבנה / אלמנט
+                <input style={{ ...fieldInput, ...fillMark("structureText") }} value={details.structureText} onChange={(e) => setDetail("structureText", e.target.value)} placeholder="לדוגמה: מעביר מים BC01 › יציקת תקרה" />
+              </label>
+              <label style={fieldLabel}>מיקום
+                <input style={{ ...fieldInput, ...fillMark("location") }} value={form.location} onChange={(e) => setTopField("location", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>מטרת הביקור
+                <input list="yk-sup-purposes" style={{ ...fieldInput, ...fillMark("visitPurpose") }} value={details.visitPurpose} onChange={(e) => setDetail("visitPurpose", e.target.value)} />
+                <datalist id="yk-sup-purposes">{SUPERVISION_VISIT_PURPOSE_OPTIONS.map((option) => <option key={option} value={option} />)}</datalist>
+              </label>
+              <label style={{ ...fieldLabel, gridColumn: "1 / -1" }}>נושא הדוח
+                <input style={{ ...fieldInput, ...fillMark("title") }} value={form.title} onChange={(e) => setTopField("title", e.target.value)} />
+              </label>
+              <label style={{ ...fieldLabel, gridColumn: "1 / -1" }}>סיכום הביקור
+                <textarea style={{ ...fieldInput, minHeight: 80, resize: "vertical", ...fillMark("summary") }} value={details.summary} onChange={(e) => setDetail("summary", e.target.value)} />
+              </label>
+            </div>
+          </div>
+
+          {/* הערות המתכנן */}
+          <div style={card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <h3 style={cardTitle}>הערות המתכנן {details.comments.length ? <span style={{ fontWeight: 500, fontSize: 14, color: "#55657d" }}>· {details.comments.length} הערות</span> : null}</h3>
+              <button type="button" onClick={() => setDetail("comments", [...details.comments, ""])} style={{ ...styles.secondaryBtn, minHeight: 34, padding: "6px 12px", fontSize: 13 }}>+ הוספת הערה</button>
+            </div>
+            {details.comments.length ? (
+              <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6, ...(autoFilled.has("comments") ? { background: "#fff8df", borderInlineStart: "3px solid #c9a227", borderRadius: 6, padding: "6px 10px" } : {}) }}>
+                {details.comments.map((comment, commentIndex) => (
+                  <li key={commentIndex} style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 32px", gap: 8, alignItems: "start" }}>
+                    <span style={{ color: "#8a97ab", fontWeight: 700, paddingTop: 9 }}>{commentIndex + 1}.</span>
+                    <textarea
+                      value={comment}
+                      rows={1}
+                      onChange={(e) => setDetail("comments", details.comments.map((item, idx) => (idx === commentIndex ? e.target.value : item)))}
+                      style={{ ...fieldInput, minHeight: 38, resize: "vertical", background: "transparent" }}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`מחיקת הערה ${commentIndex + 1}`}
+                      onClick={() => setDetail("comments", details.comments.filter((_, idx) => idx !== commentIndex))}
+                      style={{ border: 0, background: "transparent", color: "#8a97ab", fontSize: 18, cursor: "pointer", paddingTop: 6 }}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div style={{ color: "#55657d", fontSize: 14 }}>אין עדיין הערות. הן נקראות אוטומטית מדוח המתכנן, או מוסיפים ידנית.</div>
+            )}
+          </div>
+
+          {/* טיפול כולל בדוח */}
+          <div style={card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "grid", gap: 2 }}>
+                <h3 style={cardTitle}>טיפול בדוח</h3>
+                <span style={{ fontSize: 13, color: "#55657d" }}>טיפול אחד כולל לכל ההערות שבדוח</span>
+              </div>
+              {overdue ? <span style={supervisionStatusChip(form.status, true)}>חורג מתאריך היעד</span> : null}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: 12 }}>
+              <label style={fieldLabel}>אחראי לטיפול
+                <input style={fieldInput} value={details.responsible} onChange={(e) => setDetail("responsible", e.target.value)} placeholder="לדוגמה: מנהל עבודה – שם" />
+              </label>
+              <label style={fieldLabel}>תאריך יעד
+                <input type="date" style={fieldInput} value={details.dueDate} onChange={(e) => setDetail("dueDate", e.target.value)} />
+              </label>
+              <label style={fieldLabel}>סטטוס
+                <select style={fieldInput} value={form.status} onChange={(e) => onChange("status", e.target.value)}>
+                  {SUPERVISION_REPORT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{supervisionStatusLabel(status)}</option>)}
+                </select>
+              </label>
+              <label style={fieldLabel}>תאריך סגירה
+                <input type="date" style={fieldInput} value={form.treatmentDate} onChange={(e) => onChange("treatmentDate", e.target.value)} />
+              </label>
+              <label style={{ ...fieldLabel, gridColumn: "1 / -1" }}>אופן הטיפול
+                <textarea style={{ ...fieldInput, minHeight: 90, resize: "vertical" }} value={form.treatment} onChange={(e) => onChange("treatment", e.target.value)} placeholder="מה בוצע בעקבות הדוח – לכל ההערות יחד" />
+              </label>
+              <label style={{ ...fieldLabel, gridColumn: "1 / -1" }}>הערות
+                <textarea style={{ ...fieldInput, minHeight: 60, resize: "vertical" }} value={form.notes} onChange={(e) => onChange("notes", e.target.value)} />
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={onClose} style={styles.secondaryBtn}>סימון "הטיפול הושלם"</button>
+              {editingId ? <span style={{ alignSelf: "center", color: "#55657d", fontSize: 13 }}>עורך רשומה קיימת</span> : null}
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-          <button type="button" onClick={onSave} style={primaryBtn}>שמירה</button>
-          <button type="button" onClick={onClose} style={styles.secondaryBtn}>טיפול / סגירה</button>
-          <button type="button" onClick={onNew} style={styles.secondaryBtn}>נקה / הוספה חדשה</button>
-          {editingId ? <span style={{ alignSelf: "center", color: "#64748b", fontWeight: 800 }}>עורך רשומה קיימת</span> : null}
-        </div>
+
+        {/* פאנל צד */}
+        <aside style={{ display: "grid", gap: 16 }}>
+          <div style={{ background: "#0b1f3a", color: "#fff", borderRadius: 14, padding: 18, display: "grid", gap: 12 }}>
+            <span style={{ fontSize: 13, color: "#9fb0c8" }}>מצב הדוח</span>
+            <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 10, fontSize: 14 }}>
+              {steps.map((step, index) => {
+                const done = index < stepIndex || form.status === "מאושר";
+                const current = index === stepIndex && form.status !== "מאושר";
+                return (
+                  <li key={step.key} style={{ display: "flex", alignItems: "center", gap: 10, color: done || current ? "#fff" : "#8193ae", fontWeight: current ? 700 : 500 }}>
+                    <span style={{ width: 22, height: 22, flexShrink: 0, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, background: done ? "#c9a227" : "transparent", color: "#0b1f3a", border: done ? 0 : `2px solid ${current ? "#c9a227" : "#3b5580"}`, boxSizing: "border-box" }}>
+                      {done ? "✓" : ""}
+                    </span>
+                    {step.label}
+                    {current && step.key === "בטיפול" && details.dueDate ? <span style={{ fontWeight: 500, color: overdue ? "#fca5a5" : "#d5deea" }}>· יעד {formatTrackingDate(details.dueDate)}</span> : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+
+          <div style={{ ...card, padding: 16 }}>
+            <h3 style={{ ...cardTitle, fontSize: 15 }}>אי התאמות מקושרות</h3>
+            {linkedNcrs.length ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {linkedNcrs.map((item) => (
+                  <span key={item.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", padding: "6px 10px", borderRadius: 8, background: "#fdecea", color: "#b42318", fontSize: 13, fontWeight: 600 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                    <button type="button" aria-label="הסרת קישור" onClick={() => setDetail("linkedNcrIds", details.linkedNcrIds.filter((id) => id !== item.id))} style={{ border: 0, background: "transparent", color: "#b42318", fontWeight: 800, cursor: "pointer" }}>×</button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: 13, color: "#55657d" }}>לא קושרו אי התאמות לדוח.</span>
+            )}
+            {availableNcrs.length ? (
+              <select
+                value=""
+                onChange={(e) => e.target.value && setDetail("linkedNcrIds", [...details.linkedNcrIds, e.target.value])}
+                style={{ ...fieldInput, minHeight: 36, fontSize: 13 }}
+                aria-label="קישור אי התאמה"
+              >
+                <option value="">+ קישור אי התאמה…</option>
+                {availableNcrs.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            ) : null}
+          </div>
+
+          <div style={{ ...card, padding: 16 }}>
+            <h3 style={{ ...cardTitle, fontSize: 15 }}>אישור בקרת איכות</h3>
+            {form.status === "מאושר" && details.qcApprovedBy ? (
+              <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                <span style={supervisionStatusChip("מאושר", false)}>✓ אושר</span>
+                <span>{details.qcApprovedBy} · {formatTrackingDate(details.qcApprovedAt)}</span>
+              </div>
+            ) : (
+              <>
+                <span style={{ fontSize: 13, color: "#55657d", lineHeight: 1.6 }}>הדוח נסגר אחרי שהטיפול הושלם ובקרת האיכות אישרה.</span>
+                <button
+                  type="button"
+                  onClick={onApprove}
+                  disabled={!canApprove || !onApprove || !String(form.treatment ?? "").trim()}
+                  title={!String(form.treatment ?? "").trim() ? "יש למלא קודם את אופן הטיפול" : undefined}
+                  style={{ ...primaryBtn, opacity: !canApprove || !String(form.treatment ?? "").trim() ? 0.5 : 1 }}
+                >
+                  אישור וסגירת הדוח
+                </button>
+              </>
+            )}
+          </div>
+        </aside>
       </div>
 
       <div style={styles.card}>
@@ -9831,7 +10134,7 @@ function SupervisionReportsSection({
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
               <thead>
                 <tr>
-                  {["מס׳", "נושא", "מספר", "תאריך", "תאריך טיפול", "מיקום", "עורך", "סטטוס", "קבצים", "פעולות"].map((header) => (
+                  {["מס׳", "מספר דוח", "תאריך ביקור", "תחום", "מתכנן", "נושא", "יעד טיפול", "סטטוס", "קבצים", "פעולות"].map((header) => (
                     <th key={header} style={{ background: "#0f172a", color: "#fff", padding: 10, border: "1px solid #cbd5e1" }}>{header}</th>
                   ))}
                 </tr>
@@ -9865,18 +10168,25 @@ function SupervisionReportsSection({
                       ) : null}
                       {(safeRecordsPage - 1) * recordsPageSize + index + 1}
                     </td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 800 }}>{record.title || "דוח פיקוח"}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.date}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.treatmentDate}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.location}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.author}</td>
-                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.status}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{formatTrackingDate(record.date)}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.details?.discipline}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.details?.plannerName || record.author}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1", fontWeight: 700 }}>{record.title || "דוח פיקוח"}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{formatTrackingDate(record.details?.dueDate)}</td>
+                    <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>
+                      <span style={supervisionStatusChip(record.status, isSupervisionReportOverdue(record))}>
+                        {isSupervisionReportOverdue(record) ? "חורג מיעד" : supervisionStatusLabel(record.status)}
+                      </span>
+                    </td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>
                       <div style={{ display: "grid", gap: 4 }}>
                         {(record.attachments ?? (record.attachment ? [record.attachment] : [])).map((file, fileIndex) => (
                           <a key={`${file.name}-${fileIndex}`} href={file.dataUrl} download={file.name}>{file.name}</a>
                         ))}
+                        {!(record.attachments ?? []).length && record.details?.fileNames?.length ? (
+                          <span style={{ color: "#55657d", fontSize: 12 }}>{record.details.fileNames.join(", ")}</span>
+                        ) : null}
                       </div>
                     </td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1", whiteSpace: "nowrap" }}>
@@ -17148,6 +17458,7 @@ export default function Page() {
   const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
   const cloudLoadGenerationRef = useRef(0);
   const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
+  const [supervisionAutoFill, setSupervisionAutoFill] = useState<{ status: "idle" | "running" | "done" | "error"; message: string }>({ status: "idle", message: "" });
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
   const [savedPlans, setSavedPlans] = useState<PlanRecord[]>([]);
@@ -25911,6 +26222,122 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const resetSupervisionReportForm = () => {
     setSupervisionReportForm(createDefaultSupervisionReport());
     setEditingSupervisionReportId(null);
+    setSupervisionAutoFill({ status: "idle", message: "" });
+  };
+
+  // קריאת דוח המתכנן שצורף ומילוי אוטומטי של פרטי הביקור וההערות.
+  // ממלא רק שדות ריקים, ומסמן אותם לבדיקה – המשתמש מאשר לפני שמירה.
+  const autoFillSupervisionReportFromFile = async (file: File) => {
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type.includes("pdf");
+    const isImageFile = file.type.startsWith("image/");
+    if (!isPdf && !isImageFile) return;
+    setSupervisionAutoFill({ status: "running", message: "קורא את דוח המתכנן וממלא את הפרטים…" });
+    try {
+      let pages: string[] = [];
+      let pagesMime = file.type || "application/pdf";
+      if (isPdf) {
+        try {
+          pages = await renderPdfPagesForPlanOcr(file, 5);
+          pagesMime = "image/jpeg";
+        } catch (renderError) {
+          // אם לא ניתן להמיר את ה-PDF לתמונות בדפדפן – שולחים את הקובץ עצמו
+          console.warn("PDF page rendering failed; sending the PDF file instead", renderError);
+          pages = [];
+        }
+      }
+      if (!pages.length) {
+        pages = [await readReferenceFileAsDataUrl(file)];
+        pagesMime = file.type || (isPdf ? "application/pdf" : "image/jpeg");
+      }
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subtype: "supervision-report",
+          fileName: file.name,
+          mimeType: pagesMime,
+          dataUrl: pages[0],
+          pages,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || response.statusText || "קריאת הדוח נכשלה");
+      const data = payload?.data ?? {};
+      const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+      const extracted = {
+        date: normalizeDateValue(clean(data.visitDate)),
+        title: clean(data.subject),
+        location: clean(data.location),
+        discipline: clean(data.discipline),
+        plannerName: clean(data.plannerName),
+        plannerEmail: clean(data.plannerEmail),
+        plannerReportNo: clean(data.plannerReportNo),
+        structureText: clean(data.structure),
+        visitPurpose: clean(data.visitPurpose),
+        summary: String(data.summary ?? "").trim(),
+        comments: Array.isArray(data.comments)
+          ? data.comments.map((item: unknown) => String(item ?? "").replace(/\s+/g, " ").trim()).filter(Boolean)
+          : [],
+      };
+      const filled: string[] = [];
+      setSupervisionReportForm((prev) => {
+        const details = normalizeSupervisionReportDetails(prev.details);
+        const next = { ...prev, details: { ...details } };
+        const setTop = (key: "date" | "title" | "location", value: string) => {
+          if (!value) return;
+          const current = String(prev[key] ?? "").trim();
+          const isDefaultDate = key === "date" && current === new Date().toISOString().slice(0, 10);
+          if (current && !isDefaultDate) return;
+          (next as any)[key] = value;
+          filled.push(key);
+        };
+        setTop("date", /^\d{4}-\d{2}-\d{2}$/.test(extracted.date) ? extracted.date : "");
+        setTop("title", extracted.title);
+        setTop("location", extracted.location);
+        (["discipline", "plannerName", "plannerEmail", "plannerReportNo", "structureText", "visitPurpose", "summary"] as const).forEach((key) => {
+          const value = extracted[key];
+          if (!value || String(details[key] ?? "").trim()) return;
+          (next.details as any)[key] = value;
+          filled.push(key);
+        });
+        if (extracted.comments.length && !details.comments.length) {
+          next.details.comments = extracted.comments;
+          filled.push("comments");
+        }
+        next.details.autoFilledFields = Array.from(new Set([...details.autoFilledFields, ...filled]));
+        return next;
+      });
+      const commentsCount = extracted.comments.length;
+      setSupervisionAutoFill({
+        status: "done",
+        message: `הנתונים מולאו אוטומטית מתוך הדוח${commentsCount ? ` (כולל ${commentsCount} הערות)` : ""}. השדות המסומנים בצהוב – יש לבדוק ולאשר לפני שמירה.`,
+      });
+    } catch (error) {
+      console.warn("Supervision report auto-fill failed", error);
+      setSupervisionAutoFill({
+        status: "error",
+        message: `לא הצלחתי לקרוא את הדוח אוטומטית (${errorText(error)}). אפשר למלא את הפרטים ידנית – הקובץ צורף.`,
+      });
+    }
+  };
+
+  const approveSupervisionReportByQc = () => {
+    if (!String(supervisionReportForm.treatment ?? "").trim())
+      return alert("לפני אישור יש למלא את אופן הטיפול בדוח.");
+    const approver =
+      projectAccess?.displayName || projectAccess?.username || "בקרת איכות";
+    const today = new Date().toISOString().slice(0, 10);
+    setSupervisionReportForm((prev) => ({
+      ...prev,
+      status: "מאושר",
+      treatmentDate: prev.treatmentDate || today,
+      details: {
+        ...normalizeSupervisionReportDetails(prev.details),
+        qcApprovedBy: approver,
+        qcApprovedAt: today,
+      },
+    }));
+    alert("הדוח סומן כמאושר על ידי בקרת איכות. יש ללחוץ \"שמירה\" כדי לשמור.");
   };
 
   const updateSupervisionReportForm = (
@@ -25923,6 +26350,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const uploadSupervisionReportAttachment = (files: FileList | File[] | null) => {
     const selectedFiles = Array.from(files ?? []);
     if (!selectedFiles.length) return;
+    const reportFile = selectedFiles.find(
+      (file) => file.size <= 20 * 1024 * 1024 && (file.name.toLowerCase().endsWith(".pdf") || file.type.includes("pdf") || file.type.startsWith("image/")),
+    );
+    const formHasComments = normalizeSupervisionReportDetails(supervisionReportForm.details).comments.length > 0;
+    if (reportFile && !formHasComments) void autoFillSupervisionReportFromFile(reportFile);
     selectedFiles.forEach((file) => {
       const maxSizeMb = 20;
       if (file.size > maxSizeMb * 1024 * 1024) {
@@ -26004,12 +26436,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ? supabase.from(SUPERVISION_REPORTS_TABLE).update(payload).eq("id", record.id)
         : supabase.from(SUPERVISION_REPORTS_TABLE).insert(payload);
 
-    let payload = sanitizeCloudPayload(supervisionReportRecordToRow(record));
+    let payload: Record<string, any> = sanitizeCloudPayload(supervisionReportRecordToRow(record));
     const requestedStructureNodeId = payload.structure_node_id;
     let result = await save(payload);
     if (result.error && shouldIgnoreCloudError(result.error)) {
       console.warn("Supervision reports cloud table unavailable; keeping browser copy.", result.error);
       return false;
+    }
+    let droppedDetails = false;
+    if (result.error && isMissingColumnError(result.error, "details")) {
+      const { details, ...fallbackPayload } = payload;
+      payload = fallbackPayload;
+      droppedDetails = true;
+      result = await save(payload);
     }
     let droppedStructureNodeId = false;
     if (result.error && isMissingColumnError(result.error, "structure_node_id")) {
@@ -26023,6 +26462,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       return false;
     }
     if (result.error) throw result.error;
+    if (droppedDetails) {
+      throw new Error(
+        "דוח הפיקוח נשמר, אך פרטי הביקור, הערות המתכנן והטיפול לא נשמרו בענן כי בטבלת דוחות הפיקוח חסרה העמודה details. יש להריץ פעם אחת את הסקריפט app/supabase/12_supervision_report_details.sql ב-Supabase SQL Editor ולשמור שוב.",
+      );
+    }
     if (droppedStructureNodeId && requestedStructureNodeId) {
       // The report itself was saved successfully above, but the cloud table
       // is still missing the structure_node_id column, so the tree
@@ -26184,6 +26628,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       supervisionReportForm.author.trim() ||
       supervisionReportForm.treatment.trim() ||
       supervisionReportForm.notes.trim() ||
+      normalizeSupervisionReportDetails(supervisionReportForm.details).comments.length ||
+      normalizeSupervisionReportDetails(supervisionReportForm.details).summary.trim() ||
       currentAttachments.length
     );
     if (!hasAnyContent) {
@@ -26312,7 +26758,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       notes: fullRecord.notes,
       attachment: (fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])).at(0) ?? null,
       attachments: normalizeAttachments(fullRecord.attachments ?? (fullRecord.attachment ? [fullRecord.attachment] : [])),
+      details: normalizeSupervisionReportDetails(fullRecord.details),
     });
+    setSupervisionAutoFill({ status: "idle", message: "" });
   };
 
   const closeSupervisionReport = () => {
@@ -26354,32 +26802,57 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     normalizeAttachments(record.attachments ?? (record.attachment ? [record.attachment] : []));
 
   const supervisionReportHtml = (record: SupervisionReportRecord) => {
-    const savedDisplayDate = record.treatmentDate || record.date || "";
+    const esc = (value: unknown) =>
+      String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    const details = normalizeSupervisionReportDetails(record.details);
+    const overdue = isSupervisionReportOverdue(record);
     const attachmentRows = supervisionReportAttachments(record)
-      .map((file, index) => `<tr><td>${index + 1}</td><td>${String(file.name || "").replace(/</g, "&lt;")}</td></tr>`)
+      .map((file, index) => `<tr><td>${index + 1}</td><td>${esc(file.name)}</td></tr>`)
       .join("");
+    const commentRows = details.comments
+      .map((comment, index) => `<tr><td style="width:36px;text-align:center">${index + 1}</td><td>${esc(comment)}</td></tr>`)
+      .join("");
+    const linkedNcrs = projectNonconformances
+      .filter((item: any) => details.linkedNcrIds.includes(item.id))
+      .map((item: any) => esc(item.title || item.description || "אי התאמה"))
+      .join(", ");
     return `
       <div dir="rtl" style="font-family:Arial,sans-serif;padding:28px;color:#0f172a">
         <h1 style="margin:0 0 14px;text-align:center">דוח פיקוח עליון</h1>
-        <h2 style="margin:0 0 20px;text-align:center">${projectName}</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:15px">
+        <h2 style="margin:0 0 20px;text-align:center">${esc(projectName)}</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tbody>
-            <tr><th>נושא הדוח</th><td>${record.title || ""}</td><th>מספר דוח</th><td>${record.reportNo || ""}</td></tr>
-            <tr><th>תאריך</th><td>${record.date || ""}</td><th>תאריך טיפול</th><td>${record.treatmentDate || ""}</td></tr>
-            <tr><th>מיקום</th><td>${record.location || ""}</td><th>מבצע / עורך</th><td>${record.author || ""}</td></tr>
-            <tr><th>סטטוס</th><td>${record.status || ""}</td><th>נשמר בתאריך</th><td>${savedDisplayDate}</td></tr>
-            <tr><th>טיפול</th><td colspan="3">${record.treatment || ""}</td></tr>
-            <tr><th>הערות</th><td colspan="3">${record.notes || ""}</td></tr>
+            <tr><th>נושא הדוח</th><td colspan="3">${esc(record.title)}</td></tr>
+            <tr><th>מספר דוח</th><td>${esc(record.reportNo)}</td><th>מס׳ דוח המתכנן</th><td>${esc(details.plannerReportNo)}</td></tr>
+            <tr><th>תאריך הביקור</th><td>${esc(formatTrackingDate(record.date))}</td><th>תחום תכנון</th><td>${esc(details.discipline)}</td></tr>
+            <tr><th>מתכנן מבקר</th><td>${esc(details.plannerName || record.author)}</td><th>מטרת הביקור</th><td>${esc(details.visitPurpose)}</td></tr>
+            <tr><th>מבנה / אלמנט</th><td>${esc(details.structureText)}</td><th>מיקום</th><td>${esc(record.location)}</td></tr>
+            <tr><th>סיכום הביקור</th><td colspan="3">${esc(details.summary)}</td></tr>
           </tbody>
         </table>
-        <h3 style="margin-top:22px">קבצים שצורפו</h3>
+        <h3 style="margin:20px 0 8px">הערות המתכנן</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tbody>${commentRows || `<tr><td colspan="2">לא נרשמו הערות</td></tr>`}</tbody>
+        </table>
+        <h3 style="margin:20px 0 8px">טיפול בדוח</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tbody>
+            <tr><th>אחראי לטיפול</th><td>${esc(details.responsible)}</td><th>תאריך יעד</th><td>${esc(formatTrackingDate(details.dueDate))}${overdue ? " (חורג)" : ""}</td></tr>
+            <tr><th>סטטוס</th><td>${esc(supervisionStatusLabel(record.status))}</td><th>תאריך סגירה</th><td>${esc(formatTrackingDate(record.treatmentDate))}</td></tr>
+            <tr><th>אופן הטיפול</th><td colspan="3">${esc(record.treatment)}</td></tr>
+            ${linkedNcrs ? `<tr><th>אי התאמות מקושרות</th><td colspan="3">${linkedNcrs}</td></tr>` : ""}
+            <tr><th>הערות</th><td colspan="3">${esc(record.notes)}</td></tr>
+            <tr><th>אישור בקרת איכות</th><td colspan="3">${details.qcApprovedBy ? `${esc(details.qcApprovedBy)} · ${esc(formatTrackingDate(details.qcApprovedAt))}` : "טרם אושר"}</td></tr>
+          </tbody>
+        </table>
+        <h3 style="margin:20px 0 8px">קבצים שצורפו</h3>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <thead><tr><th>מס׳</th><th>קבצים שצורפו</th></tr></thead>
           <tbody>${attachmentRows || `<tr><td colspan="2">אין קבצים מצורפים</td></tr>`}</tbody>
         </table>
         <style>
-          th{background:#0f172a;color:#fff;font-weight:800}
-          th,td{border:1px solid #94a3b8;padding:8px;vertical-align:top}
+          th{background:#f3f5f9;color:#0b1f3a;font-weight:800;width:16%;text-align:right}
+          th,td{border:1px solid #94a3b8;padding:7px 8px;vertical-align:top}
         </style>
       </div>`;
   };
@@ -27917,6 +28390,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onLoad={loadSupervisionReport}
               onDelete={deleteSupervisionReport}
               onClose={closeSupervisionReport}
+              onApprove={approveSupervisionReportByQc}
+              autoFill={supervisionAutoFill}
+              nonconformances={projectNonconformances.map((item: any) => ({ id: item.id, label: [item.title || item.description || "אי התאמה", item.status].filter(Boolean).join(" · ") }))}
+              canApprove={canWriteAccess(projectAccess)}
               onDownloadPdf={downloadSupervisionReportPdf}
               onSendEmail={sendSupervisionReportEmail}
               onSendSelectedEmail={(records) => sendRecordsBatchEmail("supervisionReports", records)}
