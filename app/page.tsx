@@ -5270,7 +5270,7 @@ async function selectProjectTable(
       [NONCONFORMANCE_TABLE]: "id,project_id,description,action_required,created_at,saved_at,approval,structure_node_id,details:ncr_details_light",
       trial_sections: "id,project_id,title,location,date,spec,result,approved_by,status,notes,saved_at,approval,structure_node_id,details",
       preliminary_records: PRELIMINARY_LIGHT_SELECT,
-      rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
+      rfi_records: "id,project_id,title,reference_no,status,plan_no,revision,plan_name,building_details,building,structure_node_id,open_date,location,work_activity,relevant_plans,from_section,to_section,request_description,budget_impact,schedule_impact,response,close_date,closed_at,closed_by,created_by,updated_by,updated_at,created_at",
       [CONTROL_PROCESS_TABLE]: "id,project_id,process_no,title,work_type,spec_section,location,from_section,to_section,status,checklist_ids,rfi_ids,nonconformance_ids,audit_log,approval,locked_at,saved_at,created_at,structure_node_id",
       [SUPERVISION_REPORTS_TABLE]: "id,project_id,title,report_no,date,structure_node_id,location,author,status,treatment_date,saved_at",
       [PLANS_TABLE]: "id,project_id,plan_no,revision,title,discipline,date,status,saved_at",
