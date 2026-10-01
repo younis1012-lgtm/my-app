@@ -4371,18 +4371,35 @@ const supervisionReportAttachments = (record: any): any[] => {
 
 const supervisionReportRow = (record: any, index: number): Row => {
   const docs = supervisionReportAttachments(record);
+  const details = record?.details && typeof record.details === "object" ? record.details : {};
+  const comments: string[] = Array.isArray(details.comments) ? details.comments.map((item: unknown) => cleanText(item)).filter(Boolean) : [];
+  const status = firstText(record?.status);
+  const statusLabel =
+    status === "פתוח" ? "התקבל" : status === "הושלם" ? "ממתין לאישור בקרה" : status === "מאושר" ? "אושר ונסגר" : status;
+  const due = cleanText(details.dueDate).slice(0, 10);
+  const overdue = /^\d{4}-\d{2}-\d{2}$/.test(due) && status !== "הושלם" && status !== "מאושר" && due < new Date().toISOString().slice(0, 10);
+  const fileNames = docs.length ? docs.map(attachmentName) : Array.isArray(details.fileNames) ? details.fileNames : [];
   return {
     "מס׳": index + 1,
     "מספר דוח": firstText(record?.reportNo, record?.report_no, index + 1),
-    "נושא הדוח": firstText(record?.title, record?.subject, record?.name),
+    "תאריך ביקור": firstDateText(record?.date, record?.savedAt, record?.createdAt),
+    "תחום": cleanText(details.discipline),
+    "מתכנן": firstText(details.plannerName, record?.author, record?.createdBy),
+    "מס׳ דוח המתכנן": cleanText(details.plannerReportNo),
+    "מבנה / אלמנט": firstText(details.structureText),
     "מיקום": firstText(record?.location),
-    "תאריך": firstDateText(record?.date, record?.savedAt, record?.createdAt),
-    "מבצע / עורך": firstText(record?.author, record?.createdBy, record?.editor, record?.approvedBy),
-    "סטטוס": firstText(record?.status),
-    "תאריך טיפול": firstDateText(record?.treatmentDate, record?.treatment_date, record?.closedAt),
-    "טיפול": firstText(record?.treatment, record?.response, record?.actionTaken),
-    "מס׳ קבצים": docs.length || "",
-    "שם קובץ": uniqueJoin(docs.map(attachmentName)),
+    "נושא הדוח": firstText(record?.title, record?.subject, record?.name),
+    "סיכום הביקור": condenseText(details.summary, 220),
+    "מס׳ הערות": comments.length || "",
+    "הערות המתכנן": condenseText(comments.map((comment, commentIndex) => `${commentIndex + 1}. ${comment}`).join(" "), 400),
+    "אחראי לטיפול": cleanText(details.responsible),
+    "תאריך יעד": firstDateText(details.dueDate),
+    "אופן הטיפול": condenseText(firstText(record?.treatment, record?.response, record?.actionTaken), 300),
+    "תאריך סגירה": firstDateText(record?.treatmentDate, record?.treatment_date, record?.closedAt),
+    "סטטוס": overdue ? `${statusLabel} · חורג מיעד` : statusLabel,
+    "אושר ע״י בקרת איכות": details.qcApprovedBy ? `${cleanText(details.qcApprovedBy)} · ${firstDateText(details.qcApprovedAt)}` : "",
+    "מס׳ קבצים": fileNames.length || "",
+    "שם קובץ": uniqueJoin(fileNames),
     "הערות": firstText(record?.notes, record?.remarks),
   };
 };
@@ -4623,7 +4640,7 @@ const definitions: ConcentrationDefinition[] = [
     fileName: "ריכוז דוחות פיקוח עליון.xlsx",
     description: "",
     sourceLabel: "דוחות פיקוח עליון",
-    columns: ["מס׳", "מספר דוח", "נושא הדוח", "מיקום", "תאריך", "מבצע / עורך", "סטטוס", "תאריך טיפול", "טיפול", "מס׳ קבצים", "שם קובץ", "הערות"],
+    columns: ["מס׳", "מספר דוח", "תאריך ביקור", "תחום", "מתכנן", "מס׳ דוח המתכנן", "מבנה / אלמנט", "מיקום", "נושא הדוח", "סיכום הביקור", "מס׳ הערות", "הערות המתכנן", "אחראי לטיפול", "תאריך יעד", "אופן הטיפול", "תאריך סגירה", "סטטוס", "אושר ע״י בקרת איכות", "מס׳ קבצים", "שם קובץ", "הערות"],
     buildRows: ({ savedSupervisionReports }) => savedSupervisionReports.map(supervisionReportRow),
   },
   {
