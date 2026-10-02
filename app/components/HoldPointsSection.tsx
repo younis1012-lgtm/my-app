@@ -61,6 +61,7 @@ type Props = {
   onEmail?: (record: HoldPointRecord) => void;
   openRecordId?: string;
   onOpenRecordHandled?: () => void;
+  renderLinks?: (id: string) => React.ReactNode;
   onDelete: (id: string) => Promise<void> | void;
   projectId: string;
 };
@@ -270,6 +271,7 @@ export function HoldPointsSection({
   projectId,
   openRecordId = "",
   onOpenRecordHandled,
+  renderLinks,
 }: Props) {
   const nextSerial = Math.max(0, ...records.map((record) => Number(record.serialNo) || 0)) + 1;
   const [draft, setDraft] = useState<HoldPointRecord>(() => emptyDraft(projectId, nextSerial, currentUserName));
@@ -492,6 +494,7 @@ export function HoldPointsSection({
             {draft.id && draft.status !== "שוחררה" && <button style={{ ...primary, background: "#15803d" }} disabled={!canWrite || !readyToRelease} onClick={() => void release()}>שחרר נקודת עצירה</button>}
             <button style={secondary} onClick={reset}>בטל</button>
           </div>
+          {draft.id && renderLinks ? renderLinks(draft.id) : null}
         </section>
       )}
     </div>

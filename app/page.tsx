@@ -35,6 +35,7 @@ import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { FileDropZone } from "./components/FileDropZone";
 import { NavIcon } from "./components/NavIcon";
+import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
 import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
 import { checklistAutoLinkKind, resolvePreliminaryLink, resolvePreviousLayerLink, type ChecklistAutoLink } from "./lib/checklistAutoLinks";
 import { PasswordField, ProjectLoginScreen } from "./components/layout/LoginForm";
@@ -523,8 +524,8 @@ const PROJECT_STRUCTURE_NODE_TYPES: Array<{
   { value: "site", label: "אתר" },
   { value: "structure", label: "מבנה" },
   { value: "section", label: "קטע / מקטע" },
-  { value: "element", label: "אלמנט" },
-  { value: "activity", label: "פעילות" },
+  { value: "element", label: "אלמנט / תת אלמנט" },
+  { value: "activity", label: "פעולת בקרה" },
 ];
 
 const projectStructureTypeLabel = (type: unknown) =>
@@ -8961,7 +8962,9 @@ function ProjectStructureSection({
   onOpenTrialSection,
   onOpenRfi,
   onOpenHoldPoints,
+  explicitLinks = [],
 }: {
+  explicitLinks?: Array<{ nodeId: string; type: string; id: string }>;
   nodes: ProjectStructureNode[];
   plans: PlanRecord[];
   form: Omit<ProjectStructureNode, "id" | "projectId" | "createdAt" | "updatedAt">;
@@ -8994,6 +8997,18 @@ function ProjectStructureSection({
 }) {
   const ordered = sortProjectStructureNodes(nodes);
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+  // טופס ההוספה הידנית – אליו גוללים מ"+ הוסף תחתיו"
+  const manualFormRef = useRef<HTMLDivElement | null>(null);
+  const nextChildType = (type: ProjectStructureNodeType): ProjectStructureNodeType =>
+    type === "road" || type === "site" ? "structure" : type === "structure" || type === "section" ? "element" : "activity";
+  const addChildUnder = (node: ProjectStructureNode) => {
+    onReset();
+    onChange({ parentId: node.id, nodeType: nextChildType(node.nodeType), name: "", code: "" });
+    window.setTimeout(() => {
+      manualFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      manualFormRef.current?.querySelector<HTMLInputElement>("input[data-node-name]")?.focus();
+    }, 60);
+  };
   // Which linked-records badge (of which node) is currently showing its pick
   // list, so the user can choose one specific checklist/nonconformance/etc.
   // to open when a branch has more than one linked record.
@@ -9147,10 +9162,7 @@ function ProjectStructureSection({
   return (
     <section>
       <div style={{ marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>
-          עץ מבנה פרויקט
-        </h2>
-        <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+        <div style={{ color: "#64748b", fontWeight: 700 }}>
           היררכיה לפי דרישת נתיבי ישראל: פרויקט → כביש/אתר → מבנה → קטע/מקטע → אלמנט/פעילות.
         </div>
       </div>
@@ -9362,7 +9374,38 @@ function ProjectStructureSection({
         ) : null}
       </div>
 
-      <div style={{ ...styles.card, marginBottom: 16 }}>
+      <div ref={manualFormRef} style={{ ...styles.card, marginBottom: 16, scrollMarginTop: 110 }}>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: "#0b1f3a" }}>
+            {editingId ? "עריכת פריט בעץ" : "הוספת פריט לעץ באופן ידני"}
+          </div>
+          <div style={{ color: "#64748b", marginTop: 4, fontWeight: 700 }}>
+            מבנה, אלמנט / תת אלמנט או פעולת בקרה. בחר "אב בעץ" כדי למקם את הפריט מתחת לפריט קיים, או לחץ "+ הוסף תחתיו" ליד פריט ברשימה.
+          </div>
+          {!editingId ? (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {(["structure", "element", "activity"] as ProjectStructureNodeType[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => onChange({ nodeType: type })}
+                  style={{
+                    border: "1px solid " + (form.nodeType === type ? "#0b1f3a" : "#dde3ec"),
+                    background: form.nodeType === type ? "#0b1f3a" : "#fff",
+                    color: form.nodeType === type ? "#fff" : "#0b1f3a",
+                    borderRadius: 999,
+                    padding: "6px 12px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  {projectStructureTypeLabel(type)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <div
           style={{
             display: "grid",
@@ -9406,6 +9449,7 @@ function ProjectStructureSection({
           <label style={label}>
             שם
             <input
+              data-node-name=""
               style={input}
               value={form.name}
               disabled={!canWrite}
@@ -9495,11 +9539,11 @@ function ProjectStructureSection({
                 label: string;
                 records: any[];
               }> = [
-                { type: "checklists", label: "רשימות תיוג", records: linkedRecords.checklists.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
-                { type: "nonconformances", label: "אי־התאמות", records: linkedRecords.nonconformances.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
-                { type: "trialSections", label: "קטעי ניסוי", records: linkedRecords.trialSections.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
-                { type: "rfis", label: "RFI", records: linkedRecords.rfis.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
-                { type: "holdPoints", label: "נקודות עצירה", records: linkedRecords.holdPoints.filter((record) => descendantIds.has(linkedStructureNodeId(record))) },
+                { type: "checklists", label: "רשימות תיוג", records: linkedRecords.checklists.filter((record) => descendantIds.has(linkedStructureNodeId(record)) || explicitLinks.some((link) => link.type === "checklists" && link.id === record.id && descendantIds.has(link.nodeId))) },
+                { type: "nonconformances", label: "אי־התאמות", records: linkedRecords.nonconformances.filter((record) => descendantIds.has(linkedStructureNodeId(record)) || explicitLinks.some((link) => link.type === "nonconformances" && link.id === record.id && descendantIds.has(link.nodeId))) },
+                { type: "trialSections", label: "קטעי ניסוי", records: linkedRecords.trialSections.filter((record) => descendantIds.has(linkedStructureNodeId(record)) || explicitLinks.some((link) => link.type === "trialSections" && link.id === record.id && descendantIds.has(link.nodeId))) },
+                { type: "rfis", label: "RFI", records: linkedRecords.rfis.filter((record) => descendantIds.has(linkedStructureNodeId(record)) || explicitLinks.some((link) => link.type === "rfi" && link.id === record.id && descendantIds.has(link.nodeId))) },
+                { type: "holdPoints", label: "נקודות עצירה", records: linkedRecords.holdPoints.filter((record) => descendantIds.has(linkedStructureNodeId(record)) || explicitLinks.some((link) => link.type === "holdPoints" && link.id === record.id && descendantIds.has(link.nodeId))) },
               ];
               return (
                 <div
@@ -9575,6 +9619,11 @@ function ProjectStructureSection({
                     <button type="button" style={styles.primaryBtn} onClick={() => void onDownload(node)}>
                       הורד חומר משויך
                     </button>
+                    {canWrite && node.nodeType !== "activity" ? (
+                      <button type="button" style={styles.secondaryBtn} onClick={() => addChildUnder(node)}>
+                        + הוסף תחתיו
+                      </button>
+                    ) : null}
                     <button type="button" style={styles.secondaryBtn} onClick={() => onEdit(node)}>
                       עריכה
                     </button>
@@ -20402,6 +20451,330 @@ export default function Page() {
     currentProjectIdentitySignature,
     normalizedSearchTerm,
   ]);
+
+  // ===== קישור בין רשומות (פאנל "רשומות מקושרות") =====
+  const RECORD_LINKS_TABLE = "record_links";
+  const RECORD_LINKS_STORAGE_KEY = `${STORAGE_KEY}-record-links`;
+  const [recordLinks, setRecordLinks] = useState<RecordLink[]>([]);
+  const [recordLinksUnavailable, setRecordLinksUnavailable] = useState("");
+  const rowToRecordLink = (row: any): RecordLink => ({
+    id: String(row?.id ?? ""),
+    projectId: String(row?.project_id ?? row?.projectId ?? ""),
+    aType: row?.a_type ?? row?.aType,
+    aId: String(row?.a_id ?? row?.aId ?? ""),
+    bType: row?.b_type ?? row?.bType,
+    bId: String(row?.b_id ?? row?.bId ?? ""),
+    createdAt: row?.created_at ?? row?.createdAt,
+    createdBy: row?.created_by ?? row?.createdBy,
+  });
+  const readLocalRecordLinks = (): RecordLink[] => {
+    try {
+      const raw = window.localStorage.getItem(RECORD_LINKS_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as any[]).map(rowToRecordLink) : [];
+    } catch {
+      return [];
+    }
+  };
+  useEffect(() => {
+    if (!authReady || !projectAccess || !currentProjectIdNormalized) return;
+    let cancelled = false;
+    const load = async () => {
+      if (!cloudEnabled || !supabase) {
+        setRecordLinks(readLocalRecordLinks().filter((link) => normalizeStoredProjectId(link.projectId) === currentProjectIdNormalized));
+        setRecordLinksUnavailable("");
+        return;
+      }
+      const { data, error } = await supabase
+        .from(RECORD_LINKS_TABLE)
+        .select("*")
+        .in("project_id", projectCloudIdsForCanonicalId(currentProjectIdNormalized));
+      if (cancelled) return;
+      if (error) {
+        const missing = /record_links|does not exist|schema cache|PGRST205|42P01/i.test(`${error.message} ${(error as any).code ?? ""}`);
+        setRecordLinks([]);
+        setRecordLinksUnavailable(
+          missing
+            ? "כדי לשמור קישורים יש להריץ פעם אחת ב-Supabase את הקובץ app/supabase/15_record_links.sql"
+            : `טעינת הקישורים נכשלה: ${error.message}`,
+        );
+        return;
+      }
+      setRecordLinksUnavailable("");
+      setRecordLinks((data ?? []).map(rowToRecordLink));
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, projectAccess, cloudEnabled, currentProjectIdNormalized]);
+
+  const addRecordLink = async (from: { type: LinkType; id: string }, to: { type: LinkType; id: string }) => {
+    if (!currentProjectIdNormalized) return;
+    const link: RecordLink = {
+      id: crypto.randomUUID(),
+      projectId: currentProjectIdNormalized,
+      aType: from.type,
+      aId: from.id,
+      bType: to.type,
+      bId: to.id,
+      createdAt: new Date().toISOString(),
+      createdBy: projectAccess?.displayName || projectAccess?.username || "",
+    };
+    if (cloudEnabled && supabase) {
+      const { error } = await supabase.from(RECORD_LINKS_TABLE).insert({
+        id: link.id,
+        project_id: link.projectId,
+        a_type: link.aType,
+        a_id: link.aId,
+        b_type: link.bType,
+        b_id: link.bId,
+        created_by: link.createdBy,
+      });
+      if (error) {
+        alert(`שמירת הקישור נכשלה: ${error.message}`);
+        return;
+      }
+    } else {
+      const all = readLocalRecordLinks();
+      window.localStorage.setItem(RECORD_LINKS_STORAGE_KEY, JSON.stringify([...all, link]));
+    }
+    setRecordLinks((current) => [...current, link]);
+    alert("הקישור נשמר");
+  };
+
+  const removeRecordLink = async (linkId: string) => {
+    if (cloudEnabled && supabase) {
+      const { error } = await supabase.from(RECORD_LINKS_TABLE).delete().eq("id", linkId);
+      if (error) {
+        alert(`הסרת הקישור נכשלה: ${error.message}`);
+        return;
+      }
+    } else {
+      window.localStorage.setItem(
+        RECORD_LINKS_STORAGE_KEY,
+        JSON.stringify(readLocalRecordLinks().filter((link) => link.id !== linkId)),
+      );
+    }
+    setRecordLinks((current) => current.filter((link) => link.id !== linkId));
+  };
+
+  // כל הרשומות של הפרויקט, בפורמט אחיד לבחירה ולהצגה בפאנל
+  const recordLinkCatalog = useMemo<LinkCatalogItem[]>(() => {
+    const short = (value: unknown, max = 60) => {
+      const text = String(value ?? "").replace(/\s+/g, " ").trim();
+      return text.length > max ? `${text.slice(0, max)}…` : text;
+    };
+    const date = (value: unknown) => formatTrackingDate(normalizeDateValue(value)) || "";
+    const items: LinkCatalogItem[] = [];
+    currentProjectStructureNodes.forEach((node) =>
+      items.push({
+        type: "structure",
+        id: node.id,
+        label: `${projectStructureTypeLabel(node.nodeType)}: ${node.name}`,
+        sub: short(buildProjectStructurePath(currentProjectStructureNodes, node.id), 80),
+        structureNodeId: node.parentId,
+      }),
+    );
+    projectChecklists.forEach((record: any, index: number) =>
+      items.push({
+        type: "checklists",
+        id: record.id,
+        label: `רשימה ${getChecklistDisplayNumber(record, index)}`,
+        sub: short([record.title, record.location].filter(Boolean).join(" · ")),
+        status: getApprovalDisplayStatus(record),
+        date: getChecklistExecutionDate(record),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectNonconformances.forEach((record: any, index: number) =>
+      items.push({
+        type: "nonconformances",
+        id: record.id,
+        label: `אי התאמה ${record.ncrNumber || record.number || record.serialNumber || index + 1}`,
+        sub: short(record.title || record.description),
+        status: getRecordStatus(record),
+        date: date(record.date || record.openDate),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectTrialSections.forEach((record: any, index: number) =>
+      items.push({
+        type: "trialSections",
+        id: record.id,
+        label: `קטע ניסוי ${record.sectionNo || record.serialNumber || index + 1}`,
+        sub: short(getRecordTitle(record)),
+        status: getRecordStatus(record),
+        date: date(record.date),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectRfis.forEach((record: any) =>
+      items.push({
+        type: "rfi",
+        id: record.id,
+        label: record.rfiNumber ? `RFI ${record.rfiNumber}` : "RFI",
+        sub: short(record.workActivity || getRecordTitle(record)),
+        status: getRecordStatus(record),
+        date: date(record.openDate || getRecordDate(record)),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectSupervisionReports.forEach((record: any) =>
+      items.push({
+        type: "supervisionReports",
+        id: record.id,
+        label: `דוח פיקוח ${record.reportNo || ""}`.trim(),
+        sub: short([record.details?.discipline, record.title].filter(Boolean).join(" · ")),
+        status: getRecordStatus(record),
+        date: date(record.date),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectHoldPoints.forEach((record: any) =>
+      items.push({
+        type: "holdPoints",
+        id: record.id,
+        label: `נקודת עצירה ${record.serialNo || record.referenceNo || ""}`.trim(),
+        sub: short(record.name || record.element),
+        status: record.status,
+        date: date(record.createdAt),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectPreliminary.forEach((record: any) =>
+      items.push({
+        type: "preliminary",
+        id: record.id,
+        label: short(getRecordTitle(record), 50),
+        sub: record.subtype === "suppliers" ? "ספק" : record.subtype === "subcontractors" ? "קבלן משנה" : "חומר",
+        status: getRecordStatus(record),
+        date: date(record.date),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    projectControlProcesses.forEach((record: any) =>
+      items.push({
+        type: "controlProcesses",
+        id: record.id,
+        label: short(record.title || record.workType || getRecordTitle(record), 50),
+        sub: short(record.location),
+        status: getRecordStatus(record),
+        date: date(record.date || record.savedAt),
+        structureNodeId: linkedStructureNodeId(record),
+      }),
+    );
+    currentProjectPlans.forEach((record: any) =>
+      items.push({
+        type: "plans",
+        id: record.id,
+        label: `תוכנית ${record.planNo || ""}`.trim(),
+        sub: short([record.title, record.revision ? `מהדורה ${record.revision}` : ""].filter(Boolean).join(" · ")),
+        status: record.status,
+        date: date(record.date),
+      }),
+    );
+    return items;
+  }, [
+    currentProjectStructureNodes,
+    projectChecklists,
+    projectNonconformances,
+    projectTrialSections,
+    projectRfis,
+    projectSupervisionReports,
+    projectHoldPoints,
+    projectPreliminary,
+    projectControlProcesses,
+    currentProjectPlans,
+  ]);
+
+  // שיוכים שכבר קיימים במערכת מוצגים גם הם כקישורים (בשני הכיוונים)
+  const implicitLinksFor = (type: LinkType, id: string): ImplicitLink[] => {
+    const result: ImplicitLink[] = [];
+    const ids = (value: unknown) => normalizeStringArray(value as any);
+    projectHoldPoints.forEach((hp: any) => {
+      const groups: Array<[LinkType, string[]]> = [
+        ["checklists", ids(hp.checklistIds)],
+        ["nonconformances", ids(hp.nonconformanceIds)],
+        ["trialSections", ids(hp.trialSectionIds)],
+      ];
+      if (type === "holdPoints" && hp.id === id) {
+        groups.forEach(([t, list]) => list.forEach((linkedId) => result.push({ type: t, id: linkedId, note: "משויך בנקודת העצירה" })));
+      } else if (groups.some(([t, list]) => t === type && list.includes(id))) {
+        result.push({ type: "holdPoints", id: hp.id, note: "משויך בנקודת העצירה" });
+      }
+    });
+    projectControlProcesses.forEach((cp: any) => {
+      const groups: Array<[LinkType, string[]]> = [
+        ["checklists", ids(cp.checklistIds)],
+        ["rfi", ids(cp.rfiIds)],
+        ["nonconformances", ids(cp.nonconformanceIds)],
+      ];
+      if (type === "controlProcesses" && cp.id === id) {
+        groups.forEach(([t, list]) => list.forEach((linkedId) => result.push({ type: t, id: linkedId, note: "משויך בתעודת הייחוס" })));
+      } else if (groups.some(([t, list]) => t === type && list.includes(id))) {
+        result.push({ type: "controlProcesses", id: cp.id, note: "משויך בתעודת הייחוס" });
+      }
+    });
+    projectSupervisionReports.forEach((report: any) => {
+      const ncrIds = ids(report.details?.linkedNcrIds);
+      if (type === "supervisionReports" && report.id === id) {
+        ncrIds.forEach((linkedId) => result.push({ type: "nonconformances", id: linkedId, note: "משויך בדוח הפיקוח" }));
+      } else if (type === "nonconformances" && ncrIds.includes(id)) {
+        result.push({ type: "supervisionReports", id: report.id, note: "משויך בדוח הפיקוח" });
+      }
+    });
+    if (type !== "structure") {
+      const record = recordLinkCatalog.find((item) => item.type === type && item.id === id);
+      if (record?.structureNodeId) result.push({ type: "structure", id: record.structureNodeId, note: "שיוך ראשי" });
+    }
+    return result;
+  };
+
+  const openLinkedRecord = (type: LinkType, id: string) => {
+    const find = (list: any[]) => list.find((item) => item.id === id);
+    if (type === "checklists") { const r = find(projectChecklists); if (r) void loadChecklist(r); return; }
+    if (type === "nonconformances") { const r = find(projectNonconformances); if (r) void loadNonconformance(r); return; }
+    if (type === "trialSections") { const r = find(projectTrialSections); if (r) void loadTrialSection(r); return; }
+    if (type === "rfi") { const r = find(projectRfis); if (r) void loadRfi(r); return; }
+    if (type === "supervisionReports") { const r = find(projectSupervisionReports); if (r) { setSection("supervisionReports"); void loadSupervisionReport(r); } return; }
+    if (type === "preliminary") { const r = find(projectPreliminary); if (r) void loadPreliminary(r); return; }
+    if (type === "controlProcesses") { const r = find(projectControlProcesses); if (r) { setSection("controlProcesses"); void loadControlProcess(r); } return; }
+    if (type === "plans") { const r = find(currentProjectPlans); if (r) { setSection("plans"); void loadPlan(r); } return; }
+    if (type === "holdPoints") { setHoldPointToOpen(id); setSection("holdPoints"); return; }
+    if (type === "structure") {
+      const node = currentProjectStructureNodes.find((item) => item.id === id);
+      setSection("projectStructure");
+      if (node) editProjectStructureNode(node);
+    }
+  };
+
+  const renderRecordLinks = (type: LinkType, id: string | null | undefined) => {
+    if (!id) {
+      return (
+        <div style={{ marginTop: 18, border: "1px dashed #c9d2df", borderRadius: 14, padding: 14, color: "#55657d", fontSize: 14 }}>
+          רשומות מקושרות: יש לשמור את הרשומה כדי לקשר אותה לעץ הפרויקט ולרשומות אחרות.
+        </div>
+      );
+    }
+    const self = recordLinkCatalog.find((item) => item.type === type && item.id === id);
+    return (
+      <RecordLinksPanel
+        selfType={type}
+        selfId={id}
+        selfStructureNodeId={type === "structure" ? id : self?.structureNodeId}
+        catalog={recordLinkCatalog}
+        links={recordLinks}
+        implicit={implicitLinksFor(type, id)}
+        canWrite={canWriteAccess(projectAccess)}
+        unavailableMessage={recordLinksUnavailable}
+        onAdd={(toType, toId) => addRecordLink({ type, id }, { type: toType, id: toId })}
+        onRemove={removeRecordLink}
+        onOpen={openLinkedRecord}
+      />
+    );
+  };
+
   const concreteSupplierOptions = useMemo(
     () => pickApprovedSupplier(projectPreliminary as any[], "concrete", []).options,
     [projectPreliminary],
@@ -28377,6 +28750,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onOpenTrialSection={loadTrialSection}
               onOpenRfi={loadRfi}
               onOpenHoldPoints={() => setSection("holdPoints")}
+              explicitLinks={recordLinks.flatMap((link) =>
+                link.aType === "structure"
+                  ? [{ nodeId: link.aId, type: link.bType, id: link.bId }]
+                  : link.bType === "structure"
+                    ? [{ nodeId: link.bId, type: link.aType, id: link.aId }]
+                    : [],
+              )}
             />
           )}
           {section === "projectDetails" && currentProject && (
@@ -28816,6 +29196,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onSave={saveHoldPoint}
               onDelete={deleteHoldPoint}
               projectId={normalizeStoredProjectId(currentProjectId)}
+              renderLinks={(id: string) => renderRecordLinks("holdPoints", id)}
               openRecordId={holdPointToOpen}
               onOpenRecordHandled={() => setHoldPointToOpen("")}
             />
@@ -29165,6 +29546,22 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               />
             </>
           )}
+          {/* רשומות מקושרות – בתחתית כל טופס */}
+          {!guardedBody && currentProject && (() => {
+            const linkContext: Partial<Record<AppSection, [LinkType, string | null]>> = {
+              checklists: ["checklists", editingChecklistId],
+              nonconformances: ["nonconformances", editingNonconformanceId],
+              trialSections: ["trialSections", editingTrialSectionId],
+              rfi: ["rfi", editingRfiId],
+              supervisionReports: ["supervisionReports", editingSupervisionReportId],
+              preliminary: ["preliminary", editingPreliminaryId],
+              controlProcesses: ["controlProcesses", editingControlProcessId],
+              plans: ["plans", editingPlanId],
+              ...(editingProjectStructureNodeId ? { projectStructure: ["structure", editingProjectStructureNodeId] as [LinkType, string] } : {}),
+            };
+            const context = linkContext[section];
+            return context ? renderRecordLinks(context[0], context[1]) : null;
+          })()}
         </main>
 
       </div>

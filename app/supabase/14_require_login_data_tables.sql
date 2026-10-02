@@ -67,7 +67,7 @@ begin
     'projects', 'checklists', 'NCR', 'nonconformances', 'preliminary_records', 'rfi_records',
     'trial_sections', 'attachments', 'plans', 'hold_points', 'project_legends',
     'project_structure_nodes', 'control_processes', 'supervision_reports',
-    'lab_email_events', 'project_lab_senders'
+    'lab_email_events', 'project_lab_senders', 'record_links'
   ] loop
     if to_regclass(format('public.%I', t)) is null then
       raise notice 'הטבלה % לא קיימת – דילוג', t;
