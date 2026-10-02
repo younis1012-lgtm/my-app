@@ -11055,6 +11055,9 @@ function FolderRecordsTable({
     locationInsertIndex >= 0
       ? [...columns.slice(0, locationInsertIndex + 1), ...locationColumns, ...columns.slice(locationInsertIndex + 1)]
       : [...columns, ...locationColumns];
+  // עמודת "#" מיותרת כשיש כבר עמודת מספר; עמודת הפעולות מוצגת ראשונה כדי שלא יצטרכו לגלול אליה
+  const showSerialColumn = !displayColumns.some((column) => /^(מספר|מס['׳]?)$/.test(String(column.label).trim()));
+  const hasActions = Boolean(onOpen || onDelete);
   const filteredRecords = safeRecords.filter((record, index) => {
     const serialQuery = normalizeTableFilter(columnFilters.__serial);
     if (serialQuery && !normalizeTableFilter(serialFor(record, index)).includes(serialQuery)) return false;
@@ -11283,7 +11286,8 @@ function FolderRecordsTable({
                   />
                 </th>
               ) : null}
-              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th>
+              {hasActions ? <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center", width: 1, whiteSpace: "nowrap" }}>פעולות</th> : null}
+              {showSerialColumn ? <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>#</th> : null}
               {displayColumns.map((column) => (
                 <th
                   key={column.label}
@@ -11292,19 +11296,20 @@ function FolderRecordsTable({
                   {column.label}
                 </th>
               ))}
-              <th style={{ padding: "12px 10px", border: "1px solid #d7dee8", textAlign: "center" }}>פעולות</th>
             </tr>
             <tr style={{ background: "#f8fafc" }}>
               {canSelectRecords ? <th style={{ padding: 6, border: "1px solid #d7dee8" }} /> : null}
-              <th style={{ padding: 6, border: "1px solid #d7dee8" }}>
-                <ColumnFilter options={safeRecords.map((record, index) => String(serialFor(record, index)))} aria-label="סינון לפי מספר" value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
-              </th>
+              {hasActions ? <th style={{ padding: 6, border: "1px solid #d7dee8" }} /> : null}
+              {showSerialColumn ? (
+                <th style={{ padding: 6, border: "1px solid #d7dee8" }}>
+                  <ColumnFilter options={safeRecords.map((record, index) => String(serialFor(record, index)))} aria-label="סינון לפי מספר" value={columnFilters.__serial || ""} onChange={(event) => updateColumnFilter("__serial", event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 82, padding: "7px 8px" }} />
+                </th>
+              ) : null}
               {displayColumns.map((column) => (
                 <th key={column.label} style={{ padding: 6, border: "1px solid #d7dee8" }}>
                   <ColumnFilter options={safeRecords.map((record, index) => tableCellSearchText(column.value(record, index)))} aria-label={`סינון לפי ${column.label}`} value={columnFilters[column.label] || ""} onChange={(event) => updateColumnFilter(column.label, event.target.value)} placeholder="סינון..." style={{ ...styles.input, minWidth: 110, padding: "7px 8px" }} />
                 </th>
               ))}
-              <th style={{ padding: 6, border: "1px solid #d7dee8" }} />
             </tr>
           </thead>
           <tbody>
@@ -11325,34 +11330,38 @@ function FolderRecordsTable({
                         />
                       </td>
                     ) : null}
-                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
-                      {serialFor(record, absoluteIndex)}
-                    </td>
+                    {hasActions ? (
+                      <td style={{ padding: "8px 10px", border: "1px solid #e2e8f0", textAlign: "center", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                          {onOpen ? (
+                            <button type="button" style={{ ...styles.secondaryBtn, padding: "7px 12px", whiteSpace: "nowrap" }} onClick={() => onOpen(id)}>
+                              פתח
+                            </button>
+                          ) : null}
+                          {onDelete ? (
+                            <button type="button" title="מחיקה" style={{ ...styles.dangerBtn, padding: "7px 10px", whiteSpace: "nowrap" }} onClick={() => onDelete(id)}>
+                              מחק
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
+                    {showSerialColumn ? (
+                      <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center", fontWeight: 900 }}>
+                        {serialFor(record, absoluteIndex)}
+                      </td>
+                    ) : null}
                     {displayColumns.map((column) => (
                       <td key={column.label} style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
                         {column.value(record, absoluteIndex) || "-"}
                       </td>
                     ))}
-                    <td style={{ padding: 10, border: "1px solid #e2e8f0", textAlign: "center" }}>
-                      <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
-                        {onOpen ? (
-                          <button type="button" style={styles.secondaryBtn} onClick={() => onOpen(id)}>
-                            פתח / ערוך
-                          </button>
-                        ) : null}
-                        {onDelete ? (
-                          <button type="button" style={styles.dangerBtn} onClick={() => onDelete(id)}>
-                            מחק
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
                   </tr>
                 );
               })
             ) : (
               <tr>
-                <td colSpan={displayColumns.length + 2 + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
+                <td colSpan={displayColumns.length + (hasActions ? 1 : 0) + (showSerialColumn ? 1 : 0) + (canSelectRecords ? 1 : 0)} style={{ padding: 22, textAlign: "center", color: "#64748b", fontWeight: 900 }}>
                   אין רשומות להצגה בתיקייה זו.
                 </td>
               </tr>
