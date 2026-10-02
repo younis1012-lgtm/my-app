@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "./components/Toaster";
+import { ImageUploadCompressor } from "./components/ImageUploadCompressor";
 
 export const metadata: Metadata = {
   title: "Y.K Quality",
@@ -25,6 +26,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <Toaster />
+        <ImageUploadCompressor />
       </body>
     </html>
   );
