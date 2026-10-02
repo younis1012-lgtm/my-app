@@ -484,6 +484,7 @@ export function TrialSectionsSection(props: {
   // The project's registered plans, so "תוכנית" can be picked with search
   // instead of typed as free text. Empty when the project has none yet.
   projectPlans?: ProjectPlan[];
+  onDownloadPdf?: () => Promise<void> | void;
 }) {
   // Tracks the last title we auto-filled from a chosen material, so switching
   // the material keeps "שם קטע ניסוי" in sync while a title the user typed
@@ -583,6 +584,7 @@ export function TrialSectionsSection(props: {
 
           <div style={styles.buttonRow}>
             <button style={styles.primaryBtn} onClick={props.saveTrialSection}>{props.editingTrialSectionId ? 'עדכן קטע ניסוי' : 'שמור קטע ניסוי'}</button>
+            {props.onDownloadPdf ? <button style={styles.secondaryBtn} type="button" onClick={() => void props.onDownloadPdf?.()}>הורד PDF</button> : null}
             <button style={styles.secondaryBtn} type="button" onClick={downloadFilledTrialWord}>הורד Word מלא</button>
             <button style={styles.secondaryBtn} onClick={props.resetTrialSectionEditor}>בטל / נקה</button>
           </div>

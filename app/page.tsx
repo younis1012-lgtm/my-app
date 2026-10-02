@@ -20752,7 +20752,7 @@ export default function Page() {
   const renderRecordLinks = (type: LinkType, id: string | null | undefined) => {
     if (!id) {
       return (
-        <div style={{ marginTop: 18, border: "1px dashed #c9d2df", borderRadius: 14, padding: 14, color: "#55657d", fontSize: 14 }}>
+        <div data-record-links="" style={{ marginTop: 18, border: "1px dashed #c9d2df", borderRadius: 14, padding: 14, color: "#55657d", fontSize: 14, scrollMarginTop: 110 }}>
           רשומות מקושרות: יש לשמור את הרשומה כדי לקשר אותה לעץ הפרויקט ולרשומות אחרות.
         </div>
       );
@@ -28678,6 +28678,15 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 </h1>
               ) : null}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {(["checklists", "nonconformances", "trialSections", "rfi", "supervisionReports", "preliminary", "controlProcesses", "plans"] as AppSection[]).includes(section) && (
+                  <button
+                    type="button"
+                    style={styles.secondaryBtn}
+                    onClick={() => document.querySelector("[data-record-links]")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    קישור רשומות
+                  </button>
+                )}
                 {showExportButtons && section !== "preliminary" && (
                   <button type="button" style={styles.secondaryBtn} onClick={exportPdf}>
                     הורד PDF
@@ -29449,6 +29458,23 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               projectStructureNodes={currentProjectStructureNodes}
               approvedMaterials={approvedPreliminaryMaterialNames}
               projectPlans={projectPlans}
+              onDownloadPdf={async () => {
+                try {
+                  const record = { ...(trialSectionForm as any), id: editingTrialSectionId || (trialSectionForm as any).id };
+                  const title = String(record.title || record.sectionNo || "קטע ניסוי");
+                  const blob = await batchRecordPdfBlob("trialSections", record, title, 0);
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${title.replace(/[\\/:*?"<>|]+/g, "-")}.pdf`;
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+                } catch (error) {
+                  alert(`הפקת ה-PDF נכשלה: ${errorText(error)}`);
+                }
+              }}
             />
             </>
           )}

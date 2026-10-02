@@ -183,7 +183,7 @@ export function RecordLinksPanel({
     <section
       dir="rtl"
       data-record-links=""
-      style={{ border: "1px solid #dde3ec", borderRadius: 14, background: "#fff", padding: 18, marginTop: 18, display: "grid", gap: 14 }}
+      style={{ border: "1px solid #dde3ec", borderRadius: 14, background: "#fff", padding: 18, marginTop: 18, display: "grid", gap: 14, scrollMarginTop: 110 }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: "#0b1f3a" }}>
