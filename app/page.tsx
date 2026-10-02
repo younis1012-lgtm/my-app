@@ -17228,6 +17228,9 @@ export default function Page() {
       saveInFlightRef.current.delete(key);
     }
   };
+  // רשימת תיוג נחשבת מאושרת גם כשכל הסעיפים הרלוונטיים נחתמו (כמו שמוצג במעקב).
+  // נשמר מצב האישור כפי שנטען/נשמר – לא לפי שינויים שעדיין לא נשמרו בטופס.
+  const [checklistApprovedSnapshot, setChecklistApprovedSnapshot] = useState<Record<string, boolean>>({});
   const editorScrollRequestRef = useRef(false);
   const requestEditorScroll = () => {
     editorScrollRequestRef.current = true;
@@ -20839,6 +20842,7 @@ export default function Page() {
     const record = savedRecordFor(type, id);
     if (!record) return false;
     if (type === "supervisionReports") return String(record.status ?? "") === "מאושר";
+    if (type === "checklists" && id && checklistApprovedSnapshot[id]) return true;
     if (["checklists", "nonconformances", "trialSections", "preliminary", "controlProcesses"].includes(type))
       return normalizeApproval(record.approval).status === "approved";
     return false;
@@ -20926,6 +20930,17 @@ export default function Page() {
     setUnlockReason("");
     setPendingUnlockSave(type);
   };
+
+  // אחרי שמירה של רשימת תיוג – מצב האישור מתעדכן לפי מה שנשמר
+  const editingChecklistSavedAt = (savedChecklists.find((item) => item.id === editingChecklistId) as any)?.savedAt;
+  useEffect(() => {
+    if (!editingChecklistId || !editingChecklistSavedAt) return;
+    setChecklistApprovedSnapshot((current) => ({
+      ...current,
+      [editingChecklistId]: getApprovalDisplayStatus({ ...(checklistForm as any), id: editingChecklistId }) === "מאושר",
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingChecklistSavedAt]);
 
   // אחרי עדכון הטופס – שמירה אוטומטית של הרשומה הפתוחה (בלי חסימת הנעילה)
   useEffect(() => {
@@ -23272,6 +23287,7 @@ export default function Page() {
         items: normalizeChecklistItems(lightRecord.items),
         approval: normalizeApproval(lightRecord.approval),
       });
+      setChecklistApprovedSnapshot((current) => ({ ...current, [lightRecord.id]: getApprovalDisplayStatus(lightRecord) === "מאושר" }));
       // הקבצים עצמם – ברקע, ומושלמים לתוך הטופס בלי לגעת במה שהמשתמש כבר שינה
       void fetchFullChecklist(record.id).then((full) => {
         if (!full) return;
@@ -23326,6 +23342,7 @@ export default function Page() {
       items: normalizeChecklistItems(fullRecord.items),
       approval: normalizeApproval(fullRecord.approval),
     });
+    setChecklistApprovedSnapshot((current) => ({ ...current, [fullRecord.id]: getApprovalDisplayStatus(fullRecord) === "מאושר" }));
   };
   useEffect(() => {
     if (!loaded || typeof window === "undefined" || !savedChecklists.length) return;
