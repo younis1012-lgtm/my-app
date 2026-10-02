@@ -16,6 +16,7 @@ type AuditEntry = {
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   create: { label: "נוצרה", color: "#8592a6" },
+  baseline: { label: "קיימת לפני תחילת התיעוד", color: "#8592a6" },
   update: { label: "עודכנה", color: "#2f5d93" },
   approve: { label: "אושרה", color: "#15803d" },
   reopen: { label: "בוטל האישור", color: "#9a5b00" },
@@ -23,6 +24,8 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   delete: { label: "נמחקה", color: "#b42318" },
   email: { label: "נשלחה במייל", color: "#2f5d93" },
 };
+
+const RESTORED = "שוחזר מנתונים קיימים";
 
 const FIELD_LABELS: Record<string, string> = {
   status: "סטטוס",
@@ -120,7 +123,11 @@ export function RecordHistoryPanel({ recordId, refreshKey }: { recordId: string;
               <div style={{ fontSize: 12, color: "#55657d" }}>
                 {entry.actor_name || "מערכת"} · {formatDateTime(entry.created_at)}
               </div>
-              {entry.reason ? (
+              {entry.reason === RESTORED ? (
+                <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: "#55657d", background: "#eef1f5", borderRadius: 999, padding: "2px 8px", marginTop: 4 }}>
+                  שוחזר מנתונים קיימים
+                </span>
+              ) : entry.reason ? (
                 <div style={{ fontSize: 13, background: "#f8fafc", borderRadius: 8, padding: "6px 10px", marginTop: 6 }}>סיבה: {entry.reason}</div>
               ) : null}
               {changes.slice(0, 12).map((change, index) => (
