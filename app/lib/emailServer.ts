@@ -104,7 +104,9 @@ export async function readMailDirectory(request: Request) {
     const qualityAssuranceNcr = role === 'readonly' && params.get('module') === 'nonconformances';
     const senders = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email}));
     const systemEmail = process.env.EMAIL_USER?.trim();
-    if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.push({id:'system-mailbox',name:qualityAssuranceNcr ? systemEmail : 'חשבון המערכת',email:systemEmail});
+    // חשבון המערכת זמין בכל הפרויקטים ולכל המשתמשים – בלי הגדרת סיסמה אישית.
+    // המייל נשלח בשם המשתמש, תשובות חוזרות למייל שלו, ועותק נשלח אליו.
+    if (systemEmail && validMailAddress(systemEmail) && process.env.EMAIL_APP_PASSWORD && !senders.some(x=>x.email.toLowerCase()===systemEmail.toLowerCase())) senders.unshift({id:'system-mailbox',name:qualityAssuranceNcr ? systemEmail : 'Y.K Quality – נשלח בשמך',email:systemEmail});
     const operator = await operatorIdentity(db,user,projectId,directoryRows);
     const users = directoryRequested ? directoryRows.map(row => ({
       id:row.id,project_id:row.project_id,name:row.name,email:row.email,role:row.role,company:row.company,phone:row.phone,active:row.active,created_at:row.created_at,
@@ -256,8 +258,15 @@ export async function postMail(request: Request) {
     let accepted: string[] = [], rejected: string[] = [];
     const transport = nodemailer.createTransport({service: 'gmail', auth: {user: sender.data.email, pass: sender.data.smtp_app_password}, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000, disableFileAccess: true, disableUrlAccess: true});
     try {
-      const senderName = operator.email ? `${operator.name} באמצעות ${sender.data.name || 'Y.K QUALITY'}` : sender.data.name || 'Y.K QUALITY';
-      const result = await transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc, bcc, subject, text: outgoingText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(outgoingText)}</div>`, attachments});
+      const usingSystemMailbox = sender.data.email.trim().toLowerCase() === String(process.env.EMAIL_USER || '').trim().toLowerCase();
+      const senderName = usingSystemMailbox
+        ? `${operator.name && operator.name !== 'משתמש מערכת' ? `${operator.name} · ` : ''}Y.K Quality`
+        : operator.email ? `${operator.name} באמצעות ${sender.data.name || 'Y.K QUALITY'}` : sender.data.name || 'Y.K QUALITY';
+      // בשליחה מחשבון המערכת – עותק אוטומטי לשולח, כדי שהמייל יישמר גם אצלו
+      const operatorEmail = String(operator.email || '').trim().toLowerCase();
+      const alreadyIncluded = [...to, ...cc, ...bcc].some((address: string) => String(address).trim().toLowerCase() === operatorEmail);
+      const finalCc = usingSystemMailbox && operatorEmail && validMailAddress(operatorEmail) && !alreadyIncluded ? [...cc, operatorEmail] : cc;
+      const result = await transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc: finalCc, bcc, subject, text: outgoingText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(outgoingText)}</div>`, attachments});
       messageId = result.messageId;
       accepted = (result.accepted || []).map(String); rejected = (result.rejected || []).map(String);
       status = accepted.length ? (rejected.length ? 'partial' : 'sent') : 'failed';
