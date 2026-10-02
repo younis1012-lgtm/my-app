@@ -28957,10 +28957,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           {section === "account" && (
             <section style={{ display: "grid", gap: 16 }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: 24, fontWeight: 950 }}>
-                  החשבון שלי
-                </h2>
-                <div style={{ color: "#64748b", marginTop: 6 }}>
+                <div style={{ color: "#64748b" }}>
                   שינוי שם משתמש וסיסמה עבור המשתמש המחובר בלבד.
                 </div>
               </div>
