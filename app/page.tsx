@@ -17211,6 +17211,17 @@ export default function Page() {
   }, []);
   const [section, setSection] = useState<AppSection>("home");
   // פתיחת רשומה (מטבלה, ממעקב, מקישור) גוללת אוטומטית אל טופס הרשומה
+  // מניעת שמירה כפולה (לחיצה כפולה על "שמור" יצרה שתי רשומות זהות)
+  const saveInFlightRef = useRef<Set<string>>(new Set());
+  const runSingleSave = async (key: string, action: () => Promise<any>) => {
+    if (saveInFlightRef.current.has(key)) return;
+    saveInFlightRef.current.add(key);
+    try {
+      return await action();
+    } finally {
+      saveInFlightRef.current.delete(key);
+    }
+  };
   const editorScrollRequestRef = useRef(false);
   const requestEditorScroll = () => {
     editorScrollRequestRef.current = true;
@@ -22318,7 +22329,8 @@ export default function Page() {
     }));
   };
 
-  const saveControlProcess = async () => {
+  const saveControlProcess = (...args: any[]) => runSingleSave("saveControlProcess", () => (saveControlProcessInner as any)(...args));
+  const saveControlProcessInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור תהליכי בקרה.");
     if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
@@ -22866,7 +22878,8 @@ export default function Page() {
     }, 0);
   };
 
-  const saveChecklist = async () => {
+  const saveChecklist = (...args: any[]) => runSingleSave("saveChecklist", () => (saveChecklistInner as any)(...args));
+  const saveChecklistInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור רשימות תיוג.");
     if (isDisciplineRestricted(projectAccess) && !isElectricalChecklistRecord(checklistForm))
@@ -23292,7 +23305,8 @@ export default function Page() {
     return { ...record, documents };
   };
 
-  const saveRfi = async () => {
+  const saveRfi = (...args: any[]) => runSingleSave("saveRfi", () => (saveRfiInner as any)(...args));
+  const saveRfiInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור פניות RFI.");
     if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
@@ -23417,7 +23431,8 @@ export default function Page() {
     );
   };
 
-  const saveNonconformance = async () => {
+  const saveNonconformance = (...args: any[]) => runSingleSave("saveNonconformance", () => (saveNonconformanceInner as any)(...args));
+  const saveNonconformanceInner = async () => {
     if (!canManageNonconformances(projectAccess))
       return alert("אין למשתמש הנוכחי הרשאה לפתוח או לעדכן אי־התאמות.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
@@ -23713,7 +23728,8 @@ export default function Page() {
     );
   };
 
-  const saveTrialSection = async () => {
+  const saveTrialSection = (...args: any[]) => runSingleSave("saveTrialSection", () => (saveTrialSectionInner as any)(...args));
+  const saveTrialSectionInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור קטעי ניסוי.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
@@ -23891,7 +23907,8 @@ export default function Page() {
       : preliminaryTab === "subcontractors"
         ? subcontractorPreliminaryForm
         : materialPreliminaryForm;
-  const savePreliminary = async (subtype: PreliminaryTab) => {
+  const savePreliminary = (...args: any[]) => runSingleSave("savePreliminary", () => (savePreliminaryInner as any)(...args));
+  const savePreliminaryInner = async (subtype: PreliminaryTab) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור בקרה מקדימה.");
     if (!currentProjectId) return alert("יש לבחור פרויקט");
@@ -24327,7 +24344,8 @@ export default function Page() {
     }));
   };
 
-  const savePlan = async () => {
+  const savePlan = (...args: any[]) => runSingleSave("savePlan", () => (savePlanInner as any)(...args));
+  const savePlanInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור תוכניות.");
     if (isDisciplineRestricted(projectAccess)) return alert(DISCIPLINE_BLOCK_MESSAGE);
@@ -27088,7 +27106,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return nextRecord;
   };
 
-  const saveSupervisionReport = async () => {
+  const saveSupervisionReport = (...args: any[]) => runSingleSave("saveSupervisionReport", () => (saveSupervisionReportInner as any)(...args));
+  const saveSupervisionReportInner = async () => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור דוחות פיקוח.");
     if (!currentProjectId) {
