@@ -45,7 +45,8 @@ export async function saveQualityAssuranceNonconformance(request: Request) {
       images:Array.isArray(source.images) ? source.images : [],
       approval:source.approval && typeof source.approval === 'object' ? source.approval : {},
       saved_at:source.saved_at || new Date().toISOString(),
-      details:source.details && typeof source.details === 'object' ? source.details : {},
+      // _editedBy: שם המשתמש שביצע את השמירה, עבור היסטוריית השינויים (השמירה כאן נעשית בהרשאת שרת)
+      details:{...(source.details && typeof source.details === 'object' ? source.details : {}), _editedBy: access.displayName || access.username || access.email},
     };
     const result = mode === 'update'
       ? await db.from('NCR').update(record).eq('id',id).eq('project_id',projectId)

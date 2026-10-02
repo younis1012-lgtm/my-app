@@ -193,3 +193,11 @@ button, input, select, textarea { font-family: inherit; }
 
 /* הסרגל העליון נשאר קבוע בגלילה; גלילה אוטומטית לטופס עוצרת מתחתיו */
 .project-content main > * { scroll-margin-top: 110px; }
+
+/* רשומה מאושרת נעולה: שדות הטופס לקריאה בלבד (הטבלה, הקישורים וההיסטוריה ממשיכים לעבוד) */
+.yk-record-locked [data-records-table] ~ :not([data-record-links]):not([data-record-history]) :is(input, select, textarea),
+.yk-record-locked [data-lock-scope] :is(input, select, textarea) {
+  pointer-events: none;
+  background-color: #f8fafc !important;
+  color: #334155;
+}

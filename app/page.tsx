@@ -35,6 +35,7 @@ import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { FileDropZone } from "./components/FileDropZone";
 import { NavIcon } from "./components/NavIcon";
+import { RecordHistoryPanel } from "./components/RecordHistoryPanel";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
 import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
@@ -9875,7 +9876,7 @@ function SupervisionReportsSection({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 340px)", gap: 16, alignItems: "start", marginBottom: 18 }} className="yk-sup-grid">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 340px)", gap: 16, alignItems: "start", marginBottom: 18 }} className="yk-sup-grid" data-lock-scope="">
         <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
           {/* צירוף דוח המתכנן + מילוי אוטומטי */}
           <div style={{ ...card, gridTemplateColumns: "minmax(180px, 240px) minmax(0, 1fr)", alignItems: "center" }}>
@@ -17215,7 +17216,10 @@ export default function Page() {
   // פתיחת רשומה (מטבלה, ממעקב, מקישור) גוללת אוטומטית אל טופס הרשומה
   // מניעת שמירה כפולה (לחיצה כפולה על "שמור" יצרה שתי רשומות זהות)
   const saveInFlightRef = useRef<Set<string>>(new Set());
+  // רשומה מאושרת נעולה: השמירה נחסמת עד "פתיחה לעריכה" (הבדיקה מוגדרת בהמשך)
+  const saveLockGuardRef = useRef<((key: string) => boolean) | null>(null);
   const runSingleSave = async (key: string, action: () => Promise<any>) => {
+    if (saveLockGuardRef.current?.(key)) return;
     if (saveInFlightRef.current.has(key)) return;
     saveInFlightRef.current.add(key);
     try {
@@ -20784,6 +20788,7 @@ export default function Page() {
     }
     const self = recordLinkCatalog.find((item) => item.type === type && item.id === id);
     return (
+      <>
       <RecordLinksPanel
         selfType={type}
         selfId={id}
@@ -20797,8 +20802,152 @@ export default function Page() {
         onRemove={removeRecordLink}
         onOpen={openLinkedRecord}
       />
+      {type !== "structure" ? (
+        <RecordHistoryPanel recordId={id} refreshKey={`${savedRecordFor(type, id)?.savedAt ?? ""}|${historyRefreshTick}`} />
+      ) : null}
+      </>
     );
   };
+
+  // ===== נעילת רשומות מאושרות =====
+  const [historyRefreshTick, setHistoryRefreshTick] = useState(0);
+  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
+  const [unlockReason, setUnlockReason] = useState("");
+  const [pendingUnlockSave, setPendingUnlockSave] = useState<LinkType | null>(null);
+  const unlockBypassRef = useRef<LinkType | null>(null);
+  // רשומות שנפתחו לעריכה בהפעלה הזו – נשארות פתוחות גם אם השמירה הראשונה לא הושלמה
+  const [unlockedRecordIds, setUnlockedRecordIds] = useState<Set<string>>(new Set());
+
+  const savedRecordFor = (type: LinkType, id: string | null | undefined): any => {
+    if (!id) return undefined;
+    const lists: Partial<Record<LinkType, any[]>> = {
+      checklists: projectChecklists,
+      nonconformances: projectNonconformances,
+      trialSections: projectTrialSections,
+      rfi: projectRfis,
+      supervisionReports: projectSupervisionReports,
+      preliminary: projectPreliminary,
+      controlProcesses: projectControlProcesses,
+      plans: currentProjectPlans,
+      holdPoints: projectHoldPoints,
+    };
+    return (lists[type] ?? []).find((record: any) => record?.id === id);
+  };
+
+  const isRecordLocked = (type: LinkType, id: string | null | undefined) => {
+    if (id && unlockedRecordIds.has(id)) return false;
+    const record = savedRecordFor(type, id);
+    if (!record) return false;
+    if (type === "supervisionReports") return String(record.status ?? "") === "מאושר";
+    if (["checklists", "nonconformances", "trialSections", "preliminary", "controlProcesses"].includes(type))
+      return normalizeApproval(record.approval).status === "approved";
+    return false;
+  };
+
+  const activeRecordContext = (): [LinkType, string | null] | null => {
+    const map: Partial<Record<AppSection, [LinkType, string | null]>> = {
+      checklists: ["checklists", editingChecklistId],
+      nonconformances: ["nonconformances", editingNonconformanceId],
+      trialSections: ["trialSections", editingTrialSectionId],
+      rfi: ["rfi", editingRfiId],
+      supervisionReports: ["supervisionReports", editingSupervisionReportId],
+      preliminary: ["preliminary", editingPreliminaryId],
+      controlProcesses: ["controlProcesses", editingControlProcessId],
+      plans: ["plans", editingPlanId],
+    };
+    return map[section] ?? null;
+  };
+  const activeContext = activeRecordContext();
+  const activeRecordLocked = Boolean(activeContext && isRecordLocked(activeContext[0], activeContext[1]));
+  const canUnlockRecords = canWriteAccess(projectAccess) && !isDisciplineRestricted(projectAccess);
+
+  const SAVE_KEY_TYPES: Record<string, [LinkType, () => string | null]> = {
+    saveChecklist: ["checklists", () => editingChecklistId],
+    saveNonconformance: ["nonconformances", () => editingNonconformanceId],
+    saveTrialSection: ["trialSections", () => editingTrialSectionId],
+    savePreliminary: ["preliminary", () => editingPreliminaryId],
+    saveControlProcess: ["controlProcesses", () => editingControlProcessId],
+    saveSupervisionReport: ["supervisionReports", () => editingSupervisionReportId],
+  };
+  saveLockGuardRef.current = (key: string) => {
+    const entry = SAVE_KEY_TYPES[key];
+    if (!entry) return false;
+    const [type, getId] = entry;
+    if (unlockBypassRef.current === type) return false;
+    if (!isRecordLocked(type, getId())) return false;
+    alert('הרשומה מאושרת ונעולה לעריכה. כדי לשנות אותה יש ללחוץ "פתיחה לעריכה" ולציין סיבה.');
+    return true;
+  };
+
+  const resetApprovalForUnlock = (value: unknown): ApprovalFlow => {
+    const approval = normalizeApproval(value);
+    return {
+      ...approval,
+      status: "draft",
+      signatures: approval.signatures.map((signature) => ({ ...signature, signerName: "", signature: "", signedAt: "" })),
+    };
+  };
+
+  const unlockActiveRecord = async () => {
+    const context = activeRecordContext();
+    const reason = unlockReason.trim();
+    if (!context || !context[1]) return;
+    if (!reason) return alert("יש לציין סיבה לפתיחת הרשומה.");
+    const [type, id] = context;
+    if (cloudEnabled && supabase) {
+      const { error } = await supabase.rpc("yk_log_unlock", {
+        p_record_type: type,
+        p_record_id: id,
+        p_project_id: currentProjectIdNormalized,
+        p_reason: reason,
+      });
+      if (error && !/yk_log_unlock|does not exist|schema cache|PGRST202/i.test(`${error.message} ${(error as any).code ?? ""}`)) {
+        return alert(`פתיחת הרשומה נכשלה: ${error.message}`);
+      }
+    }
+    const bumpRevision = (value: unknown) => {
+      const number = Number(String(value ?? "").trim());
+      return Number.isFinite(number) && String(value ?? "").trim() !== "" ? String(number + 1) : String(value || "1");
+    };
+    if (type === "checklists") setChecklistForm((prev: any) => ({ ...prev, approval: resetApprovalForUnlock(prev.approval), revision: bumpRevision(prev.revision) }));
+    else if (type === "nonconformances") setNonconformanceForm((prev: any) => ({ ...prev, approval: resetApprovalForUnlock(prev.approval) }));
+    else if (type === "trialSections") setTrialSectionForm((prev: any) => ({ ...prev, approval: resetApprovalForUnlock(prev.approval) }));
+    else if (type === "controlProcesses") setControlProcessForm((prev: any) => ({ ...prev, approval: resetApprovalForUnlock(prev.approval) }));
+    else if (type === "supervisionReports") setSupervisionReportForm((prev: any) => ({ ...prev, status: "בטיפול" }));
+    else if (type === "preliminary") {
+      const update = (prev: any) => ({ ...prev, approval: resetApprovalForUnlock(prev.approval) });
+      if (preliminaryTab === "suppliers") setSupplierPreliminaryForm(update);
+      else if (preliminaryTab === "subcontractors") setSubcontractorPreliminaryForm(update);
+      else setMaterialPreliminaryForm(update);
+    }
+    unlockBypassRef.current = type;
+    setUnlockedRecordIds((current) => new Set([...current, id]));
+    setUnlockDialogOpen(false);
+    setUnlockReason("");
+    setPendingUnlockSave(type);
+  };
+
+  // אחרי עדכון הטופס – שמירה אוטומטית של הרשומה הפתוחה (בלי חסימת הנעילה)
+  useEffect(() => {
+    if (!pendingUnlockSave) return;
+    const type = pendingUnlockSave;
+    setPendingUnlockSave(null);
+    void (async () => {
+      try {
+        if (type === "checklists") await saveChecklist();
+        else if (type === "nonconformances") await saveNonconformance();
+        else if (type === "trialSections") await saveTrialSection();
+        else if (type === "controlProcesses") await saveControlProcess();
+        else if (type === "supervisionReports") await saveSupervisionReport();
+        else if (type === "preliminary") await savePreliminary(preliminaryTab);
+      } finally {
+        unlockBypassRef.current = null;
+        setHistoryRefreshTick((value) => value + 1);
+        alert("הרשומה נפתחה לעריכה. האישור והחתימות בוטלו – יש לעדכן, לשמור ולחתום מחדש.");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingUnlockSave]);
 
   const concreteSupplierOptions = useMemo(
     () => pickApprovedSupplier(projectPreliminary as any[], "concrete", []).options,
@@ -28702,7 +28851,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       )}
 
       <div className="project-content" style={styles.layout}>
-        <main style={styles.mainCard}>
+        <main style={styles.mainCard} className={activeRecordLocked ? "yk-record-locked" : undefined}>
           {/* ראש מסך אחיד: כותרת, ולידה שורת הפעולות. הסינון מופיע מתחת */}
           {!guardedBody && (section !== "home" || currentProject) && (
             <div
@@ -28746,6 +28895,40 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               </div>
             </div>
           )}
+          {activeRecordLocked && !guardedBody ? (
+            <div data-lock-banner="" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#ecf8f0", border: "1px solid #bfe5cc", borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
+              <span aria-hidden="true" style={{ fontSize: 20 }}>🔒</span>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontWeight: 800, color: "#15803d" }}>רשומה מאושרת – נעולה לעריכה</div>
+                <div style={{ fontSize: 13, color: "#2f5d45" }}>
+                  השדות לקריאה בלבד. אפשר להוריד PDF, לשלוח במייל ולקשר רשומות.
+                </div>
+              </div>
+              {canUnlockRecords ? (
+                <button type="button" style={styles.secondaryBtn} onClick={() => setUnlockDialogOpen(true)}>
+                  פתיחה לעריכה…
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {unlockDialogOpen ? (
+            <div role="dialog" aria-modal="true" onClick={() => setUnlockDialogOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", display: "grid", placeItems: "center", padding: 16 }}>
+              <div onClick={(event) => event.stopPropagation()} dir="rtl" style={{ background: "#fff", borderRadius: 16, padding: 20, width: "min(520px, 94vw)", display: "grid", gap: 12 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0b1f3a" }}>פתיחת רשומה מאושרת לעריכה</div>
+                <label style={{ display: "grid", gap: 6, fontWeight: 700, color: "#55657d", fontSize: 13 }}>
+                  סיבה (חובה)
+                  <textarea value={unlockReason} onChange={(event) => setUnlockReason(event.target.value)} rows={3} placeholder="לדוגמה: התקבלה תעודת חוזק 28 יום – עדכון תוצאה" style={{ ...styles.input, minHeight: 80 }} />
+                </label>
+                <div style={{ fontSize: 13, color: "#9a5b00", background: "#fff5e0", borderRadius: 10, padding: "8px 12px" }}>
+                  האישור והחתימות יבוטלו ותידרש חתימה מחדש. הפתיחה והסיבה נרשמות בהיסטוריית השינויים.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" style={styles.primaryBtn} disabled={!unlockReason.trim()} onClick={() => void unlockActiveRecord()}>פתח לעריכה</button>
+                  <button type="button" style={styles.secondaryBtn} onClick={() => setUnlockDialogOpen(false)}>ביטול</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {section === "preliminary" && !guardedBody && (
             <div
               style={{
