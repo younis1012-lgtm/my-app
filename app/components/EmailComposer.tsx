@@ -39,7 +39,7 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
       const response = await fetch(`/api/email-directory?${params}`, {headers:await authHeaders(),cache:'no-store'});
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
       setDirectoryContacts(result.contacts);setSenders(result.senders);setOperator(result.operator || {name:'',email:''});
-      setSelectedSender(previous => result.senders.some((x: {email:string})=>x.email===previous) ? previous : result.senders[0]?.email || '');
+      setSelectedSender(previous => { const system = result.senders.find((x: {id:string})=>x.id==='system-mailbox'); if (system) return system.email; return result.senders.some((x: {email:string})=>x.email===previous) ? previous : result.senders[0]?.email || ''; });
     } catch(error) {setDirectoryError(error instanceof Error ? error.message : 'טעינת כתובות המייל נכשלה');}
     finally {setDirectoryLoading(false);}
   }

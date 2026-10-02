@@ -102,7 +102,7 @@ export async function readMailDirectory(request: Request) {
       }
     }
     const qualityAssuranceNcr = role === 'readonly' && params.get('module') === 'nonconformances';
-    const senders = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email}));
+    const senders = directoryRows.filter(x=>x.active !== false && validMailAddress(x.email) && x.smtp_app_password).map(x=>({id:x.id,name:qualityAssuranceNcr ? x.email : x.name || x.email,email:x.email})).filter((x,i,all)=>all.findIndex(y=>y.email.trim().toLowerCase()===x.email.trim().toLowerCase())===i);
     const systemEmail = process.env.EMAIL_USER?.trim();
     // חשבון המערכת זמין בכל הפרויקטים ולכל המשתמשים – בלי הגדרת סיסמה אישית.
     // המייל נשלח בשם המשתמש, תשובות חוזרות למייל שלו, ועותק נשלח אליו.
