@@ -5210,6 +5210,18 @@ const consumeRequestedProjectRoute = () => {
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 };
 
+// קריאות REST ישירות נשלחות עם ההתחברות של המשתמש (אם יש), ולא רק עם המפתח הציבורי.
+// כך הטעינה הקלה של הרשימות ממשיכה לעבוד גם אחרי סגירת הטבלאות לגישה אנונימית (קובץ 14),
+// ולא נופלת לטעינה מלאה של כל הקבצים – שמגדילה מאוד את התעבורה מ-Supabase.
+async function restBearerToken(anonKey: string) {
+  try {
+    const session = await supabase?.auth.getSession();
+    return session?.data.session?.access_token || anonKey;
+  } catch {
+    return anonKey;
+  }
+}
+
 async function selectTable(table: string, orderColumn?: string) {
   const empty = { data: [], error: null } as any;
   const isMissingRelation = (error: unknown) =>
@@ -5228,7 +5240,7 @@ async function selectTable(table: string, orderColumn?: string) {
       {
         headers: {
           apikey: anonKey,
-          Authorization: `Bearer ${anonKey}`,
+          Authorization: `Bearer ${await restBearerToken(anonKey)}`,
         },
         cache: "no-store",
       },
@@ -5330,7 +5342,7 @@ async function selectProjectTable(
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !anonKey) return null;
 
-    const headers = { apikey: anonKey, Authorization: `Bearer ${anonKey}` };
+    const headers = { apikey: anonKey, Authorization: `Bearer ${await restBearerToken(anonKey)}` };
     try {
       const query = new URLSearchParams({
         select,
@@ -5402,7 +5414,7 @@ async function selectProjectTable(
         {
           headers: {
             apikey: anonKey,
-            Authorization: `Bearer ${anonKey}`,
+            Authorization: `Bearer ${await restBearerToken(anonKey)}`,
           },
           cache: "no-store",
         },
@@ -5487,7 +5499,7 @@ async function selectProjectTableInBatches(
     if (supabaseUrl && anonKey) {
       const query = new URLSearchParams({ select: heavySelect, id: `in.(${chunk.join(",")})` });
       const response = await fetch(`${supabaseUrl}/rest/v1/${encodeURIComponent(table)}?${query.toString()}`, {
-        headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+        headers: { apikey: anonKey, Authorization: `Bearer ${await restBearerToken(anonKey)}` },
         cache: "no-store",
       });
       if (response.ok) {
@@ -23446,7 +23458,8 @@ export default function Page() {
             projectId: undefined,
             savedAt: undefined,
             approval: record.approval,
-            images: normalizeAttachments((record as any).images),
+            // התמונות נשמרות פעם אחת בלבד, בעמודת images
+            images: undefined,
             title: record.title,
             structureNodeId: (record as any).structureNodeId,
             projectName: (record as any).projectName,
@@ -23755,7 +23768,7 @@ export default function Page() {
           images: normalizeAttachments((recordForSave as any).images),
           approval: recordForSave.approval,
           details: {
-            ...(recordForSave as any),
+            ...(({ images: _images, attachments: _attachments, ...rest }: any) => rest)(recordForSave as any),
             ...trialSectionDetails(recordForSave as any),
             structureNodeId: (recordForSave as any).structureNodeId,
             title: recordForSave.title,
@@ -23781,7 +23794,7 @@ export default function Page() {
             approvedBy: recordForSave.approvedBy,
             status: recordForSave.status,
             notes: recordForSave.notes,
-            images: normalizeAttachments((recordForSave as any).images),
+            // התמונות והקבצים נשמרים פעם אחת בלבד, בעמודת images – לא כפול בתוך details
             approval: recordForSave.approval,
           },
           saved_at: nowIso(),
