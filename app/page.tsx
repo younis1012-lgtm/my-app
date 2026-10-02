@@ -35,6 +35,7 @@ import { road806PlanRegister } from "./planRegister";
 import { Field, FormModeBanner, styles } from "./components/common";
 import { FileDropZone } from "./components/FileDropZone";
 import { NavIcon } from "./components/NavIcon";
+import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
 import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
 import { checklistAutoLinkKind, resolvePreliminaryLink, resolvePreviousLayerLink, type ChecklistAutoLink } from "./lib/checklistAutoLinks";
@@ -15497,6 +15498,7 @@ function ControlProcessesSection({
           .from("attachments")
           .upload(filePath, file, {
             upsert: false,
+            cacheControl: "31536000",
             contentType: file.type || undefined,
           });
 
@@ -23285,6 +23287,7 @@ export default function Page() {
       .from("attachments")
       .upload(filePath, blob, {
         upsert: false,
+        cacheControl: "31536000",
         contentType: attachment.type || parsed.mimeType || undefined,
       });
     if (uploadResult.error) {
@@ -23655,6 +23658,7 @@ export default function Page() {
             .from("attachments")
             .upload(filePath, file, {
               upsert: false,
+              cacheControl: "31536000",
               contentType: file.type || undefined,
             });
           if (uploadResult.error) throw uploadResult.error;
@@ -26427,6 +26431,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         .from("attachments")
         .upload(storagePath, blob, {
           upsert: false,
+          cacheControl: "31536000",
           contentType: "application/pdf",
         });
       if (uploadResult.error) throw uploadResult.error;
@@ -26873,7 +26878,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         appendAttachment(attachment);
       };
       reader.onerror = () => alert(`לא ניתן לקרוא את הקובץ: ${file.name}`);
-      reader.readAsDataURL(file);
+      // דוח מתכנן גדול (PDF סרוק) נשמר בגרסה מוקטנת; המילוי האוטומטי קורא את הקובץ המקורי
+      void compressLargePdf(file).then((stored) => {
+        if (stored.size < file.size) alert(`הקובץ ${file.name} הוקטן מ-${formatFileSize(file.size)} ל-${formatFileSize(stored.size)}`);
+        reader.readAsDataURL(stored);
+      });
     });
   };
 
@@ -26890,6 +26899,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       .from("attachments")
       .upload(filePath, blob, {
         upsert: false,
+        cacheControl: "31536000",
         contentType: attachment.type || parsed.mimeType || undefined,
       });
     if (uploadResult.error) {
@@ -26993,6 +27003,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       .from("attachments")
       .upload(filePath, blob, {
         upsert: false,
+        cacheControl: "31536000",
         contentType: attachment.type || parsed.mimeType || undefined,
       });
     if (uploadResult.error) {
@@ -27048,6 +27059,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       .from("attachments")
       .upload(filePath, blob, {
         upsert: false,
+        cacheControl: "31536000",
         contentType: attachment.type || parsed.mimeType || undefined,
       });
     if (uploadResult.error) {

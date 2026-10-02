@@ -1,5 +1,6 @@
 "use client";
 
+import { compressLargePdf, formatFileSize, isPdfFile, PDF_COMPRESS_MIN_BYTES } from "../lib/pdfCompress";
 import { showToast as alert } from "./Toaster";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "./common";
@@ -30,6 +31,7 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
   const [records, setRecords] = useState<QualityDocument[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [file, setFile] = useState<File | null>(null);
+  const [shrinkPdf, setShrinkPdf] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("הכול");
   const [statusFilter, setStatusFilter] = useState("הכול");
@@ -84,23 +86,33 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
     );
   }, [records, search, categoryFilter, statusFilter]);
 
+  // הקטנת PDF גדול (בעיקר סרוק) לפני ההעלאה – חוסך מקום ותעבורה ב-Supabase
+  const shrinkForUpload = async (source: File) => {
+    if (!isPdfFile(source) || source.size < PDF_COMPRESS_MIN_BYTES) return source;
+    return compressLargePdf(source, (page, total) => setMessage(`מקטין את הקובץ לפני העלאה – עמוד ${page} מתוך ${total}...`));
+  };
+
   const upload = async () => {
     if (!canWrite) return;
-    if (!file || !form.title.trim()) return alert("יש להזין שם מסמך ולבחור קובץ.");
-    if (file.size > MAX_FILE_SIZE) return alert("הקובץ גדול מ־500MB. יש לפצל אותו או להעלות קובץ דחוס קטן יותר.");
+    const fileToUpload = file;
+    if (!fileToUpload || !form.title.trim()) return alert("יש להזין שם מסמך ולבחור קובץ.");
+    if (fileToUpload.size > MAX_FILE_SIZE) return alert("הקובץ גדול מ־500MB. יש לפצל אותו או להעלות קובץ דחוס קטן יותר.");
     if (!supabase) return alert("שירות אחסון הקבצים אינו מחובר. לא ניתן לשמור קובץ גדול באופן בטוח.");
-    setUploading(true); setMessage(`מעלה ${file.name}... אין לסגור את החלון.`);
+    setUploading(true); setMessage(`מעלה ${fileToUpload.name}... אין לסגור את החלון.`);
     try {
+      const originalSize = fileToUpload.size;
+      const file = shrinkPdf ? await shrinkForUpload(fileToUpload) : fileToUpload;
       const id = crypto.randomUUID();
       const storagePath = `quality-documents/${safePart(projectId)}/${safePart(form.category)}/${Date.now()}-${id}-${safePart(file.name)}`;
-      const result = await supabase.storage.from("attachments").upload(storagePath, file, { upsert: false, contentType: file.type || "application/octet-stream", cacheControl: "3600" });
+      const result = await supabase.storage.from("attachments").upload(storagePath, file, { upsert: false, contentType: file.type || "application/octet-stream", cacheControl: "31536000" });
       if (result.error) throw result.error;
       const publicData = supabase.storage.from("attachments").getPublicUrl(storagePath).data;
       const now = new Date().toISOString();
       const next = records.map((record) => form.documentNo.trim() && record.documentNo === form.documentNo.trim() && record.status !== "מבוטל" ? { ...record, status: "הוחלף במהדורה חדשה" } : record);
       next.unshift({ id, projectId, ...form, title: form.title.trim(), documentNo: form.documentNo.trim(), revision: form.revision.trim(), fileName: file.name, fileType: file.type, fileSize: file.size, fileUrl: publicData.publicUrl, storagePath, uploadedAt: now });
       saveLocal(next); await saveCloudIndex(next);
-      setForm(emptyForm); setFile(null); setMessage("המסמך הועלה ונשמר בהצלחה.");
+      setForm(emptyForm); setFile(null);
+      setMessage(file.size < originalSize ? `המסמך הועלה ונשמר בהצלחה (הוקטן מ-${formatFileSize(originalSize)} ל-${formatFileSize(file.size)}).` : "המסמך הועלה ונשמר בהצלחה.");
     } catch (error: any) {
       setMessage("");
       alert(`העלאת הקובץ נכשלה: ${error?.message || "שגיאת אחסון"}. ייתכן שיש להגדיל את מגבלת הקובץ ב־Supabase Storage.`);
@@ -113,7 +125,8 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
     updateInputRef.current?.click();
   };
 
-  const applyUpdate = async (chosenFile: File) => {
+  const applyUpdate = async (pickedFile: File) => {
+    const chosenFile = shrinkPdf ? await shrinkForUpload(pickedFile) : pickedFile;
     const record = records.find((item) => item.id === updatingId);
     setUpdatingId(null);
     if (!record) return;
@@ -124,7 +137,7 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
     setUpdatingBusy(true); setMessage(`מעדכן ${chosenFile.name}... אין לסגור את החלון.`);
     try {
       const storagePath = `quality-documents/${safePart(projectId)}/${safePart(record.category)}/${Date.now()}-${record.id}-${safePart(chosenFile.name)}`;
-      const result = await supabase.storage.from("attachments").upload(storagePath, chosenFile, { upsert: false, contentType: chosenFile.type || "application/octet-stream", cacheControl: "3600" });
+      const result = await supabase.storage.from("attachments").upload(storagePath, chosenFile, { upsert: false, contentType: chosenFile.type || "application/octet-stream", cacheControl: "31536000" });
       if (result.error) throw result.error;
       const publicData = supabase.storage.from("attachments").getPublicUrl(storagePath).data;
       const now = new Date().toISOString();
@@ -186,7 +199,7 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
         <label>סטטוס<select style={styles.input} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>{statuses.map((x) => <option key={x} value={x}>{statusLabel(x)}</option>)}</select></label>
       </div>
       <label>הערות<textarea style={{ ...styles.input, minHeight: 70 }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
-      <label style={{ border: "2px dashed #94a3b8", borderRadius: 14, padding: 16, background: "#f8fafc", cursor: "pointer" }}><strong>בחירת קובץ — עד 500MB</strong><input type="file" disabled={!canWrite || uploading} style={{ display: "block", marginTop: 10 }} onChange={(e) => setFile(e.target.files?.[0] || null)} />{file ? <div style={{ marginTop: 7 }}>{file.name} · {formatSize(file.size)}</div> : null}</label>
+      <label style={{ border: "2px dashed #94a3b8", borderRadius: 14, padding: 16, background: "#f8fafc", cursor: "pointer" }}><strong>בחירת קובץ — עד 500MB</strong><input type="file" disabled={!canWrite || uploading} style={{ display: "block", marginTop: 10 }} onChange={(e) => setFile(e.target.files?.[0] || null)} />{file ? <div style={{ marginTop: 7 }}>{file.name} · {formatSize(file.size)}</div> : null}</label><label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, color: "#334155", cursor: "pointer" }}><input type="checkbox" checked={shrinkPdf} onChange={(e) => setShrinkPdf(e.target.checked)} />הקטנת PDF גדול לפני העלאה (מומלץ לקבצים סרוקים; בקובץ המוקטן לא ניתן להעתיק טקסט)</label>
       <button type="button" style={styles.primaryBtn} disabled={!canWrite || uploading} onClick={() => void upload()}>{uploading ? "מעלה קובץ..." : "העלה ושמור מסמך"}</button>
       {message ? <div style={{ color: message.includes("בהצלחה") ? "#166534" : "#1d4ed8", fontWeight: 850 }}>{message}</div> : null}
     </div>
