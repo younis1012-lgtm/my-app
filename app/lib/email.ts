@@ -20,7 +20,7 @@ export function mergeMailData(template: string, data: Record<string, unknown>) {
 }
 export function mailRecipients(value: unknown): string[] {
   if (Array.isArray(value)) return [...new Set(value.flatMap(mailRecipients))];
-  return typeof value === 'string' ? [...new Set(value.split(/[;,\n]/).map(x => x.trim().toLowerCase()).filter(Boolean))] : [];
+  return typeof value === 'string' ? [...new Set(value.replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').split(/[;,\n]/).map(x => x.trim().toLowerCase()).filter(Boolean))] : [];
 }
 export function validMailAddress(value: string) { return /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(value) && !/[\r\n]/.test(value); }
 export function escapeMailHtml(value: string) { return value.replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]!)); }
