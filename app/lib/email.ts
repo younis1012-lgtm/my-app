@@ -6,7 +6,7 @@ export type MailContext = {
 };
 export const MAIL_MAX_BYTES = 20 * 1024 * 1024;
 export const MAIL_INLINE_MAX_BYTES = 3 * 1024 * 1024;
-export const MAIL_SIGNATURE = '\n\n--\nנשלח באמצעות מערכת RND QUALITY\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.';
+export const MAIL_SIGNATURE = '\n\n--\nנשלח באמצעות מערכת Y.K Quality\nהודעה זו נשלחה ממערכת ניהול האיכות של הפרויקט.';
 export const mailTemplates = [
   { id: 'document', name: 'שליחת מסמכים', subject: '{{title}} — {{projectName}}', text: 'שלום,\nמצורפים מסמכים עבור {{title}} בפרויקט {{projectName}}.\nבברכה' },
   { id: 'approval', name: 'בקשה לאישור', subject: 'לאישורכם: {{title}}', text: 'שלום,\nנא לבדוק ולאשר את {{title}} בפרויקט {{projectName}}.\nתודה' },

@@ -517,7 +517,7 @@ export function TemplateLibrary() {
         <div style={{ position: "absolute", inset: 0, opacity: 0.18, backgroundImage: "linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)", backgroundSize: "34px 34px" }} />
         <div style={{ position: "relative", display: "flex", justifyContent: "space-between", gap: 18, alignItems: "center" }}>
           <div>
-            <div style={{ color: "#f59e0b", fontWeight: 950, letterSpacing: 1 }}>RND QUALITY CONTROL</div>
+            <div style={{ color: "#f59e0b", fontWeight: 950, letterSpacing: 1 }}>Y.K QUALITY CONTROL</div>
             <h1 style={{ margin: "10px 0 6px", fontSize: 32 }}>ספריית תבניות הנדסיות</h1>
             <p style={{ margin: 0, color: "#cbd5e1", fontWeight: 750 }}>
               בחר אלמנטים הנדסיים והמערכת תציג את עץ העבודה לפי סדר ביצוע: עבודות עפר, בטון, ניקוז, שכבות מבנה, אספלט וגמר.
