@@ -3207,6 +3207,8 @@ const responsibleRoleMatchesUser = (
   }
   if (responsibleText.includes("בקר") || responsibleText.includes("איכות"))
     return includesAny(["בקר איכות", "בקרת איכות", "מנהל בקרת איכות", "quality", "qc"]);
+  if (responsibleText.includes("מהנדס ביצוע"))
+    return includesAny(["מהנדס ביצוע", "מהנדס הביצוע", "מהנדס אתר", "site engineer", "execution engineer"]);
   if (responsibleText.includes("מנהל עבודה"))
     return includesAny(["מנהל עבודה", "work manager", "foreman"]);
   if (responsibleText.includes("מודד"))
@@ -5992,6 +5994,7 @@ const RESPONSIBLE_ROLE_OPTIONS = [
   "בקרת איכות",
   "בקר איכות חשמל",
   "מנהל עבודה",
+  "מהנדס ביצוע",
   "מודד",
   "הבטחת איכות",
   "ניהול פרויקט",
