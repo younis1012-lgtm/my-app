@@ -17306,6 +17306,8 @@ export default function Page() {
   >(null);
   const [recordsSearchTerm, setRecordsSearchTerm] = useState("");
   const [loaded, setLoaded] = useState(false);
+  // פרטי הפרויקט נטענו מהענן – רק אז בודקים אם הקמת הפרויקט הושלמה (כדי לא לחסום בטעות בזמן טעינה)
+  const [projectLegendsReady, setProjectLegendsReady] = useState(!isSupabaseConfigured);
   const [concentrationsLoading, setConcentrationsLoading] = useState(false);
   const [hydratedConcentrationsProjectId, setHydratedConcentrationsProjectId] = useState("");
   const [concentrationsLoadError, setConcentrationsLoadError] = useState("");
@@ -17551,6 +17553,7 @@ export default function Page() {
     // טעינת פרטי פרויקט מהענן. כך פרטי הפרויקט לא נעלמים בכניסה חוזרת/מחשב אחר.
     if (isSupabaseConfigured && supabase) {
       void loadProjectLegendsFromSupabase().then((cloudLegends) => {
+        setProjectLegendsReady(true);
         if (!cloudLegends || !Object.keys(cloudLegends).length) return;
         setProjectLegends((prev) => {
           const merged = migrateProjectLegendMap({ ...prev, ...cloudLegends });
@@ -19487,7 +19490,7 @@ export default function Page() {
       contractor: legend.contractor || profile?.contractor || "",
       projectManagement: legend.projectManagement || profile?.projectManager || currentProject?.manager || "",
       qualityAssurance: legend.qualityAssurance || profile?.qaCompany || "",
-      qualityControl: legend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME,
+      qualityControl: legend.qualityControl || profile?.qualityControl || "",
       workManager: legend.workManager || profile?.workManager || "",
       surveyor: legend.surveyor || profile?.surveyor || "",
       supervisor: legend.supervisor || "",
@@ -19747,6 +19750,68 @@ export default function Page() {
   const projectLegendMissing = Boolean(
     currentProject && !isProjectLegendComplete(currentProjectLegend),
   );
+  // הקמת פרויקט – פעולת חובה: בלי פרטי פרויקט מלאים ומשתמש פעיל אחד לפחות אי אפשר לעבוד במסכי הפרויקט
+  const projectSetupChecks = useMemo(() => {
+    const legendFields: Array<[keyof ProjectLegend, string]> = [
+      ["projectName", "שם פרויקט"],
+      ["projectManagement", "ניהול פרויקט"],
+      ["contractor", "שם הקבלן"],
+      ["qualityAssurance", "הבטחת איכות"],
+      ["qualityControl", "בקרת איכות"],
+    ];
+    const missingLegend = legendFields
+      .filter(([key]) => !String(currentProjectLegend?.[key] ?? "").trim())
+      .map(([, label]) => label);
+    const usersKnown = projectUsersLoad.projectId === selectedUsersProjectId;
+    const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false).length;
+    return {
+      missingLegend,
+      usersKnown,
+      usersMissing: usersKnown && activeUsers === 0,
+    };
+  }, [currentProjectLegend, currentProjectEmailUsers, projectUsersLoad.projectId, selectedUsersProjectId]);
+  const projectSetupIncomplete = Boolean(
+    currentProject &&
+      projectLegendsReady &&
+      (projectSetupChecks.missingLegend.length > 0 || projectSetupChecks.usersMissing),
+  );
+  const PROJECT_SETUP_FREE_SECTIONS: AppSection[] = ["home", "projects", "projectDetails", "projectUsers", "account"];
+  const projectSetupGate =
+    projectSetupIncomplete && !PROJECT_SETUP_FREE_SECTIONS.includes(section) ? (
+      <div data-project-setup-gate="" dir="rtl" style={{ maxWidth: 720, margin: "24px auto", background: "#fff", border: "1px solid #f3d48a", borderRadius: 16, padding: 22, display: "grid", gap: 14 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <span aria-hidden="true" style={{ fontSize: 26 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#9a5b00" }}>הקמת הפרויקט לא הושלמה</div>
+            <div style={{ fontSize: 14, color: "#7a4a00" }}>לפני עבודה במסכי הפרויקט חובה להשלים את פרטי הפרויקט ולהגדיר משתמשים. הפרטים משמשים בכל הדוחות, ה-PDF והמיילים.</div>
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 700 }}>
+            <span style={{ color: projectSetupChecks.missingLegend.length ? "#b42318" : "#15803d" }}>{projectSetupChecks.missingLegend.length ? "✗" : "✓"}</span>
+            1. פרטי הפרויקט
+            {projectSetupChecks.missingLegend.length ? <span style={{ fontWeight: 500, color: "#55657d", fontSize: 13 }}>חסר: {projectSetupChecks.missingLegend.join(", ")}</span> : null}
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 700 }}>
+            <span style={{ color: projectSetupChecks.usersMissing ? "#b42318" : "#15803d" }}>{projectSetupChecks.usersMissing ? "✗" : "✓"}</span>
+            2. משתמשי הפרויקט
+            {projectSetupChecks.usersMissing ? <span style={{ fontWeight: 500, color: "#55657d", fontSize: 13 }}>לא הוגדר אף משתמש פעיל</span> : null}
+          </div>
+        </div>
+        {canWriteAccess(projectAccess) ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {projectSetupChecks.missingLegend.length ? (
+              <button type="button" style={styles.primaryBtn} onClick={() => setSection("projectDetails")}>להשלמת פרטי הפרויקט</button>
+            ) : null}
+            {projectSetupChecks.usersMissing ? (
+              <button type="button" style={projectSetupChecks.missingLegend.length ? styles.secondaryBtn : styles.primaryBtn} onClick={() => setSection("projectUsers")}>להגדרת משתמשים</button>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ fontSize: 14, color: "#55657d", background: "#f8fafc", borderRadius: 10, padding: "8px 12px" }}>יש לפנות למנהל המערכת או לבקר האיכות של הפרויקט כדי שישלים את הקמת הפרויקט.</div>
+        )}
+      </div>
+    ) : null;
   const startProjectLegendEdit = () => {
     if (!currentProject) return;
     setDraftProjectLegends((prev) =>
@@ -25329,7 +25394,7 @@ export default function Page() {
       ["שם הפרויקט", trialProjectName],
       ["חברת ניהול", trialProjectManager],
       ["קבלן ראשי", get("mainContractor") || trialContractor],
-      ["חברת בקרת איכות", get("qualityCompany", "qualityControl") || currentProjectLegend.qualityControl || profile?.qualityControl || CONTROL_QUALITY_COMPANY_NAME],
+      ["חברת בקרת איכות", get("qualityCompany", "qualityControl") || currentProjectLegend.qualityControl || profile?.qualityControl || ""],
       ["חומרים לשימוש", materialsText],
       ["שם האלמנט", get("elementName", "element")],
       ["תת אלמנט", get("subElement")],
@@ -28879,7 +28944,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       <div className="project-content" style={styles.layout}>
         <main style={styles.mainCard} className={activeRecordLocked ? "yk-record-locked" : undefined}>
           {/* ראש מסך אחיד: כותרת, ולידה שורת הפעולות. הסינון מופיע מתחת */}
-          {!guardedBody && (section !== "home" || currentProject) && (
+          {!guardedBody && !projectSetupGate && (section !== "home" || currentProject) && (
             <div
               className="yk-section-head"
               style={{
@@ -28921,6 +28986,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               </div>
             </div>
           )}
+          {projectSetupGate ? projectSetupGate : (<>
           {activeRecordLocked && !guardedBody ? (
             <div data-lock-banner="" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#ecf8f0", border: "1px solid #bfe5cc", borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
               <span aria-hidden="true" style={{ fontSize: 20 }}>🔒</span>
@@ -29838,6 +29904,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             const context = linkContext[section];
             return context ? renderRecordLinks(context[0], context[1]) : null;
           })()}
+          </>)}
         </main>
 
       </div>
