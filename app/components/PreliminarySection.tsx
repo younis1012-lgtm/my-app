@@ -409,9 +409,10 @@ export function PreliminarySection(props: PreliminarySectionProps) {
 
       <div style={styles.formGrid}>
         <Field label="שם הפרויקט"><input style={styles.input} value={projectName} readOnly /></Field>
-        <Field label="חברת ניהול"><input style={styles.input} value={projectMeta.projectManagement || projectMeta.projectManager || ''} readOnly /></Field>
-        <Field label="קבלן ראשי"><input style={styles.input} value={projectMeta.contractor || ''} readOnly /></Field>
-        <Field label="חברת בקרת איכות"><input style={styles.input} value={projectMeta.qualityControl || ''} readOnly /></Field>
+        <Field label="חברת ניהול"><input style={styles.input} value={projectMeta.projectManagement || projectMeta.projectManager || ''} readOnly placeholder="לא הוגדר – יש לעדכן בפרטי הפרויקט" title="נלקח אוטומטית מפרטי הפרויקט. לשינוי – עדכנו במסך פרטי הפרויקט" /></Field>
+        <Field label="קבלן ראשי"><input style={styles.input} value={projectMeta.contractor || ''} readOnly placeholder="לא הוגדר – יש לעדכן בפרטי הפרויקט" title="נלקח אוטומטית מפרטי הפרויקט. לשינוי – עדכנו במסך פרטי הפרויקט" /></Field>
+        <Field label="חברת בקרת איכות"><input style={styles.input} value={projectMeta.qualityControl || ''} readOnly placeholder="לא הוגדר – יש לעדכן בפרטי הפרויקט" title="נלקח אוטומטית מפרטי הפרויקט. לשינוי – עדכנו במסך פרטי הפרויקט" /></Field>
+        <div style={{gridColumn:"1 / -1",fontSize:12,color:"#55657d",marginTop:-4}}>שם הפרויקט, חברת הניהול, הקבלן הראשי וחברת בקרת האיכות נלקחים אוטומטית מ"פרטי הפרויקט" ואינם ניתנים לעריכה כאן.</div>
         <Field label="כותרת"><input style={styles.input} value={form.title ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} /></Field>
         <Field label="תאריך"><input type="date" style={styles.input} value={form.date ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))} /></Field>
         <Field label="סטטוס"><select style={styles.input} value={form.status ?? 'טיוטה'} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as any }))}><option value="טיוטה">בתהליך / בטיפול</option><option value="מאושר">מאושר</option><option value="לא מאושר">לא מאושר</option></select></Field>
