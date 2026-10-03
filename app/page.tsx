@@ -4611,6 +4611,7 @@ const CHECKLIST_TEMPLATE_FOLDERS: Array<{
     description: "מעקות, שילוט, סימון, עיני חתול וצבע",
     templateKeys: [
       "guardrails",
+      "pedestrianRailings",
       "steelGuardrailsSupply",
       "signage",
       "catsEyes",
