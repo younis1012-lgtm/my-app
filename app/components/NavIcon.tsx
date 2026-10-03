@@ -55,6 +55,12 @@ const paths: Record<string, ReactNode> = {
       <path d="M3 10h18M9 4v16" />
     </>
   ),
+  labOrders: (
+    <>
+      <path d="M9 3h6M10 3v5l-4.5 8.5A2 2 0 0 0 7.3 19.5h9.4a2 2 0 0 0 1.8-3L14 8V3" />
+      <path d="M8 14h8" />
+    </>
+  ),
   holdPoints: <path d="M5 21V4h11l-2 4 2 4H5" />,
   nonconformances: (
     <>

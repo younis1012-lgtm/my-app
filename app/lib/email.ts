@@ -3,6 +3,8 @@ export type MailContext = {
   projectId: string; module: string; recordId: string; recordIds?: string[]; title: string;
   data: Record<string, unknown>; attachments: MailAttachment[];
   generateDocuments?: () => Promise<MailAttachment[]>;
+  /** ערכים התחלתיים לחלון השליחה (למשל הזמנת מעבדה) */
+  initialTo?: string; initialSubject?: string; initialText?: string;
 };
 export const MAIL_MAX_BYTES = 20 * 1024 * 1024;
 export const MAIL_INLINE_MAX_BYTES = 3 * 1024 * 1024;

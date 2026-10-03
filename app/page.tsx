@@ -36,6 +36,9 @@ import { Field, FormModeBanner, styles } from "./components/common";
 import { FileDropZone } from "./components/FileDropZone";
 import { NavIcon } from "./components/NavIcon";
 import { RecordHistoryPanel } from "./components/RecordHistoryPanel";
+import { LabOrderDialog } from "./components/LabOrderDialog";
+import { LabOrdersTracking } from "./components/LabOrdersTracking";
+import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
 import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
@@ -117,6 +120,7 @@ type AppSection =
   | "supervisionReports"
   | "controlProcesses"
   | "checklistTracking"
+  | "labOrders"
   | "holdPoints"
   | "qualityDocuments";
 
@@ -6164,6 +6168,8 @@ type InlineChecklistSectionProps = {
   savedSignatureForSigner?: (signerName: string, role?: string) => string;
   onlyElectricalTemplates?: boolean;
   concreteSupplierOptions?: Array<{ name: string; material: string }>;
+  onOpenLabOrder?: (itemId: string, kind: LabOrderKind, orderId?: string) => void;
+  labOrdersLocked?: boolean;
 };
 
 type ProcessSignature = {
@@ -6528,6 +6534,8 @@ function ChecklistsSection({
   savedSignatureForSigner,
   concreteSupplierOptions = [],
   onlyElectricalTemplates = false,
+  onOpenLabOrder,
+  labOrdersLocked = false,
 }: InlineChecklistSectionProps) {
   if (guardedBody) return <>{guardedBody}</>;
   const inputStyle: CSSProperties = {
@@ -7802,7 +7810,7 @@ function ChecklistsSection({
                         </td>
                       </tr>
                     ) : null}
-                    <tr className={isExcludedFromPrint ? "yk-cl-row is-excluded" : "yk-cl-row"}>
+                    <tr data-checklist-item={item.id} className={isExcludedFromPrint ? "yk-cl-row is-excluded" : "yk-cl-row"}>
                       <td style={{ ...cellStyle, color: "#55657d", textAlign: "center", fontSize: 13, paddingTop: 12 }}>
                         {index + 1}
                       </td>
@@ -8130,6 +8138,46 @@ function ChecklistsSection({
                             פתח תוצאות חוזק בטון
                           </button>
                         ) : null}
+                        {(() => {
+                          // הזמנות מעבדה / מודד של הסעיף – הסטטוס נגזר מהתעודות שצורפו
+                          const orderStates = deriveLabOrderStates(item);
+                          const orderKinds = (["lab", "measurement"] as LabOrderKind[]).filter((kind) => attachmentKinds.includes(kind));
+                          if (!onOpenLabOrder || (!orderStates.length && !orderKinds.length)) return null;
+                          return (
+                            <div data-lab-orders="" style={{ marginTop: 8, display: "grid", gap: 4 }}>
+                              {orderStates.map((state) => {
+                                const overdue = (state.status === "open" || state.status === "partial") && state.overdueDays > 0;
+                                const tone = state.status === "closed" ? ["#ecf8f0", "#15803d"] : state.status === "cancelled" ? ["#eef1f5", "#55657d"] : overdue ? ["#fdecea", "#b42318"] : state.status === "partial" ? ["#fff5e0", "#9a5b00"] : ["#eef3fa", "#2f5d93"];
+                                const label = state.status === "closed" ? "נסגרה" : state.status === "cancelled" ? "בוטלה" : overdue ? `באיחור ${state.overdueDays} ימים` : state.status === "partial" ? `התקבלה חלקית ${state.attachmentIds.length}/${state.required}` : "ממתינה לתוצאות";
+                                return (
+                                  <button
+                                    key={state.order.id}
+                                    type="button"
+                                    data-lab-order-chip=""
+                                    onClick={() => onOpenLabOrder(item.id, state.order.kind, state.order.id)}
+                                    title={state.certificates.length ? `תעודות: ${state.certificates.join(", ")}` : state.order.partyName}
+                                    style={{ border: 0, cursor: "pointer", textAlign: "right", borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 700, background: tone[0], color: tone[1] }}
+                                  >
+                                    הזמנת {LAB_ORDER_KIND_LABEL[state.order.kind]} {state.order.orderNo} · {label}
+                                  </button>
+                                );
+                              })}
+                              {!labOrdersLocked
+                                ? orderKinds.map((kind) => (
+                                    <button
+                                      key={kind}
+                                      type="button"
+                                      data-lab-order-new=""
+                                      onClick={() => onOpenLabOrder(item.id, kind)}
+                                      style={{ ...styles.secondaryBtn, padding: "5px 10px", fontSize: 12 }}
+                                    >
+                                      + הזמנת {LAB_ORDER_KIND_LABEL[kind]}
+                                    </button>
+                                  ))
+                                : null}
+                            </div>
+                          );
+                        })()}
                         {hasNonconformingLabResult ? (
                           <button
                             type="button"
@@ -18756,6 +18804,7 @@ export default function Page() {
       stationSection: details.stationSection ?? details.station_section ?? "",
       toStationSection: details.toStationSection ?? details.to_station_section ?? "",
       offset: details.offset ?? "",
+      labOrdersSummary: Array.isArray(details.labOrdersSummary) ? details.labOrdersSummary : [],
       selectedPlanId: details.selectedPlanId ?? details.selected_plan_id ?? "",
       executionPlanNo: details.executionPlanNo ?? details.execution_plan_no ?? details.planNo ?? "",
       executionPlanName: details.executionPlanName ?? details.execution_plan_name ?? details.planName ?? "",
@@ -20035,7 +20084,7 @@ export default function Page() {
             {projectSetupChecks.missingLegend.length ? <span style={{ fontWeight: 500, color: "#55657d", fontSize: 13 }}>חסר: {projectSetupChecks.missingLegend.join(", ")}</span> : null}
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 700 }}>
-            <span style={{ color: projectSetupChecks.usersMissing ? "#b42318" : "#15803d" }}>{projectSetupChecks.usersMissing ? "✗" : "✓"}</span>
+            <span style={{ color: projectSetupChecks.usersMissing ? "#b42318" : projectSetupChecks.usersKnown ? "#15803d" : "#8592a6" }}>{projectSetupChecks.usersMissing ? "✗" : projectSetupChecks.usersKnown ? "✓" : "•"}</span>
             2. משתמשי הפרויקט
             {projectSetupChecks.usersMissing ? <span style={{ fontWeight: 500, color: "#55657d", fontSize: 13 }}>לא הוגדר אף משתמש פעיל</span> : null}
           </div>
@@ -21314,6 +21363,115 @@ export default function Page() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingUnlockSave]);
+
+  // ===== הזמנות מעבדה / מודד מתוך סעיף ברשימת התיוג =====
+  const [labOrderDialog, setLabOrderDialog] = useState<{ itemId: string; order: LabOrder; prefilledKeys: Array<keyof LabOrder> } | null>(null);
+  const [pendingLabOrderSave, setPendingLabOrderSave] = useState<{ order: LabOrder; email: boolean } | null>(null);
+  const [pendingLabOrderEmail, setPendingLabOrderEmail] = useState<LabOrder | null>(null);
+  const nextLabOrderNo = () => {
+    let max = 0;
+    for (const record of projectChecklists as any[]) {
+      const summaries = Array.isArray(record?.labOrdersSummary) ? record.labOrdersSummary : [];
+      for (const summary of summaries) max = Math.max(max, Number(summary?.orderNo) || 0);
+      for (const item of Array.isArray(record?.items) ? record.items : []) for (const order of itemLabOrders(item)) max = Math.max(max, order.orderNo);
+    }
+    for (const item of (checklistForm.items ?? []) as any[]) for (const order of itemLabOrders(item)) max = Math.max(max, order.orderNo);
+    return max + 1;
+  };
+  const checklistLabelForOrders = () => {
+    const no = (checklistForm as any).checklistNo;
+    return [no ? `רשימת תיוג ${no}` : "רשימת תיוג", checklistForm.title].filter(Boolean).join(" · ");
+  };
+  const openLabOrder = (itemId: string, kind: LabOrderKind, orderId?: string) => {
+    const item = (checklistForm.items ?? []).find((entry: any) => entry.id === itemId) as any;
+    if (!item) return;
+    const existing = orderId ? itemLabOrders(item).find((order) => order.id === orderId) : undefined;
+    if (existing) {
+      setLabOrderDialog({ itemId, order: existing, prefilledKeys: [] });
+      return;
+    }
+    const form = checklistForm as any;
+    const nodesById = new Map(currentProjectStructureNodes.map((node) => [node.id, node]));
+    const path: string[] = [];
+    let node = nodesById.get(String(form.structureNodeId ?? ""));
+    for (let guard = 0; node && guard < 12; guard += 1) {
+      path.unshift(node.name);
+      node = node.parentId ? nodesById.get(node.parentId) : undefined;
+    }
+    const prefill: Partial<LabOrder> = {
+      testType: String(item.description ?? "").trim(),
+      structure: path.length > 1 ? path.slice(0, -1).join(" › ") : String(form.roadStructure || form.location || ""),
+      element: path.length ? path[path.length - 1] : "",
+      fromChainage: String(form.stationSection ?? ""),
+      toChainage: String(form.toStationSection ?? ""),
+      side: String(form.offset ?? ""),
+      materialSource: kind === "lab" ? String(form.fillMaterialSource || form.concreteSupplier || "") : "",
+      materialType: kind === "lab" ? String(form.fillMaterialType || form.concreteType || form.concreteGrade || "") : "",
+      quantity: form.castingVolumeCubicMeters ? `${form.castingVolumeCubicMeters} מ״ק` : form.areaSquareMeters ? `${form.areaSquareMeters} מ״ר` : "",
+    };
+    const parties = (currentProjectLegend.parties ?? []).filter((party) => party.active && party.role === (kind === "measurement" ? "מודד" : "מעבדה"));
+    const onlyParty = parties.length === 1 ? parties[0] : undefined;
+    const order = normalizeLabOrder({
+      id: `order-${Date.now()}`,
+      orderNo: nextLabOrderNo(),
+      kind,
+      ...prefill,
+      partyId: onlyParty?.id ?? "",
+      partyName: onlyParty?.company ?? "",
+      partyEmail: onlyParty?.email ?? "",
+      contactName: projectAccess?.displayName || projectAccess?.username || "",
+      createdAt: new Date().toISOString(),
+      createdBy: projectAccess?.displayName || projectAccess?.username || "",
+      baselineAttachmentIds: normalizeChecklistAttachments(item.attachments).map((attachment) => attachment.id),
+    });
+    order.sentVia = "";
+    const prefilledKeys = (Object.keys(prefill) as Array<keyof LabOrder>).filter((key) => String(prefill[key] ?? "").trim());
+    setLabOrderDialog({ itemId, order, prefilledKeys });
+  };
+  const storeLabOrder = (itemId: string, order: LabOrder, email: boolean) => {
+    if (!canWriteAccess(projectAccess)) return alert("אין הרשאה לשמור הזמנות.");
+    setChecklistForm((prev: any) => ({
+      ...prev,
+      items: (prev.items ?? []).map((item: any) => {
+        if (item.id !== itemId) return item;
+        const orders = itemLabOrders(item);
+        const exists = orders.some((entry) => entry.id === order.id);
+        return { ...item, labOrders: exists ? orders.map((entry) => (entry.id === order.id ? order : entry)) : [...orders, order] };
+      }),
+    }));
+    setLabOrderDialog(null);
+    setPendingLabOrderSave({ order, email });
+  };
+  // אחרי עדכון הטופס – שמירת רשימת התיוג (ההזמנה נשמרת בתוכה), ואז פתיחת המייל
+  useEffect(() => {
+    if (!pendingLabOrderSave) return;
+    const { order, email } = pendingLabOrderSave;
+    setPendingLabOrderSave(null);
+    void (async () => {
+      await saveChecklist();
+      if (email) setPendingLabOrderEmail(order);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLabOrderSave]);
+  useEffect(() => {
+    if (!pendingLabOrderEmail || !editingChecklistId || !currentProjectIdNormalized) return;
+    const order = pendingLabOrderEmail;
+    setPendingLabOrderEmail(null);
+    const projectTitle = currentProjectLegend.projectName || currentProject?.name || "";
+    const kindWord = order.kind === "measurement" ? "מדידה" : "בדיקת מעבדה";
+    setCentralMailContext({
+      projectId: currentProjectIdNormalized,
+      module: "labOrders",
+      recordId: editingChecklistId,
+      title: `הזמנת ${kindWord} ${order.orderNo}`,
+      data: { projectName: projectTitle, title: `הזמנת ${kindWord} ${order.orderNo}`, status: "", location: order.structure },
+      attachments: [],
+      initialTo: order.partyEmail,
+      initialSubject: `הזמנת ${kindWord} ${order.orderNo} — ${order.testType} — ${projectTitle}`,
+      initialText: labOrderMailText(order, projectTitle, checklistLabelForOrders()),
+    } as MailContext);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLabOrderEmail, editingChecklistId]);
 
   const concreteSupplierOptions = useMemo(
     () => pickApprovedSupplier(projectPreliminary as any[], "concrete", []).options,
@@ -23513,7 +23671,7 @@ export default function Page() {
           notes: record.notes,
           items: record.items,
           approval: record.approval,
-          details: { ...checklistDetails, status: (record as any).status, approval: record.approval },
+          details: { ...checklistDetails, labOrdersSummary: summarizeChecklistLabOrders(record.items), status: (record as any).status, approval: record.approval },
           saved_at: nowIso(),
         };
         await saveWithApprovalFallback(
@@ -28278,6 +28436,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
         ["checklistTracking", "מעקב רשימות תיוג"],
+        ["labOrders", "הזמנות מעבדה ומודד"],
         ["holdPoints", "נקודות עצירה"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
@@ -28299,6 +28458,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["supervisionReports", "דוחות פיקוח עליון"],
         ["checklists", "רשימות תיוג"],
         ["checklistTracking", "מעקב רשימות תיוג"],
+        ["labOrders", "הזמנות מעבדה ומודד"],
         ["holdPoints", "נקודות עצירה"],
         ["nonconformances", "אי תאמות"],
         ["trialSections", "קטעי ניסוי"],
@@ -28309,7 +28469,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const navGroups = [
     { title: "ראשי", keys: ["home", "myTasks", "managementDashboard", "account"] },
     { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
-    { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
+    { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "labOrders", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
     { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
   ].map((group) => ({
     ...group,
@@ -28965,6 +29125,23 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           </div>
         );
       })()}
+      {labOrderDialog ? (
+        <LabOrderDialog
+          key={labOrderDialog.order.id}
+          initial={labOrderDialog.order}
+          prefilledKeys={labOrderDialog.prefilledKeys}
+          parties={currentProjectLegend.parties ?? []}
+          checklistLabel={checklistLabelForOrders()}
+          readOnly={activeRecordLocked || !canWriteAccess(projectAccess)}
+          onSave={(order) => storeLabOrder(labOrderDialog.itemId, order, false)}
+          onSendEmail={(order) => storeLabOrder(labOrderDialog.itemId, order, true)}
+          onCancelOrder={(order) => {
+            if (!window.confirm(`לבטל את הזמנה ${order.orderNo}?`)) return;
+            storeLabOrder(labOrderDialog.itemId, { ...order, cancelled: true }, false);
+          }}
+          onClose={() => setLabOrderDialog(null)}
+        />
+      ) : null}
       {centralMailContext && (
         <EmailComposer key={`${centralMailContext.module}:${centralMailContext.recordId}`}
           context={centralMailContext} senderEmail={currentEmailSender.senderEmail}
@@ -29777,6 +29954,21 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             </div>
             </div>
           )}
+          {section === "labOrders" && (
+            <LabOrdersTracking
+              checklists={projectChecklists as any[]}
+              onOpen={(checklistId, itemId) => {
+                const record = (projectChecklists as any[]).find((entry) => entry.id === checklistId);
+                if (!record) return;
+                void Promise.resolve(loadChecklist(record)).then(() => {
+                  window.setTimeout(() => {
+                    const row = document.querySelector(`[data-checklist-item="${itemId}"]`);
+                    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }, 600);
+                });
+              }}
+            />
+          )}
           {section === "checklistTracking" && (
             <ChecklistTrackingSection
               records={projectChecklists}
@@ -29953,6 +30145,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 savedSignatureForSigner={savedSignatureForSigner}
                 concreteSupplierOptions={concreteSupplierOptions}
                 onlyElectricalTemplates={isDisciplineRestricted(projectAccess)}
+                onOpenLabOrder={openLabOrder}
+                labOrdersLocked={activeRecordLocked || !canWriteAccess(projectAccess)}
               />
             </>
           )}

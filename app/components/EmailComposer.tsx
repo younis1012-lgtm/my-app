@@ -44,9 +44,9 @@ export function EmailComposer({context, senderEmail, contacts, canSend, onClose}
     finally {setDirectoryLoading(false);}
   }
   useEffect(()=>{void loadDirectory();},[]);
-  const [to, setTo] = useState(''), [cc, setCc] = useState(''), [bcc, setBcc] = useState('');
-  const [subject, setSubject] = useState(mergeMailData(mailTemplates[0].subject, context.data));
-  const [text, setText] = useState(mergeMailData(mailTemplates[0].text, context.data));
+  const [to, setTo] = useState(context.initialTo ?? ''), [cc, setCc] = useState(''), [bcc, setBcc] = useState('');
+  const [subject, setSubject] = useState(context.initialSubject ?? mergeMailData(mailTemplates[0].subject, context.data));
+  const [text, setText] = useState(context.initialText ?? mergeMailData(mailTemplates[0].text, context.data));
   const [files, setFiles] = useState(context.attachments);
   const [selected, setSelected] = useState(context.attachments.map(x => x.id));
   const [busy, setBusy] = useState(false), [generating, setGenerating] = useState(false), [generated, setGenerated] = useState(false);
