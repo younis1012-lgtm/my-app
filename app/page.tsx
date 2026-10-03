@@ -5,7 +5,7 @@ import { isLegacyHoldPoint, legacyHoldPointToRecord, legacyHoldPointToRow, isMis
 import { ColumnFilter } from "./components/ColumnFilter";
 import { assignmentProjectIds, matchesProjectAssignment } from "./lib/projectAssignments";
 import { restoreProjectUserDetails, saveProjectUserRows } from "./lib/projectUserStorage";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmailComposer } from "./components/EmailComposer";
 import { collectMailAttachments, type MailContext, type MailAttachment } from "./lib/email";
 import { NCR_HANDLER_OPTIONS, NCR_RESPONSIBLE_OPTIONS, canManageNonconformances, nonconformanceActor } from "./lib/nonconformanceWorkflow";
@@ -37,6 +37,7 @@ import { FileDropZone } from "./components/FileDropZone";
 import { NavIcon } from "./components/NavIcon";
 import { RecordHistoryPanel } from "./components/RecordHistoryPanel";
 import { LabOrderDialog } from "./components/LabOrderDialog";
+import { ImportPreliminaryDialog, preliminaryNested } from "./components/ImportPreliminaryDialog";
 import { LabOrdersTracking } from "./components/LabOrdersTracking";
 import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
@@ -24599,6 +24600,102 @@ export default function Page() {
         ? subcontractorPreliminaryForm
         : materialPreliminaryForm;
   const savePreliminary = (...args: any[]) => runSingleSave("savePreliminary", () => (savePreliminaryInner as any)(...args));
+
+  // ===== ייבוא בקרה מקדימה מפרויקט אחר =====
+  const [importPreliminaryOpen, setImportPreliminaryOpen] = useState(false);
+  const loadPreliminaryForProject = useCallback(async (projectId: string) => {
+    const result = await selectProjectTable("preliminary_records", "saved_at", projectCloudIdsForCanonicalId(projectId));
+    if (result.error) throw new Error(errorText(result.error) || "טעינת הרשומות נכשלה");
+    return (result.data ?? []).map((row: any) => ({
+      id: row.id,
+      projectId: normalizeStoredProjectId(row.project_id),
+      subtype: row.subtype,
+      structureNodeId: row.structure_node_id ?? "",
+      title: row.title ?? "",
+      date: row.date ?? "",
+      status: row.status ?? "טיוטה",
+      supplier: row.supplier ?? undefined,
+      subcontractor: row.subcontractor ?? undefined,
+      material: row.material ?? undefined,
+      approval: normalizeApproval(row.approval),
+      savedAt: row.saved_at ?? "",
+    }));
+  }, []);
+  const importPreliminaryRecords = async (records: any[], source: { id: string; name: string }) => {
+    if (!canWriteAccess(projectAccess)) throw new Error("אין הרשאת עריכה בפרויקט הנוכחי");
+    if (!currentProjectId) throw new Error("יש לבחור פרויקט");
+    const normalizedProjectId = normalizeStoredProjectId(currentProjectId);
+    const importer = projectAccess?.displayName || projectAccess?.username || "";
+    const imported: PreliminaryRecord[] = [];
+    const ok = await withSaving(async () => {
+      for (const light of records) {
+        const full = (cloudEnabled ? await hydratePreliminaryRecord(light as PreliminaryRecord) : light) as any;
+        const subtype = full.subtype as PreliminaryTab;
+        const key = preliminaryRecordKey(subtype);
+        const signatures: any[] = Array.isArray(full.approval?.signatures) ? full.approval.signatures : [];
+        const signed = signatures.filter((sig) => String(sig?.signedAt ?? "").trim());
+        const nested = {
+          ...(full[key] && typeof full[key] === "object" ? full[key] : {}),
+          importedFrom: {
+            projectId: source.id,
+            projectName: source.name,
+            recordId: full.id,
+            title: full.title ?? "",
+            status: full.approval?.status === "approved" ? "approved" : String(full.status ?? ""),
+            approvedAt: signed.map((sig) => String(sig.signedAt)).sort().pop() ?? "",
+            approvedBy: Array.from(new Set(signed.map((sig) => String(sig.signerName ?? "").trim()).filter(Boolean))).join(", "),
+            importedAt: nowIso(),
+            importedBy: importer,
+          },
+        };
+        const title = nextPreliminaryTitle(subtype);
+        rememberSequentialNo(preliminarySequenceKind(subtype), title);
+        const draft = {
+          ...full,
+          id: crypto.randomUUID(),
+          projectId: normalizedProjectId,
+          structureNodeId: "",
+          title,
+          status: "טיוטה",
+          [key]: nested,
+          approval: createQualityControlApproval(),
+          savedAt: nowLocal(),
+        } as PreliminaryRecord;
+        const record = cloudEnabled ? await preparePreliminaryAttachmentsForCloud(draft) : draft;
+        if (cloudEnabled) {
+          await saveWithApprovalFallback(
+            "preliminary_records",
+            {
+              id: record.id,
+              project_id: normalizedProjectId,
+              structure_node_id: null,
+              subtype: record.subtype,
+              title: record.title,
+              date: record.date,
+              status: record.status,
+              supplier: record.supplier ?? null,
+              subcontractor: record.subcontractor ?? null,
+              material: record.material ?? null,
+              approval: record.approval,
+              saved_at: nowIso(),
+            },
+            "insert",
+          );
+        }
+        imported.push(record);
+      }
+    });
+    if (imported.length) {
+      setSavedPreliminary((prev) => [...prev, ...imported.filter((record) => !prev.some((item) => item.id === record.id))]);
+      if (cloudEnabled) {
+        try {
+          await refreshCloudData();
+        } catch {}
+      }
+      alert(`יובאו ${imported.length} רשומות מ"${source.name}" כטיוטה – יש לבדוק ולאשר אותן בפרויקט הנוכחי.`);
+    }
+    if (!ok) throw new Error(imported.length ? `יובאו ${imported.length} רשומות בלבד – הייבוא נעצר בשגיאה` : "הייבוא נכשל");
+  };
   const savePreliminaryInner = async (subtype: PreliminaryTab) => {
     if (!canWriteAccess(projectAccess))
       return alert("המשתמש הנוכחי הוא Read Only ולכן אין הרשאה לשמור בקרה מקדימה.");
@@ -29137,6 +29234,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           </div>
         );
       })()}
+      {importPreliminaryOpen ? (
+        <ImportPreliminaryDialog
+          projects={accessibleProjects
+            .filter((project) => normalizeStoredProjectId(project.id) !== currentProjectIdNormalized)
+            .map((project) => ({ id: normalizeStoredProjectId(project.id), name: project.name }))}
+          initialTab={preliminaryTab}
+          currentProjectName={currentProjectLegend.projectName || currentProject?.name || ""}
+          existingRecords={projectPreliminary as any[]}
+          loadRecords={loadPreliminaryForProject}
+          onImport={importPreliminaryRecords}
+          onClose={() => setImportPreliminaryOpen(false)}
+        />
+      ) : null}
       {labOrderDialog ? (
         <LabOrderDialog
           key={labOrderDialog.order.id}
@@ -29495,6 +29605,16 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 marginBottom: 14,
               }}
             >
+              {canWriteAccess(projectAccess) && accessibleProjects.some((project) => normalizeStoredProjectId(project.id) !== currentProjectIdNormalized) ? (
+                <button
+                  type="button"
+                  data-import-preliminary=""
+                  style={{ ...styles.secondaryBtn, marginInlineEnd: "auto" }}
+                  onClick={() => setImportPreliminaryOpen(true)}
+                >
+                  ⇩ ייבוא מפרויקט אחר
+                </button>
+              ) : null}
               {(["suppliers", "subcontractors", "materials"] as PreliminaryTab[]).map((tab) => (
                 <button
                   key={tab}
@@ -29511,6 +29631,23 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               ))}
             </div>
           )}
+          {section === "preliminary" && !guardedBody && editingPreliminaryId && (() => {
+            const origin = preliminaryNested(currentPreliminaryForm as any)?.importedFrom;
+            if (!origin?.projectName) return null;
+            const when = (value: string) => {
+              const date = new Date(value);
+              return value && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("he-IL") : value;
+            };
+            return (
+              <div data-imported-from="" style={{ fontSize: 13, color: "#2f5d93", background: "#eef3fa", borderRadius: 10, padding: "9px 12px", marginBottom: 12 }}>
+                יובא מפרויקט <b>{origin.projectName}</b>
+                {origin.title ? ` · ${origin.title}` : ""}
+                {origin.status === "approved" ? ` · אושר שם${origin.approvedAt ? ` ב-${when(origin.approvedAt)}` : ""}${origin.approvedBy ? ` ע״י ${origin.approvedBy}` : ""}` : " · לא היה מאושר במקור"}
+                {origin.importedAt ? ` · יובא ${when(origin.importedAt)}${origin.importedBy ? ` ע״י ${origin.importedBy}` : ""}` : ""}
+                . האישור בפרויקט הנוכחי נפרד – יש לבדוק ולחתום כאן.
+              </div>
+            );
+          })()}
           {structureLinkedSections.includes(section) && !guardedBody && (
             <ProjectStructureSelector
               nodes={currentProjectStructureNodes}
