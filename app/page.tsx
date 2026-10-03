@@ -17840,26 +17840,8 @@ export default function Page() {
       setDraftProjectLegends({});
     }
 
-    // טעינת פרטי פרויקט מהענן. כך פרטי הפרויקט לא נעלמים בכניסה חוזרת/מחשב אחר.
-    if (isSupabaseConfigured && supabase) {
-      void loadProjectLegendsFromSupabase().then((cloudLegends) => {
-        setProjectLegendsReady(true);
-        if (!cloudLegends || !Object.keys(cloudLegends).length) return;
-        setProjectLegends((prev) => {
-          const merged = migrateProjectLegendMap({ ...prev, ...cloudLegends });
-          try {
-            window.localStorage.setItem(
-              PROJECT_LEGEND_STORAGE_KEY,
-              JSON.stringify(merged),
-            );
-          } catch {}
-          return merged;
-        });
-        setDraftProjectLegends((prev) =>
-          migrateProjectLegendMap({ ...prev, ...cloudLegends }),
-        );
-      });
-    }
+    // פרטי הפרויקט נטענים מהענן רק אחרי התחברות (ראו האפקט שתלוי במשתמש המחובר) –
+    // לפני התחברות הטבלה מוגנת ומחזירה רשימה ריקה.
 
     try {
       if (isSupabaseConfigured) {
@@ -19599,6 +19581,32 @@ export default function Page() {
       .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error: errorText(error)}); });
     return () => { active = false; };
   }, [projectAccess?.authUserId, selectedUsersProjectId]);
+
+  // טעינת פרטי פרויקט מהענן אחרי התחברות. כך פרטי הפרויקט לא נעלמים בכניסה חוזרת/מחשב אחר.
+  // בדיקת "הקמת פרויקט" מופעלת רק אחרי טעינה מוצלחת – כדי לא לחסום בגלל טעינה שלא הושלמה.
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setProjectLegendsReady(false);
+    if (!projectAccess?.authUserId) return;
+    let active = true;
+    void loadProjectLegendsFromSupabase().then((cloudLegends) => {
+      if (!active || !cloudLegends) return;
+      if (Object.keys(cloudLegends).length) {
+        setProjectLegends((prev) => {
+          const merged = migrateProjectLegendMap({ ...prev, ...cloudLegends });
+          try {
+            window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+        setDraftProjectLegends((prev) => migrateProjectLegendMap({ ...prev, ...cloudLegends }));
+      }
+      setProjectLegendsReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [projectAccess?.authUserId]);
 
   const saveProjectEmailUsers = (updater: (prev: ProjectEmailUser[]) => ProjectEmailUser[]) => {
     const base = projectEmailUsersRef.current;
