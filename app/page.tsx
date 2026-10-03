@@ -2302,7 +2302,54 @@ type ProjectLegend = {
   surveyor: string;
   supervisor: string;
   extraFactors: Array<{ id: string; label: string; value: string }>;
+  parties: ProjectParty[];
 };
+
+// גורמי הפרויקט – מתכננים, חברת ניהול, מעבדות, מודדים ועוד, כפי שמופיעים במסמכי הפרויקט (תוכניות חתומות לביצוע, מכתבי מינוי)
+type ProjectParty = {
+  id: string;
+  company: string;
+  role: string;
+  disciplines: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  regNo: string;
+  source: string;
+  active: boolean;
+};
+const PROJECT_PARTY_ROLES = ["מתכנן", "ניהול פרויקט", "מעבדה", "מודד", "יועץ", "קבלן משנה", "אחר"];
+const normalizeProjectParty = (item: any, index = 0): ProjectParty => ({
+  id: String(item?.id ?? `party-${Date.now()}-${index}`),
+  company: String(item?.company ?? ""),
+  role: String(item?.role ?? "מתכנן") || "מתכנן",
+  disciplines: Array.isArray(item?.disciplines) ? item.disciplines.join(", ") : String(item?.disciplines ?? ""),
+  contactName: String(item?.contactName ?? ""),
+  phone: String(item?.phone ?? ""),
+  email: String(item?.email ?? "").replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, "").trim(),
+  regNo: String(item?.regNo ?? ""),
+  source: String(item?.source ?? ""),
+  active: item?.active !== false,
+});
+const normalizePartyText = (value: unknown) =>
+  String(value ?? "").replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+// התאמת מתכנן (לפי מייל, ואם אין – לפי שם חברה או איש קשר) לגורם רשום
+const findMatchingProjectParty = (parties: ProjectParty[], name: unknown, email: unknown) => {
+  const mail = normalizePartyText(email);
+  if (mail) {
+    const byMail = parties.find((party) => party.email && normalizePartyText(party.email) === mail);
+    if (byMail) return byMail;
+  }
+  const text = normalizePartyText(name);
+  if (!text) return undefined;
+  return parties.find((party) => {
+    const company = normalizePartyText(party.company);
+    const contact = normalizePartyText(party.contactName);
+    return (company && (text.includes(company) || company.includes(text))) || (contact && text.includes(contact));
+  });
+};
+const projectPartyLabel = (party: ProjectParty) =>
+  [party.company, party.contactName].filter(Boolean).join(" – ");
 
 const normalizeProjectLegend = (
   value: unknown,
@@ -2320,12 +2367,21 @@ const normalizeProjectLegend = (
     surveyor: String(raw.surveyor ?? ""),
     supervisor: String(raw.supervisor ?? ""),
     extraFactors: Array.isArray((raw as any).extraFactors)
-      ? (raw as any).extraFactors.map((item: any, index: number) => ({
-          id: String(item?.id ?? `${Date.now()}-${index}`),
-          label: String(item?.label ?? "גורם נוסף") || "גורם נוסף",
-          value: String(item?.value ?? ""),
-        }))
+      ? (raw as any).extraFactors
+          .filter((item: any) => item?.kind !== "party")
+          .map((item: any, index: number) => ({
+            id: String(item?.id ?? `${Date.now()}-${index}`),
+            label: String(item?.label ?? "גורם נוסף") || "גורם נוסף",
+            value: String(item?.value ?? ""),
+          }))
       : [],
+    // גורמי הפרויקט נשמרים בענן בתוך extra_factors (מסומנים kind: "party") – בלי צורך בשינוי טבלה
+    parties: (Array.isArray((raw as any).parties)
+      ? (raw as any).parties
+      : Array.isArray((raw as any).extraFactors)
+        ? (raw as any).extraFactors.filter((item: any) => item?.kind === "party")
+        : []
+    ).map((item: any, index: number) => normalizeProjectParty(item, index)),
   };
 };
 
@@ -2385,7 +2441,10 @@ const projectLegendToRow = (projectId: string, legend: ProjectLegend) => ({
   work_manager: legend.workManager,
   surveyor: legend.surveyor,
   supervisor: legend.supervisor,
-  extra_factors: legend.extraFactors ?? [],
+  extra_factors: [
+    ...(legend.extraFactors ?? []),
+    ...(legend.parties ?? []).map((party) => ({ ...party, kind: "party" })),
+  ],
   updated_at: nowIso(),
 });
 
@@ -8762,7 +8821,126 @@ function ProjectLegendPanel({
           איכות לפני עבודה ברשימות / ריכוזים / טפסים.
         </div>
       ) : null}
+      <ProjectPartiesEditor
+        parties={legend.parties ?? []}
+        canEdit={canEdit}
+        onChange={(next) => onChange("parties", JSON.stringify(next))}
+        onApprove={onApprove}
+        hasChanges={hasChanges}
+      />
     </section>
+  );
+}
+
+function ProjectPartiesEditor({
+  parties,
+  canEdit,
+  onChange,
+  onApprove,
+  hasChanges,
+}: {
+  parties: ProjectParty[];
+  canEdit: boolean;
+  onChange: (next: ProjectParty[]) => void;
+  onApprove: () => void;
+  hasChanges: boolean;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const update = (id: string, patch: Partial<ProjectParty>) =>
+    onChange(parties.map((party) => (party.id === id ? { ...party, ...patch } : party)));
+  const add = () => {
+    const party = normalizeProjectParty({ id: `party-${Date.now()}`, role: "מתכנן" });
+    onChange([...parties, party]);
+    setOpenId(party.id);
+  };
+  const remove = (party: ProjectParty) => {
+    if (!window.confirm(`למחוק את ${party.company || "הגורם"} מגורמי הפרויקט?`)) return;
+    onChange(parties.filter((item) => item.id !== party.id));
+  };
+  const input: CSSProperties = { width: "100%", border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 10px", background: "#fff", boxSizing: "border-box" };
+  const label: CSSProperties = { display: "grid", gap: 4, fontWeight: 700, fontSize: 13, color: "#55657d" };
+  const chip = (text: string, tone: "blue" | "green" | "gray" = "blue") => (
+    <span key={text} style={{ display: "inline-block", borderRadius: 999, padding: "2px 9px", fontSize: 12, fontWeight: 700, margin: "0 0 3px 4px", background: tone === "green" ? "#ecf8f0" : tone === "gray" ? "#eef1f5" : "#eef3fa", color: tone === "green" ? "#15803d" : tone === "gray" ? "#55657d" : "#2f5d93" }}>{text}</span>
+  );
+  const sorted = [...parties].sort((a, b) => Number(b.active) - Number(a.active) || a.role.localeCompare(b.role, "he") || a.company.localeCompare(b.company, "he"));
+  return (
+    <div data-project-parties="" style={{ marginTop: 18, borderTop: "1px solid #eef1f5", paddingTop: 16, display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#0b1f3a" }}>גורמי הפרויקט ({parties.length})</div>
+          <div style={{ fontSize: 13, color: "#55657d" }}>מתכננים, חברת ניהול, מעבדות ומודדים – כפי שמופיעים בתוכניות החתומות לביצוע ובמסמכי הפרויקט. משמשים בדוחות פיקוח עליון ובמיילים.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {hasChanges ? <button type="button" style={styles.primaryBtn} onClick={onApprove}>שמירה</button> : null}
+          <button type="button" style={{ ...styles.secondaryBtn, opacity: canEdit ? 1 : 0.5 }} disabled={!canEdit} onClick={add}>+ הוספת גורם פרויקט</button>
+        </div>
+      </div>
+      {!parties.length ? (
+        <div style={{ fontSize: 14, color: "#55657d", background: "#f8fafc", borderRadius: 10, padding: "10px 12px" }}>עדיין לא נרשמו גורמי פרויקט. מומלץ להוסיף את חברות התכנון לפי סט התוכניות החתומות לביצוע.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
+            <thead>
+              <tr>
+                {["חברה", "תפקיד", "תחומים", "איש קשר", "מקור הרישום", "סטטוס", ""].map((head) => (
+                  <th key={head} style={{ textAlign: "right", color: "#55657d", fontWeight: 700, background: "#f8fafc", padding: "8px 10px", borderBottom: "1px solid #dde3ec" }}>{head}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((party) => (
+                <Fragment key={party.id}>
+                  <tr style={{ opacity: party.active ? 1 : 0.6 }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top" }}>
+                      <b>{party.company || "—"}</b>
+                      {party.regNo ? <div style={{ fontSize: 12, color: "#55657d" }}>ח״פ {party.regNo}</div> : null}
+                    </td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top" }}>{party.role}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top" }}>
+                      {party.disciplines.split(/[,،;]/).map((x) => x.trim()).filter(Boolean).map((x) => chip(x))}
+                    </td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top" }}>
+                      {party.contactName || "—"}
+                      <div style={{ fontSize: 12, color: "#55657d" }} dir="ltr">{[party.email, party.phone].filter(Boolean).join(" · ")}</div>
+                    </td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top", fontSize: 12, color: "#55657d" }}>{party.source || "—"}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top" }}>{party.active ? chip("פעיל", "green") : chip("לא פעיל", "gray")}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #eef1f5", verticalAlign: "top", whiteSpace: "nowrap" }}>
+                      <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 10px" }} disabled={!canEdit} onClick={() => setOpenId(openId === party.id ? null : party.id)}>{openId === party.id ? "סגירה" : "עריכה"}</button>
+                    </td>
+                  </tr>
+                  {openId === party.id ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: 12, background: "#f8fafc", borderBottom: "1px solid #dde3ec" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+                          <label style={label}>שם החברה *<input style={input} value={party.company} onChange={(e) => update(party.id, { company: e.target.value })} /></label>
+                          <label style={label}>תפקיד<select style={input} value={party.role} onChange={(e) => update(party.id, { role: e.target.value })}>{PROJECT_PARTY_ROLES.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
+                          <label style={label}>תחומים (מופרדים בפסיק)<input style={input} list="yk-party-disciplines" value={party.disciplines} onChange={(e) => update(party.id, { disciplines: e.target.value })} placeholder="קונסטרוקציה, גשרים" /></label>
+                          <label style={label}>איש קשר<input style={input} value={party.contactName} onChange={(e) => update(party.id, { contactName: e.target.value })} /></label>
+                          <label style={label}>מייל<input style={input} dir="ltr" value={party.email} onChange={(e) => update(party.id, { email: e.target.value })} /></label>
+                          <label style={label}>טלפון<input style={input} dir="ltr" value={party.phone} onChange={(e) => update(party.id, { phone: e.target.value })} /></label>
+                          <label style={label}>ח״פ<input style={input} value={party.regNo} onChange={(e) => update(party.id, { regNo: e.target.value })} /></label>
+                          <label style={label}>מקור הרישום<input style={input} value={party.source} onChange={(e) => update(party.id, { source: e.target.value })} placeholder="לדוגמה: תוכנית K-101 מהד׳ 3, חתומה לביצוע" /></label>
+                        </div>
+                        <datalist id="yk-party-disciplines">{SUPERVISION_DISCIPLINE_OPTIONS.map((option) => <option key={option} value={option} />)}</datalist>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                          <label style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 700, fontSize: 13 }}>
+                            <input type="checkbox" checked={party.active} onChange={(e) => update(party.id, { active: e.target.checked })} /> פעיל בפרויקט
+                          </label>
+                          <span style={{ flex: 1 }} />
+                          <button type="button" style={styles.dangerBtn} onClick={() => remove(party)}>מחיקת גורם</button>
+                          <button type="button" style={styles.primaryBtn} onClick={() => { setOpenId(null); onApprove(); }}>שמירה</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -9747,7 +9925,11 @@ function SupervisionReportsSection({
   onDownloadSelectedPdf,
   selectedRecordIds: controlledReportIds,
   onSelectedRecordIdsChange: onReportSelectionChange,
+  projectParties = [],
+  onAddProjectParty,
 }: {
+  projectParties?: ProjectParty[];
+  onAddProjectParty?: (party: Partial<ProjectParty>) => Promise<boolean>;
   records: SupervisionReportRecord[];
   form: Omit<SupervisionReportRecord, "id" | "projectId" | "savedAt">;
   editingId: string | null;
@@ -9932,6 +10114,66 @@ function SupervisionReportsSection({
           {/* פרטי הביקור */}
           <div style={card}>
             <h3 style={cardTitle}>פרטי הביקור</h3>
+            {(() => {
+              const designers = projectParties.filter((party) => party.active && party.role === "מתכנן");
+              const discipline = normalizePartyText(details.discipline);
+              const inDiscipline = discipline
+                ? designers.filter((party) => party.disciplines.split(/[,،;]/).some((d) => { const x = normalizePartyText(d); return x && (x.includes(discipline) || discipline.includes(x)); }))
+                : designers;
+              const options = inDiscipline.length ? inDiscipline : designers;
+              const matched = findMatchingProjectParty(projectParties, details.plannerName, details.plannerEmail);
+              const hasPlanner = Boolean(String(details.plannerName ?? "").trim() || String(details.plannerEmail ?? "").trim());
+              return (
+                <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                  <label style={fieldLabel}>בחירת מתכנן מגורמי הפרויקט{discipline && inDiscipline.length ? ` (תחום: ${details.discipline})` : ""}
+                    <select
+                      style={fieldInput}
+                      value={matched?.id ?? ""}
+                      onChange={(e) => {
+                        const party = projectParties.find((item) => item.id === e.target.value);
+                        if (!party) return;
+                        const first = party.disciplines.split(/[,،;]/).map((x) => x.trim()).find(Boolean);
+                        const changed: Array<keyof SupervisionReportDetails> = ["plannerName", "plannerEmail", "discipline"];
+                        onChange("details", {
+                          ...details,
+                          plannerName: projectPartyLabel(party),
+                          plannerEmail: party.email || details.plannerEmail,
+                          discipline: String(details.discipline ?? "").trim() || first || details.discipline,
+                          autoFilledFields: details.autoFilledFields.filter((field) => !changed.includes(field as keyof SupervisionReportDetails)),
+                        });
+                      }}
+                    >
+                      <option value="">{designers.length ? "בחירת מתכנן…" : "לא נרשמו מתכננים בגורמי הפרויקט"}</option>
+                      {options.map((party) => <option key={party.id} value={party.id}>{projectPartyLabel(party)}{party.disciplines ? ` · ${party.disciplines}` : ""}</option>)}
+                    </select>
+                  </label>
+                  {hasPlanner && matched ? (
+                    <div style={{ fontSize: 13, color: "#2f5d45", background: "#ecf8f0", borderRadius: 10, padding: "6px 12px" }}>מקושר לגורם הפרויקט: <b>{projectPartyLabel(matched)}</b></div>
+                  ) : hasPlanner && onAddProjectParty ? (
+                    <div style={{ fontSize: 13, color: "#9a5b00", background: "#fff5e0", borderRadius: 10, padding: "6px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ flex: 1 }}>המתכנן לא רשום בגורמי הפרויקט.</span>
+                      <button
+                        type="button"
+                        style={{ ...styles.secondaryBtn, padding: "4px 10px" }}
+                        onClick={() => {
+                          const source = window.prompt("מקור הרישום (לדוגמה: תוכנית K-101 מהד׳ 3, חתומה לביצוע):", "");
+                          if (source === null) return;
+                          void onAddProjectParty({
+                            company: String(details.plannerName ?? "").trim(),
+                            role: "מתכנן",
+                            disciplines: String(details.discipline ?? "").trim(),
+                            email: String(details.plannerEmail ?? "").trim(),
+                            source: source.trim(),
+                          });
+                        }}
+                      >
+                        הוספה לגורמי הפרויקט
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: 12 }}>
               <label style={fieldLabel}>תאריך הביקור
                 <input type="date" style={{ ...fieldInput, ...fillMark("date") }} value={form.date} onChange={(e) => setTopField("date", e.target.value)} />
@@ -19849,6 +20091,16 @@ export default function Page() {
         } catch {
           patched = nextLegend;
         }
+      } else if (field === "parties") {
+        try {
+          const parsed = JSON.parse(value);
+          patched = {
+            ...nextLegend,
+            parties: Array.isArray(parsed) ? parsed.map((item: any, index: number) => normalizeProjectParty(item, index)) : nextLegend.parties,
+          };
+        } catch {
+          patched = nextLegend;
+        }
       } else {
         patched = { ...nextLegend, [field]: value };
       }
@@ -19944,6 +20196,31 @@ export default function Page() {
         { id: `${Date.now()}`, label: "גורם נוסף", value: "" },
       ]),
     );
+  };
+
+  // הוספת גורם לפרויקט ושמירה מיידית (למשל מתוך דוח פיקוח עליון – מתכנן שעוד לא רשום)
+  const addProjectPartyAndSave = async (party: Partial<ProjectParty>) => {
+    if (!currentProject) return false;
+    const projectId = normalizeStoredProjectId(currentProject.id);
+    const base = normalizeProjectLegend(savedCurrentProjectLegend, currentProject.name);
+    const nextLegend: ProjectLegend = {
+      ...base,
+      parties: [...base.parties, normalizeProjectParty({ ...party, id: `party-${Date.now()}` })],
+    };
+    const nextLegends = migrateProjectLegendMap({ ...projectLegends, [projectId]: nextLegend });
+    setProjectLegends(nextLegends);
+    setDraftProjectLegends((prev) => migrateProjectLegendMap({ ...prev, [projectId]: nextLegend }));
+    try {
+      window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+    } catch {}
+    try {
+      await saveProjectLegendToSupabase(projectId, nextLegend);
+      alert(`${party.company || "הגורם"} נוסף לגורמי הפרויקט`);
+      return true;
+    } catch (error) {
+      alert(`הוספת הגורם נכשלה: ${errorText(error)}`);
+      return false;
+    }
   };
 
   const removeProjectLegendFactor = (id: string) => {
@@ -29204,6 +29481,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               onSendSelectedEmail={(records) => sendRecordsBatchEmail("supervisionReports", records)}
               onDownloadSelectedPdf={(records) => downloadRecordsBatchPdf("supervisionReports", records)}
               {...batchSelectionProps("supervisionReports")}
+              projectParties={currentProjectLegend.parties ?? []}
+              onAddProjectParty={canWriteAccess(projectAccess) ? addProjectPartyAndSave : undefined}
             />
           )}
           {section === "plans" && (
