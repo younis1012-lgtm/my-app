@@ -19410,6 +19410,8 @@ export default function Page() {
 
   const refreshCloudData = async () => {
     if (!cloudEnabled) return;
+    // אם המשתמש עבר פרויקט בזמן הטעינה – לא מחילים את הנתונים הישנים על הפרויקט החדש
+    const refreshGeneration = cloudLoadGenerationRef.current;
     const browserSupervisionReports = await readSupervisionReportsFromBrowser().catch(() => []);
     const scopedProjectIds = projectCloudIdsForCanonicalId(currentProjectId);
     const [
@@ -19435,6 +19437,7 @@ export default function Page() {
       selectProjectTable(PROJECT_STRUCTURE_TABLE, "sort_order", scopedProjectIds),
       selectProjectTable(PLANS_TABLE, "saved_at", scopedProjectIds),
     ]);
+    if (refreshGeneration !== cloudLoadGenerationRef.current) return;
     loadFromCloudResults(
       cloudRowsOrFallback(projectsRes, projects),
       cloudRowsOrKeep(checklistsRes),
@@ -19447,6 +19450,13 @@ export default function Page() {
       cloudRowsOrKeep(structureRes),
       cloudRowsOrKeep(plansRes),
     );
+  };
+
+  // אחרי שמירה/מחיקה הרשומה כבר מעודכנת על המסך. הסנכרון המלא מול הענן (10 טבלאות)
+  // רץ ברקע – המשתמש לא מחכה לו. קודם כפתור "שומר…" חיכה לטעינה מחדש של כל הפרויקט.
+  const refreshCloudDataInBackground = () => {
+    if (!cloudEnabled) return;
+    void refreshCloudData().catch((error) => console.warn("Background cloud refresh failed", error));
   };
 
   const withSaving = async (
@@ -23924,7 +23934,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "checklists", id);
-        await refreshCloudData();
+        setSavedChecklists((prev: any[]) => prev.filter((item: any) => item.id !== id));
+        refreshCloudDataInBackground();
       } else {
         setSavedChecklists((prev) => prev.filter((item) => item.id !== id));
       }
@@ -24086,7 +24097,13 @@ export default function Page() {
           Boolean(editingRfiId),
           editingRfiId ?? undefined,
         );
-        await refreshCloudData();
+        const savedRfi = { ...record, documents: normalizeAttachments(recordForSave.documents) };
+        setSavedRfis((prev) =>
+          prev.some((item) => item.id === savedRfi.id)
+            ? prev.map((item) => (item.id === savedRfi.id ? savedRfi : item))
+            : [savedRfi, ...prev],
+        );
+        refreshCloudDataInBackground();
       } else {
         setSavedRfis((prev) =>
           editingRfiId
@@ -24125,7 +24142,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "rfi_records", id);
-        await refreshCloudData();
+        setSavedRfis((prev: any[]) => prev.filter((item: any) => item.id !== id));
+        refreshCloudDataInBackground();
       } else {
         setSavedRfis((prev) => prev.filter((item) => item.id !== id));
       }
@@ -24255,7 +24273,12 @@ export default function Page() {
             editingNonconformanceId ?? undefined,
           );
         }
-        await refreshCloudData();
+        setSavedNonconformances((prev) =>
+          prev.some((item) => item.id === record.id)
+            ? prev.map((item) => (item.id === record.id ? record : item))
+            : [record, ...prev],
+        );
+        refreshCloudDataInBackground();
       } else
         setSavedNonconformances((prev) =>
           editingNonconformanceId
@@ -24414,7 +24437,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, NONCONFORMANCE_TABLE, id);
-        await refreshCloudData();
+        setSavedNonconformances((prev: any[]) => prev.filter((item: any) => item.id !== id));
+        refreshCloudDataInBackground();
       } else {
         setSavedNonconformances((prev) => prev.filter((item) => item.id !== id));
       }
@@ -24551,7 +24575,7 @@ export default function Page() {
               )
             : [recordForSave, ...prev],
         );
-        await refreshCloudData();
+        refreshCloudDataInBackground();
       } else
         setSavedTrialSections((prev) =>
           editingTrialSectionId
@@ -24615,7 +24639,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "trial_sections", id);
-        await refreshCloudData();
+        setSavedTrialSections((prev: any[]) => prev.filter((item: any) => item.id !== id));
+        refreshCloudDataInBackground();
       } else {
         setSavedTrialSections((prev) => prev.filter((item) => item.id !== id));
       }
@@ -24823,7 +24848,7 @@ export default function Page() {
               )
             : [...prev, record],
         );
-        await refreshCloudData();
+        refreshCloudDataInBackground();
       } else
         setSavedPreliminary((prev) =>
           editingPreliminaryId
@@ -24905,7 +24930,8 @@ export default function Page() {
     await withSaving(async () => {
       if (cloudEnabled) {
         await deleteCloudRow(supabase!, "preliminary_records", id);
-        await refreshCloudData();
+        setSavedPreliminary((prev: any[]) => prev.filter((item: any) => item.id !== id));
+        refreshCloudDataInBackground();
       } else {
         setSavedPreliminary((prev) => prev.filter((item) => item.id !== id));
       }
@@ -25196,7 +25222,7 @@ export default function Page() {
         await withSaving(async () => {
           setSavedPlans((prev) => [...records, ...prev]);
           await persistPlansToCloud(records);
-          if (cloudEnabled) await refreshCloudData();
+          refreshCloudDataInBackground();
         });
         resetPlanForm();
         return;
@@ -25218,7 +25244,7 @@ export default function Page() {
     await withSaving(async () => {
       setSavedPlans((prev) => (prev.some((item) => item.id === id) ? prev.map((item) => item.id === id ? record : item) : [record, ...prev]));
       await persistPlansToCloud([record]);
-      if (cloudEnabled) await refreshCloudData();
+      refreshCloudDataInBackground();
     });
     setEditingPlanId(id);
   };
@@ -25260,7 +25286,7 @@ export default function Page() {
         }
       }
       setSavedPlans((prev) => prev.filter((item) => item.id !== id));
-      if (cloudEnabled) await refreshCloudData();
+      refreshCloudDataInBackground();
     });
     if (editingPlanId === id) resetPlanForm();
   };
@@ -27977,7 +28003,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         setSavedSupervisionReports(nextReports);
         void writeSupervisionReportsToBrowser(nextReports);
         setEditingSupervisionReportId(id);
-        if (savedToCloud) await refreshCloudData();
+        if (savedToCloud) refreshCloudDataInBackground();
         alert(savedToCloud ? "דוח פיקוח עליון נשמר בהצלחה בענן." : "דוח פיקוח עליון נשמר במערכת המקומית. טבלת הענן של פיקוח עליון עדיין לא זמינה.");
       });
       return;
