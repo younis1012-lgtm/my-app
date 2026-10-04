@@ -13,6 +13,8 @@ type RequestBody = {
   subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register' | 'supervision-report';
   /** דוח פיקוח עליון: עמודי הדוח כתמונות (עד 5), כדי לקרוא את כל ההערות */
   pages?: string[];
+  /** דוח פיקוח עליון: הטקסט שחולץ מה-PDF בדפדפן (מדויק וזול יותר מקריאת תמונה) */
+  text?: string;
   workType?: string;
   expectedMetrics?: string[];
 };
@@ -1058,10 +1060,10 @@ export async function POST(req: NextRequest) {
 החזר JSON בלבד לפי הסכמה. אם שדה לא מופיע בדוח – החזר מחרוזת ריקה, אל תנחש ואל תמציא.
 
 - visitDate: תאריך הביקור בפורמט yyyy-mm-dd.
-- plannerName: שם המתכנן / המפקח העליון שכתב את הדוח (אדם, לא חברה, אם מופיע).
+- plannerName: שם המתכנן שכתב את הדוח, ואחריו שם חברת התכנון בסוגריים אם מופיעה (למשל: מועמר אבו אחמד (מ.נ.מ. מהנדסים בע"מ)).
 - plannerEmail: מייל המתכנן אם מופיע.
 - discipline: תחום התכנון בעברית, אחד מ: קונסטרוקציה, גאוטכניקה / יועץ קרקע, ניקוז, כבישים ותנועה, חשמל ותקשורת, מים וביוב, פיתוח ונוף, אחר.
-- plannerReportNo: מספר הדוח / מספר המסמך של המתכנן.
+- plannerReportNo: מספר הדוח / מספר המסמך / סימוכין של המתכנן.
 - structure: המבנה / האלמנט שנבדק (למשל: מעביר מים BC01, קיר תמך 3, תקרה).
 - location: מיקום / חתך / קטע אם מופיע.
 - visitPurpose: מטרת הביקור במשפט קצר (למשל: בדיקת זיון לפני יציקה).
@@ -1069,10 +1071,18 @@ export async function POST(req: NextRequest) {
 - summary: סיכום הביקור בעברית, 1–3 משפטים, בניסוח עצמאי ותמציתי (מה נבדק ומה המסקנה, כולל אם אושרה יציקה / המשך עבודה).
 - comments: רשימת ההערות / הדרישות / הליקויים שהמתכנן כתב, כל הערה כפריט נפרד, בניסוח המקורי ובקיצור סביר. אל תכלול כותרות, פרטי קשר, תפוצה או חתימות.`;
       const content: any[] = [{ type: 'input_text', text: prompt }];
-      pageImages.forEach((image, index) => {
+      const extractedText = String(body.text ?? '').slice(0, 24000).trim();
+      const hasText = extractedText.length > 200;
+      if (hasText) {
+        content.push({
+          type: 'input_text',
+          text: `טקסט הדוח כפי שחולץ מהקובץ (מקור עיקרי – העדף אותו על פני התמונות; התמונות רק להשלמת סימונים כמו X בטבלת המקצוע):\n${extractedText}`,
+        });
+      }
+      pageImages.slice(0, hasText ? 2 : 5).forEach((image, index) => {
         content.push({ type: 'input_text', text: `עמוד ${index + 1}` });
         if (isImage(image.slice(5, image.indexOf(';')) || mimeType)) {
-          content.push({ type: 'input_image', image_url: image, detail: 'high' });
+          content.push({ type: 'input_image', image_url: image, detail: hasText ? 'low' : 'high' });
         } else {
           content.push({ type: 'input_file', filename: fileName, file_data: normalizeDataUrl(image, mimeType) });
         }

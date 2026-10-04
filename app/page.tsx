@@ -13809,6 +13809,133 @@ const renderPdfPagesForPlanOcr = async (
   return images;
 };
 
+// חילוץ הטקסט מ-PDF (כשיש בו שכבת טקסט) בסדר קריאה נכון לעברית.
+// מספרים ואותיות לטיניות (תאריכים, מספרי דוח) נשמרים משמאל לימין.
+const extractPdfTextForReport = async (file: File, maxPages = 8): Promise<string> => {
+  const pdfjs = await loadReferencePdfJs();
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const isLtr = (value: string) => /^[\s0-9A-Za-z.,:/\-()%@+_'"]+$/.test(value) && /[0-9A-Za-z]/.test(value);
+  const lines: string[] = [];
+  for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, maxPages); pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+    const rows: Array<{ y: number; items: any[] }> = [];
+    for (const item of content.items as any[]) {
+      if (!item?.str) continue;
+      const y = item.transform[5];
+      let row = rows.find((candidate) => Math.abs(candidate.y - y) < 3);
+      if (!row) {
+        row = { y, items: [] };
+        rows.push(row);
+      }
+      row.items.push(item);
+    }
+    rows.sort((a, b) => b.y - a.y);
+    for (const row of rows) {
+      const items = row.items.sort((a, b) => b.transform[4] - a.transform[4]);
+      const ordered: any[] = [];
+      let run: any[] = [];
+      const flush = () => {
+        if (run.length) ordered.push(...run.reverse());
+        run = [];
+      };
+      for (const item of items) {
+        if (isLtr(item.str)) run.push(item);
+        else {
+          flush();
+          ordered.push(item);
+        }
+      }
+      flush();
+      let text = "";
+      let previous: any = null;
+      for (const item of ordered) {
+        if (previous) {
+          const gap = isLtr(item.str) && isLtr(previous.str)
+            ? item.transform[4] - (previous.transform[4] + previous.width)
+            : previous.transform[4] - (item.transform[4] + item.width);
+          if (gap > 1.2 && !text.endsWith(" ") && !item.str.startsWith(" ")) text += " ";
+        }
+        text += item.str;
+        previous = item;
+      }
+      const clean = text.replace(/\s+/g, " ").trim();
+      if (clean) lines.push(clean);
+    }
+    lines.push(`--- עמוד ${pageNo} ---`);
+  }
+  return lines.join("\n");
+};
+
+// קריאה מקומית (בלי בינה מלאכותית) של דוח פיקוח עליון מתוך הטקסט – גיבוי כששירות הקריאה לא זמין
+const parseSupervisionReportText = (text: string) => {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const after = (labels: string[]) => {
+    for (const line of lines) {
+      for (const label of labels) {
+        const index = line.indexOf(label);
+        if (index >= 0) {
+          const value = line.slice(index + label.length).replace(/^[\s:：-]+/, "").trim();
+          if (value) return value;
+        }
+      }
+    }
+    return "";
+  };
+  const toIso = (day: string, month: string, year: string) => {
+    const y = year.length === 2 ? `20${year}` : year;
+    const d = Number(day);
+    const m = Number(month);
+    if (!(d >= 1 && d <= 31 && m >= 1 && m <= 12)) return "";
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  };
+  const findDate = (source: string) => {
+    const match = source.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/);
+    return match ? toIso(match[1], match[2], match[3]) : "";
+  };
+  const visitLine = lines.find((line) => line.includes("תאריך הביקור")) || "";
+  const tourLine = lines.find((line) => /בוצע\s+(סיור|ביקור)/.test(line)) || "";
+  const visitDate = findDate(visitLine) || findDate(tourLine) || findDate(text);
+  const writer = after(["שם הכותב", "שם כותב הדו\"ח", "שם כותב הדוח", "כותב הדוח"]);
+  const company = after(["שם חברה", "שם החברה"]);
+  const reportNo = after(["סימוכין", "מס' דוח", "מספר דוח", "דוח מס'"]);
+  const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [""])[0];
+  // הערות ממוספרות: שורה שמתחילה ב-"1." וממשיכה עד המספר הבא; כותרות תחתונות נעצרות
+  const comments: string[] = [];
+  let current = "";
+  const isFooter = (line: string) => /^---|ת\.ד\.|טל[:׳']|פקס|@|חתימת|^שם כותב|^תאריך[:\s]/.test(line);
+  // ההערות מתחילות אחרי "ממצאים / הנחיות / הערות" (אם יש כותרת כזו) ונגמרות בכותרת התחתונה הראשונה –
+  // כך כיתובי תמונות בעמודים הבאים לא נכנסים כהערות
+  const startIndex = lines.findIndex((line) => /ממצאים|הנחיות|הערות המתכנן|להלן/.test(line));
+  for (const line of lines.slice(startIndex >= 0 ? startIndex + 1 : 0)) {
+    const numbered = line.match(/^(\d{1,2})\s*[.)]\s*(.+)$/);
+    if (numbered && !/^\d{1,2}[./-]\d/.test(line)) {
+      if (current) comments.push(current.trim());
+      current = numbered[2];
+      continue;
+    }
+    if (!current) continue;
+    if (isFooter(line)) break;
+    current += ` ${line}`;
+  }
+  if (current) comments.push(current.trim());
+  const participantsRow = lines.findIndex((line) => line.includes("משתתפים"));
+  return {
+    visitDate,
+    plannerName: [writer, company ? `(${company})` : ""].filter(Boolean).join(" "),
+    plannerEmail: email,
+    plannerReportNo: reportNo,
+    discipline: "",
+    structure: "",
+    location: "",
+    visitPurpose: "",
+    subject: (lines.find((line) => /פיקוח עליון/.test(line)) || "").slice(0, 120),
+    summary: "",
+    comments: comments.filter((comment) => comment.length > 8).slice(0, 40),
+    _participants: participantsRow >= 0 ? lines.slice(participantsRow + 1, participantsRow + 8) : [],
+  };
+};
+
 const readReferenceFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -27574,6 +27701,15 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     try {
       let pages: string[] = [];
       let pagesMime = file.type || "application/pdf";
+      // טקסט הדוח (אם ה-PDF אינו סרוק) – מדויק יותר וזול יותר מקריאת תמונה
+      let reportText = "";
+      if (isPdf) {
+        try {
+          reportText = await extractPdfTextForReport(file);
+        } catch (textError) {
+          console.warn("PDF text extraction failed", textError);
+        }
+      }
       if (isPdf) {
         try {
           pages = await renderPdfPagesForPlanOcr(file, 5);
@@ -27588,20 +27724,32 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         pages = [await readReferenceFileAsDataUrl(file)];
         pagesMime = file.type || (isPdf ? "application/pdf" : "image/jpeg");
       }
-      const response = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subtype: "supervision-report",
-          fileName: file.name,
-          mimeType: pagesMime,
-          dataUrl: pages[0],
-          pages,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || response.statusText || "קריאת הדוח נכשלה");
-      const data = payload?.data ?? {};
+      const hasReportText = reportText.replace(/--- עמוד \d+ ---/g, "").trim().length > 200;
+      let data: any = {};
+      let readMode: "ai" | "text" = "ai";
+      try {
+        const response = await fetch("/api/ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subtype: "supervision-report",
+            fileName: file.name,
+            mimeType: pagesMime,
+            dataUrl: pages[0],
+            pages: hasReportText ? pages.slice(0, 2) : pages,
+            text: hasReportText ? reportText : "",
+          }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || response.statusText || "קריאת הדוח נכשלה");
+        data = payload?.data ?? {};
+      } catch (aiError) {
+        // שירות הקריאה לא זמין (מכסה / חיבור) – קריאה מקומית מתוך טקסט הקובץ, אם יש
+        if (!hasReportText) throw aiError;
+        console.warn("AI read failed; using local text parsing", aiError);
+        data = parseSupervisionReportText(reportText);
+        readMode = "text";
+      }
       const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
       const extracted = {
         date: normalizeDateValue(clean(data.visitDate)),
@@ -27649,7 +27797,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       const commentsCount = extracted.comments.length;
       setSupervisionAutoFill({
         status: "done",
-        message: `הנתונים מולאו אוטומטית מתוך הדוח${commentsCount ? ` (כולל ${commentsCount} הערות)` : ""}. השדות המסומנים בצהוב – יש לבדוק ולאשר לפני שמירה.`,
+        message: `${readMode === "text" ? "שירות הקריאה החכמה לא זמין כרגע – הנתונים נקראו ישירות מטקסט הקובץ (תחום, מבנה וסיכום יש להשלים ידנית). " : ""}הנתונים מולאו אוטומטית מתוך הדוח${commentsCount ? ` (כולל ${commentsCount} הערות)` : ""}. השדות המסומנים בצהוב – יש לבדוק ולאשר לפני שמירה.`,
       });
     } catch (error) {
       console.warn("Supervision report auto-fill failed", error);
