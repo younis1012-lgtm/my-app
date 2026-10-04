@@ -63,6 +63,7 @@ import {
   normalizeStoredProjectId,
   projectCloudIdsForCanonicalId,
   projectCodeToUuid,
+  UUID_PROJECT_ID_PATTERN,
 } from "./lib/projectId";
 const STORAGE_KEY = "yk-quality-stage4-multifile";
 const CURRENT_PROJECT_STORAGE_KEY = `${STORAGE_KEY}-current-project-id`;
@@ -2847,6 +2848,13 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
   } = await supabase.auth.getUser();
   if (userError || !user) return null;
 
+  // שתי הקריאות (שיוכים במסד + שיוכים דרך השרת) רצות במקביל ולא אחת אחרי השנייה – מקצר את הכניסה
+  const session = await supabase.auth.getSession();
+  const accessToken = session.data.session?.access_token;
+  const personnelRequest = accessToken
+    ? fetch('/api/email-directory?mode=memberships', {headers:{Authorization:`Bearer ${accessToken}`},cache:'no-store'})
+    : null;
+  personnelRequest?.catch(() => null);
   const { data, error } = await supabase
     .from("project_members")
     .select("project_id, role, active, projects(id, name)")
@@ -2870,9 +2878,8 @@ const loadSupabaseAuthAccess = async (): Promise<ProjectAccess | null> => {
 
   // Read personnel assignments through the authenticated server; mailbox secrets remain private.
   let personnelMemberships: Array<{ projectId: string; role: ProjectAccess["role"]; projectName: string }> = [];
-  const session = await supabase.auth.getSession();
-  if (session.data.session?.access_token) {
-    const result = await fetch('/api/email-directory?mode=memberships', {headers:{Authorization:`Bearer ${session.data.session.access_token}`},cache:'no-store'});
+  if (personnelRequest) {
+    const result = await personnelRequest;
     if (!result.ok) throw new Error('טעינת שיוכי הפרויקטים נכשלה. יש לנסות שוב');
     const directory = await result.json();
     personnelMemberships = directory.memberships;
@@ -3095,6 +3102,44 @@ const projectMatchesAccess = (
   return false;
 };
 
+// לפני שרשימת הפרויקטים נטענת מהענן: אם למשתמש יש מזהי פרויקט אמיתיים (UUID) משתמשים בהם.
+// קודם נבנה מזהה מומצא בסגנון "project-<UUID>" – כל הטבלאות דחו אותו (שגיאת uuid), נוצרה שרשרת
+// של ניסיונות חוזרים וטעינות כפולות, והמסך נטען רק אחרי 15 שניות בערך.
+const fallbackProjectsForAccess = (access: ProjectAccess): Project[] => {
+  const uuidIds = Array.from(
+    new Set(
+      (Array.isArray(access.projectIds) ? access.projectIds : [])
+        .map(normalizeStoredProjectId)
+        .filter((id) => UUID_PROJECT_ID_PATTERN.test(id)),
+    ),
+  );
+  const code =
+    String(access.code ?? access.username ?? "project").trim() || "project";
+  const codeId = normalizeStoredProjectId(code);
+  if (!uuidIds.length && UUID_PROJECT_ID_PATTERN.test(codeId)) uuidIds.push(codeId);
+  const accessName = String(access.projectName ?? "").trim();
+  if (uuidIds.length) {
+    return uuidIds.map((id, index) => ({
+      id,
+      name: (index === 0 && accessName) || "פרויקט",
+      description: "",
+      manager: "",
+      isActive: index === 0,
+      createdAt: "ברירת מחדל",
+    }) as Project);
+  }
+  return [
+    {
+      id: normalizeStoredProjectId("project-" + code),
+      name: accessName || "פרויקט " + code,
+      description: "פרויקט עבודה לפי הרשאת משתמש " + code,
+      manager: "",
+      isActive: true,
+      createdAt: "ברירת מחדל",
+    } as Project,
+  ];
+};
+
 const getAccessibleProjectsForAccess = (
   sourceProjects: Project[],
   access: ProjectAccess | null,
@@ -3105,21 +3150,7 @@ const getAccessibleProjectsForAccess = (
   if (filtered.length) return filtered;
   if (isAdminAccess(access)) return projects;
   if (isSelfServiceProjectCreator(access)) return [];
-
-  const code =
-    String(access.code ?? access.username ?? "project").trim() || "project";
-  const fallbackName =
-    String(access.projectName ?? "").trim() || "פרויקט " + code;
-  return [
-    {
-      id: normalizeStoredProjectId("project-" + code),
-      name: fallbackName,
-      description: "פרויקט עבודה לפי הרשאת משתמש " + code,
-      manager: "",
-      isActive: true,
-      createdAt: "ברירת מחדל",
-    } as Project,
-  ];
+  return fallbackProjectsForAccess(access);
 };
 
 const selectInitialProjectIdForAccess = (
@@ -17933,6 +17964,20 @@ export default function Page() {
 
     const loadUsers = async () => {
       let users = DEFAULT_PROJECT_ACCESS_LIST;
+      // רשימת המשתמשים וזיהוי המשתמש המחובר נטענים במקביל (קודם זה היה ברצף ועיכב את הכניסה בכמה שניות)
+      const storedSessionAtStart = readStoredAuthSession();
+      // התוצאה נשמרת כאובייקט כדי ששגיאה תיזרק רק כשמגיעים אליה (כמו קודם), בלי "שגיאה לא מטופלת" בזמן ההמתנה
+      const authAccessRequest: Promise<{ value: ProjectAccess | null } | { error: unknown }> =
+        (isSupabaseConfigured && supabase
+          ? (async () => {
+              const supabaseSession = await supabase!.auth.getSession().catch(() => null);
+              const hasSupabaseSession = Boolean(
+                supabaseSession && "data" in supabaseSession && supabaseSession.data.session,
+              );
+              return storedSessionAtStart || hasSupabaseSession ? loadSupabaseAuthAccess() : null;
+            })()
+          : Promise.resolve(null)
+        ).then((value) => ({ value }), (error) => ({ error }));
       const cloudUsers = await loadAccessUsersFromSupabase();
       if (isSupabaseConfigured) {
         // עותקים ישנים של רשימת המשתמשים (עם סיסמאות) בדפדפן – נמחקים
@@ -17959,16 +18004,10 @@ export default function Page() {
       setAccessUsers(users);
       setDraftAccessUsers(users);
 
-      const storedSession = readStoredAuthSession();
-      const supabaseSession =
-        isSupabaseConfigured && supabase
-          ? await supabase.auth.getSession().catch(() => null)
-          : null;
-      const hasSupabaseSession = Boolean(
-        supabaseSession && "data" in supabaseSession && supabaseSession.data.session,
-      );
-      const loadedSupabaseAuthUser =
-        storedSession || hasSupabaseSession ? await loadSupabaseAuthAccess() : null;
+      const storedSession = storedSessionAtStart;
+      const authAccessResult = await authAccessRequest;
+      if ("error" in authAccessResult) throw authAccessResult.error;
+      const loadedSupabaseAuthUser = authAccessResult.value;
       const supabaseAuthUser = loadedSupabaseAuthUser
         ? mergeAccessProfile(loadedSupabaseAuthUser, users)
         : null;
@@ -18049,7 +18088,14 @@ export default function Page() {
   useEffect(() => {
     if (typeof window === "undefined" || !projectAccess) return;
 
-    const refresh = () => refreshAuthSession();
+    // רענון זמן ההתחברות לכל היותר פעם ב-30 שניות (קודם נכתב לדפדפן בכל תזוזת עכבר)
+    let lastRefresh = 0;
+    const refresh = () => {
+      const now = Date.now();
+      if (now - lastRefresh < 30 * 1000) return;
+      lastRefresh = now;
+      refreshAuthSession();
+    };
     const events: Array<keyof WindowEventMap> = [
       "click",
       "keydown",
@@ -19445,23 +19491,7 @@ export default function Page() {
         ? effectiveProjects
         : getDefaultProjectList();
     if (isSelfServiceProjectCreator(projectAccess)) return [];
-
-    const code =
-      String(
-        projectAccess.code ?? projectAccess.username ?? "project",
-      ).trim() || "project";
-    const fallbackName =
-      String(projectAccess.projectName ?? "").trim() || "פרויקט " + code;
-    return [
-      {
-        id: normalizeStoredProjectId("project-" + code),
-        name: fallbackName,
-        description: "פרויקט עבודה לפי הרשאת משתמש " + code,
-        manager: "",
-        isActive: true,
-        createdAt: "ברירת מחדל",
-      } as Project,
-    ];
+    return fallbackProjectsForAccess(projectAccess);
   }, [effectiveProjects, projectAccess]);
   const canCreateProjects =
     isAdminAccess(projectAccess) || isSelfServiceProjectCreator(projectAccess);
