@@ -10046,6 +10046,8 @@ function SupervisionReportsSection({
   const formAttachments = normalizeAttachments(form.attachments ?? (form.attachment ? [form.attachment] : []));
   const [recordsPage, setRecordsPage] = useState(1);
   const [recordFilters, setRecordFilters] = useState<Record<string, string>>({});
+  // טופס קצר להוספת המתכנן מהדוח לגורמי הפרויקט
+  const [partyDraft, setPartyDraft] = useState<null | { company: string; contactName: string; email: string; phone: string; disciplines: string; source: string; saving?: boolean }>(null);
   const recordsPageSize = 10;
   const supervisionFilterColumns = [
     { key: "serial", label: "מס׳", value: (_record: SupervisionReportRecord, index: number) => index + 1 },
@@ -10235,25 +10237,88 @@ function SupervisionReportsSection({
                   {hasPlanner && matched ? (
                     <div style={{ fontSize: 13, color: "#2f5d45", background: "#ecf8f0", borderRadius: 10, padding: "6px 12px" }}>מקושר לגורם הפרויקט: <b>{projectPartyLabel(matched)}</b></div>
                   ) : hasPlanner && onAddProjectParty ? (
-                    <div style={{ fontSize: 13, color: "#9a5b00", background: "#fff5e0", borderRadius: 10, padding: "6px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ flex: 1 }}>המתכנן לא רשום בגורמי הפרויקט.</span>
-                      <button
-                        type="button"
-                        style={{ ...styles.secondaryBtn, padding: "4px 10px" }}
-                        onClick={() => {
-                          const source = window.prompt("מקור הרישום (לדוגמה: תוכנית K-101 מהד׳ 3, חתומה לביצוע):", "");
-                          if (source === null) return;
-                          void onAddProjectParty({
-                            company: String(details.plannerName ?? "").trim(),
-                            role: "מתכנן",
-                            disciplines: String(details.discipline ?? "").trim(),
-                            email: String(details.plannerEmail ?? "").trim(),
-                            source: source.trim(),
-                          });
-                        }}
-                      >
-                        הוספה לגורמי הפרויקט
-                      </button>
+                    <div data-add-planner-party="" style={{ fontSize: 13, color: "#9a5b00", background: "#fff5e0", borderRadius: 10, padding: "8px 12px", display: "grid", gap: 10 }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ flex: 1 }}>המתכנן לא רשום בגורמי הפרויקט.</span>
+                        {!partyDraft ? (
+                          <button
+                            type="button"
+                            style={{ ...styles.secondaryBtn, padding: "4px 10px" }}
+                            onClick={() => {
+                              // "שם (חברה)" מהדוח מתפצל לאיש קשר ולחברה
+                              const raw = String(details.plannerName ?? "").trim();
+                              const split = raw.match(/^(.*?)\s*\((.+)\)\s*$/);
+                              setPartyDraft({
+                                company: split ? split[2].trim() : "",
+                                contactName: split ? split[1].trim() : raw,
+                                email: String(details.plannerEmail ?? "").trim(),
+                                phone: "",
+                                disciplines: String(details.discipline ?? "").trim(),
+                                source: "",
+                              });
+                            }}
+                          >
+                            הוספה לגורמי הפרויקט
+                          </button>
+                        ) : null}
+                      </div>
+                      {partyDraft ? (
+                        <div style={{ display: "grid", gap: 8, color: "#0f1b2d" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))", gap: 8 }}>
+                            {([
+                              ["company", "חברת התכנון *"],
+                              ["contactName", "איש קשר (מתכנן)"],
+                              ["email", "מייל"],
+                              ["phone", "טלפון"],
+                              ["disciplines", "תחומים"],
+                            ] as const).map(([key, label]) => (
+                              <label key={key} style={fieldLabel}>
+                                {label}
+                                <input
+                                  dir={key === "email" || key === "phone" ? "ltr" : undefined}
+                                  style={{ ...fieldInput, background: "#fff" }}
+                                  value={partyDraft[key]}
+                                  onChange={(e) => setPartyDraft((prev) => (prev ? { ...prev, [key]: e.target.value } : prev))}
+                                />
+                              </label>
+                            ))}
+                            <label style={{ ...fieldLabel, gridColumn: "1 / -1" }}>
+                              מקור הרישום
+                              <input
+                                style={{ ...fieldInput, background: "#fff" }}
+                                placeholder="לדוגמה: תוכנית K-101 מהד׳ 3, חתומה לביצוע"
+                                value={partyDraft.source}
+                                onChange={(e) => setPartyDraft((prev) => (prev ? { ...prev, source: e.target.value } : prev))}
+                              />
+                            </label>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#55657d" }}>החברה תירשם בגורמי הפרויקט (פרטי הפרויקט) כמתכנן, ובדוחות הבאים תיבחר מהרשימה.</div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              type="button"
+                              style={{ ...styles.primaryBtn, opacity: partyDraft.saving || !(partyDraft.company.trim() || partyDraft.contactName.trim()) ? 0.5 : 1 }}
+                              disabled={partyDraft.saving || !(partyDraft.company.trim() || partyDraft.contactName.trim())}
+                              onClick={async () => {
+                                const draft = partyDraft;
+                                setPartyDraft({ ...draft, saving: true });
+                                const ok = await onAddProjectParty({
+                                  company: draft.company.trim() || draft.contactName.trim(),
+                                  contactName: draft.company.trim() ? draft.contactName.trim() : "",
+                                  role: "מתכנן",
+                                  disciplines: draft.disciplines.trim(),
+                                  email: draft.email.trim(),
+                                  phone: draft.phone.trim(),
+                                  source: draft.source.trim(),
+                                });
+                                setPartyDraft(ok ? null : { ...draft, saving: false });
+                              }}
+                            >
+                              {partyDraft.saving ? "שומר…" : "שמירה בגורמי הפרויקט"}
+                            </button>
+                            <button type="button" style={styles.secondaryBtn} onClick={() => setPartyDraft(null)}>ביטול</button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
