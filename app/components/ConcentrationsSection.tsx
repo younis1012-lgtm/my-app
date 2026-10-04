@@ -4673,7 +4673,19 @@ const definitions: ConcentrationDefinition[] = [
     description: "",
     sourceLabel: "דוחות פיקוח עליון",
     columns: ["מס׳", "מספר דוח", "תאריך ביקור", "תחום", "מתכנן", "מס׳ דוח המתכנן", "מבנה / אלמנט", "מיקום", "נושא הדוח", "סיכום הביקור", "מס׳ הערות", "הערות המתכנן", "אחראי לטיפול", "תאריך יעד", "אופן הטיפול", "תאריך סגירה", "סטטוס", "אושר ע״י בקרת איכות", "מס׳ קבצים", "שם קובץ", "הערות"],
-    buildRows: ({ savedSupervisionReports }) => savedSupervisionReports.map(supervisionReportRow),
+    // מהישן לחדש לפי תאריך הביקור – מס׳ 1 הוא הדוח הראשון
+    buildRows: ({ savedSupervisionReports }) =>
+      savedSupervisionReports
+        .map((record: any, index: number) => ({ record, index }))
+        .sort((a: any, b: any) => {
+          const dateA = String(a.record?.date ?? "");
+          const dateB = String(b.record?.date ?? "");
+          if (dateA && dateB && dateA !== dateB) return dateA.localeCompare(dateB);
+          if (dateA && !dateB) return -1;
+          if (!dateA && dateB) return 1;
+          return b.index - a.index;
+        })
+        .map((entry: any, position: number) => supervisionReportRow(entry.record, position)),
   },
   {
     id: "materials",

@@ -10049,8 +10049,22 @@ function SupervisionReportsSection({
   // טופס קצר להוספת המתכנן מהדוח לגורמי הפרויקט
   const [partyDraft, setPartyDraft] = useState<null | { company: string; contactName: string; email: string; phone: string; disciplines: string; source: string; saving?: boolean }>(null);
   const recordsPageSize = 10;
+  // מספר סידורי לפי סדר כרונולוגי: הדוח הראשון (תאריך ביקור מוקדם) = 1. בלי תאריך – לפי סדר הקליטה.
+  const supervisionSerialById = (() => {
+    const ranked = records
+      .map((record, index) => ({ record, index }))
+      .sort((a, b) => {
+        const dateA = String(a.record.date ?? "");
+        const dateB = String(b.record.date ?? "");
+        if (dateA && dateB && dateA !== dateB) return dateA.localeCompare(dateB);
+        if (dateA && !dateB) return -1;
+        if (!dateA && dateB) return 1;
+        return b.index - a.index; // הרשימה מגיעה מהחדש לישן
+      });
+    return new Map(ranked.map((entry, position) => [entry.record.id, position + 1]));
+  })();
   const supervisionFilterColumns = [
-    { key: "serial", label: "מס׳", value: (_record: SupervisionReportRecord, index: number) => index + 1 },
+    { key: "serial", label: "מס׳", value: (record: SupervisionReportRecord, _index?: number) => supervisionSerialById.get(record.id) ?? "" },
     { key: "reportNo", label: "מספר דוח", value: (record: SupervisionReportRecord) => record.reportNo },
     { key: "date", label: "תאריך ביקור", value: (record: SupervisionReportRecord) => record.date },
     { key: "discipline", label: "תחום", value: (record: SupervisionReportRecord) => record.details?.discipline ?? "" },
@@ -10570,7 +10584,7 @@ function SupervisionReportsSection({
                           style={{ width: 18, height: 18, marginInlineEnd: 6, verticalAlign: "middle" }}
                         />
                       ) : null}
-                      {(safeRecordsPage - 1) * recordsPageSize + index + 1}
+                      {supervisionSerialById.get(record.id) ?? (safeRecordsPage - 1) * recordsPageSize + index + 1}
                     </td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{record.reportNo}</td>
                     <td style={{ padding: 8, border: "1px solid #cbd5e1" }}>{formatTrackingDate(record.date)}</td>
@@ -27224,11 +27238,26 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         );
       } else {
         const sliceHeightPx = Math.floor((canvas.width * usableHeight) / usableWidth);
+        // נקודות חיתוך בטוחות: סוף שורת טבלה / כותרת / פסקה – כדי שעמוד לא ייחתך באמצע שורה
+        const pageTop = page.getBoundingClientRect().top;
+        const pxToCanvas = canvas.height / Math.max(page.scrollHeight, 1);
+        const safeBreaks = Array.from(
+          page.querySelectorAll("tr, h1, h2, h3, h4, p, li, section, .avoid-break, .card, .export-block"),
+        )
+          .map((node) => Math.round(((node as HTMLElement).getBoundingClientRect().bottom - pageTop) * pxToCanvas))
+          .filter((value) => value > 0 && value < canvas.height)
+          .sort((a, b) => a - b);
         let y = 0;
         let pageIndex = 0;
 
         while (y < canvas.height) {
-          const currentSliceHeight = Math.min(sliceHeightPx, canvas.height - y);
+          let currentSliceHeight = Math.min(sliceHeightPx, canvas.height - y);
+          if (y + currentSliceHeight < canvas.height) {
+            const limit = y + currentSliceHeight;
+            // החיתוך הבטוח האחרון שנכנס בעמוד, כל עוד הוא לא משאיר יותר מ-40% מהעמוד ריק
+            const candidate = [...safeBreaks].reverse().find((value) => value <= limit && value > y + currentSliceHeight * 0.6);
+            if (candidate) currentSliceHeight = Math.min(candidate - y + 2, canvas.height - y);
+          }
           const sliceCanvas = document.createElement("canvas");
           sliceCanvas.width = canvas.width;
           sliceCanvas.height = currentSliceHeight;
