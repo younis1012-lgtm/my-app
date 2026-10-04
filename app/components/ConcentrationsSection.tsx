@@ -4745,16 +4745,6 @@ const definitions: ConcentrationDefinition[] = [
     buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) => buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
   },
   {
-    id: "layer-tracking",
-    title: "מעקב שכבות – עבודות מילוי",
-    fileName: "מעקב שכבות.xlsx",
-    description: "חתך אורכי של שכבות הביצוע לפי חתכים, רשימות תיוג, מדידות ותעודות מעבדה",
-    sourceLabel: "רשימות תיוג עבודות עפר / מדידות / תעודות מעבדה",
-    columns: earthworksFieldColumns,
-    buildRows: ({ savedChecklists, savedControlProcesses, savedPreliminary }) =>
-      buildEarthworksFieldRows(savedChecklists, savedControlProcesses, savedPreliminary),
-  },
-  {
     id: "rfi",
     title: "RFI",
     fileName: "RFI.xlsx",
@@ -4772,7 +4762,7 @@ type ConcentrationGroupKey = "preliminary" | "checklists" | "earthworks" | "repo
 const concentrationGroups: { key: ConcentrationGroupKey; label: string; icon: string; color: string; ids: ConcentrationId[] }[] = [
   { key: "preliminary", label: "בקרה מקדימה", icon: "📋", color: "#2563eb", ids: ["contractors", "suppliers", "materials", "selected-material", "subbase-a"] },
   { key: "checklists", label: "רשימות תיוג ובדיקות שטח", icon: "☷", color: "#16a34a", ids: ["concrete", "asphalt", "density", "piles"] },
-  { key: "earthworks", label: "עבודות עפר", icon: "⛏", color: "#b45309", ids: ["layer-tracking", "earthworks", "earthworks-material-results"] },
+  { key: "earthworks", label: "עבודות עפר", icon: "⛏", color: "#b45309", ids: ["earthworks", "earthworks-material-results"] },
   { key: "reporting", label: "ניהול ותיעוד", icon: "✉", color: "#7c3aed", ids: ["nonconformances", "rfi", "supervision", "trial-sections"] },
 ];
 
@@ -4791,7 +4781,6 @@ const deferredPreviewConcentrationIds = new Set<ConcentrationId>([
   "selected-material",
   "earthworks-material-results",
   "earthworks",
-  "layer-tracking",
   "rfi",
 ]);
 
