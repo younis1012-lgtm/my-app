@@ -10,7 +10,7 @@ type RequestBody = {
   fileName?: string;
   mimeType?: string;
   dataUrl?: string;
-  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register' | 'supervision-report';
+  subtype?: 'suppliers' | 'subcontractors' | 'materials' | 'asphalt-jmf' | 'reference-results' | 'concrete-strength' | 'earthworks-density' | 'plan-register' | 'supervision-report' | 'nonconformance-photo';
   /** דוח פיקוח עליון: עמודי הדוח כתמונות (עד 5), כדי לקרוא את כל ההערות */
   pages?: string[];
   /** דוח פיקוח עליון: הטקסט שחולץ מה-PDF בדפדפן (מדויק וזול יותר מקריאת תמונה) */
@@ -1120,6 +1120,66 @@ export async function POST(req: NextRequest) {
       }
       const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
       return NextResponse.json({ data: safeJsonParse(outputText) ?? { comments: [] } });
+    }
+
+    if (subtype === 'nonconformance-photo') {
+      const photos = (Array.isArray(body.pages) && body.pages.length ? body.pages : [dataUrl])
+        .map((item) => String(item ?? ''))
+        .filter((item) => item.startsWith('data:image/'))
+        .slice(0, 3);
+      if (!photos.length) return NextResponse.json({ data: {} });
+      const hint = String(body.text ?? '').slice(0, 500).trim();
+      const prompt = `אתה מהנדס בקרת איכות בפרויקט תשתית (כבישים, גשרים, ניקוז, קירות) בישראל, לפי מפרטי נתיבי ישראל.
+קיבלת תמונה/ות מהשטח. נסח טיוטת דוח אי התאמה (NCR) שמהנדס בקרת האיכות יבדוק ויאשר.
+החזר JSON בלבד לפי הסכמה. כללים:
+- תאר רק מה שנראה בתמונה בפועל. אל תמציא מידות, מספרי חתכים, מספרי סעיפים במפרט או שמות.
+- defectVisible: האם נראה בתמונה ליקוי / חריגה ברורה (true/false).
+- description: תיאור אי ההתאמה בעברית מקצועית, 1–3 משפטים (מה הליקוי, באיזה אלמנט, היקף משוער אם ניתן להעריך מהתמונה). אם לא נראה ליקוי – כתוב זאת.
+- element: האלמנט שבתמונה (למשל: מעקה בטיחות, שכבת אספלט, קיר תמך, תעלת ניקוז, אבן שפה, מצע, ברזל זיון, בטון), או ריק.
+- location: רק אם מופיע בתמונה סימון מיקום / שלט / חתך קריא; אחרת ריק.
+- actionRequired: הטיפול הנדרש המוצע, משפט עד שניים (למשל: פירוק וביצוע מחדש, תיקון לפי מפרט, הגשת הצעה לתיקון לאישור המתכנן).
+- responsibleParty: אחד מ: ביצוע, ספק, תכנון, או ריק אם לא ברור.
+- qualityImpact: אחד מ: נמוכה, בינונית, גבוהה, קריטית (לפי השפעה על בטיחות ועמידות).
+- uncertainty: מה לא ניתן לקבוע מהתמונה ויש לבדוק בשטח (משפט קצר), או ריק.`;
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (hint) content.push({ type: 'input_text', text: `הערת המשתמש מהשטח (להתחשב בה): ${hint}` });
+      photos.forEach((photo, index) => {
+        content.push({ type: 'input_text', text: `תמונה ${index + 1}` });
+        content.push({ type: 'input_image', image_url: photo, detail: 'high' });
+      });
+      const stringProps = ['description', 'element', 'location', 'actionRequired', 'responsibleParty', 'qualityImpact', 'uncertainty'];
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.OPENAI_OCR_MODEL || 'gpt-4.1-mini',
+          input: [{ role: 'user', content }],
+          temperature: 0.2,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'nonconformance_photo_draft',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  defectVisible: { type: 'boolean' },
+                  ...Object.fromEntries(stringProps.map((key) => [key, { type: 'string' }])),
+                },
+                required: ['defectVisible', ...stringProps],
+              },
+            },
+          },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('OpenAI nonconformance photo error', result);
+        return NextResponse.json({ error: result?.error?.message || 'Photo analysis failed' }, { status: 500 });
+      }
+      const outputText = result.output_text || result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === 'output_text')?.text || '';
+      return NextResponse.json({ data: safeJsonParse(outputText) ?? {} });
     }
 
     if (subtype === 'plan-register') {

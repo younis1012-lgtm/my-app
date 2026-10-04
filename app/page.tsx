@@ -13205,6 +13205,9 @@ function EnhancedNonconformancesSection({
   uploadNonconformanceAttachment,
   removeNonconformanceAttachment,
   resolveCloserName,
+  openFromPhotos,
+  photoFill,
+  dismissPhotoFill,
 }: {
   guardedBody: React.ReactNode;
   editingNonconformanceId: string | null;
@@ -13216,6 +13219,9 @@ function EnhancedNonconformancesSection({
   uploadNonconformanceAttachment: (file?: File) => void;
   removeNonconformanceAttachment: (index: number) => void;
   resolveCloserName?: (code: "QC" | "QA") => string;
+  openFromPhotos?: (files: FileList | null) => void;
+  photoFill?: { status: "idle" | "running" | "done" | "error"; message: string };
+  dismissPhotoFill?: () => void;
 }) {
   if (guardedBody) return <>{guardedBody}</>;
   // בחירת "נסגרה ע״י" ממלאת אוטומטית את תפקיד הסגירה ואת שם הסוגר
@@ -13262,6 +13268,26 @@ function EnhancedNonconformancesSection({
           >
             אי התאמה חדשה
           </button>
+          {openFromPhotos ? (
+            <label
+              style={{ ...styles.secondaryBtn, display: "inline-flex", alignItems: "center", gap: 6, cursor: photoFill?.status === "running" ? "wait" : "pointer", opacity: photoFill?.status === "running" ? 0.6 : 1 }}
+              title="צלם או בחר עד 3 תמונות – תיפתח טיוטת אי התאמה עם תיאור מוצע"
+            >
+              📷 פתיחה מתמונה
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                disabled={photoFill?.status === "running"}
+                style={{ display: "none" }}
+                onChange={(event) => {
+                  openFromPhotos(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
           <button
             type="button"
             style={styles.primaryBtn}
@@ -13280,6 +13306,29 @@ function EnhancedNonconformancesSection({
           </button>
         </div>
       </div>
+      {photoFill && photoFill.status !== "idle" ? (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 12,
+            padding: "10px 14px",
+            borderRadius: 12,
+            fontWeight: 700,
+            border: `1px solid ${photoFill.status === "error" ? "#fecaca" : photoFill.status === "done" ? "#fde68a" : "#bfdbfe"}`,
+            background: photoFill.status === "error" ? "#fef2f2" : photoFill.status === "done" ? "#fffbeb" : "#eff6ff",
+            color: photoFill.status === "error" ? "#991b1b" : photoFill.status === "done" ? "#92400e" : "#1e3a8a",
+          }}
+        >
+          <span>{photoFill.status === "running" ? "⏳ " : photoFill.status === "done" ? "📝 " : "⚠️ "}{photoFill.message}</span>
+          {photoFill.status !== "running" && dismissPhotoFill ? (
+            <button type="button" style={styles.secondaryBtn} onClick={dismissPhotoFill}>סגור</button>
+          ) : null}
+        </div>
+      ) : null}
       <div
         style={{
           border: "1px solid #cbd5e1",
@@ -18029,6 +18078,7 @@ export default function Page() {
   const [savedSupervisionReports, setSavedSupervisionReports] = useState<SupervisionReportRecord[]>([]);
   const cloudLoadGenerationRef = useRef(0);
   const [supervisionReportForm, setSupervisionReportForm] = useState(createDefaultSupervisionReport());
+  const [ncrPhotoFill, setNcrPhotoFill] = useState<{ status: "idle" | "running" | "done" | "error"; message: string }>({ status: "idle", message: "" });
   const [supervisionAutoFill, setSupervisionAutoFill] = useState<{ status: "idle" | "running" | "done" | "error"; message: string }>({ status: "idle", message: "" });
   const [editingSupervisionReportId, setEditingSupervisionReportId] = useState<string | null>(null);
   const [supervisionReportsLoaded, setSupervisionReportsLoaded] = useState(false);
@@ -21965,6 +22015,84 @@ export default function Page() {
       raisedBy: currentNonconformanceActor.personalName,
       status: "פתוח",
     } as any));
+  };
+  // פתיחת אי התאמה מתמונה: נפתחת טיוטה חדשה עם התמונות, והבינה המלאכותית מנסחת תיאור וטיפול נדרש.
+  // שום דבר לא נשמר אוטומטית – בקר האיכות בודק, מתקן ומאשר בכפתור "אישור פתיחת אי התאמה".
+  const openNonconformanceFromPhotos = async (fileList: FileList | File[] | null) => {
+    const photos = Array.from(fileList ?? []).filter((file) => file.type.startsWith("image/")).slice(0, 3);
+    if (!photos.length) {
+      alert("יש לבחור תמונה (צילום מהשטח).");
+      return;
+    }
+    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    resetNonconformanceEditor();
+    setNonconformanceForm((prev: any) => ({ ...prev, date: prev?.date || today }));
+    photos.forEach((file) => uploadNonconformanceAttachment(file));
+    setNcrPhotoFill({ status: "running", message: "מנתח את התמונה ומנסח טיוטת אי התאמה…" });
+    const shrink = (file: File) =>
+      new Promise<string>((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(image.width * scale);
+          canvas.height = Math.round(image.height * scale);
+          canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL("image/jpeg", 0.82));
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("לא ניתן לקרוא את התמונה"));
+        };
+        image.src = url;
+      });
+    try {
+      const images = await Promise.all(photos.map(shrink));
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subtype: "nonconformance-photo",
+          fileName: photos[0].name,
+          mimeType: "image/jpeg",
+          dataUrl: images[0],
+          pages: images,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || response.statusText || "ניתוח התמונה נכשל");
+      const data = payload?.data ?? {};
+      const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+      const impact = ["נמוכה", "בינונית", "גבוהה", "קריטית"].includes(clean(data.qualityImpact)) ? clean(data.qualityImpact) : "";
+      const responsible = NCR_RESPONSIBLE_OPTIONS.includes(clean(data.responsibleParty)) ? clean(data.responsibleParty) : "";
+      const uncertainty = clean(data.uncertainty);
+      setNonconformanceForm((prev: any) => ({
+        ...prev,
+        description: prev?.description || clean(data.description),
+        element: prev?.element || clean(data.element),
+        location: prev?.location || clean(data.location),
+        actionRequired: prev?.actionRequired || clean(data.actionRequired),
+        responsibleParty: prev?.responsibleParty || responsible,
+        qualityImpact: prev?.qualityImpact || impact,
+        notes: [prev?.notes, "תיאור ראשוני נוסח בסיוע ניתוח תמונה.", uncertainty ? `לבדיקה בשטח: ${uncertainty}` : ""]
+          .filter(Boolean)
+          .join("\n"),
+      }));
+      setNcrPhotoFill({
+        status: "done",
+        message: data.defectVisible === false
+          ? "לא זוהה ליקוי ברור בתמונה. התמונה צורפה – יש לכתוב את התיאור ידנית."
+          : "הטיוטה מולאה מהתמונה. יש לבדוק ולתקן את התיאור, הקטע והחתכים, ואז ללחוץ \"אישור פתיחת אי התאמה\".",
+      });
+    } catch (error) {
+      console.warn("Nonconformance photo analysis failed", error);
+      setNcrPhotoFill({
+        status: "error",
+        message: "לא ניתן היה לנתח את התמונה כרגע. אי ההתאמה נפתחה והתמונה צורפה – יש למלא את התיאור ידנית.",
+      });
+    }
   };
   const openNonconformanceFromChecklistFinding = (
     item: ChecklistItem & { attachments?: ChecklistAttachment[] },
@@ -30633,6 +30761,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               uploadNonconformanceAttachment={uploadNonconformanceAttachment}
               removeNonconformanceAttachment={removeNonconformanceAttachment}
               resolveCloserName={resolveNcrCloserName}
+              openFromPhotos={openNonconformanceFromPhotos}
+              photoFill={ncrPhotoFill}
+              dismissPhotoFill={() => setNcrPhotoFill({ status: "idle", message: "" })}
             />
             </>
           )}
