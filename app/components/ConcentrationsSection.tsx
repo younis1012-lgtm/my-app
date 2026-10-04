@@ -4401,6 +4401,23 @@ const supervisionReportAttachments = (record: any): any[] => {
   return [...direct, ...legacy].filter(isRealAttachment);
 };
 
+// סדר שורות בריכוז לפי המספר הרץ שבשם הרשומה (קטע ניסוי מס׳ 4 לפני מס׳ 5), ואחריו לפי תאריך.
+// רשומות בלי מספר – בסוף, לפי סדר הקליטה (מהישן לחדש).
+const sortByRecordNumber = (records: any[], keys: string[] = ["title"]) => {
+  const numberOf = (record: any) => {
+    for (const key of keys) {
+      const text = String(record?.[key] ?? record?.details?.[key] ?? "");
+      const match = text.match(/מס['׳"]?\s*(\d+)/) || text.match(/(\d+)/);
+      if (match) return Number(match[1]);
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  return records
+    .map((record, index) => ({ record, index, no: numberOf(record), date: String(record?.date ?? record?.openDate ?? "") }))
+    .sort((a, b) => a.no - b.no || (a.date && b.date ? a.date.localeCompare(b.date) : 0) || b.index - a.index)
+    .map((entry) => entry.record);
+};
+
 const supervisionReportRow = (record: any, index: number): Row => {
   const docs = supervisionReportAttachments(record);
   const details = record?.details && typeof record.details === "object" ? record.details : {};
@@ -4608,7 +4625,7 @@ const definitions: ConcentrationDefinition[] = [
       "אישור מנהל ה״א לסגירת אי התאמה QC",
       "סטטוס",
     ],
-    buildRows: ({ savedNonconformances }) => savedNonconformances.map(nonconformanceRow),
+    buildRows: ({ savedNonconformances }) => sortByRecordNumber(savedNonconformances, ["title", "ncrNo"]).map(nonconformanceRow),
   },
   {
     id: "suppliers",
@@ -4703,7 +4720,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז מתוך טפסי קטעי ניסוי שנשמרו במערכת",
     sourceLabel: "קטעי ניסוי",
     columns: ["מס׳", "שם קטע ניסוי", "מיקום", "תאריך", "סעיף מפרט", "סוג עבודה", "תוצאה", "מאושר ע״י", "סטטוס", "הערות"],
-    buildRows: ({ savedTrialSections }) => savedTrialSections.map(trialRow),
+    buildRows: ({ savedTrialSections }) => sortByRecordNumber(savedTrialSections, ["title", "trialNo"]).map(trialRow),
   },
   {
     id: "subbase-a",
@@ -4751,7 +4768,7 @@ const definitions: ConcentrationDefinition[] = [
     description: "ריכוז RFI מתוך הרשומות שנשמרו במערכת",
     sourceLabel: "RFI",
     columns: ["מס׳", "מספר RFI", "נושא", "מיקום", "תאריך פתיחה", "סטטוס", "תיאור הבקשה", "תשובה/טיפול", "נספחים", "הערות"],
-    buildRows: ({ savedRfis }) => savedRfis.map(rfiRow),
+    buildRows: ({ savedRfis }) => sortByRecordNumber(savedRfis, ["title", "rfiNumber", "referenceNo"]).map(rfiRow),
   },
 ];
 
