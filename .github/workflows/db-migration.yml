@@ -1,0 +1,162 @@
+# העברת מסד הנתונים מטוקיו לפרנקפורט.
+# רץ רק כשדוחפים לענף db-migration-run (או ידנית מלשונית Actions).
+# הסיסמאות והמפתחות נלקחים מ-GitHub Secrets בלבד ולא מודפסים.
+# הפרויקט הישן לא משתנה – רק קוראים ממנו.
+# בסוף נכתב דוח (בלי סיסמאות) לענף db-migration-report.
+name: DB region migration
+
+on:
+  push:
+    branches: [db-migration-run]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: db-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SRC: ${{ secrets.SRC_DB_URL }}
+      TGT: ${{ secrets.TGT_DB_URL }}
+      SRC_KEY: ${{ secrets.SRC_SERVICE_ROLE_KEY }}
+      TGT_KEY: ${{ secrets.TGT_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets exist
+        run: |
+          missing=""
+          for v in SRC TGT SRC_KEY TGT_KEY; do [ -n "${!v}" ] || missing="$missing $v"; done
+          echo "missing=$missing" >> report.env
+          if [ -n "$missing" ]; then echo "Missing secrets:$missing"; exit 1; fi
+
+      - name: Install tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> $GITHUB_PATH
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Identify projects
+        run: |
+          ref() { python3 -c "import sys,urllib.parse as u;n=u.urlparse(sys.argv[1]).username or '';print(n.split('.',1)[1] if '.' in n else '')" "$1"; }
+          SRC_REF=$(ref "$SRC"); TGT_REF=$(ref "$TGT")
+          if [ -z "$SRC_REF" ] || [ -z "$TGT_REF" ]; then echo "Use the Session pooler connection strings (user looks like postgres.<ref>)"; exit 1; fi
+          if [ "$SRC_REF" = "$TGT_REF" ]; then echo "Source and target are the same project"; exit 1; fi
+          echo "SRC_REF=$SRC_REF" >> $GITHUB_ENV
+          echo "TGT_REF=$TGT_REF" >> $GITHUB_ENV
+          echo "SRC_REF=$SRC_REF" >> report.env
+          echo "TGT_REF=$TGT_REF" >> report.env
+          psql "$SRC" -Atc "select 'source ok: ' || current_setting('server_version')"
+          psql "$TGT" -Atc "select 'target ok: ' || current_setting('server_version')"
+
+      - name: Refuse if target already has data
+        run: |
+          n=$(psql "$TGT" -Atc "select count(*) from information_schema.tables where table_schema='public'")
+          u=$(psql "$TGT" -Atc "select count(*) from auth.users")
+          echo "target_public_tables_before=$n target_users_before=$u" | tee -a report.env
+          if [ "$n" != "0" ] || [ "$u" != "0" ]; then echo "Target project is not empty - stopping so nothing is overwritten"; exit 1; fi
+
+      - name: Dump source (read only)
+        run: |
+          mkdir -p dump
+          supabase db dump --db-url "$SRC" -f dump/roles.sql --role-only
+          supabase db dump --db-url "$SRC" -f dump/schema.sql
+          supabase db dump --db-url "$SRC" -f dump/auth.sql --data-only --schema auth -x auth.schema_migrations
+          supabase db dump --db-url "$SRC" -f dump/data.sql --data-only --use-copy
+          # קישורים לקבצים שמורים בנתונים עם כתובת הפרויקט הישן – מחליפים לכתובת החדשה
+          sed -i "s/${SRC_REF}/${TGT_REF}/g" dump/schema.sql dump/data.sql
+          ls -la dump
+
+      - name: Restore into target
+        run: |
+          psql -v ON_ERROR_STOP=0 -d "$TGT" -f dump/roles.sql
+          psql --single-transaction -v ON_ERROR_STOP=1 -d "$TGT" -f dump/schema.sql
+          psql --single-transaction -v ON_ERROR_STOP=1 -d "$TGT" -c 'SET session_replication_role = replica' -f dump/auth.sql
+          psql --single-transaction -v ON_ERROR_STOP=1 -d "$TGT" -c 'SET session_replication_role = replica' -f dump/data.sql
+          # מניעת "Database error querying schema" בכניסה – עמודות טוקן ריקות במקום NULL
+          psql -v ON_ERROR_STOP=1 -d "$TGT" <<'SQL'
+          update auth.users set
+            confirmation_token = coalesce(confirmation_token, ''),
+            recovery_token = coalesce(recovery_token, ''),
+            email_change_token_new = coalesce(email_change_token_new, ''),
+            email_change = coalesce(email_change, ''),
+            email_change_token_current = coalesce(email_change_token_current, ''),
+            phone_change = coalesce(phone_change, ''),
+            phone_change_token = coalesce(phone_change_token, ''),
+            reauthentication_token = coalesce(reauthentication_token, '');
+          SQL
+
+      - name: Copy storage files
+        env:
+          SRC_URL: https://${{ env.SRC_REF }}.supabase.co
+          TGT_URL: https://${{ env.TGT_REF }}.supabase.co
+        run: node scripts/db-migration/copy-storage.mjs | tee storage.json
+
+      - name: Verify row counts
+        if: always()
+        run: |
+          {
+            echo "# DB migration report"
+            echo
+            echo "Run: ${{ github.run_id }} at $(date -u +%FT%TZ)"
+            echo
+            sed 's/^/- /' report.env 2>/dev/null || true
+            echo
+            echo "## Rows per table (source → target)"
+            echo
+            echo "| table | source | target | ok |"
+            echo "|---|---|---|---|"
+          } > report.md
+          if [ -n "$SRC" ] && [ -n "$TGT" ] && [ -n "$TGT_REF" ]; then
+            tables=$(psql "$SRC" -Atc "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by 1")
+            bad=0
+            for t in $tables; do
+              s=$(psql "$SRC" -Atc "select count(*) from public.\"$t\"" 2>/dev/null || echo ERR)
+              d=$(psql "$TGT" -Atc "select count(*) from public.\"$t\"" 2>/dev/null || echo ERR)
+              ok=$([ "$s" = "$d" ] && echo "✓" || { bad=1; echo "✗"; })
+              echo "| $t | $s | $d | $ok |" >> report.md
+            done
+            for q in "auth.users" "storage.objects"; do
+              s=$(psql "$SRC" -Atc "select count(*) from $q" 2>/dev/null || echo ERR)
+              d=$(psql "$TGT" -Atc "select count(*) from $q" 2>/dev/null || echo ERR)
+              ok=$([ "$s" = "$d" ] && echo "✓" || { bad=1; echo "✗"; })
+              echo "| $q | $s | $d | $ok |" >> report.md
+            done
+            echo >> report.md
+            echo "## Storage" >> report.md
+            echo '```' >> report.md; cat storage.json >> report.md 2>/dev/null; echo '```' >> report.md
+            echo "## Policies / functions / triggers (source → target)" >> report.md
+            for q in "select count(*) from pg_policies where schemaname='public'" \
+                     "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'" \
+                     "select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal"; do
+              echo "- $(psql "$SRC" -Atc "$q" 2>/dev/null) → $(psql "$TGT" -Atc "$q" 2>/dev/null)" >> report.md
+            done
+            echo >> report.md
+            [ "$bad" = "0" ] && echo "RESULT: ALL COUNTS MATCH" >> report.md || echo "RESULT: MISMATCH – do not switch" >> report.md
+          fi
+          cat report.md
+
+      - name: Publish report
+        if: always()
+        run: |
+          git config user.name "migration-bot"
+          git config user.email "noreply@github.com"
+          git fetch origin db-migration-report || true
+          git switch --orphan report-tmp
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          echo "status: ${{ job.status }}" >> report.md
+          git add -f report.md
+          git commit -m "Migration report ${{ github.run_id }}"
+          git push -f origin HEAD:db-migration-report
