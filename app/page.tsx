@@ -22076,15 +22076,12 @@ export default function Page() {
         actionRequired: prev?.actionRequired || clean(data.actionRequired),
         responsibleParty: prev?.responsibleParty || responsible,
         qualityImpact: prev?.qualityImpact || impact,
-        notes: [prev?.notes, "תיאור ראשוני נוסח בסיוע ניתוח תמונה.", uncertainty ? `לבדיקה בשטח: ${uncertainty}` : ""]
-          .filter(Boolean)
-          .join("\n"),
       }));
       setNcrPhotoFill({
         status: "done",
         message: data.defectVisible === false
           ? "לא זוהה ליקוי ברור בתמונה. התמונה צורפה – יש לכתוב את התיאור ידנית."
-          : "הטיוטה מולאה מהתמונה. יש לבדוק ולתקן את התיאור, הקטע והחתכים, ואז ללחוץ \"אישור פתיחת אי התאמה\".",
+          : `הטיוטה מולאה מהתמונה. יש לבדוק ולתקן את התיאור, הקטע והחתכים, ואז ללחוץ "אישור פתיחת אי התאמה".${uncertainty ? ` לבדיקה בשטח: ${uncertainty}` : ""}`,
       });
     } catch (error) {
       console.warn("Nonconformance photo analysis failed", error);
