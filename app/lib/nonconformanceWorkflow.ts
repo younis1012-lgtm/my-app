@@ -1,5 +1,5 @@
-export const NCR_RESPONSIBLE_OPTIONS = ['', 'תכנון', 'ביצוע', 'ספק'];
-export const NCR_HANDLER_OPTIONS = ['', 'תכנון', 'ביצוע', 'ספק', 'מנהל פרויקט'];
+export const NCR_RESPONSIBLE_OPTIONS = ['', 'תכנון', 'ביצוע', 'ספק', 'מעבדה', 'ב"א', 'מודד ב"א'];
+export const NCR_HANDLER_OPTIONS = ['', 'תכנון', 'ביצוע', 'ספק', 'מנהל פרויקט', 'ב"א', 'מודד'];
 
 type AccessIdentity = {
   username?: string;
@@ -37,8 +37,18 @@ export function nonconformanceActor(access?: AccessIdentity | null, people: Proj
     return qualityAssurance ? role === 'הא' || role === 'qa' || role.includes('הבטחתאיכות') : role === 'qc' || role.includes('בקרתאיכות') || role.includes('בקר איכות');
   });
   const displayName = String(access?.displayName || '').trim();
-  const genericDisplay = ['הא','qa','qc','הבטחתאיכות','בקרתאיכות'].includes(normalize(displayName));
-  const personalName = (!genericDisplay && displayName) || String((matchedByIdentity || matchedByRole)?.name || '').trim() || displayName || String(access?.username || '').trim();
+  const looksLikeEmail = (value: string) => /@/.test(value);
+  const genericDisplay = looksLikeEmail(displayName) || ['הא','qa','qc','הבטחתאיכות','בקרתאיכות'].includes(normalize(displayName));
+  const personName = (person?: ProjectPerson) => {
+    const name = String(person?.name || '').trim();
+    return name && !looksLikeEmail(name) ? name : '';
+  };
+  // שם אישי: קודם השם של המשתמש המחובר מרשימת משתמשי הפרויקט, ולא כתובת המייל
+  const personalName = personName(matchedByIdentity)
+    || (!genericDisplay && displayName)
+    || personName(matchedByRole)
+    || displayName
+    || String(access?.username || '').trim();
   return {
     openedBy: qualityAssurance ? 'QA' : 'QC',
     roleLabel: qualityAssurance ? 'הבטחת איכות' : 'בקרת איכות',
