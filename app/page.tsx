@@ -21692,6 +21692,28 @@ export default function Page() {
     const no = (checklistForm as any).checklistNo;
     return [no ? `רשימת תיוג ${no}` : "רשימת תיוג", checklistForm.title].filter(Boolean).join(" · ");
   };
+  // מעבדה / מודד להזמנה: גורמי הפרויקט (פרטי פרויקט) + משתמשי הפרויקט שהתפקיד שלהם מודד / מעבדה
+  const labOrderParties = () => {
+    const legendParties = (currentProjectLegend.parties ?? []).filter((party) => party.active);
+    const seenEmails = new Set(legendParties.map((party) => String(party.email ?? "").trim().toLowerCase()).filter(Boolean));
+    const fromUsers = currentProjectEmailUsers
+      .filter((user) => user.active !== false)
+      .map((user) => {
+        const roleText = `${user.role ?? ""} ${user.company ?? ""}`;
+        const role = /מודד|מדיד/.test(roleText) ? "מודד" : /מעבד/.test(roleText) ? "מעבדה" : "";
+        return { user, role };
+      })
+      .filter(({ user, role }) => role && !seenEmails.has(String(user.email ?? "").trim().toLowerCase()))
+      .map(({ user, role }) => ({
+        id: `user:${user.id}`,
+        company: String(user.company || user.name || "").trim(),
+        role,
+        contactName: user.company ? String(user.name ?? "").trim() : "",
+        email: String(user.email ?? "").trim(),
+        active: true,
+      }));
+    return [...legendParties, ...fromUsers] as any[];
+  };
   const openLabOrder = (itemId: string, kind: LabOrderKind, orderId?: string) => {
     const item = (checklistForm.items ?? []).find((entry: any) => entry.id === itemId) as any;
     if (!item) return;
@@ -21719,7 +21741,7 @@ export default function Page() {
       materialType: kind === "lab" ? String(form.fillMaterialType || form.concreteType || form.concreteGrade || "") : "",
       quantity: form.castingVolumeCubicMeters ? `${form.castingVolumeCubicMeters} מ״ק` : form.areaSquareMeters ? `${form.areaSquareMeters} מ״ר` : "",
     };
-    const parties = (currentProjectLegend.parties ?? []).filter((party) => party.active && party.role === (kind === "measurement" ? "מודד" : "מעבדה"));
+    const parties = labOrderParties().filter((party) => party.role === (kind === "measurement" ? "מודד" : "מעבדה"));
     const onlyParty = parties.length === 1 ? parties[0] : undefined;
     const order = normalizeLabOrder({
       id: `order-${Date.now()}`,
@@ -21729,7 +21751,8 @@ export default function Page() {
       partyId: onlyParty?.id ?? "",
       partyName: onlyParty?.company ?? "",
       partyEmail: onlyParty?.email ?? "",
-      contactName: projectAccess?.displayName || projectAccess?.username || "",
+      contactName: currentNonconformanceActor.personalName || projectAccess?.displayName || projectAccess?.username || "",
+      contactPhone: String(currentProjectEmailUsers.find((user) => user.email && user.email.trim().toLowerCase() === String(projectAccess?.email ?? "").trim().toLowerCase())?.phone ?? ""),
       createdAt: new Date().toISOString(),
       createdBy: projectAccess?.displayName || projectAccess?.username || "",
       baselineAttachmentIds: normalizeChecklistAttachments(item.attachments).map((attachment) => attachment.id),
@@ -29676,7 +29699,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           key={labOrderDialog.order.id}
           initial={labOrderDialog.order}
           prefilledKeys={labOrderDialog.prefilledKeys}
-          parties={currentProjectLegend.parties ?? []}
+          parties={labOrderParties()}
           checklistLabel={checklistLabelForOrders()}
           readOnly={activeRecordLocked || !canWriteAccess(projectAccess)}
           onSave={(order) => storeLabOrder(labOrderDialog.itemId, order, false)}
