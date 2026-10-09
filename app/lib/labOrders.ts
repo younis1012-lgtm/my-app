@@ -189,26 +189,83 @@ export const formatPlannedAt = (value: string) => {
   return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}${hasTime ? ` · ${pad(date.getHours())}:${pad(date.getMinutes())}` : ''}`;
 };
 
-/** גוף המייל להזמנה – טבלת פרטים בטקסט */
-export const labOrderMailText = (order: LabOrder, projectName: string, checklistLabel: string) => {
+const escapeHtml = (value: unknown) =>
+  String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);
+
+const orderLocation = (order: LabOrder) => {
+  const chainage = [order.fromChainage, order.toChainage].filter(text).join('–');
+  return [order.structure, order.element, chainage ? `חתך ${chainage}` : '', order.side ? `צד ${order.side}` : '']
+    .filter(text)
+    .join(' · ');
+};
+
+/** גוף המייל להזמנה – קצר; כל הפרטים בטופס ה-PDF המצורף */
+export const labOrderMailText = (order: LabOrder, projectName: string, _checklistLabel?: string) => {
+  const kindWord = order.kind === 'measurement' ? 'מדידה' : 'בדיקת מעבדה';
   const rows: Array<[string, string]> = [
-    ['מספר הזמנה', String(order.orderNo)],
-    ['פרויקט', projectName],
-    ['רשימת תיוג', checklistLabel],
     [order.kind === 'measurement' ? 'סוג המדידה' : 'סוג הבדיקה', order.testType],
-    ['מבנה', order.structure],
-    ['אלמנט / תת אלמנט', order.element],
-    ['מחתך', order.fromChainage],
-    ['עד חתך', order.toChainage],
-    ['צד', order.side],
-    ['מקור החומר', order.materialSource],
-    ['סוג החומר', order.materialType],
-    ['כמות', order.quantity],
-    ['מועד מבוקש לביצוע', formatPlannedAt(order.plannedAt)],
-    ['איש קשר באתר', [order.contactName, order.contactPhone].filter(Boolean).join(' · ')],
-    ['הערות', order.notes.trim()],
+    ['מיקום', orderLocation(order)],
+    ['מועד מבוקש לביצוע', order.plannedAt ? formatPlannedAt(order.plannedAt) : ''],
+    ['איש קשר באתר', [order.contactName, order.contactPhone].filter(text).join(' · ')],
   ];
   const lines = rows.filter(([, value]) => text(value)).map(([label, value]) => `${label}: ${value}`);
-  const kindWord = order.kind === 'measurement' ? 'מדידה' : 'בדיקת מעבדה';
-  return `שלום,\nמבוקש לבצע ${kindWord} לפי הפרטים הבאים:\n\n${lines.join('\n')}\n\nנא לציין את מספר ההזמנה (${order.orderNo}) בתעודה ובמייל החוזר.\nבברכה`;
+  return `שלום,\nמצורפת הזמנת ${kindWord} מס' ${order.orderNo} לפרויקט ${projectName}.\n\n${lines.join('\n')}\n\nפרטי ההזמנה המלאים בטופס המצורף.\nנא לציין את מספר ההזמנה (${order.orderNo}) בתעודה ובמייל החוזר.\n\nבברכה${order.contactName ? `\n${order.contactName}` : ''}`;
+};
+
+/** טופס הזמנה מסודר (דף לאורך) – מצורף למייל כ-PDF */
+export const labOrderDocumentHtml = (
+  order: LabOrder,
+  options: { projectName: string; checklistLabel: string; headerHtml?: string; footerHtml?: string; styles?: string },
+) => {
+  const measurement = order.kind === 'measurement';
+  const kindWord = measurement ? 'מדידה' : 'בדיקת מעבדה';
+  const issued = formatPlannedAt(order.createdAt ? order.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const cell = (label: string, value: unknown, wide = false) =>
+    `<td class="lo-label">${escapeHtml(label)}</td><td class="lo-value"${wide ? ' colspan="3"' : ''}>${text(value) ? escapeHtml(value) : '&nbsp;'}</td>`;
+  const section = (title: string, rows: string[]) =>
+    `<div class="lo-section">${escapeHtml(title)}</div><table class="lo-table">${rows.map((row) => `<tr>${row}</tr>`).join('')}</table>`;
+  return `<div class="export-page portrait-export lab-order-export" dir="rtl">
+<style>
+${options.styles ?? ''}
+.lab-order-export{font-family:Arial,"Segoe UI",sans-serif;color:#0b1f3a;padding:28px 34px;box-sizing:border-box;background:#fff}
+.lab-order-export .lo-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #0b1f3a;padding-bottom:10px;margin:12px 0 14px}
+.lab-order-export .lo-title{font-size:26px;font-weight:900;margin:0}
+.lab-order-export .lo-sub{font-size:13px;color:#475569;margin-top:4px}
+.lab-order-export .lo-no{border:2px solid #0b1f3a;border-radius:10px;padding:6px 16px;text-align:center;font-weight:900;font-size:13px}
+.lab-order-export .lo-no b{display:block;font-size:26px;line-height:1.1}
+.lab-order-export .lo-section{background:#0b1f3a;color:#fff;font-weight:800;font-size:14px;padding:6px 10px;margin-top:14px;border-radius:6px 6px 0 0}
+.lab-order-export .lo-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
+.lab-order-export .lo-table td{border:1px solid #c7d2e0;padding:8px 10px;vertical-align:top;word-break:break-word}
+.lab-order-export .lo-label{width:19%;background:#f1f5fa;font-weight:800;color:#334155}
+.lab-order-export .lo-value{width:31%}
+.lab-order-export .lo-notes{min-height:60px;white-space:pre-wrap}
+.lab-order-export .lo-request{margin-top:16px;padding:10px 12px;border:1px dashed #b45309;background:#fffbeb;border-radius:8px;font-size:13px;font-weight:700;color:#7c2d12}
+.lab-order-export .lo-sign{display:flex;gap:24px;margin-top:26px;font-size:13px}
+.lab-order-export .lo-sign div{flex:1;border-top:1px solid #64748b;padding-top:6px;color:#475569}
+</style>
+${options.headerHtml ?? ''}
+<div class="lo-head">
+  <div>
+    <h1 class="lo-title">הזמנת ${kindWord}</h1>
+    <div class="lo-sub">${escapeHtml(options.projectName)}${options.checklistLabel ? ` · ${escapeHtml(options.checklistLabel)}` : ''}</div>
+  </div>
+  <div class="lo-no">מס' הזמנה<b>${escapeHtml(order.orderNo)}</b>${escapeHtml(issued)}</div>
+</div>
+${section('פרטי ההזמנה', [
+  cell('לכבוד', [order.partyName, order.partyEmail].filter(text).join(' · '), true),
+  cell(measurement ? 'סוג המדידה' : 'סוג הבדיקה', order.testType, true),
+  cell('מועד מבוקש לביצוע', order.plannedAt ? formatPlannedAt(order.plannedAt) : '') + cell('כמות', order.quantity),
+])}
+${section('מיקום', [
+  cell('מבנה', order.structure) + cell('אלמנט / תת אלמנט', order.element),
+  cell('מחתך', order.fromChainage) + cell('עד חתך', order.toChainage),
+  cell('צד / היסט', order.side, true),
+])}
+${measurement ? '' : section('חומר', [cell('מקור החומר', order.materialSource) + cell('סוג החומר', order.materialType)])}
+${section('איש קשר באתר', [cell('שם', order.contactName) + cell('טלפון', order.contactPhone)])}
+${section('הערות', [`<td class="lo-value lo-notes" colspan="4">${text(order.notes) ? escapeHtml(order.notes) : '&nbsp;'}</td>`])}
+<div class="lo-request">נא לציין את מספר ההזמנה (${escapeHtml(order.orderNo)}) בתעודה / בדוח ${measurement ? 'המדידה' : 'הבדיקה'} ובמייל החוזר.</div>
+<div class="lo-sign"><div>מזמין: ${escapeHtml(order.createdBy || order.contactName)}</div><div>תאריך: ${escapeHtml(issued)}</div><div>חתימה</div></div>
+${options.footerHtml ?? ''}
+</div>`;
 };

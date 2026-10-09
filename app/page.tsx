@@ -39,7 +39,7 @@ import { RecordHistoryPanel } from "./components/RecordHistoryPanel";
 import { LabOrderDialog } from "./components/LabOrderDialog";
 import { ImportPreliminaryDialog, preliminaryNested } from "./components/ImportPreliminaryDialog";
 import { LabOrdersTracking } from "./components/LabOrdersTracking";
-import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
+import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderDocumentHtml, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
 import { ChecklistAutoLinkBox } from "./components/ChecklistAutoLinkBox";
@@ -21799,6 +21799,19 @@ export default function Page() {
       title: `הזמנת ${kindWord} ${order.orderNo}`,
       data: { projectName: projectTitle, title: `הזמנת ${kindWord} ${order.orderNo}`, status: "", location: order.structure },
       attachments: [],
+      // טופס הזמנה מסודר כ-PDF מצורף; גוף המייל קצר
+      generateDocuments: async () => [
+        await documentForEmail(
+          labOrderDocumentHtml(order, {
+            projectName: projectTitle,
+            checklistLabel: checklistLabelForOrders(),
+            headerHtml: exportCompanyHeader(),
+            footerHtml: exportCompanyFooter(),
+            styles: exportStyles,
+          }),
+          `הזמנת ${kindWord} ${order.orderNo}`,
+        ),
+      ],
       initialTo: order.partyEmail,
       initialSubject: `הזמנת ${kindWord} ${order.orderNo} — ${order.testType} — ${projectTitle}`,
       initialText: labOrderMailText(order, projectTitle, checklistLabelForOrders()),
