@@ -19176,6 +19176,23 @@ export default function Page() {
     }
     const normalizedName = normalizeAccessValue(signerName);
     const normalizedRole = normalizeAccessValue(role);
+    // חתימה של בקר איכות מוצמדת רק כשהבקר עצמו מחובר – אין שימוש בחתימה של בקר אחר
+    const qcNames = currentProjectEmailUsers
+      .filter((user) => isQualityControlProjectUser(user) || user.active === false)
+      .map((user) => normalizeAccessValue(user.name))
+      .filter(Boolean);
+    if (isQualityControlSignatureRole(role) || (normalizedName && qcNames.includes(normalizedName))) {
+      const myNames = [projectAccess?.displayName, projectAccess?.username, projectAccess?.email, loggedInQcSignerName]
+        .map((value) => normalizeAccessValue(value))
+        .filter(Boolean);
+      if (!normalizedName || !myNames.includes(normalizedName)) return "";
+      const mine = accessUsers.find(
+        (user) =>
+          Boolean(user.signatureDataUrl) &&
+          [user.displayName, user.username, user.email].map(normalizeAccessValue).some((value) => value && myNames.includes(value)),
+      );
+      return projectAccess?.signatureDataUrl || mine?.signatureDataUrl || "";
+    }
     const found = accessUsers.find((user) => {
       const names = [user.displayName, user.username, user.code].map(
         normalizeAccessValue,
@@ -20349,11 +20366,49 @@ export default function Page() {
     );
   }, [currentProjectEmailUsers, currentProjectDefaults.qualityControl, projectAccess]);
 
+  // בקר האיכות המחובר (אם הוא משתמש פעיל בפרויקט בתפקיד בקר איכות) – חותם רק בשמו שלו
+  const loggedInQcSignerName = useMemo(() => {
+    const accessIdentities = [projectAccess?.email, projectAccess?.username, projectAccess?.displayName]
+      .map((value) => normalizeAccessValue(value))
+      .filter(Boolean);
+    if (!accessIdentities.length) return "";
+    const me = currentProjectEmailUsers.find(
+      (user) =>
+        user.active !== false &&
+        isQualityControlProjectUser(user) &&
+        [user.email, user.name].map((value) => normalizeAccessValue(value)).filter(Boolean).some((identity) => accessIdentities.includes(identity)),
+    );
+    return String(me?.name ?? "").trim();
+  }, [currentProjectEmailUsers, projectAccess]);
+  const isQualityControlSignatureRole = (role: unknown) => /בקרת\s*איכות|בקר\s*איכות|\bQC\b/i.test(String(role ?? ""));
+  // כל חתימה חדשה בשורת "בקרת איכות" שנחתמת ע"י בקר איכות מחובר – נרשמת בשמו, גם אם בשדה השם הופיע בקר אחר
+  const setChecklistFormWithSignerGuard: typeof setChecklistForm = (update) =>
+    setChecklistForm((prev: any) => {
+      const next = typeof update === "function" ? (update as (value: any) => any)(prev) : update;
+      if (!loggedInQcSignerName || !Array.isArray(next?.items) || next.items === prev?.items) return next;
+      const previousById = new Map<string, any>((prev?.items ?? []).map((item: any) => [String(item?.id), item]));
+      let changed = false;
+      const items = next.items.map((item: any) => {
+        const signature = item?.signature;
+        if (!signature || !String(signature.signature ?? "").trim()) return item;
+        const before = previousById.get(String(item?.id))?.signature;
+        if (before && before.signature === signature.signature && before.signerName === signature.signerName) return item;
+        if (!isQualityControlSignatureRole(item?.responsible) && !isQualityControlSignatureRole(signature.role)) return item;
+        if (normalizeAccessValue(signature.signerName) === normalizeAccessValue(loggedInQcSignerName)) return item;
+        changed = true;
+        return { ...item, signature: { ...signature, signerName: loggedInQcSignerName } };
+      });
+      return changed ? { ...next, items } : next;
+    });
+
   const resolveResponsibleNameForCurrentProject = useMemo(
     () => (responsible: unknown, templateKey?: unknown) => {
       const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
       // ברשימות חשמל/תאורה – "בקרת איכות" = בקר האיכות לחשמל ותאורה (אם הוגדר בפרויקט)
       const effectiveResponsible = responsibleForTemplate(responsible, templateKey);
+      if (loggedInQcSignerName && effectiveResponsible === String(responsible ?? "") && isQualityControlSignatureRole(responsible)) {
+        return loggedInQcSignerName;
+      }
       const electricalUsers =
         effectiveResponsible !== String(responsible ?? "")
           ? activeUsers.filter((user) => responsibleRoleMatchesUser(effectiveResponsible, user))
@@ -20391,6 +20446,7 @@ export default function Page() {
       return resolveResponsibleName(responsible, currentProject?.name);
     },
     [
+      loggedInQcSignerName,
       currentProjectEmailUsers,
       currentProjectDefaults.qualityControl,
       currentProjectDefaults.workManager,
@@ -30993,7 +31049,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
                 guardedBody={guardedBody}
                 editingChecklistId={editingChecklistId}
                 checklistForm={checklistForm}
-                setChecklistForm={setChecklistForm}
+                setChecklistForm={setChecklistFormWithSignerGuard}
                 checklistTemplateLabel={checklistTemplateLabel}
                 applyChecklistTemplate={applyChecklistTemplate}
                 updateChecklistItem={updateChecklistItem}
