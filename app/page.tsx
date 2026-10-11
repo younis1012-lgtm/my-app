@@ -2325,6 +2325,50 @@ type ProjectLegend = {
   parties: ProjectParty[];
   /** חברת בקרת האיכות של הפרויקט (לוגו ופרטים לטפסים), לפי תאריך התחלה. ריק = חברת ברירת המחדל */
   qcCompanies?: QcCompanyProfile[];
+  /** ערכים קודמים של פרטי הפרויקט: בתוקף עד תאריך (כולל). רשומה מתאריך זה ומטה מקבלת את הערך הקודם */
+  history?: LegendHistoryEntry[];
+};
+
+type LegendHistoryField = "projectManagement" | "contractor" | "qualityAssurance" | "qualityControl" | "workManager" | "surveyor" | "supervisor";
+type LegendHistoryEntry = { id: string; field: LegendHistoryField; value: string; until: string };
+const LEGEND_HISTORY_FIELDS: Array<[LegendHistoryField, string]> = [
+  ["projectManagement", "ניהול פרויקט"],
+  ["contractor", "שם הקבלן"],
+  ["qualityAssurance", "הבטחת איכות"],
+  ["qualityControl", "בקרת איכות"],
+  ["workManager", "מנהל עבודה"],
+  ["surveyor", "מודד"],
+  ["supervisor", "מפקח"],
+];
+const normalizeLegendHistory = (item: any, index = 0): LegendHistoryEntry => ({
+  id: String(item?.id ?? `hist-${Date.now()}-${index}`),
+  field: String(item?.field ?? "") as LegendHistoryField,
+  value: String(item?.value ?? ""),
+  until: String(item?.until ?? ""),
+});
+// תאריך הרשומה (yyyy-mm-dd) – לתאריך הטופס, ואם אין – תאריך השמירה / היצירה
+const recordEffectiveDate = (record: any): string => {
+  // תאריך ביצוע מוקדם ביותר בסעיפים (רשימת תיוג בלי תאריך כותרת)
+  const itemDates = Array.isArray(record?.items)
+    ? record.items.map((item: any) => String(item?.executionDate ?? item?.signature?.signedAt ?? "")).filter((value: string) => /20\d{2}-\d{2}-\d{2}/.test(value)).sort()
+    : [];
+  // תאריך השמירה האחרון מגיע אחרון – שמירה חוזרת של רשומה ישנה לא הופכת אותה לחדשה
+  const raw = String(
+    record?.date || record?.openDate || record?.inspectionDate || record?.visitDate ||
+    record?.details?.date || itemDates[0] || record?.createdAt || record?.created_at || record?.savedAt || "",
+  ).trim();
+  const iso = raw.match(/20\d{2}-\d{2}-\d{2}/)?.[0];
+  if (iso) return iso;
+  const dmy = raw.match(/(\d{1,2})[./-](\d{1,2})[./-](20\d{2})/);
+  return dmy ? `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}` : "";
+};
+// ערך שדה בפרטי הפרויקט כפי שהיה בתאריך מסוים
+const legendValueAtDate = (legend: ProjectLegend | null | undefined, field: LegendHistoryField, date: string, current: string) => {
+  if (!legend || !date) return current;
+  const match = [...(legend.history ?? [])]
+    .filter((entry) => entry.field === field && entry.until && date <= entry.until)
+    .sort((a, b) => a.until.localeCompare(b.until))[0];
+  return match?.value || current;
 };
 
 // חברת בקרת איכות בפרויקט – נשמרת בתוך extra_factors (kind: "qcCompany"), שייכת לפרויקט אחד בלבד.
@@ -2413,7 +2457,7 @@ const normalizeProjectLegend = (
     supervisor: String(raw.supervisor ?? ""),
     extraFactors: Array.isArray((raw as any).extraFactors)
       ? (raw as any).extraFactors
-          .filter((item: any) => item?.kind !== "party" && item?.kind !== "qcCompany")
+          .filter((item: any) => item?.kind !== "party" && item?.kind !== "qcCompany" && item?.kind !== "legendHistory")
           .map((item: any, index: number) => ({
             id: String(item?.id ?? `${Date.now()}-${index}`),
             label: String(item?.label ?? "גורם נוסף") || "גורם נוסף",
@@ -2433,6 +2477,12 @@ const normalizeProjectLegend = (
         ? (raw as any).extraFactors.filter((item: any) => item?.kind === "qcCompany")
         : []
     ).map((item: any, index: number) => normalizeQcCompany(item, index)),
+    history: (Array.isArray((raw as any).history)
+      ? (raw as any).history
+      : Array.isArray((raw as any).extraFactors)
+        ? (raw as any).extraFactors.filter((item: any) => item?.kind === "legendHistory")
+        : []
+    ).map((item: any, index: number) => normalizeLegendHistory(item, index)),
   };
 };
 
@@ -2496,6 +2546,7 @@ const projectLegendToRow = (projectId: string, legend: ProjectLegend) => ({
     ...(legend.extraFactors ?? []),
     ...(legend.parties ?? []).map((party) => ({ ...party, kind: "party" })),
     ...(legend.qcCompanies ?? []).map((company) => ({ ...company, kind: "qcCompany" })),
+    ...(legend.history ?? []).map((entry) => ({ ...entry, kind: "legendHistory" })),
   ],
   updated_at: nowIso(),
 });
@@ -6237,7 +6288,7 @@ type InlineChecklistSectionProps = {
   projectName: string;
   projectPlans: PlanRecord[];
   projectStructureNodes: ProjectStructureNode[];
-  resolveResponsibleNameForProject: (responsible: unknown, templateKey?: unknown) => string;
+  resolveResponsibleNameForProject: (responsible: unknown, templateKey?: unknown, recordDate?: string) => string;
   responsibleUsers: ProjectEmailUser[];
   onUploadAttachment: (
     itemId: string,
@@ -7797,7 +7848,7 @@ function ChecklistsSection({
                       attachmentKinds.includes(attachment.kind),
                   );
                   const autoName =
-                    resolveResponsibleNameForProject(item.responsible, checklistForm.templateKey) ||
+                    resolveResponsibleNameForProject(item.responsible, checklistForm.templateKey, recordEffectiveDate(checklistForm)) ||
                     item.inspector ||
                     "";
                   const electricalResponsible = responsibleForTemplate(
@@ -7957,6 +8008,9 @@ function ChecklistsSection({
                             style={compactInputStyle}
                           >
                             <option value="">בחר שם</option>
+                            {selectedResponsibleName && !matchingResponsibleNames.includes(selectedResponsibleName) ? (
+                              <option value={selectedResponsibleName}>{selectedResponsibleName}</option>
+                            ) : null}
                             {matchingResponsibleUsers.map((user) => {
                               const name = String(user.name || user.email || "").trim();
                               return name ? <option key={user.id} value={name}>{name}</option> : null;
@@ -19197,11 +19251,16 @@ export default function Page() {
       .map((user) => normalizeAccessValue(user.name))
       .filter(Boolean);
     if (isQualityControlSignatureRole(role) || (normalizedName && qcNames.includes(normalizedName))) {
-      const myNames = [projectAccess?.displayName, projectAccess?.username, projectAccess?.email, loggedInQcSignerName]
+      const loginIds = [projectAccess?.email, projectAccess?.username].map((value) => normalizeAccessValue(value)).filter(Boolean);
+      const myProjectNames = currentProjectEmailUsers
+        .filter((user) => loginIds.includes(normalizeAccessValue(user.email)))
+        .map((user) => user.name);
+      const myNames = [projectAccess?.displayName, projectAccess?.username, projectAccess?.email, loggedInQcSignerName, ...myProjectNames]
         .map((value) => normalizeAccessValue(value))
         .filter(Boolean);
       if (!normalizedName || !myNames.includes(normalizedName)) return "";
-      if (inactiveSignerNames.has(normalizedName)) return "";
+      const historicalNames = (currentProjectLegend.history ?? []).map((entry) => normalizeAccessValue(entry.value));
+      if (inactiveSignerNames.has(normalizedName) && !historicalNames.includes(normalizedName)) return "";
       const mine = accessUsers.find(
         (user) =>
           Boolean(user.signatureDataUrl) &&
@@ -20323,6 +20382,37 @@ export default function Page() {
     };
   }, [currentProjectLegend, currentProjectProfile, currentProject?.name, currentProject?.manager]);
 
+  // פרטי הפרויקט כפי שהיו בתאריך הרשומה (אחרי החלפת גורם מתאריך)
+  const projectDefaultsForDate = (date?: string) => {
+    if (!date || !(currentProjectLegend.history ?? []).length) return currentProjectDefaults;
+    const at = (field: LegendHistoryField) =>
+      legendValueAtDate(currentProjectLegend, field, date, (currentProjectDefaults as any)[field] ?? "");
+    return {
+      ...currentProjectDefaults,
+      projectManagement: at("projectManagement"),
+      contractor: at("contractor"),
+      qualityAssurance: at("qualityAssurance"),
+      qualityControl: at("qualityControl"),
+      workManager: at("workManager"),
+      surveyor: at("surveyor"),
+      supervisor: at("supervisor"),
+    };
+  };
+  const historicalNameForRole = (responsible: unknown, date?: string) => {
+    if (!date || !(currentProjectLegend.history ?? []).length) return "";
+    const role = String(responsible ?? "");
+    const field: LegendHistoryField | null =
+      role.includes("בקרת איכות") || role.includes("בקר איכות") ? "qualityControl"
+        : role.includes("מנהל עבודה") ? "workManager"
+          : role.includes("מודד") ? "surveyor"
+            : role.includes("הבטחת איכות") ? "qualityAssurance"
+              : role.includes("ניהול פרויקט") || role.includes("מנהל פרויקט") ? "projectManagement"
+                : null;
+    if (!field) return "";
+    const value = legendValueAtDate(currentProjectLegend, field, date, "");
+    return value;
+  };
+
   const currentNonconformanceActor = useMemo(
     () => nonconformanceActor(projectAccess, currentProjectEmailUsers),
     [projectAccess, currentProjectEmailUsers],
@@ -20423,13 +20513,24 @@ export default function Page() {
         if (!signature || !String(signature.signature ?? "").trim()) return item;
         const before = previousById.get(String(item?.id))?.signature;
         if (before && before.signature === signature.signature && before.signerName === signature.signerName) return item;
-        if (inactiveSignerNames.has(normalizeAccessValue(signature.signerName))) {
+        const isQcRow = isQualityControlSignatureRole(item?.responsible) || isQualityControlSignatureRole(signature.role);
+        if (loggedInQcSignerName && isQcRow) {
+          if (normalizeAccessValue(signature.signerName) === normalizeAccessValue(loggedInQcSignerName)) return item;
+          changed = true;
+          return { ...item, signature: { ...signature, signerName: loggedInQcSignerName } };
+        }
+        // משתמש לא פעיל – מותר רק אם הוא הגורם האחראי בתאריך הרשומה (רשומה מתקופתו)
+        const historical = historicalNameForRole(item?.responsible || signature.role, recordEffectiveDate(next));
+        if (
+          inactiveSignerNames.has(normalizeAccessValue(signature.signerName)) &&
+          normalizeAccessValue(signature.signerName) !== normalizeAccessValue(historical)
+        ) {
           blockedName = String(signature.signerName ?? "");
           changed = true;
           return { ...item, signature: before ?? { ...signature, signerName: "", signature: "", signedAt: "" } };
         }
         if (!loggedInQcSignerName) return item;
-        if (!isQualityControlSignatureRole(item?.responsible) && !isQualityControlSignatureRole(signature.role)) return item;
+        if (!isQcRow) return item;
         if (normalizeAccessValue(signature.signerName) === normalizeAccessValue(loggedInQcSignerName)) return item;
         changed = true;
         return { ...item, signature: { ...signature, signerName: loggedInQcSignerName } };
@@ -20441,7 +20542,10 @@ export default function Page() {
     });
 
   const resolveResponsibleNameForCurrentProject = useMemo(
-    () => (responsible: unknown, templateKey?: unknown) => {
+    () => (responsible: unknown, templateKey?: unknown, recordDate?: string) => {
+      // רשומה מתקופה קודמת – הגורם שהיה אחראי אז (לפי החלפת הגורם בפרטי הפרויקט)
+      const historical = historicalNameForRole(responsible, recordDate);
+      if (historical) return historical;
       const activeUsers = currentProjectEmailUsers.filter((user) => user.active !== false);
       // ברשימות חשמל/תאורה – "בקרת איכות" = בקר האיכות לחשמל ותאורה (אם הוגדר בפרויקט)
       const effectiveResponsible = responsibleForTemplate(responsible, templateKey);
@@ -20485,6 +20589,7 @@ export default function Page() {
       return resolveResponsibleName(responsible, currentProject?.name);
     },
     [
+      currentProjectLegend,
       loggedInQcSignerName,
       currentProjectEmailUsers,
       currentProjectDefaults.qualityControl,
@@ -20510,7 +20615,9 @@ export default function Page() {
     return changed ? next : form;
   };
 
-  const projectDefaultFieldValues = () => ({
+  const projectDefaultFieldValues = (recordDate?: string) => {
+    const currentProjectDefaults = projectDefaultsForDate(recordDate);
+    return ({
     projectName: currentProjectDefaults.projectName,
     titleProjectName: currentProjectDefaults.projectName,
     projectNameDisplay: currentProjectDefaults.projectName,
@@ -20531,22 +20638,24 @@ export default function Page() {
     surveyor: currentProjectDefaults.surveyor,
     supervisor: currentProjectDefaults.supervisor,
   });
+  };
 
   const applyProjectDefaultsToChecklist = (form: any) => ({
     ...fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
+      ...projectDefaultFieldValues(recordEffectiveDate(form)),
       revision: CHECKLIST_DEFAULT_REVISION,
       revisionDate: CHECKLIST_DEFAULT_REVISION_DATE,
     }),
     contractor: form.contractor || currentProjectDefaults.contractor,
     revision: form.revision || CHECKLIST_DEFAULT_REVISION,
     revisionDate: form.revisionDate || CHECKLIST_DEFAULT_REVISION_DATE,
-    items: applyProjectTeamToItems(form.items, form.templateKey),
+    items: applyProjectTeamToItems(form.items, form.templateKey, recordEffectiveDate(form)),
   });
 
   const applyProjectDefaultsToNonconformance = (form: any) => {
+    const currentProjectDefaults = projectDefaultsForDate(recordEffectiveDate(form));
     const filled = fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
+      ...projectDefaultFieldValues(recordEffectiveDate(form)),
       raisedBy: currentNonconformanceActor.personalName,
       openedBy: currentNonconformanceActor.openedBy,
       openedRole: currentNonconformanceActor.roleLabel,
@@ -20572,8 +20681,9 @@ export default function Page() {
     };
   };
 
-  const enrichNonconformanceRecordWithProjectDetails = (form: any) =>
-    applyProjectDefaultsToNonconformance({
+  const enrichNonconformanceRecordWithProjectDetails = (form: any) => {
+    const currentProjectDefaults = projectDefaultsForDate(recordEffectiveDate(form));
+    return applyProjectDefaultsToNonconformance({
       ...form,
       projectDetails: {
         projectName: currentProjectDefaults.projectName,
@@ -20586,9 +20696,11 @@ export default function Page() {
         supervisor: currentProjectDefaults.supervisor,
       },
     });
+  };
 
   const nonconformanceProjectDetailRows = (record: any) => {
     const details = record?.projectDetails ?? {};
+    const currentProjectDefaults = projectDefaultsForDate(recordEffectiveDate(record));
     return [
       ["שם פרויקט", record?.projectName || record?.projectNameDisplay || details.projectName || currentProjectDefaults.projectName],
       ["ניהול פרויקט", record?.projectManagement || record?.managementCompany || details.projectManagement || currentProjectDefaults.projectManagement],
@@ -20600,7 +20712,7 @@ export default function Page() {
 
   const applyProjectDefaultsToTrialSection = (form: any) =>
     fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
+      ...projectDefaultFieldValues(recordEffectiveDate(form)),
       projectName: currentProjectDefaults.projectName,
       projectManagement: currentProjectDefaults.projectManagement,
       managementCompany: currentProjectDefaults.projectManagement,
@@ -20616,14 +20728,14 @@ export default function Page() {
 
   const applyProjectDefaultsToRfi = (form: any) =>
     fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
+      ...projectDefaultFieldValues(recordEffectiveDate(form)),
       createdBy: currentProjectDefaults.qualityControl,
       updatedBy: currentProjectDefaults.qualityControl,
     });
 
   const applyProjectDefaultsToPreliminary = (form: any) =>
     fillOnlyEmptyFields(form, {
-      ...projectDefaultFieldValues(),
+      ...projectDefaultFieldValues(recordEffectiveDate(form)),
       approvedBy: currentProjectDefaults.qualityControl,
       checkedBy: currentProjectDefaults.qualityControl,
     });
@@ -20779,13 +20891,51 @@ export default function Page() {
   const approveProjectLegendChanges = async () => {
     if (!currentProject) return;
     const projectId = normalizeStoredProjectId(currentProject.id);
-    const nextLegend = normalizeProjectLegend(
+    let nextLegend = normalizeProjectLegend(
       draftProjectLegends[projectId] ??
         draftProjectLegends[normalizeStoredProjectId(currentProject.id)] ??
         draftProjectLegends[currentProject.id] ??
         savedCurrentProjectLegend,
       currentProject.name,
     );
+    // החלפת גורם (למשל בקר איכות): מאיזה תאריך – כדי שרשומות קודמות יישארו עם הגורם הקודם
+    const replaced = LEGEND_HISTORY_FIELDS.filter(([field]) => {
+      const before = String(savedCurrentProjectLegend?.[field] ?? "").trim();
+      const after = String(nextLegend[field] ?? "").trim();
+      return before && before !== after;
+    });
+    if (replaced.length) {
+      const today = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const answer = window.prompt(
+        `הוחלפו בפרטי הפרויקט:\n${replaced
+          .map(([field, label]) => `• ${label}: ${savedCurrentProjectLegend[field]} ← ${nextLegend[field] || "(ריק)"}`)
+          .join("\n")}\n\nמאיזה תאריך ההחלפה בתוקף? (dd/mm/yyyy)\nרשומות שתאריכן לפני כן יישארו עם הפרטים הקודמים.\nריק = ההחלפה חלה על כל הרשומות (תיקון טעות).`,
+        `${pad(today.getDate())}/${pad(today.getMonth() + 1)}/${today.getFullYear()}`,
+      );
+      if (answer === null) return;
+      const parts = answer.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](20\d{2})$/);
+      if (answer.trim() && !parts) {
+        alert("התאריך אינו תקין. יש להזין בפורמט dd/mm/yyyy.");
+        return;
+      }
+      if (parts) {
+        const from = new Date(Date.UTC(Number(parts[3]), Number(parts[2]) - 1, Number(parts[1])));
+        const until = new Date(from.getTime() - 86400000).toISOString().slice(0, 10);
+        nextLegend = {
+          ...nextLegend,
+          history: [
+            ...(nextLegend.history ?? []),
+            ...replaced.map(([field], index) => ({
+              id: `hist-${Date.now()}-${index}`,
+              field,
+              value: String(savedCurrentProjectLegend[field] ?? "").trim(),
+              until,
+            })),
+          ],
+        };
+      }
+    }
 
     const nextLegends = migrateProjectLegendMap({
       ...projectLegends,
@@ -20973,11 +21123,11 @@ export default function Page() {
     return next;
   };
 
-  const applyProjectTeamToItems = (items: ChecklistItem[], templateKey?: unknown) =>
+  const applyProjectTeamToItems = (items: ChecklistItem[], templateKey?: unknown, recordDate?: string) =>
     items.map((item) => ({
       ...item,
       inspector:
-        resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector,
+        resolveResponsibleNameForCurrentProject(item.responsible, templateKey, recordDate) || item.inspector,
     }));
   const checklistTemplateLabel = (
     key: ChecklistTemplateKey | string | undefined,
@@ -22256,7 +22406,7 @@ export default function Page() {
       items: prev.items.map((item) => ({
         ...item,
         inspector:
-          resolveResponsibleNameForCurrentProject(item.responsible, prev.templateKey) ||
+          resolveResponsibleNameForCurrentProject(item.responsible, prev.templateKey, recordEffectiveDate(prev)) ||
           item.inspector,
       })),
     }));
@@ -23001,7 +23151,7 @@ export default function Page() {
       items: prev.items.map((item) => {
         if (item.id !== id) return item;
         if (field === "responsible") {
-          const autoName = resolveResponsibleNameForCurrentProject(value, prev.templateKey);
+          const autoName = resolveResponsibleNameForCurrentProject(value, prev.templateKey, recordEffectiveDate(prev));
           return {
             ...item,
             responsible: value,
@@ -26512,12 +26662,12 @@ export default function Page() {
       normalizeProcessSignature(
         item.signature,
         item.responsible || "גורם אחראי",
-        resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector || "",
+        resolveResponsibleNameForCurrentProject(item.responsible, templateKey, recordEffectiveDate(sourceRecord)) || item.inspector || "",
       );
 
     const itemSignerName = (item: any) => {
       const sig = getItemSignature(item);
-      return sig.signerName || resolveResponsibleNameForCurrentProject(item.responsible, templateKey) || item.inspector || "";
+      return sig.signerName || resolveResponsibleNameForCurrentProject(item.responsible, templateKey, recordEffectiveDate(sourceRecord)) || item.inspector || "";
     };
 
     const itemSignature = (item: any) => {
