@@ -36,6 +36,7 @@ export type MonthlyReportConfig = {
   signerTitle: string; // תפקיד החותם (מנהל בקרת איכות)
   firstMonth: string; // yyyy-mm – החודש של דוח מס' 1
   appendices: string; // נספחים – שורה לכל נספח
+  coverImage: string; // תמונת שער (תצ"א / מפת הפרויקט) – data URL
 };
 
 export const defaultMonthlyReportConfig = (): MonthlyReportConfig => ({
@@ -57,6 +58,7 @@ export const defaultMonthlyReportConfig = (): MonthlyReportConfig => ({
     "ריכוז פיקוח עליון.",
     "ריכוזי בדיקות מעבדה.",
   ].join("\n"),
+  coverImage: "",
 });
 
 // פרטים קבועים מתוך דוח 09.2026 של מגד אלכרום – ממולאים בהפעלה הראשונה בפרויקט זה
@@ -80,7 +82,7 @@ export const presetMonthlyReportConfig = (projectName: string): Partial<MonthlyR
       "- עבודות ניקוז.",
       "- עבודות חשמל, תקשורת ותאורה.",
       "- עבודות מצעים ואספלט.",
-      "- עבודות גיאומטריה (הסדרת צמתים ומשולשי תנועה).",
+      "- עבודות סימון כביש.",
       "- עבודות פיתוח נופי.",
       "כמו כן כל עבודה נדרשת לפי המפרט המיוחד; העבודות יבוצעו בהתאם לשלבי הביצוע המצוינים במפרט המיוחד.",
     ].join("\n"),
@@ -115,10 +117,53 @@ export const normalizeMonthlyReportConfig = (item: any): MonthlyReportConfig => 
     signerTitle: text("signerTitle"),
     firstMonth: text("firstMonth"),
     appendices: text("appendices"),
+    coverImage: text("coverImage"),
   };
 };
 
-export type MonthlyWorkRow = { structure: string; from: string; to: string; offset: string; work: string; notes: string };
+/** text – כל מה שמתאר את העבודה (שם הרשימה, סוג התבנית, תיקייה) – לשיוך לסוג העבודה */
+export type MonthlyWorkRow = { structure: string; from: string; to: string; offset: string; work: string; notes: string; text?: string };
+
+// סוגי העבודות לבקרה השוטפת – מתוך תיאור הפרויקט: כל שורה שמתחילה ב"-" היא סוג עבודה (טבלה בדוח)
+export const workCategoriesFromDescription = (description: string) =>
+  String(description ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^[-•*·]/.test(line))
+    .map((line) => line.replace(/^[-•*·]\s*/, "").replace(/[.:]\s*$/, "").trim())
+    .filter(Boolean);
+
+// מילות מפתח לכל סוג עבודה (בנוסף למילים שבשם הסוג עצמו)
+const WORK_KEYWORDS: Array<[RegExp, string[]]> = [
+  [/עפר/, ["עפר", "חפיר", "מילוי", "הידוק", "שתית", "חציב"]],
+  [/סליל|קרצוף/, ["סליל", "קרצוף", "ריסוס"]],
+  [/בטון/, ["בטון", "יציק", "ברזל", "זיון", "טפסנ", "CLSM"]],
+  [/שילוט|תמרור|הסדר/, ["שילוט", "שלט", "תמרור", "הסדר תנועה", "הסדרי תנועה", "מעקה זמני"]],
+  [/קיר/, ["קיר", "תומך", "אבן לקט", "גביונ"]],
+  [/ריצוף|אבני שפה/, ["ריצוף", "מרצפ", "אבני שפה", "אבן שפה", "אבני גן", "מדרכ"]],
+  [/ניקוז/, ["ניקוז", "קולטן", "שוח", "תעל", "מעביר", "צנרת", "צינור", "ביוב"]],
+  [/חשמל|תאור|תקשורת/, ["חשמל", "תאור", "תקשורת", "עמוד", "כבל", "שרוול"]],
+  [/מצע|אספלט/, ["מצע", "אספלט", "תא\"צ", "תא״צ", "שכבה נושאת", "שכבה מקשרת"]],
+  [/סימון/, ["סימון", "צבע כביש"]],
+  [/פיתוח|נופי|גינון/, ["גינון", "נופי", "השקי", "נטיע", "צמחי"]],
+];
+const keywordsForCategory = (category: string) => {
+  const own = category.replace(/עבודות|ה?כביש(?!\S)|[,()]/g, " ").split(/\s+/).filter((word) => word.length > 2);
+  const extra = WORK_KEYWORDS.filter(([pattern]) => pattern.test(category)).flatMap(([, words]) => words);
+  return Array.from(new Set([...own, ...extra]));
+};
+export const classifyWork = (categories: string[], text: string) => {
+  let best = -1;
+  let bestScore = 0;
+  categories.forEach((category, index) => {
+    const score = keywordsForCategory(category).filter((word) => text.includes(word)).length;
+    if (score > bestScore) {
+      best = index;
+      bestScore = score;
+    }
+  });
+  return best;
+};
 export type MonthlyListRow = { date: string; title: string; detail: string; status: string };
 export type NcStatusPair = { QC: number; QA: number };
 export type NcStatusGroup = { total: NcStatusPair; grades: NcStatusPair[] };
@@ -292,45 +337,73 @@ export async function buildMonthlyReportDocx(data: MonthlyReportData): Promise<B
     return table([head1, head2, rowFor("QC"), rowFor("QA")]);
   };
 
-  // בקרה שוטפת – טבלה לכל מבנה ראשי
-  const worksByStructure = new Map<string, MonthlyWorkRow[]>();
+  // בקרה שוטפת – טבלה לכל סוג עבודה מתיאור הפרויקט; סוג שלא בוצע בו דבר – "בחודש המדווח לא בוצעו עבודות"
+  const categories = workCategoriesFromDescription(config.projectDescription);
+  const byCategory = new Map<number, MonthlyWorkRow[]>();
   data.works.forEach((row) => {
-    const key = row.structure.split(" › ")[0] || "כללי";
-    worksByStructure.set(key, [...(worksByStructure.get(key) ?? []), row]);
+    const index = categories.length ? classifyWork(categories, `${row.text ?? ""} ${row.work} ${row.structure}`) : -1;
+    byCategory.set(index, [...(byCategory.get(index) ?? []), row]);
   });
-  const workTables: Array<Paragraph | Table> = [];
-  let structureIndex = 0;
-  for (const [structure, rows] of worksByStructure) {
-    structureIndex += 1;
-    workTables.push(
-      table([
-        new TableRow({
-          tableHeader: true,
-          children: [
-            cell(`מבנה ${structureIndex}\n${structure}`, { bold: true, shade: true, width: 22 }),
-            cell("מחתך", { bold: true, shade: true, center: true, width: 10 }),
-            cell("עד חתך", { bold: true, shade: true, center: true, width: 10 }),
-            cell("הסט", { bold: true, shade: true, center: true, width: 9 }),
-            cell("מהות העבודה", { bold: true, shade: true, width: 31 }),
-            cell("הערות", { bold: true, shade: true, width: 18 }),
-          ],
-        }),
-        ...rows.map(
-          (row) =>
+  const workTable = (title: string, rows: MonthlyWorkRow[]) => [
+    table([
+      new TableRow({
+        tableHeader: true,
+        children: [cell(title, { bold: true, shade: true, span: 6 })],
+      }),
+      new TableRow({
+        tableHeader: true,
+        children: [
+          cell("מבנה / אלמנט", { bold: true, shade: true, width: 22 }),
+          cell("מחתך", { bold: true, shade: true, center: true, width: 10 }),
+          cell("עד חתך", { bold: true, shade: true, center: true, width: 10 }),
+          cell("הסט", { bold: true, shade: true, center: true, width: 9 }),
+          cell("מהות העבודה", { bold: true, shade: true, width: 31 }),
+          cell("הערות", { bold: true, shade: true, width: 18 }),
+        ],
+      }),
+      ...(rows.length
+        ? rows.map(
+            (row) =>
+              new TableRow({
+                cantSplit: true,
+                children: [
+                  cell(row.structure),
+                  cell(row.from, { center: true }),
+                  cell(row.to, { center: true }),
+                  cell(row.offset, { center: true }),
+                  cell(row.work),
+                  cell(row.notes),
+                ],
+              }),
+          )
+        : [
             new TableRow({
-              cantSplit: true,
-              children: [
-                cell(row.structure.split(" › ").slice(1).join(" › ")),
-                cell(row.from, { center: true }),
-                cell(row.to, { center: true }),
-                cell(row.offset, { center: true }),
-                cell(row.work),
-                cell(row.notes),
-              ],
+              children: [cell(""), cell(""), cell(""), cell(""), cell("בחודש המדווח לא בוצעו עבודות"), cell("")],
             }),
-        ),
-      ]),
-      para(""),
+          ]),
+    ]),
+    para(""),
+  ];
+  const workTables: Array<Paragraph | Table> = [
+    ...categories.flatMap((category, index) => workTable(`3.1.${index + 1} ${category}`, byCategory.get(index) ?? [])),
+    ...((byCategory.get(-1) ?? []).length
+      ? workTable(categories.length ? `3.1.${categories.length + 1} עבודות נוספות` : "עבודות שבוצעו", byCategory.get(-1) ?? [])
+      : []),
+  ];
+
+  // תמונת שער (מפת הפרויקט / תצ"א)
+  const cover = dataUrlBytes(config.coverImage);
+  const coverParagraphs: Paragraph[] = [];
+  if (cover) {
+    const size = await imageSize(config.coverImage);
+    const width = 520;
+    const height = Math.round((size.height / Math.max(1, size.width)) * width);
+    coverParagraphs.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 120, after: 160 },
+        children: [new ImageRun({ data: cover.bytes, type: cover.type, transformation: { width, height: Math.min(height, 420) } })],
+      }),
     );
   }
 
@@ -351,6 +424,7 @@ export async function buildMonthlyReportDocx(data: MonthlyReportData): Promise<B
       `מצ"ב דו"ח חודשי המפרט את פעילות ההקמה ובקרת האיכות בפרויקט ${data.projectName} לתקופה ${periodFrom} – ${periodTo}.`,
       { spacingAfter: 200 },
     ),
+    ...coverParagraphs,
     ...(lines(config.copies).length ? [para("העתקים:", { bold: true, underline: true }), ...lines(config.copies).map((line) => para(line))] : []),
     para("בכבוד רב,", { spacingBefore: 240 }),
     para(data.signerName, { bold: true }),
@@ -402,9 +476,9 @@ export async function buildMonthlyReportDocx(data: MonthlyReportData): Promise<B
 
     // 3. בקרה שוטפת
     heading("3. בקרה שוטפת"),
-    para("*חלוקת מבנים לפי עץ מבנה מאושר", { size: 20 }),
+    para("*העבודות מחולקות לפי סוגי העבודות בפרויקט; המבנה / האלמנט לפי עץ מבנה מאושר", { size: 20 }),
     subHeading("3.1 פירוט עבודות שבוצעו במהלך החודש:"),
-    ...(workTables.length ? workTables : [para("בחודש המדווח לא נרשמו רשימות תיוג במערכת.")]),
+    ...(workTables.length ? workTables : [para("בחודש המדווח לא בוצעו עבודות.")]),
 
     // 4. אי התאמות
     heading("4. אי התאמות וליקויים במשך הביצוע"),

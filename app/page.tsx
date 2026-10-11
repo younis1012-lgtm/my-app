@@ -29773,6 +29773,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             offset: firstFilled(record.offset, record.side),
             work: firstFilled(getRecordTitle(record), checklistTemplateLabel(record.templateKey)),
             notes: getApprovalDisplayStatus(record),
+            text: [
+              getRecordTitle(record),
+              checklistTemplateLabel(record.templateKey),
+              getChecklistTemplateFolder(normalizeChecklistTemplateKey(record.templateKey)).title,
+              record.category,
+              path,
+            ].filter(Boolean).join(" "),
           };
         })
         .sort((a, b) => a.structure.localeCompare(b.structure, "he") || a.from.localeCompare(b.from, "he", { numeric: true }));

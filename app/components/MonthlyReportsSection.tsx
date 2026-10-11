@@ -12,6 +12,31 @@ export type MonthlyReportSummary = {
   reportNo: number;
 };
 
+// תמונת שער: הקטנה ל-1400 פיקסלים ו-JPEG – כדי שלא תכביד על פרטי הפרויקט
+const shrinkCoverImage = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, 1400 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(image.naturalWidth * scale);
+      canvas.height = Math.round(image.naturalHeight * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("canvas"));
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("לא ניתן לקרוא את התמונה"));
+    };
+    image.src = url;
+  });
+
 // דוחות חודשיים: הגדרות הדוח לפרויקט + הפקת דוח Word לחודש נבחר מתוך מה שדווח במערכת.
 export function MonthlyReportsSection({
   projectName,
@@ -179,6 +204,38 @@ export function MonthlyReportsSection({
             {field("projectDescription", "תיאור הפרויקט (שורה לכל סעיף)", { multiline: true, rows: 7 })}
             {field("copies", "העתקים (שורה לכל נמען)", { multiline: true, rows: 3 })}
             {field("appendices", "נספחים (שורה לכל נספח)", { multiline: true, rows: 4 })}
+            <div style={label}>
+              תמונת שער (מפת הפרויקט / תצ"א) – מופיעה בעמוד הראשון של הדוח
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ width: 220, height: 140, border: "1px dashed #cbd5e1", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", overflow: "hidden" }}>
+                  {draft.coverImage ? <img src={draft.coverImage} alt="תמונת שער" style={{ maxWidth: "100%", maxHeight: "100%" }} /> : <span style={{ color: "#94a3b8", fontSize: 12 }}>אין תמונה</span>}
+                </div>
+                {canEdit ? (
+                  <label style={{ ...btn, display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
+                    {draft.coverImage ? "החלפת תמונה" : "העלאת תמונה"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      style={{ display: "none" }}
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        const image = await shrinkCoverImage(file);
+                        setDraft({ ...draft, coverImage: image });
+                        setDirty(true);
+                      }}
+                    />
+                  </label>
+                ) : null}
+                {canEdit && draft.coverImage ? (
+                  <button type="button" style={btn} onClick={() => { setDraft({ ...draft, coverImage: "" }); setDirty(true); }}>הסרת תמונה</button>
+                ) : null}
+              </div>
+            </div>
+            <div style={{ color: "#64748b", fontSize: 12 }}>
+              הבקרה השוטפת בדוח בנויה לפי סוגי העבודות שבתיאור הפרויקט – כל שורה שמתחילה ב־"-" היא טבלה. סוג שלא בוצעו בו עבודות בחודש יופיע עם "בחודש המדווח לא בוצעו עבודות".
+            </div>
             {canEdit ? (
               <div>
                 <button
