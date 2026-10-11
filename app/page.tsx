@@ -237,8 +237,21 @@ const saveProjectEmailUsersToCloud = async (users: ProjectEmailUser[], projectId
   await saveProjectUserRows(supabase, projectId, normalized);
 };
 
+// קריאת ההתחברות עלולה להיכשל רגעית כששני חלקים במסך מבקשים אותה יחד ("Lock broken…") – מנסים שוב
+const getSessionWithRetry = async () => {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await supabase?.auth.getSession();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      if (attempt >= 4 || !/lock/i.test(message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
+  }
+};
+
 const loadProjectEmailUsersFromCloud = async (projectId: string) => {
-  const session = await supabase?.auth.getSession();
+  const session = await getSessionWithRetry();
   const token = session?.data.session?.access_token;
   if (!token) throw new Error("יש לצאת ולהתחבר שוב כדי לטעון את משתמשי הפרויקט");
   const params = new URLSearchParams({projectId, mode: "manage-users"});
@@ -20070,6 +20083,7 @@ export default function Page() {
   const projectEmailUsersRef = useRef<ProjectEmailUser[]>(projectEmailUsers);
 
   const [projectUsersLoad, setProjectUsersLoad] = useState({projectId:"", canManage:false, canManageCredentials:false, error:""});
+  const [projectUsersReloadKey, setProjectUsersReloadKey] = useState(0);
   const selectedUsersProjectId = normalizeStoredProjectId(currentProject?.id);
   const canEditProjectEmailUsers = projectUsersLoad.projectId === selectedUsersProjectId && projectUsersLoad.canManage;
   useEffect(() => {
@@ -20090,7 +20104,7 @@ export default function Page() {
       })
       .catch((error) => { if (active) setProjectUsersLoad({projectId:"", canManage:false, canManageCredentials:false, error: errorText(error)}); });
     return () => { active = false; };
-  }, [projectAccess?.authUserId, selectedUsersProjectId]);
+  }, [projectAccess?.authUserId, selectedUsersProjectId, projectUsersReloadKey]);
 
   // טעינת פרטי פרויקט מהענן אחרי התחברות. כך פרטי הפרויקט לא נעלמים בכניסה חוזרת/מחשב אחר.
   // בדיקת "הקמת פרויקט" מופעלת רק אחרי טעינה מוצלחת – כדי לא לחסום בגלל טעינה שלא הושלמה.
@@ -30825,7 +30839,12 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           )}
           {section === "projectUsers" && (
             <div>
-            {projectUsersLoad.error && <p role="alert">{projectUsersLoad.error}</p>}
+            {projectUsersLoad.error && (
+              <p role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span>טעינת משתמשי הפרויקט נכשלה – עד לטעינה מחדש לא ניתן לערוך את הרשימה. ({projectUsersLoad.error})</span>
+                <button type="button" style={styles.secondaryBtn} onClick={() => setProjectUsersReloadKey((value) => value + 1)}>טען מחדש</button>
+              </p>
+            )}
             {!projectUsersLoad.error && projectUsersLoad.projectId !== selectedUsersProjectId && <p>טוען משתמשי פרויקט…</p>}
             {projectUsersLoad.projectId === selectedUsersProjectId && !projectUsersLoad.canManage && <p>הרשימה זמינה לצפייה. עריכה ושמירה דורשות הרשאת עריכה בפרויקט.</p>}
             <fieldset disabled={!canEditProjectEmailUsers} style={{border:0, padding:0, minWidth:0}}>
