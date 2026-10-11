@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   unlock: { label: "נפתחה לעריכה", color: "#9a5b00" },
   delete: { label: "נמחקה", color: "#b42318" },
   email: { label: "נשלחה במייל", color: "#2f5d93" },
+  sign: { label: "חתימה", color: "#6d28d9" },
 };
 
 const RESTORED = "שוחזר מנתונים קיימים";

@@ -1,6 +1,7 @@
 "use client";
 
 import { compressLargePdf, formatFileSize, isPdfFile, PDF_COMPRESS_MIN_BYTES } from "../lib/pdfCompress";
+import { shrinkUploadFile } from "../lib/shrinkImage";
 import { showToast as alert } from "./Toaster";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "./common";
@@ -88,6 +89,7 @@ export function QualityDocumentsSection({ projectId, canWrite, supabase, onEmail
 
   // הקטנת PDF גדול (בעיקר סרוק) לפני ההעלאה – חוסך מקום ותעבורה ב-Supabase
   const shrinkForUpload = async (source: File) => {
+    if (source.type.startsWith("image/")) return shrinkUploadFile(source);
     if (!isPdfFile(source) || source.size < PDF_COMPRESS_MIN_BYTES) return source;
     return compressLargePdf(source, (page, total) => setMessage(`מקטין את הקובץ לפני העלאה – עמוד ${page} מתוך ${total}...`));
   };

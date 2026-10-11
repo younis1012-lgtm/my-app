@@ -39,6 +39,7 @@ import { RecordHistoryPanel } from "./components/RecordHistoryPanel";
 import { LabOrderDialog } from "./components/LabOrderDialog";
 import { ImportPreliminaryDialog, preliminaryNested } from "./components/ImportPreliminaryDialog";
 import { LabOrdersTracking } from "./components/LabOrdersTracking";
+import { shrinkUploadFile } from "./lib/shrinkImage";
 import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderDocumentHtml, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
@@ -16288,14 +16289,15 @@ function ControlProcessesSection({
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+        const uploadFile = await shrinkUploadFile(file);
+        const safeName = uploadFile.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
         const filePath = `control-processes/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
         const uploadResult = await supabase.storage
           .from("attachments")
-          .upload(filePath, file, {
+          .upload(filePath, uploadFile, {
             upsert: false,
             cacheControl: "31536000",
-            contentType: file.type || undefined,
+            contentType: uploadFile.type || undefined,
           });
 
         if (uploadResult.error) throw uploadResult.error;
@@ -25032,22 +25034,23 @@ export default function Page() {
     if (cloudEnabled && supabase) {
       void (async () => {
         try {
-          const safeName = file.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
+          const uploadFile = await shrinkUploadFile(file);
+          const safeName = uploadFile.name.replace(/[^a-zA-Z0-9.א-ת_-]/g, "_");
           const filePath = `ncr/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
           const uploadResult = await supabase.storage
             .from("attachments")
-            .upload(filePath, file, {
+            .upload(filePath, uploadFile, {
               upsert: false,
               cacheControl: "31536000",
-              contentType: file.type || undefined,
+              contentType: uploadFile.type || undefined,
             });
           if (uploadResult.error) throw uploadResult.error;
           const { data } = supabase.storage
             .from("attachments")
             .getPublicUrl(filePath);
           appendAttachment({
-            name: file.name,
-            type: file.type,
+            name: uploadFile.name,
+            type: uploadFile.type,
             dataUrl: data.publicUrl,
             uploadedAt: nowLocal(),
           });
