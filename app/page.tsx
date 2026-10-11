@@ -19201,6 +19201,7 @@ export default function Page() {
         .map((value) => normalizeAccessValue(value))
         .filter(Boolean);
       if (!normalizedName || !myNames.includes(normalizedName)) return "";
+      if (inactiveSignerNames.has(normalizedName)) return "";
       const mine = accessUsers.find(
         (user) =>
           Boolean(user.signatureDataUrl) &&
@@ -20398,22 +20399,44 @@ export default function Page() {
   }, [currentProjectEmailUsers, projectAccess]);
   const isQualityControlSignatureRole = (role: unknown) => /בקרת\s*איכות|בקר\s*איכות|\bQC\b/i.test(String(role ?? ""));
   // כל חתימה חדשה בשורת "בקרת איכות" שנחתמת ע"י בקר איכות מחובר – נרשמת בשמו, גם אם בשדה השם הופיע בקר אחר
+  // משתמש שסומן "לא פעיל" בפרויקט – לא ניתן לחתום בשמו (חתימות קיימות שלו נשארות)
+  const inactiveSignerNames = useMemo(
+    () =>
+      new Set(
+        currentProjectEmailUsers
+          .filter((user) => user.active === false)
+          .map((user) => normalizeAccessValue(user.name))
+          .filter(Boolean),
+      ),
+    [currentProjectEmailUsers],
+  );
   const setChecklistFormWithSignerGuard: typeof setChecklistForm = (update) =>
     setChecklistForm((prev: any) => {
       const next = typeof update === "function" ? (update as (value: any) => any)(prev) : update;
-      if (!loggedInQcSignerName || !Array.isArray(next?.items) || next.items === prev?.items) return next;
+      if (!Array.isArray(next?.items) || next.items === prev?.items) return next;
+      if (!loggedInQcSignerName && !inactiveSignerNames.size) return next;
       const previousById = new Map<string, any>((prev?.items ?? []).map((item: any) => [String(item?.id), item]));
       let changed = false;
+      let blockedName = "";
       const items = next.items.map((item: any) => {
         const signature = item?.signature;
         if (!signature || !String(signature.signature ?? "").trim()) return item;
         const before = previousById.get(String(item?.id))?.signature;
         if (before && before.signature === signature.signature && before.signerName === signature.signerName) return item;
+        if (inactiveSignerNames.has(normalizeAccessValue(signature.signerName))) {
+          blockedName = String(signature.signerName ?? "");
+          changed = true;
+          return { ...item, signature: before ?? { ...signature, signerName: "", signature: "", signedAt: "" } };
+        }
+        if (!loggedInQcSignerName) return item;
         if (!isQualityControlSignatureRole(item?.responsible) && !isQualityControlSignatureRole(signature.role)) return item;
         if (normalizeAccessValue(signature.signerName) === normalizeAccessValue(loggedInQcSignerName)) return item;
         changed = true;
         return { ...item, signature: { ...signature, signerName: loggedInQcSignerName } };
       });
+      if (blockedName) {
+        setTimeout(() => alert(`${blockedName} מסומן כלא פעיל בפרויקט – לא ניתן לחתום בשמו.`), 0);
+      }
       return changed ? { ...next, items } : next;
     });
 
