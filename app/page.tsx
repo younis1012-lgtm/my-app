@@ -53,7 +53,7 @@ import {
   type HoldPointRecord,
 } from "./components/HoldPointsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
-import { ConcentrationsSection } from "./components/ConcentrationsSection";
+import { ConcentrationsSection, buildConcentrationFilesWithData } from "./components/ConcentrationsSection";
 import { ManagementDashboard } from "./components/ManagementDashboard";
 import { MyTasks } from "./components/MyTasks";
 import { LayerTrackingView } from "./components/LayerTrackingView";
@@ -18350,13 +18350,13 @@ export default function Page() {
   const [showArchiveSelection, setShowArchiveSelection] = useState(false);
   const [archiveSections, setArchiveSections] = useState<Record<string, boolean>>({
     checklists: true,
-    plans: true,
     preliminary: true,
     nonconformances: true,
     rfi: true,
     trialSections: true,
     holdPoints: true,
     controlProcesses: true,
+    concentrations: true,
     supervisionReports: true,
   });
   const [planForm, setPlanForm] = useState(createDefaultPlanRecord());
@@ -27232,7 +27232,10 @@ export default function Page() {
       "holdPoints",
     ]);
     const sectionEnabled = (key: string) =>
-      scopeNode ? scopedSectionKeys.has(key) : Boolean(archiveSections[key]);
+      key === "plans" ? false : scopeNode ? scopedSectionKeys.has(key) : Boolean(archiveSections[key]);
+    // ריכוזים נבנים מכל סוגי הרשומות – טוענים אותן גם אם התיקייה שלהן לא סומנה
+    const concentrationsEnabled = !scopeNode && Boolean(archiveSections.concentrations);
+    const loadEnabled = (key: string) => sectionEnabled(key) || (concentrationsEnabled && key !== "plans" && key !== "holdPoints");
     try {
       setIsSaving(true);
       const JSZip = (await import("jszip")).default;
@@ -27268,13 +27271,13 @@ export default function Page() {
           return result.data ?? [];
         };
         const [checklistCloudRows, nonconformanceCloudRows, trialCloudRows, preliminaryCloudRows, rfiCloudRows, controlCloudRows, supervisionCloudRows, planCloudRows] = await Promise.all([
-          loadArchiveRows(sectionEnabled("checklists"), "checklists", "saved_at"),
-          loadArchiveRows(sectionEnabled("nonconformances"), NONCONFORMANCE_TABLE, "saved_at"),
-          loadArchiveRows(sectionEnabled("trialSections"), "trial_sections", "saved_at"),
-          loadArchiveRows(sectionEnabled("preliminary"), "preliminary_records", "saved_at"),
-          loadArchiveRows(sectionEnabled("rfi"), "rfi_records", "created_at"),
-          loadArchiveRows(sectionEnabled("controlProcesses"), CONTROL_PROCESS_TABLE, "saved_at"),
-          loadArchiveRows(sectionEnabled("supervisionReports"), SUPERVISION_REPORTS_TABLE, "saved_at"),
+          loadArchiveRows(loadEnabled("checklists"), "checklists", "saved_at"),
+          loadArchiveRows(loadEnabled("nonconformances"), NONCONFORMANCE_TABLE, "saved_at"),
+          loadArchiveRows(loadEnabled("trialSections"), "trial_sections", "saved_at"),
+          loadArchiveRows(loadEnabled("preliminary"), "preliminary_records", "saved_at"),
+          loadArchiveRows(loadEnabled("rfi"), "rfi_records", "created_at"),
+          loadArchiveRows(loadEnabled("controlProcesses"), CONTROL_PROCESS_TABLE, "saved_at"),
+          loadArchiveRows(loadEnabled("supervisionReports"), SUPERVISION_REPORTS_TABLE, "saved_at"),
           loadArchiveRows(sectionEnabled("plans"), PLANS_TABLE, "saved_at"),
         ]);
         if (checklistCloudRows) allProjectChecklists = checklistCloudRows.map(checklistRowToRecord);
@@ -27354,8 +27357,9 @@ export default function Page() {
       const addText = (path: string, content: string) => {
         zip.file(uniqueZipPath(usedPaths, path), content);
       };
-      const addJson = (path: string, value: unknown) => {
-        addText(path, JSON.stringify(stripLargeDataUrls(value), null, 2));
+      // קבצי נתונים טכניים (JSON) לא נכללים – החומר מיועד לקריאה. גיבוי מלא קיים בנפרד.
+      const addJson = (_path: string, _value: unknown) => {
+        void stripLargeDataUrls;
       };
       const addCsv = (
         path: string,
@@ -27371,8 +27375,8 @@ export default function Page() {
         recordTitle: (record: any, index: number) => string,
         formBody?: (record: any, index: number) => string,
       ) => {
+        if (!records.length) return;
         addCsv(`${folderPath}/סיכום.csv`, records, headers);
-        addJson(`${folderPath}/נתונים.json`, records);
         for (const [index, record] of records.entries()) {
           const recordTitleText = recordTitle(record, index);
           const recordFolder = `${folderPath}/${sanitizeZipSegment(`${index + 1} - ${recordTitle(record, index)}`, `רשומה ${index + 1}`)}`;
@@ -27415,7 +27419,7 @@ export default function Page() {
           : null,
       });
 
-      if (sectionEnabled("checklists")) addCsv(
+      if (sectionEnabled("checklists") && allProjectChecklists.length) addCsv(
         `${projectRoot}/רשימות תיוג/סיכום כללי.csv`,
         allProjectChecklists,
         [
@@ -27519,19 +27523,15 @@ export default function Page() {
         (record, index) => `${record.serialNumber || index + 1} - ${record.title || "אי התאמה"}`,
         (record) => nonconformanceRecordArchiveBody(record),
       );
-      if (sectionEnabled("rfi")) await addCollection(
-        `${projectRoot}/RFI`,
-        allProjectRfis,
-        [
-          ["מספר", (record) => (record.rfiNumber ? `RFI מס' ${record.rfiNumber}` : record.title || record.referenceNo)],
-          ["כותרת", (record) => record.workActivity || record.title],
-          ["סטטוס", (record) => record.status],
-          ["תוכנית", (record) => record.planNo],
-          ["מיקום", (record) => record.location],
-        ],
-        (record, index) => `${record.rfiNumber || index + 1} - ${record.title || "RFI"}`,
-        (record) => rfiRecordArchiveBody(record),
-      );
+      // RFI: קובץ PDF אחד לכל RFI – הטופס וכל הנספחים שצורפו, מאוחדים
+      if (sectionEnabled("rfi")) {
+        for (const [index, record] of allProjectRfis.entries()) {
+          const full = await hydrateBatchRecord("rfi", record);
+          const title = batchRecordTitle("rfi", full, index);
+          const blob = await batchRecordPdfBlob("rfi", full, title, index);
+          zip.file(uniqueZipPath(usedPaths, `${projectRoot}/RFI/${sanitizeZipSegment(`${title} - כולל נספחים`)}.pdf`), blob);
+        }
+      }
       if (sectionEnabled("trialSections")) await addCollection(
         `${projectRoot}/קטעי ניסוי`,
         allProjectTrialSections,
@@ -27558,19 +27558,39 @@ export default function Page() {
         ],
         (record, index) => `${record.referenceNo || index + 1} - ${record.name || "נקודת עצירה"}`,
       );
-      if (sectionEnabled("controlProcesses")) await addCollection(
-        `${projectRoot}/תעודות יחס וריכוזים`,
-        allProjectControlProcesses,
-        [
-          ["מספר", (record) => record.processNo],
-          ["כותרת", (record) => record.title],
-          ["תחום", (record) => record.workType],
-          ["סטטוס", (record) => record.status],
-          ["מיקום", (record) => record.location],
-        ],
-        (record) => `${record.processNo || ""} ${record.title || "תהליך בקרה"}`,
-        (record) => controlProcessRecordArchiveBody(record),
-      );
+      // תעודות ייחוס: רק קבצי התעודות שצורפו (בלי טפסים וסיכומים)
+      if (sectionEnabled("controlProcesses")) {
+        for (const record of allProjectControlProcesses) {
+          const prefix = sanitizeZipSegment(`${record.processNo || ""} ${record.title || "תעודת ייחוס"}`.trim(), "תעודת ייחוס");
+          for (const attachment of collectRecordAttachments(record)) {
+            try {
+              const response = await fetch(attachment.dataUrl);
+              const blob = await response.blob();
+              const name = sanitizeZipSegment(attachment.name || "תעודה");
+              zip.file(uniqueZipPath(usedPaths, `${projectRoot}/תעודות ייחוס/${prefix} - ${name}`), blob);
+            } catch (error) {
+              console.warn("Failed to add reference certificate", attachment.name, error);
+            }
+          }
+        }
+      }
+      // ריכוזים: Excel לכל ריכוז שיש בו נתונים
+      if (concentrationsEnabled) {
+        const concentrationFiles = await buildConcentrationFilesWithData({
+          currentProjectId: currentProjectIdNormalized,
+          currentProjectName: projectName,
+          savedChecklists: allProjectChecklists,
+          savedNonconformances: allProjectNonconformances,
+          savedTrialSections: allProjectTrialSections,
+          savedPreliminary: allProjectPreliminary,
+          savedRfis: allProjectRfis,
+          savedControlProcesses: allProjectControlProcesses,
+          savedSupervisionReports: allProjectSupervisionReports,
+        });
+        concentrationFiles.forEach((file) =>
+          zip.file(uniqueZipPath(usedPaths, `${projectRoot}/ריכוזים/${sanitizeZipSegment(file.fileName)}`), file.blob),
+        );
+      }
       if (sectionEnabled("supervisionReports")) await addCollection(
         `${projectRoot}/דוחות פיקוח עליון`,
         allProjectSupervisionReports,
@@ -30504,13 +30524,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             <div style={{ borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0", padding: "8px 0" }}>
               {[
                 ["checklists", "רשימות תיוג"],
-                ["plans", "תוכניות"],
                 ["preliminary", "בקרה מקדימה"],
                 ["nonconformances", "אי־התאמות"],
-                ["rfi", "RFI"],
+                ["rfi", "RFI (PDF אחד לכל RFI כולל נספחים)"],
                 ["trialSections", "קטעי ניסוי"],
                 ["holdPoints", "נקודות עצירה"],
-                ["controlProcesses", "תעודות ייחוס וריכוזים"],
+                ["controlProcesses", "תעודות ייחוס (קבצי התעודות בלבד)"],
+                ["concentrations", "ריכוזים (Excel – רק ריכוזים שיש בהם נתונים)"],
                 ["supervisionReports", "דוחות פיקוח עליון"],
               ].map(([key, label]) => (
                 <label key={key} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 0" }}>

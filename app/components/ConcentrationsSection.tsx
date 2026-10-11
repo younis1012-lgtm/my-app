@@ -6497,6 +6497,59 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 const cardStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 18, padding: 16, background: "#fff", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)" };
 const btnStyle: CSSProperties = { border: 0, borderRadius: 12, padding: "12px 14px", fontWeight: 900, color: "#fff", background: "#0f172a", cursor: "pointer" };
 
+// ריכוזים להורדת "חומר פרויקט": קובץ Excel לכל ריכוז שיש בו נתונים בפועל (ריכוז ריק לא יורד).
+// אספלט – קובץ לכל תערובת שיש לה בדיקות.
+const rowHasData = (row: Row) =>
+  Object.entries(row).some(([key, value]) => {
+    if (/^מס['׳"]?$/.test(String(key).trim()) || isConcentrationStatusColumn(key)) return false;
+    const text = cleanText(value);
+    return Boolean(text) && text !== "-" && text !== "—";
+  });
+
+export async function buildConcentrationFilesWithData(input: {
+  currentProjectId: string;
+  currentProjectName?: string;
+  projectMeta?: ProjectConcentrationMeta;
+  savedChecklists?: any[];
+  savedNonconformances?: any[];
+  savedTrialSections?: any[];
+  savedPreliminary?: any[];
+  savedRfis?: any[];
+  savedControlProcesses?: any[];
+  savedSupervisionReports?: any[];
+}): Promise<Array<{ fileName: string; blob: Blob }>> {
+  const meta = buildProjectMeta(input.currentProjectName ?? "", input.projectMeta);
+  const ctx: BuildContext = {
+    savedChecklists: scopeProjectRecords(input.savedChecklists ?? [], input.currentProjectId),
+    savedNonconformances: scopeProjectRecords(input.savedNonconformances ?? [], input.currentProjectId),
+    savedTrialSections: scopeProjectRecords(input.savedTrialSections ?? [], input.currentProjectId),
+    savedPreliminary: scopeProjectRecords(input.savedPreliminary ?? [], input.currentProjectId),
+    savedRfis: scopeProjectRecords(input.savedRfis ?? [], input.currentProjectId),
+    savedControlProcesses: scopeProjectRecords(input.savedControlProcesses ?? [], input.currentProjectId),
+    savedSupervisionReports: scopeProjectRecords(input.savedSupervisionReports ?? [], input.currentProjectId),
+    projectMeta: meta,
+  };
+  const files: Array<{ fileName: string; blob: Blob }> = [];
+  for (const definition of definitions) {
+    try {
+      if (definition.id === "asphalt") {
+        for (const mix of ASPHALT_MIX_OPTIONS) {
+          const rows = normalizeConcentrationRows(definition, buildAsphaltConcentrationRows(ctx, mix));
+          if (!rows.some(rowHasData)) continue;
+          files.push({ fileName: `ריכוז בדיקות אספלט - ${mix}.xlsx`, blob: await buildWorkbookBlob(definition, rows, meta, mix) });
+        }
+        continue;
+      }
+      const rows = normalizeConcentrationRows(definition, definition.buildRows(ctx));
+      if (!rows.some(rowHasData)) continue;
+      files.push({ fileName: definition.fileName, blob: await buildWorkbookBlob(definition, rows, meta) });
+    } catch (error) {
+      console.error(`Concentration export failed: ${definition.id}`, error);
+    }
+  }
+  return files;
+}
+
 export function ConcentrationsSection({ currentProjectId = "", savedChecklists = [], savedNonconformances = [], savedTrialSections = [], savedPreliminary = [], savedRfis = [], savedControlProcesses = [], savedSupervisionReports = [], currentProjectName = "", projectMeta, onImportSoilSurvey, sourceDataLoading = false, sourceDataReady = true, sourceDataError = "", loadPreliminaryForExport }: Props) {
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
