@@ -7869,11 +7869,15 @@ function ChecklistsSection({
                   const matchingResponsibleNames = matchingResponsibleUsers
                     .map((user) => String(user.name || user.email || "").trim())
                     .filter(Boolean);
-                  const selectedResponsibleName = matchingResponsibleNames.includes(
-                    String(item.inspector || "").trim(),
-                  )
-                    ? String(item.inspector || "").trim()
-                    : autoName;
+                  // סעיף שכבר נחתם – השם הוא של מי שחתם, ולא משתנה כשמחליפים משתמשים בפרויקט
+                  const storedSignerName = String((item as any).signature?.signature ?? "").trim()
+                    ? String((item as any).signature?.signerName ?? "").trim()
+                    : "";
+                  const selectedResponsibleName = storedSignerName
+                    ? storedSignerName
+                    : matchingResponsibleNames.includes(String(item.inspector || "").trim())
+                      ? String(item.inspector || "").trim()
+                      : autoName;
                   const signatureValue = normalizeProcessSignature(
                     (item as any).signature,
                     item.responsible || "גורם אחראי",
@@ -20251,8 +20255,60 @@ export default function Page() {
     ]);
   };
 
+  const legendFieldForUserRole = (role: unknown): LegendHistoryField | null => {
+    const text = String(role ?? "");
+    if (/הבטחת\s*איכות|^\s*QA\b/i.test(text)) return "qualityAssurance";
+    if (/בקר(ת)?\s*איכות|^\s*QC\b/i.test(text)) return "qualityControl";
+    if (/מנהל\s*עבודה/.test(text)) return "workManager";
+    if (/מודד/.test(text)) return "surveyor";
+    return null;
+  };
+  // סימון משתמש "לא פעיל": עד איזה תאריך היה אחראי – רשומות עד אז נשארות בשמו
+  const recordUserPeriodEnd = async (user: ProjectEmailUser) => {
+    const field = legendFieldForUserRole(user.role);
+    const name = String(user.name ?? "").trim();
+    if (!field || !name || !currentProject) return;
+    const yesterday = new Date(Date.now() - 86400000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const answer = window.prompt(
+      `${name} מסומן כלא פעיל.\nעד איזה תאריך (כולל) היה אחראי בפרויקט? (dd/mm/yyyy)\nרשומות עד תאריך זה יישארו בשמו. מתאריך זה והלאה – הגורם הפעיל הנוכחי.\nריק = לא לשמור תקופה.`,
+      `${pad(yesterday.getDate())}/${pad(yesterday.getMonth() + 1)}/${yesterday.getFullYear()}`,
+    );
+    const parts = String(answer ?? "").trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](20\d{2})$/);
+    if (!parts) {
+      if (answer && answer.trim()) alert("התאריך אינו תקין – התקופה לא נשמרה. אפשר לסמן שוב לא פעיל ולהזין dd/mm/yyyy.");
+      return;
+    }
+    const until = `${parts[3]}-${parts[2].padStart(2, "0")}-${parts[1].padStart(2, "0")}`;
+    const projectId = normalizeStoredProjectId(currentProject.id);
+    const base = normalizeProjectLegend(savedCurrentProjectLegend, currentProject.name);
+    const history = (base.history ?? []).filter(
+      (entry) => !(entry.field === field && normalizeAccessValue(entry.value) === normalizeAccessValue(name)),
+    );
+    const nextLegend: ProjectLegend = {
+      ...base,
+      history: [...history, { id: `hist-${Date.now()}`, field, value: name, until }],
+    };
+    const nextLegends = migrateProjectLegendMap({ ...projectLegends, [projectId]: nextLegend });
+    setProjectLegends(nextLegends);
+    setDraftProjectLegends((prev) => migrateProjectLegendMap({ ...prev, [projectId]: nextLegend }));
+    try {
+      window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+    } catch {}
+    try {
+      await saveProjectLegendToSupabase(projectId, nextLegend);
+      alert(`נשמר: רשומות עד ${parts[1].padStart(2, "0")}/${parts[2].padStart(2, "0")}/${parts[3]} יישארו בשם ${name}. יש ללחוץ גם "שמור משתמשים".`);
+    } catch (error) {
+      alert(`שמירת התקופה נכשלה: ${errorText(error)}`);
+    }
+  };
+
   const updateProjectEmailUser = (id: string, patch: Partial<ProjectEmailUser>) => {
     if (!canEditProjectEmailUsers) return alert("יש לטעון את הרשימה ולהתחבר עם הרשאת עריכה בפרויקט.");
+    if (patch.active === false) {
+      const user = projectEmailUsersRef.current.find((item) => item.id === id);
+      if (user && user.active !== false) setTimeout(() => void recordUserPeriodEnd(user), 0);
+    }
     saveProjectEmailUsers((prev) =>
       prev.map((user) => (user.id === id ? { ...user, ...patch, directoryOnly: false, email: patch.email !== undefined ? String(patch.email).trim() : user.email } : user)),
     );
