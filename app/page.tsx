@@ -2599,6 +2599,8 @@ type ProjectAccess = {
   authProvider?: "legacy" | "supabase";
   lastProjectId?: string;
   occupationalWriteAccess?: boolean;
+  /** סיסמה זמנית שנקבעה ע"י מנהל – חובה להחליף לפני עבודה */
+  mustChangePassword?: boolean;
   signatureDataUrl?: string;
   signatureFileName?: string;
   /** "electrical" = בקר איכות לחשמל ותאורה בלבד */
@@ -2819,6 +2821,7 @@ const rowToProjectAccess = (row: any): ProjectAccess => ({
     row?.signature_file_name ?? row?.signatureFileName ?? "",
   ),
   discipline: normalizeAccessDiscipline(row?.discipline),
+  mustChangePassword: row?.must_change_password === true || row?.mustChangePassword === true,
 });
 
 const projectAccessToRow = (access: ProjectAccess) => ({
@@ -3056,6 +3059,7 @@ const mergeAccessProfile = (
     projectName: profile.projectName,
     discipline: profile.discipline,
     signatureDataUrl: access.signatureDataUrl || profile.signatureDataUrl,
+    mustChangePassword: profile.mustChangePassword === true,
   };
 };
 
@@ -18831,6 +18835,7 @@ export default function Page() {
               discipline: profile.discipline,
               signatureDataUrl: cloudAccess.signatureDataUrl || profile.signatureDataUrl,
               legacyUsername: profile.username,
+              mustChangePassword: profile.mustChangePassword === true,
             }
           : cloudAccess;
         const cloudUsers = await loadAccessUsersFromSupabase();
@@ -19039,7 +19044,55 @@ export default function Page() {
     }
   };
 
+  // הזמנה במייל למשתמש חדש (או שאופסה לו סיסמה) ששם המשתמש שלו הוא כתובת מייל
+  const buildAccessInvites = (users: ProjectAccess[]): MailContext[] => {
+    const existing = new Set(accessUsers.map((user) => normalizeAccessValue(user.username)));
+    const projectId = normalizeStoredProjectId(currentProject?.id ?? currentProjectId);
+    if (!projectId) return [];
+    return users
+      .filter((user) => user.role !== "admin" && user.password && isEmailAddress(user.username))
+      .map((user) => {
+        const isNew = !existing.has(normalizeAccessValue(user.username));
+        const linkProjectId = accessProjectIds(user)[0] || projectId;
+        const shortCode = String(linkProjectId).replace(/[^0-9a-z]/gi, "").slice(0, 8).toLowerCase();
+        const link = shortCode ? `${PUBLIC_APP_URL}/p/${shortCode}` : PUBLIC_APP_URL;
+        const project = user.projectName || currentProject?.name || projectName || "";
+        const roleText = user.role === "readonly" ? "צפייה" : "צפייה ועריכה";
+        const text = [
+          `שלום ${user.displayName || ""},`.replace(" ,", ","),
+          "",
+          isNew
+            ? `נפתחה לך גישה למערכת ניהול ובקרת האיכות Y.K Quality${project ? ` בפרויקט ${project}` : ""}.`
+            : `הסיסמה שלך למערכת Y.K Quality${project ? ` (פרויקט ${project})` : ""} אופסה.`,
+          "",
+          `כניסה למערכת: ${link}`,
+          `שם משתמש: ${user.username}`,
+          `סיסמה זמנית: ${user.password}`,
+          `הרשאה: ${roleText}`,
+          "",
+          "בכניסה הראשונה המערכת תבקש לקבוע סיסמה אישית. הסיסמה הזמנית תפסיק לעבוד לאחר מכן.",
+          "אין להעביר את פרטי הכניסה לאחרים – כל פעולה וחתימה במערכת נרשמות בשם המשתמש.",
+          "",
+          "בברכה",
+        ].join("\n");
+        return {
+          projectId,
+          module: "accessInvite",
+          recordId: `invite-${normalizeAccessValue(user.username)}`,
+          title: isNew ? "הזמנה למערכת Y.K Quality" : "איפוס סיסמה – Y.K Quality",
+          data: { projectName: project, title: "הזמנה למערכת", status: "", location: "" },
+          attachments: [],
+          initialTo: user.username,
+          initialSubject: isNew
+            ? `נפתחה לך גישה למערכת Y.K Quality${project ? ` – ${project}` : ""}`
+            : `איפוס סיסמה למערכת Y.K Quality${project ? ` – ${project}` : ""}`,
+          initialText: text,
+        } as MailContext;
+      });
+  };
+
   const approveAccessUsersChanges = async () => {
+    const invites = buildAccessInvites(draftAccessUsers);
     try {
       await persistAccessUsers(draftAccessUsers);
       const syncError = await syncAccessMembershipsOnServer();
@@ -19055,6 +19108,14 @@ export default function Page() {
           (syncError ? `\n\nעדכון ההרשאות בשרת לא הושלם: ${syncError}. המשתמש יקבל את ההרשאה החדשה אחרי התנתקות והתחברות מחדש.` : "") +
           disciplineWarning,
       );
+      if (
+        invites.length &&
+        window.confirm(
+          `לשלוח הזמנה במייל עם פרטי הכניסה ל: ${invites.map((invite) => invite.initialTo).join(", ")}?`,
+        )
+      ) {
+        setPendingAccessInvites(invites);
+      }
     } catch (error) {
       console.error("Failed to save access users", error);
       alert(`שגיאה בשמירת המשתמשים: ${errorText(error)}`);
@@ -19104,8 +19165,16 @@ export default function Page() {
     setAccessUsersDirty(true);
   };
 
+  // סיסמה זמנית: עד שהמשתמש קובע סיסמה משלו – רק מסך "החשבון שלי" פתוח
+  const mustChangePassword = projectAccess?.mustChangePassword === true;
+  useEffect(() => {
+    if (mustChangePassword && section !== "account") setSection("account");
+  }, [mustChangePassword, section]);
+
   const updateCurrentAccount = async () => {
     if (!projectAccess) return;
+    if (projectAccess.mustChangePassword && !accountForm.newPassword)
+      return alert("יש לקבוע סיסמה חדשה משלך (לפחות 6 תווים) כדי להתחיל לעבוד.");
 
     const nextUsername = accountForm.username.trim();
     const currentPassword = accountForm.currentPassword;
@@ -19144,6 +19213,12 @@ export default function Page() {
           newPassword: "",
           confirmPassword: "",
         });
+        if (projectAccess.mustChangePassword && nextPassword) {
+          const updated = { ...projectAccess, mustChangePassword: false };
+          setProjectAccess(updated);
+          writeAuthSession(updated);
+          setSection("home");
+        }
         alert(
           normalizeAccessValue(result?.username) !== normalizeAccessValue(projectAccess.legacyUsername)
             ? "פרטי החשבון נשמרו. בכניסה הבאה יש להשתמש בשם המשתמש ובסיסמה החדשים."
@@ -28291,6 +28366,12 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   };
 
   const [centralMailContext, setCentralMailContext] = useState<MailContext | null>(null);
+  const [pendingAccessInvites, setPendingAccessInvites] = useState<MailContext[]>([]);
+  useEffect(() => {
+    if (centralMailContext || !pendingAccessInvites.length) return;
+    setCentralMailContext(pendingAccessInvites[0]);
+    setPendingAccessInvites((queue) => queue.slice(1));
+  }, [centralMailContext, pendingAccessInvites]);
 
   const emailRecipientOptions = useMemo(
     () => currentProjectEmailUsers.filter((user) => user.active && isValidEmailAddress(user.email)),
@@ -30918,6 +30999,12 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           )}
           {section === "account" && (
             <section style={{ display: "grid", gap: 16 }}>
+              {mustChangePassword ? (
+                <div role="alert" style={{ maxWidth: 520, border: "1px solid #fde68a", background: "#fffbeb", color: "#92400e", borderRadius: 14, padding: "12px 14px", fontWeight: 800, lineHeight: 1.6 }}>
+                  ברוך הבא ל-Y.K Quality. נכנסת עם סיסמה זמנית – יש לקבוע עכשיו סיסמה אישית שרק אתה יודע.
+                  <br />מקלידים את הסיסמה הזמנית בשדה "סיסמה נוכחית", ואת הסיסמה החדשה פעמיים.
+                </div>
+              ) : null}
               <div>
                 <div style={{ color: "#64748b" }}>
                   שינוי שם משתמש וסיסמה עבור המשתמש המחובר בלבד.

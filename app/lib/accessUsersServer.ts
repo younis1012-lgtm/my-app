@@ -203,6 +203,10 @@ export async function saveAccessUsers(request: Request) {
         project_ids: role === "admin" ? [] : rowProjectIds(source),
         signature: String(source.signature ?? ""),
         discipline: role === "admin" ? "" : String(source.discipline ?? ""),
+        // סיסמה שנקבעה ע"י מנהל (לא ע"י המשתמש עצמו) – חובה להחליף בכניסה הראשונה
+        must_change_password: newPassword
+          ? normalizeLogin(username) !== normalizeLogin(caller.legacyUsername)
+          : Boolean(existing?.must_change_password),
       });
     }
 
@@ -227,8 +231,8 @@ export async function saveAccessUsers(request: Request) {
     });
     let disciplineMissing = false;
     let result = await caller.db.from(TABLE).upsert(payload, { onConflict: "username" });
-    for (let attempt = 0; attempt < 2 && result.error; attempt += 1) {
-      const column = ["discipline", "project_ids"].find((name) => missingColumn(result.error, name));
+    for (let attempt = 0; attempt < 3 && result.error; attempt += 1) {
+      const column = ["discipline", "project_ids", "must_change_password"].find((name) => missingColumn(result.error, name));
       if (!column) break;
       if (column === "discipline") disciplineMissing = true;
       payload = payload.map(({ [column]: _drop, ...rest }) => rest);
@@ -280,10 +284,15 @@ async function changeOwnPassword(caller: Caller, body: any) {
     rows.some((row) => normalizeLogin(row.username) === normalizeLogin(username))
   )
     return json({ error: "שם המשתמש כבר קיים במערכת" }, 409);
-  const update = await caller.db
-    .from(TABLE)
-    .update({ username, password: hashPassword(newPassword || currentPassword) })
-    .eq("username", own.username);
+  const changes: Record<string, any> = { username, password: hashPassword(newPassword || currentPassword) };
+  // המשתמש קבע סיסמה חדשה בעצמו – החובה להחליף סיסמה מתבטלת
+  if (newPassword && newPassword !== currentPassword) changes.must_change_password = false;
+  else if (own.must_change_password) return json({ error: "יש לקבוע סיסמה חדשה, שונה מהסיסמה הזמנית" }, 400);
+  let update = await caller.db.from(TABLE).update(changes).eq("username", own.username);
+  if (update.error && missingColumn(update.error, "must_change_password")) {
+    const { must_change_password: _drop, ...rest } = changes;
+    update = await caller.db.from(TABLE).update(rest).eq("username", own.username);
+  }
   if (update.error) return json({ error: "שמירת פרטי החשבון נכשלה" }, 503);
   return json({ ok: true, username });
 }
