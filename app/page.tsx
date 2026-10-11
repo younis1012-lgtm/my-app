@@ -3095,6 +3095,12 @@ const saveAccessUsersToSupabase = async (users: ProjectAccess[]) => {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(String(result?.error || "שגיאה בשמירת המשתמשים"));
   accessDisciplineColumnMissing = Boolean(result?.disciplineMissing);
+  // משתמשים שהשרת לא שמר כי למשתמש המחובר אין הרשאת ניהול לפרויקט – לא להציג "נשמר בהצלחה"
+  const skipped: string[] = Array.isArray(result?.skipped) ? result.skipped.map(String) : [];
+  if (skipped.length)
+    throw new Error(
+      `המשתמשים הבאים לא נשמרו: ${skipped.join(", ")}.\nלמשתמש המחובר אין הרשאה להוסיף משתמשים לפרויקט זה. יש להתחבר כמנהל מערכת ולהוסיף אותם שוב.`,
+    );
 };
 
 const isAdminAccess = (access: ProjectAccess | null) =>

@@ -166,6 +166,7 @@ export async function saveAccessUsers(request: Request) {
 
     const rows: Record<string, any>[] = [];
     const seen = new Set<string>();
+    const skipped: string[] = [];
     for (const source of incoming) {
       const username = String(source?.username ?? "").trim();
       const key = normalizeLogin(username);
@@ -175,8 +176,15 @@ export async function saveAccessUsers(request: Request) {
       const role = accessRole(source.role);
       if (!caller.isAdmin) {
         if (existing && !canManageRow(existing)) continue; // משתמש מחוץ לפרויקטים שלי – לא משנים
-        if (role === "admin") continue;
-        if (!rowProjectIds(source).length || !rowProjectIds(source).every((id: string) => caller.managedProjects.has(id))) continue;
+        const label = String(source.display_name ?? username).trim() || username;
+        if (role === "admin") {
+          if (!existing) skipped.push(label);
+          continue;
+        }
+        if (!rowProjectIds(source).length || !rowProjectIds(source).every((id: string) => caller.managedProjects.has(id))) {
+          skipped.push(label);
+          continue;
+        }
       }
       const newPassword = String(source.password ?? "");
       let password = existing?.password ?? "";
@@ -248,7 +256,7 @@ export async function saveAccessUsers(request: Request) {
       .filter((username) => username && !savedExact.has(username) && seen.has(normalizeLogin(username)));
     if (staleDuplicates.length) await caller.db.from(TABLE).delete().in("username", staleDuplicates);
 
-    return json({ ok: true, disciplineMissing });
+    return json({ ok: true, disciplineMissing, skipped });
   } catch {
     return json({ error: "שמירת המשתמשים נכשלה" }, 500);
   }
