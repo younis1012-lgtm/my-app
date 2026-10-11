@@ -269,8 +269,29 @@ const imageSize = (dataUrl: string) =>
     image.src = dataUrl;
   });
 
-const listOrNone = (rows: MonthlyListRow[], none: string, columns: [string, string, string, string]) =>
-  rows.length
+// מיון שורות לפי המספר שבשם (אישור ספקים מס' 1, 2, 3…), ובאותו מספר – לפי תאריך
+const listNumber = (text: string) => {
+  const match = text.match(/מס['׳"]?\s*(\d+)/) || text.match(/(\d+)/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+};
+const listDate = (text: string) => {
+  const match = /(\d{1,2})\.(\d{1,2})\.(\d{4})/.exec(text);
+  return match ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}` : "";
+};
+const sortListRows = (rows: MonthlyListRow[]) =>
+  rows
+    .map((row, index) => ({ row, index }))
+    .sort(
+      (a, b) =>
+        listNumber(a.row.title) - listNumber(b.row.title) ||
+        listDate(a.row.date).localeCompare(listDate(b.row.date)) ||
+        a.index - b.index,
+    )
+    .map(({ row }) => row);
+
+const listOrNone = (unsortedRows: MonthlyListRow[], none: string, columns: [string, string, string, string]) => {
+  const rows = sortListRows(unsortedRows);
+  return rows.length
     ? [
         table([
           new TableRow({ tableHeader: true, children: columns.map((label) => cell(label, { bold: true, shade: true, center: true })) }),
@@ -281,6 +302,7 @@ const listOrNone = (rows: MonthlyListRow[], none: string, columns: [string, stri
         para(""),
       ]
     : [para(none)];
+};
 
 export async function buildMonthlyReportDocx(data: MonthlyReportData): Promise<Blob> {
   const { config } = data;
@@ -415,14 +437,14 @@ export async function buildMonthlyReportDocx(data: MonthlyReportData): Promise<B
     ...lines(config.recipientName).map((line) => para(line)),
     ...lines(config.recipientCompany).map((line) => para(line)),
     para("שלום רב,", { spacingBefore: 160 }),
-    para([run("הנדון: ", { bold: true, underline: true }), run(data.projectName, { bold: true, underline: true })], { spacingBefore: 120 }),
-    ...(config.contractNo ? [para(`חוזה / מכרז מס' ${config.contractNo}`, { bold: true })] : []),
-    ...(config.clientName ? [para(`מזמין: ${config.clientName}`)] : []),
-    para(`דיווח בקרת איכות – חודש ${monthName} ${data.year}.`, { bold: true }),
-    para(`דו"ח חודשי מס' ${data.reportNo}`, { bold: true, spacingAfter: 160 }),
+    para([run("הנדון: ", { bold: true, underline: true }), run(data.projectName, { bold: true, underline: true })], { spacingBefore: 120, center: true }),
+    ...(config.contractNo ? [para(`חוזה / מכרז מס' ${config.contractNo}`, { bold: true, center: true })] : []),
+    ...(config.clientName ? [para(`מזמין: ${config.clientName}`, { center: true })] : []),
+    para(`דיווח בקרת איכות – חודש ${monthName} ${data.year}.`, { bold: true, center: true }),
+    para(`דו"ח חודשי מס' ${data.reportNo}`, { bold: true, spacingAfter: 160, center: true }),
     para(
       `מצ"ב דו"ח חודשי המפרט את פעילות ההקמה ובקרת האיכות בפרויקט ${data.projectName} לתקופה ${periodFrom} – ${periodTo}.`,
-      { spacingAfter: 200 },
+      { spacingAfter: 200, center: true },
     ),
     ...coverParagraphs,
     ...(lines(config.copies).length ? [para("העתקים:", { bold: true, underline: true }), ...lines(config.copies).map((line) => para(line))] : []),
