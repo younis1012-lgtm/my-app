@@ -40,6 +40,8 @@ import { LabOrderDialog } from "./components/LabOrderDialog";
 import { ImportPreliminaryDialog, preliminaryNested } from "./components/ImportPreliminaryDialog";
 import { LabOrdersTracking } from "./components/LabOrdersTracking";
 import { shrinkUploadFile } from "./lib/shrinkImage";
+import { buildMonthlyReportDocx, defaultMonthlyReportConfig, presetMonthlyReportConfig, hebrewMonthName, normalizeMonthlyReportConfig, type MonthlyReportConfig, type MonthlyListRow, type MonthlyWorkRow } from "./lib/monthlyReport";
+import { MonthlyReportsSection } from "./components/MonthlyReportsSection";
 import { LAB_ORDER_KIND_LABEL, deriveLabOrderStates, itemLabOrders, labOrderDocumentHtml, labOrderMailText, normalizeLabOrder, summarizeChecklistLabOrders, type LabOrder, type LabOrderKind } from "./lib/labOrders";
 import { compressLargePdf, formatFileSize } from "./lib/pdfCompress";
 import { RecordLinksPanel, type ImplicitLink, type LinkCatalogItem, type LinkType, type RecordLink } from "./components/RecordLinksPanel";
@@ -53,7 +55,7 @@ import {
   type HoldPointRecord,
 } from "./components/HoldPointsSection";
 import { PreliminarySection } from "./components/PreliminarySection";
-import { ConcentrationsSection, buildConcentrationFilesWithData } from "./components/ConcentrationsSection";
+import { ConcentrationsSection, buildConcentrationFilesWithData, nonconformanceMonthReport } from "./components/ConcentrationsSection";
 import { ManagementDashboard } from "./components/ManagementDashboard";
 import { MyTasks } from "./components/MyTasks";
 import { LayerTrackingView } from "./components/LayerTrackingView";
@@ -125,7 +127,8 @@ type AppSection =
   | "checklistTracking"
   | "labOrders"
   | "holdPoints"
-  | "qualityDocuments";
+  | "qualityDocuments"
+  | "monthlyReports";
 
 
 type ProjectEmailUser = {
@@ -2327,6 +2330,8 @@ type ProjectLegend = {
   qcCompanies?: QcCompanyProfile[];
   /** ערכים קודמים של פרטי הפרויקט: בתוקף עד תאריך (כולל). רשומה מתאריך זה ומטה מקבלת את הערך הקודם */
   history?: LegendHistoryEntry[];
+  /** דוח חודשי – הגדרות לפרויקט (רק בפרויקט שהמנהל הפעיל בו) */
+  monthlyReport?: MonthlyReportConfig | null;
 };
 
 type LegendHistoryField = "projectManagement" | "contractor" | "qualityAssurance" | "qualityControl" | "workManager" | "surveyor" | "supervisor";
@@ -2457,7 +2462,7 @@ const normalizeProjectLegend = (
     supervisor: String(raw.supervisor ?? ""),
     extraFactors: Array.isArray((raw as any).extraFactors)
       ? (raw as any).extraFactors
-          .filter((item: any) => item?.kind !== "party" && item?.kind !== "qcCompany" && item?.kind !== "legendHistory")
+          .filter((item: any) => item?.kind !== "party" && item?.kind !== "qcCompany" && item?.kind !== "legendHistory" && item?.kind !== "monthlyReport")
           .map((item: any, index: number) => ({
             id: String(item?.id ?? `${Date.now()}-${index}`),
             label: String(item?.label ?? "גורם נוסף") || "גורם נוסף",
@@ -2483,6 +2488,11 @@ const normalizeProjectLegend = (
         ? (raw as any).extraFactors.filter((item: any) => item?.kind === "legendHistory")
         : []
     ).map((item: any, index: number) => normalizeLegendHistory(item, index)),
+    monthlyReport: (() => {
+      const source = (raw as any).monthlyReport
+        ?? (Array.isArray((raw as any).extraFactors) ? (raw as any).extraFactors.find((item: any) => item?.kind === "monthlyReport") : null);
+      return source ? normalizeMonthlyReportConfig(source) : null;
+    })(),
   };
 };
 
@@ -2547,6 +2557,7 @@ const projectLegendToRow = (projectId: string, legend: ProjectLegend) => ({
     ...(legend.parties ?? []).map((party) => ({ ...party, kind: "party" })),
     ...(legend.qcCompanies ?? []).map((company) => ({ ...company, kind: "qcCompany" })),
     ...(legend.history ?? []).map((entry) => ({ ...entry, kind: "legendHistory" })),
+    ...(legend.monthlyReport ? [{ ...legend.monthlyReport, kind: "monthlyReport" }] : []),
   ],
   updated_at: nowIso(),
 });
@@ -29678,6 +29689,159 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     }
   };
 
+  // ===== דוחות חודשיים =====
+  const saveMonthlyReportConfig = async (config: MonthlyReportConfig | null) => {
+    if (!currentProject) return;
+    const projectId = normalizeStoredProjectId(currentProject.id);
+    const base = normalizeProjectLegend(savedCurrentProjectLegend, currentProject.name);
+    const nextLegend: ProjectLegend = { ...base, monthlyReport: config };
+    const nextLegends = migrateProjectLegendMap({ ...projectLegends, [projectId]: nextLegend });
+    setProjectLegends(nextLegends);
+    setDraftProjectLegends((prev) => migrateProjectLegendMap({ ...prev, [projectId]: nextLegend }));
+    try {
+      window.localStorage.setItem(PROJECT_LEGEND_STORAGE_KEY, JSON.stringify(nextLegends));
+    } catch {}
+    try {
+      await saveProjectLegendToSupabase(projectId, nextLegend);
+    } catch (error) {
+      alert(`שמירת הגדרות הדוח החודשי נכשלה: ${errorText(error)}`);
+      throw error;
+    }
+  };
+  const monthlyReportNo = (config: MonthlyReportConfig, year: number, month: number) => {
+    const match = /^(\d{4})-(\d{1,2})$/.exec(config.firstMonth.trim());
+    if (!match) return 1;
+    return Math.max(1, (year - Number(match[1])) * 12 + (month - Number(match[2])) + 1);
+  };
+  const monthlyRange = (year: number, month: number) => {
+    const from = `${year}-${String(month).padStart(2, "0")}-01`;
+    const to = `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+    return { from, to, inMonth: (record: any) => { const date = recordEffectiveDate(record); return Boolean(date) && date >= from && date <= to; } };
+  };
+  const shortDate = (record: any) => {
+    const iso = recordEffectiveDate(record);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    return match ? `${match[3]}.${match[2]}.${match[1]}` : "";
+  };
+  const firstFilled = (...values: unknown[]) => values.map((value) => String(value ?? "").trim()).find(Boolean) ?? "";
+  const monthlyReportSummary = (year: number, month: number, config: MonthlyReportConfig) => {
+    const { inMonth } = monthlyRange(year, month);
+    return {
+      checklists: projectChecklists.filter(inMonth).length,
+      nonconformances: (concentrationNonconformances as any[]).filter(inMonth).length,
+      trialSections: projectTrialSections.filter(inMonth).length,
+      supervision: projectSupervisionReports.filter(inMonth).length,
+      preliminary: projectPreliminary.filter(inMonth).length,
+      reportNo: monthlyReportNo(config, year, month),
+    };
+  };
+  const generateMonthlyReport = async (year: number, month: number, config: MonthlyReportConfig) => {
+    try {
+      const { to, inMonth } = monthlyRange(year, month);
+      const defaults = projectDefaultsForDate(to);
+      const company = qcCompanyForDate(to);
+      const parties = currentProjectLegend.parties ?? [];
+      const partyNames = (role: string) =>
+        parties.filter((party) => party.active && party.role === role).map((party) => party.company).filter(Boolean).join(", ");
+      const userByRole = (pattern: RegExp) =>
+        currentProjectEmailUsers
+          .filter((user) => user.active !== false && pattern.test(`${user.role} ${user.company}`))
+          .map((user) => [user.name, user.company].filter(Boolean).join(" – "))
+          .join(", ");
+      const qcName = historicalNameForRole("בקרת איכות", to) || defaults.qualityControl;
+      const signerName = historicalNameForRole("בקרת איכות", to) || loggedInQcSignerName || qualityControlApproverName || defaults.qualityControl;
+      const general: Array<[string, string]> = [
+        ["מזמין העבודה", config.clientName],
+        ["ניהול פרויקט", defaults.projectManagement],
+        ["שם הקבלן", defaults.contractor],
+        ["הבטחת איכות", defaults.qualityAssurance],
+        ["בקרת איכות", [qcName, company.name !== qcName ? company.name : ""].filter(Boolean).join(" – ")],
+        ["מנהל עבודה", defaults.workManager],
+        ["מעבדה", partyNames("מעבדה") || userByRole(/מעבד/)],
+        ["מודד", firstFilled(partyNames("מודד"), userByRole(/מודד/), defaults.surveyor)],
+      ].filter(([, value]) => String(value ?? "").trim()) as Array<[string, string]>;
+
+      const works: MonthlyWorkRow[] = projectChecklists
+        .filter(inMonth)
+        .map((record: any) => {
+          const nodeId = String(record.structureNodeId ?? "");
+          const path = nodeId ? buildProjectStructurePath(currentProjectStructureNodes, nodeId).split(" / ").filter(Boolean).join(" › ") : "";
+          return {
+            structure: path || firstFilled(record.roadStructure, record.category, "כללי"),
+            from: firstFilled(record.stationSection, record.fromSection),
+            to: firstFilled(record.toStationSection, record.toSection),
+            offset: firstFilled(record.offset, record.side),
+            work: firstFilled(getRecordTitle(record), checklistTemplateLabel(record.templateKey)),
+            notes: getApprovalDisplayStatus(record),
+          };
+        })
+        .sort((a, b) => a.structure.localeCompare(b.structure, "he") || a.from.localeCompare(b.from, "he", { numeric: true }));
+
+      const preliminaryRows = (subtype: string): MonthlyListRow[] =>
+        projectPreliminary
+          .filter((record: any) => record.subtype === subtype && inMonth(record))
+          .map((record: any) => {
+            const nested = record.subcontractor ?? record.supplier ?? record.material ?? {};
+            return {
+              date: shortDate(record),
+              title: firstFilled(record.title, nested.name, nested.companyName),
+              detail: firstFilled(nested.field, nested.domain, nested.product, nested.materialType, nested.source, nested.description),
+              status: firstFilled(getApprovalDisplayStatus(record), record.status),
+            };
+          });
+      const monthlyNc = nonconformanceMonthReport(concentrationNonconformances as any[], year, month - 1);
+      const emptyGroup = { total: { QC: 0, QA: 0 }, grades: [{ QC: 0, QA: 0 }, { QC: 0, QA: 0 }, { QC: 0, QA: 0 }] };
+      const blob = await buildMonthlyReportDocx({
+        config,
+        year,
+        month,
+        reportNo: monthlyReportNo(config, year, month),
+        issueDate: new Date(),
+        projectName: defaults.projectName || projectName,
+        qcCompany: { name: company.name, logo: company.logo, service: company.service, address: company.address, phone: company.phone, email: company.email },
+        signerName,
+        general,
+        preliminary: {
+          subcontractors: preliminaryRows("subcontractors"),
+          suppliers: preliminaryRows("suppliers"),
+          materials: preliminaryRows("materials"),
+        },
+        trialSections: projectTrialSections.filter(inMonth).map((record: any) => ({
+          date: shortDate(record),
+          title: firstFilled(record.title, "קטע ניסוי"),
+          detail: firstFilled(record.location, record.spec),
+          status: firstFilled(getApprovalDisplayStatus(record), record.status),
+        })),
+        works,
+        nonconformances: {
+          project: monthlyNc?.status.project ?? emptyGroup,
+          month: monthlyNc?.status.month ?? emptyGroup,
+          open: monthlyNc?.status.open ?? emptyGroup,
+          openedThisMonth: monthlyNc?.opened ?? [],
+        },
+        supervision: projectSupervisionReports.filter(inMonth).map((record: any) => ({
+          date: shortDate(record),
+          title: firstFilled(record.title, record.subject, "ביקור מתכנן"),
+          detail: [record.plannerName, record.discipline].filter(Boolean).join(" – "),
+          status: firstFilled(record.status),
+        })),
+      });
+      const fileName = `דוח בקרת איכות ${String(month).padStart(2, "0")}.${year} - ${sanitizeZipSegment(defaults.projectName || projectName || "פרויקט")}.docx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error(error);
+      alert(`הפקת הדוח החודשי נכשלה: ${errorText(error)}`);
+    }
+  };
+  void hebrewMonthName;
+
   const showExportButtons = [
     "checklists",
     "nonconformances",
@@ -29714,6 +29878,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["preliminary", "בקרה מקדימה"],
         ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
+        ["monthlyReports", "דוחות חודשיים"],
       ]
     : [
         ["account", "החשבון שלי"],
@@ -29736,12 +29901,13 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         ["preliminary", "בקרה מקדימה"],
         ["plans", "תוכניות"],
         ["concentrations", "ריכוזים"],
+        ...(currentProjectLegend.monthlyReport?.enabled ? ([["monthlyReports", "דוחות חודשיים"]] as Array<[AppSection, string]>) : []),
       ];
   const navGroups = [
     { title: "ראשי", keys: ["home", "myTasks", "managementDashboard", "account"] },
     { title: "מבנה הפרויקט", keys: ["projectStructure", "projectDetails", "projectUsers", "projects"] },
     { title: "בקרת איכות", keys: ["checklists", "checklistTracking", "labOrders", "holdPoints", "nonconformances", "trialSections", "preliminary"] },
-    { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations"] },
+    { title: "תכנון ומסמכים", keys: ["plans", "qualityDocuments", "controlProcesses", "rfi", "supervisionReports", "concentrations", "monthlyReports"] },
   ].map((group) => ({
     ...group,
     items: navItems.filter(([key]) => group.keys.includes(key)),
@@ -31642,6 +31808,32 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
               }}
             />
             </>
+          )}
+          {section === "monthlyReports" && currentProject && (
+            <MonthlyReportsSection
+              projectName={currentProjectDefaults.projectName || projectName}
+              config={currentProjectLegend.monthlyReport?.enabled ? currentProjectLegend.monthlyReport : null}
+              canEnable={isAdminAccess(projectAccess)}
+              canEdit={canWriteAccess(projectAccess)}
+              onEnable={() => {
+                const config = {
+                  ...defaultMonthlyReportConfig(),
+                  ...presetMonthlyReportConfig(`${currentProjectDefaults.projectName} ${projectName}`),
+                  firstMonth: (() => {
+                    const now = new Date();
+                    const date = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+                  })(),
+                  ...(presetMonthlyReportConfig(`${currentProjectDefaults.projectName} ${projectName}`).firstMonth
+                    ? { firstMonth: presetMonthlyReportConfig(`${currentProjectDefaults.projectName} ${projectName}`).firstMonth as string }
+                    : {}),
+                };
+                void saveMonthlyReportConfig(config);
+              }}
+              onSaveConfig={(config) => saveMonthlyReportConfig(config)}
+              summaryFor={monthlyReportSummary}
+              onGenerate={generateMonthlyReport}
+            />
           )}
           {section === "concentrations" && (
             <>

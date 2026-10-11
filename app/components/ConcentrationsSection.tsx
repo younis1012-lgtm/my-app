@@ -5446,6 +5446,30 @@ export const nonconformanceMonthlyStatus = (rows: Row[], year: number, month: nu
   };
 };
 
+// לדוח החודשי: סטטוס אי ההתאמות לחודש + רשימת אי ההתאמות שנפתחו בו
+export const nonconformanceMonthReport = (records: any[], year: number, monthIndex: number) => {
+  const definition = definitions.find((item) => item.id === "nonconformances");
+  if (!definition) return null;
+  const ctx: BuildContext = {
+    savedChecklists: [], savedNonconformances: records, savedTrialSections: [], savedPreliminary: [],
+    savedRfis: [], savedControlProcesses: [], savedSupervisionReports: [], projectMeta: buildProjectMeta(""),
+  };
+  const rows = normalizeConcentrationRows(definition, definition.buildRows(ctx));
+  const opened = rows.filter((row) => {
+    const date = parseConcentrationDate(row["תאריך פתיחת"] ?? row["תאריך פתיחה"]);
+    return Boolean(date && date.getFullYear() === year && date.getMonth() === monthIndex);
+  });
+  return {
+    status: nonconformanceMonthlyStatus(rows, year, monthIndex),
+    opened: opened.map((row) => ({
+      date: cleanText(row["תאריך פתיחת"] ?? row["תאריך פתיחה"]),
+      title: cleanText(row["מס' אי התאמה"]) ? `אי התאמה מס' ${cleanText(row["מס' אי התאמה"])}` : cleanText(row["נושא"]) || "אי התאמה",
+      detail: cleanText(row["תיאור אי התאמה"]),
+      status: cleanText(row["סטטוס"]),
+    })),
+  };
+};
+
 export const nonconformanceStatusTableHtml = (status: ReturnType<typeof nonconformanceMonthlyStatus>) => {
   const groups = [status.project, status.month, status.open];
   const border = "border:1px solid #000;";

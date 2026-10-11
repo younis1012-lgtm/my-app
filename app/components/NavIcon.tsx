@@ -106,6 +106,12 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   concentrations: <path d="M4 20h16M7 16V9M12 16V5M17 16v-4" />,
+  monthlyReports: (
+    <>
+      <path d="M7 3h7l5 5v13H7z" />
+      <path d="M14 3v5h5M10 13h6M10 17h6M10 9h2" />
+    </>
+  ),
   templates: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1" />
