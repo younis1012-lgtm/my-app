@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // קישור קצר לפרויקט: /p/f8f95e8a → פותח את המערכת עם בחירת הפרויקט אחרי ההתחברות
+  async redirects() {
+    return [
+      {
+        source: '/p/:code',
+        destination: '/?p=:code',
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -13824,9 +13824,13 @@ function UserAccessPanel({
           const isProjectInvite = isSelfServiceProjectCreator(user);
           const linkedProjectId =
             accessProjectIds(user)[0] || normalizedProjectId;
+          // קישור קצר: 8 התווים הראשונים של מזהה הפרויקט (הפרויקט נבחר אוטומטית אחרי ההתחברות)
+          const shortProjectCode = String(linkedProjectId || "").replace(/[^0-9a-z]/gi, "").slice(0, 8).toLowerCase();
           const projectLink =
             user.code
-              ? `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
+              ? shortProjectCode
+                ? `${PUBLIC_APP_URL}/p/${shortProjectCode}`
+                : `${PUBLIC_APP_URL}/?project=${encodeURIComponent(user.code)}&returnToProject=1&projectId=${encodeURIComponent(linkedProjectId)}`
               : (user.code ?? "");
           const fieldInput: CSSProperties = {
             width: "100%",
@@ -20033,6 +20037,12 @@ export default function Page() {
     [projects],
   );
 
+  // קישור קצר (/p/xxxxxxxx): אחרי ההתחברות נבחר הפרויקט שהמזהה שלו מתחיל בקוד
+  const shortProjectLinkRef = useRef<string>(
+    typeof window !== "undefined"
+      ? String(new URLSearchParams(window.location.search).get("p") ?? "").trim().toLowerCase().replace(/[^0-9a-z]/g, "")
+      : "",
+  );
   const accessibleProjects = useMemo(() => {
     if (!projectAccess) return [];
     const filtered = effectiveProjects.filter((project) =>
@@ -20058,6 +20068,26 @@ export default function Page() {
     if (isSelfServiceProjectCreator(projectAccess) && !accessibleProjects.length)
       setSection("projects");
   }, [projectAccess, canCreateProjects, accessibleProjects.length, section]);
+
+  useEffect(() => {
+    const prefix = shortProjectLinkRef.current;
+    if (!prefix || !projectAccess || !accessibleProjects.length) return;
+    const match = accessibleProjects.find((project) =>
+      String(normalizeStoredProjectId(project.id) || project.id).replace(/[^0-9a-z]/gi, "").toLowerCase().startsWith(prefix),
+    );
+    if (!match) return; // רשימת הפרויקטים עוד נטענת – ננסה שוב כשהיא מתעדכנת
+    shortProjectLinkRef.current = "";
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("p");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    void setActiveProject(match.id).then(() => {
+      setShowProjectPicker(false);
+      setSection("home");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectAccess, accessibleProjects]);
 
   useEffect(() => {
     if (!loaded || !projectAccess) return;
