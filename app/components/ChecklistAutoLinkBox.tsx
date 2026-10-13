@@ -8,10 +8,16 @@ export function ChecklistAutoLinkBox({
   link,
   onChoose,
   onOpen,
+  currentDate,
+  onUseDate,
 }: {
   link: ChecklistAutoLink;
   onChoose: (id: string) => void;
   onOpen?: (link: ChecklistAutoLink) => void;
+  /** התאריך שמוזן כרגע בסעיף (yyyy-mm-dd) */
+  currentDate?: string;
+  /** הזנת תאריך האישור בעמודת התאריך */
+  onUseDate?: (date: string) => void;
 }) {
   const tone =
     link.state === "linked"
@@ -19,7 +25,14 @@ export function ChecklistAutoLinkBox({
       : link.state === "pending"
         ? { bg: "#fffaf0", border: "#f1d9a6", color: "#5c3d00", badge: "#9a5b00", badgeBg: "#fff5e0", badgeText: "טרם אושר" }
         : { bg: "#fdf4f3", border: "#f3c4be", color: "#7a1a12", badge: "#b42318", badgeBg: "#fdecea", badgeText: "לא נמצא" };
-  const title = link.kind === "preliminary" ? "בקרה מקדימה" : "שכבה קודמת";
+  const title =
+    link.kind === "preliminary"
+      ? link.subtype === "subcontractors"
+        ? "בקרה מקדימה – קבלן משנה"
+        : link.subtype === "suppliers"
+          ? "בקרה מקדימה – ספק"
+          : "בקרה מקדימה – חומר"
+      : "שכבה קודמת";
 
   return (
     <div
@@ -59,6 +72,15 @@ export function ChecklistAutoLinkBox({
         <span key={line}>{line}</span>
       ))}
       {link.warning ? <span style={{ fontWeight: 700 }}>{link.warning}</span> : null}
+      {link.approvalDate && onUseDate && link.approvalDate !== currentDate ? (
+        <button
+          type="button"
+          onClick={() => onUseDate(link.approvalDate as string)}
+          style={{ justifySelf: "start", border: `1px solid ${tone.border}`, background: "#fff", color: "#13305a", borderRadius: 8, padding: "3px 10px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+        >
+          הזנת תאריך האישור ({link.approvalDate.split("-").reverse().join("/")})
+        </button>
+      ) : null}
       {link.candidates.length > 0 ? (
         <select
           value={link.manual ? link.selectedId ?? "" : ""}

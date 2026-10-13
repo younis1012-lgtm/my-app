@@ -7998,8 +7998,20 @@ function ChecklistsSection({
                         ) : autoLink ? (
                           <ChecklistAutoLinkBox
                             link={autoLink}
-                            onChoose={(id) => updateChecklistItem(item.id, "linkedRecordId" as keyof ChecklistItem, id)}
+                            onChoose={(id) => {
+                              updateChecklistItem(item.id, "linkedRecordId" as keyof ChecklistItem, id);
+                              // בחירת קבלן / ספק / חומר מאושר – תאריך האישור נכנס לעמודת התאריך
+                              const date = autoLink.candidates.find((candidate) => candidate.id === id)?.date;
+                              if (autoLink.kind === "preliminary" && date)
+                                updateChecklistItem(item.id, "executionDate", date);
+                            }}
                             onOpen={onOpenLinkedRecord}
+                            currentDate={String(item.executionDate ?? "")}
+                            onUseDate={
+                              autoLink.kind === "preliminary"
+                                ? (date) => updateChecklistItem(item.id, "executionDate", date)
+                                : undefined
+                            }
                           />
                         ) : null}
                       </td>

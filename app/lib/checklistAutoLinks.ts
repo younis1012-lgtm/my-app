@@ -8,7 +8,8 @@ import { parseChainage } from "../components/LayerTrackingView";
 export type ChecklistAutoLinkKind = "preliminary" | "previousLayer";
 export type ChecklistAutoLinkState = "linked" | "pending" | "missing";
 
-export type ChecklistAutoLinkCandidate = { id: string; label: string };
+/** date – תאריך האישור (yyyy-mm-dd), להזנה אוטומטית בעמודת התאריך */
+export type ChecklistAutoLinkCandidate = { id: string; label: string; date?: string };
 
 export type ChecklistAutoLink = {
   kind: ChecklistAutoLinkKind;
@@ -23,7 +24,23 @@ export type ChecklistAutoLink = {
   manual: boolean;
   candidates: ChecklistAutoLinkCandidate[];
   record?: any;
+  /** תאריך האישור של הרשומה שנבחרה (yyyy-mm-dd) */
+  approvalDate?: string;
+  /** סוג הבקרה המקדימה: חומרים / ספקים / קבלני משנה */
+  subtype?: PreliminarySubtype;
 };
+
+export type PreliminarySubtype = "materials" | "suppliers" | "subcontractors";
+
+/** איזה סוג בקרה מקדימה דרוש לסעיף (אישור קבלן משנה / ספק / חומר) */
+export function preliminarySubtypeFor(description: unknown): PreliminarySubtype | null {
+  const d = text(description);
+  if (!d) return null;
+  if (/קבלני?\s*(ה)?משנה|אישור\s*(ה)?קבלן/.test(d)) return "subcontractors";
+  if (/אישור\s*(ה)?ספק|ספקים|ספק\s*מאושר/.test(d)) return "suppliers";
+  if (/אישור\s*(ה)?חומר|חומרים|בדיקות?\s+מקדימ|בקרה\s+מקדימה/.test(d)) return "materials";
+  return null;
+}
 
 type Helpers = {
   /** מחזיר "מאושר" לרשומה מאושרת (getApprovalDisplayStatus של המערכת) */
@@ -39,7 +56,7 @@ const text = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim()
 export function checklistAutoLinkKind(description: unknown): ChecklistAutoLinkKind | null {
   const d = text(description);
   if (!d) return null;
-  if (/בדיקות?\s+מקדימ|בקרה\s+מקדימה/.test(d)) return "preliminary";
+  if (preliminarySubtypeFor(d)) return "preliminary";
   if (/שכב(ה|ות)\s*ה?קודמ/.test(d) && !/ויזואל|חזות/.test(d)) return "previousLayer";
   return null;
 }
@@ -119,18 +136,38 @@ function preliminaryLabel(record: any) {
   return source ? `${name} · ${source}` : name;
 }
 
+const partyNameOf = (record: any, subtype: PreliminarySubtype) =>
+  subtype === "subcontractors"
+    ? text(record?.subcontractor?.subcontractorName || record?.subcontractorName || record?.title)
+    : subtype === "suppliers"
+      ? text(record?.supplier?.supplierName || record?.supplierName || record?.title)
+      : materialNameOf(record);
+const partyDetailOf = (record: any, subtype: PreliminarySubtype) =>
+  subtype === "subcontractors"
+    ? text(record?.subcontractor?.field)
+    : subtype === "suppliers"
+      ? text(record?.supplier?.suppliedMaterial)
+      : materialSourceOf(record);
+const SUBTYPE_LABEL: Record<PreliminarySubtype, string> = { materials: "חומר", suppliers: "ספק", subcontractors: "קבלן משנה" };
+
 export function resolvePreliminaryLink(
   item: any,
   form: any,
   preliminaryRecords: any[],
   helpers: Helpers,
 ): ChecklistAutoLink {
+  const subtype = preliminarySubtypeFor(item?.description) ?? "materials";
+  const word = SUBTYPE_LABEL[subtype];
   const hint = text(
     [item?.description, form?.title, form?.category, form?.workType, form?.roadStructure, form?.notes].join(" "),
   );
-  const materials = (preliminaryRecords ?? []).filter((record) => record?.subtype === "materials");
-  const scored = materials
-    .map((record) => ({ record, score: materialScore(hint, record), approved: helpers.approvalStatus(record) === "מאושר" }))
+  const records = (preliminaryRecords ?? []).filter((record) => record?.subtype === subtype);
+  const scored = records
+    .map((record) => ({
+      record,
+      score: subtype === "materials" ? materialScore(hint, record) : 0,
+      approved: helpers.approvalStatus(record) === "מאושר",
+    }))
     .filter((entry) => entry.score >= 0)
     .sort(
       (a, b) =>
@@ -139,49 +176,73 @@ export function resolvePreliminaryLink(
         approvalDateOf(b.record).localeCompare(approvalDateOf(a.record)),
     );
 
-  const candidates = scored.map(({ record, approved }) => ({
-    id: String(record.id),
-    label: `${preliminaryLabel(record)}${approved ? "" : " (טרם אושר)"}`,
-  }));
+  const labelOf = (record: any) => {
+    const name = partyNameOf(record, subtype) || word;
+    const detail = partyDetailOf(record, subtype);
+    return detail ? `${name} · ${detail}` : name;
+  };
+  const candidates = scored.map(({ record, approved }) => {
+    const date = approvalDateOf(record);
+    return {
+      id: String(record.id),
+      label: `${labelOf(record)}${approved ? (date ? ` · אושר ${formatLinkDate(date)}` : " · מאושר") : " (טרם אושר)"}`,
+      date: approved ? date : "",
+    };
+  });
 
   const manualId = text(item?.linkedRecordId);
-  const manual = manualId ? materials.find((record) => String(record.id) === manualId) : undefined;
-  const chosen = manual ?? scored[0]?.record;
+  const manual = manualId ? records.find((record) => String(record.id) === manualId) : undefined;
+  // חומר – בחירה אוטומטית של המתאים ביותר; קבלן משנה / ספק – אוטומטית רק אם יש אחד מאושר בלבד
+  const approvedOnly = scored.filter((entry) => entry.approved);
+  const chosen =
+    manual ??
+    // חומר: אוטומטית רק כשיש התאמה לסוג החומר (מצע / בטון / אספלט); אחרת – רק אם יש אחד מאושר בלבד
+    (subtype === "materials" && (scored[0]?.score ?? 0) > 0
+      ? scored[0].record
+      : approvedOnly.length === 1
+        ? approvedOnly[0].record
+        : undefined);
 
   if (!chosen) {
     return {
       kind: "preliminary",
+      subtype,
       state: "missing",
       lines: [],
       printText: "",
-      warning: "לא נמצאה בקרה מקדימה לחומר זה במערכת",
+      warning: records.length
+        ? `יש לבחור ${word} מאושר מהרשימה – תאריך האישור יוזן אוטומטית`
+        : `לא נמצאה בקרה מקדימה ל${word} במערכת`,
       manual: false,
       candidates,
     };
   }
 
   const approved = helpers.approvalStatus(chosen) === "מאושר";
-  const date = formatLinkDate(approvalDateOf(chosen));
-  const approvalNo = text(chosen?.material?.approvalNo || chosen?.approvalNo);
+  const isoDate = approvalDateOf(chosen);
+  const date = formatLinkDate(isoDate);
+  const approvalNo = text(chosen?.material?.approvalNo || chosen?.supplier?.approvalNo || chosen?.subcontractor?.approvalNo || chosen?.approvalNo);
   const refNo = approvalNo || text(chosen?.displayNumber || chosen?.formNo || chosen?.number);
   const lines = [
-    `בקרה מקדימה לחומר: ${preliminaryLabel(chosen)}`,
+    `בקרה מקדימה ל${word}: ${labelOf(chosen)}`,
     approved ? `סטטוס: מאושר${date ? ` · תאריך אישור: ${date}` : ""}` : "סטטוס: טרם אושר",
   ];
-  const printText = [`בקרה מקדימה: ${materialNameOf(chosen) || "חומר"}`, refNo ? `מס׳ ${refNo}` : "", approved && date ? `אושר ${date}` : approved ? "מאושר" : "טרם אושר"]
+  const printText = [`בקרה מקדימה: ${partyNameOf(chosen, subtype) || word}`, refNo ? `מס׳ ${refNo}` : "", approved && date ? `אושר ${date}` : approved ? "מאושר" : "טרם אושר"]
     .filter(Boolean)
     .join(" · ");
 
   return {
     kind: "preliminary",
+    subtype,
     state: approved ? "linked" : "pending",
     lines,
     printText,
-    warning: approved ? undefined : "הבקרה המקדימה לחומר זה טרם אושרה",
+    warning: approved ? undefined : `הבקרה המקדימה ל${word} זה טרם אושרה`,
     selectedId: String(chosen.id),
     manual: Boolean(manual),
     candidates,
     record: chosen,
+    approvalDate: approved ? isoDate : "",
   };
 }
 
