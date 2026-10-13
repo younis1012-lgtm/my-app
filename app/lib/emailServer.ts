@@ -202,6 +202,8 @@ export async function postMail(request: Request) {
     if (!Array.isArray(body.attachments) || body.attachments.length > 30) throw new MailError('ניתן לצרף עד 30 קבצים');
     let total = 0;
     const attachments = [];
+    // עותקים זמניים של טפסים שהוכנו לשליחה – נמחקים מהאחסון אחרי שהמייל יצא (המייל נשמר בתיבת השולח)
+    const temporaryExportPaths: string[] = [];
     for (const item of body.attachments as Array<{filename?: unknown; mimeType?: unknown; contentBase64?: unknown; url?: unknown}>) {
       if (!item) throw new MailError('קובץ מצורף לא הוכן לשליחה');
       const filename = field(item.filename, 240).replace(/[\\/\r\n\x00]/g, '_');
@@ -216,6 +218,8 @@ export async function postMail(request: Request) {
         try { attachmentUrl = new URL(item.url); storageUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!); }
         catch { throw new MailError('כתובת הקובץ המצורף אינה תקינה'); }
         if (attachmentUrl.protocol !== 'https:' || attachmentUrl.origin !== storageUrl.origin || !attachmentUrl.pathname.startsWith('/storage/v1/object/public/attachments/')) throw new MailError('ניתן לצרף קישור רק מאחסון הקבצים של המערכת');
+        const storagePath = decodeURIComponent(attachmentUrl.pathname.slice('/storage/v1/object/public/attachments/'.length));
+        if (storagePath.startsWith('email-exports/') && !storagePath.includes('..')) temporaryExportPaths.push(storagePath);
         let response: Response;
         try { response = await fetch(attachmentUrl, {redirect:'error',signal:AbortSignal.timeout(30000)}); }
         catch { throw new MailError(`טעינת הקובץ ${filename} נכשלה`, 502); }
@@ -277,6 +281,9 @@ export async function postMail(request: Request) {
       failure = status === 'unknown' ? 'החיבור נותק; ייתכן שהמייל נשלח. יש לבדוק בתיבת הדואר לפני ניסיון נוסף' : 'שרת הדואר דחה את השליחה. יש לבדוק את הגדרות החשבון';
     } finally { transport.close(); }
     const updated = await db.from('email_history').update({status, message_id: messageId, error: failure, accepted, rejected, finished_at: new Date().toISOString()}).eq('id', requestId);
+    if ((status === 'sent' || status === 'partial') && temporaryExportPaths.length) {
+      await db.storage.from('attachments').remove(temporaryExportPaths).catch(() => null);
+    }
     return Response.json({success: status === 'sent' || status === 'partial', status, messageId, accepted, rejected, error: failure, historyId: requestId, warning: updated.error ? 'לא ניתן לעדכן את ההיסטוריה; אין לשלוח שוב לפני בדיקה בתיבת הדואר' : undefined});
   } catch (error) { return errorResponse(error); }
 }
