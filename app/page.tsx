@@ -12786,6 +12786,12 @@ function FormGrid({
   };
   const set = (key: string, value: string) =>
     setForm((prev: any) => ({ ...prev, [key]: value }));
+  // שדות טקסט ארוכים גדלים עם התוכן – בלי גלילה פנימית, כך שכל מה שנכתב נשאר גלוי
+  const autoGrowTextarea = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.max(140, element.scrollHeight + 2)}px`;
+  };
   return (
     <div
       style={{
@@ -12808,8 +12814,22 @@ function FormGrid({
             <textarea
               disabled={readOnly}
               value={form[field.key] ?? ""}
-              onChange={(e) => set(field.key, e.target.value)}
-              style={{ ...inputStyle, minHeight: 90, resize: "vertical" }}
+              rows={5}
+              ref={autoGrowTextarea}
+              onChange={(e) => {
+                autoGrowTextarea(e.currentTarget);
+                set(field.key, e.target.value);
+              }}
+              style={{
+                ...inputStyle,
+                minHeight: 140,
+                resize: "vertical",
+                fontWeight: 500,
+                fontSize: 16,
+                lineHeight: 1.65,
+                color: "#0f172a",
+                overflow: "hidden",
+              }}
             />
           ) : field.type === "select" ? (
             <select
@@ -28243,7 +28263,19 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     return false;
   };
 
-  const buildMergedPdfBlob = async (title: string, html: string, appendicesOverride?: OutgoingEmailAttachment[]) => {
+  // קבצים שלא ניתן לשלב בתוך ה-PDF (Word, Excel וכו') – לא חוסמים את ההפקה:
+  // במייל הם נשלחים כקבצים מצורפים נפרדים, ובהורדה המשתמש מקבל הודעה.
+  const isPdfMergeableAttachment = (attachment: OutgoingEmailAttachment) => {
+    const name = String(attachment.filename || "").toLowerCase();
+    const src = String(attachment.contentBase64 ? "" : attachment.url || "").toLowerCase();
+    const mime = String(attachment.mimeType || "").toLowerCase();
+    if (/\.(pdf|png|jpe?g)$/.test(name)) return true;
+    if (mime.includes("pdf") || mime === "image/png" || mime === "image/jpeg" || mime === "image/jpg") return true;
+    if (/^data:(application\/pdf|image\/png|image\/jpe?g)[;,]/.test(src) || /\.(pdf|png|jpe?g)(\?|$)/.test(src)) return true;
+    return false;
+  };
+
+  const buildMergedPdfWithLeftovers = async (title: string, html: string, appendicesOverride?: OutgoingEmailAttachment[]) => {
     const { PDFDocument } = await loadPdfTools();
     const formPdfBytes = await buildFormOnlyPdfBytes(html, title);
     const mergedPdf = await PDFDocument.create();
@@ -28252,19 +28284,26 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     formPages.forEach((page: any) => mergedPdf.addPage(page));
 
     const appendices = appendicesOverride ?? collectCurrentFormPdfAppendices();
-    const failedAppendices: string[] = [];
+    const leftovers: OutgoingEmailAttachment[] = [];
     for (const attachment of appendices) {
-      if (!(await appendAttachmentToPdf(mergedPdf, attachment))) {
-        failedAppendices.push(attachment.filename || "קובץ מצורף");
+      if (!isPdfMergeableAttachment(attachment) || !(await appendAttachmentToPdf(mergedPdf, attachment))) {
+        leftovers.push(attachment);
       }
-    }
-    if (failedAppendices.length) {
-      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
     }
 
     const mergedBytes = await mergedPdf.save();
-    return new Blob([mergedBytes], { type: "application/pdf" });
+    return { blob: new Blob([mergedBytes], { type: "application/pdf" }), leftovers };
   };
+
+  const buildMergedPdfBlob = async (title: string, html: string, appendicesOverride?: OutgoingEmailAttachment[]) =>
+    (await buildMergedPdfWithLeftovers(title, html, appendicesOverride)).blob;
+
+  const leftoverFilesNotice = (leftovers: OutgoingEmailAttachment[]) =>
+    leftovers.length
+      ? `הקבצים הבאים אינם PDF/תמונה ולכן לא שולבו בתוך קובץ ה-PDF: ${leftovers
+          .map((attachment) => attachment.filename || "קובץ מצורף")
+          .join(", ")}. ניתן להוריד אותם בנפרד מרשימת המסמכים המצורפים.`
+      : "";
 
   const archiveRecordPdfAppendices = (record: unknown): OutgoingEmailAttachment[] =>
     uniqueEmailAttachments(
@@ -28284,7 +28323,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const buildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
     const { PDFDocument } = await loadPdfTools();
     const mergedPdf = await PDFDocument.create();
-    const failedAppendices: string[] = [];
+    const leftovers: OutgoingEmailAttachment[] = [];
     const appendedAttachmentIdentities = new Set<string>();
     let appendedAppendixCount = 0;
 
@@ -28300,14 +28339,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         const identity = await outgoingEmailAttachmentContentIdentity(attachment);
         if (appendedAttachmentIdentities.has(identity)) continue;
         appendedAttachmentIdentities.add(identity);
-        if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
-        else failedAppendices.push(attachment.filename || "קובץ מצורף");
+        if (isPdfMergeableAttachment(attachment) && (await appendAttachmentToPdf(mergedPdf, attachment))) appendedAppendixCount += 1;
+        else leftovers.push(attachment);
       }
     }
 
-    if (failedAppendices.length) {
-      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
-    }
     if (mergedPdf.getPageCount() < records.length) {
       throw new Error("יצירת הקובץ המרוכז נכשלה: לא נוצר עמוד נפרד לכל אישור. המייל לא נשלח.");
     }
@@ -28318,6 +28354,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       appendixCount: appendedAppendixCount,
       pageCount: mergedPdf.getPageCount(),
       title: sectionTitle,
+      leftovers,
     };
   };
 
@@ -28359,33 +28396,66 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const pdfBlobToEmailAttachment = async (
     filename: string,
     blob: Blob,
+    mimeType = "application/pdf",
   ): Promise<OutgoingEmailAttachment> => {
+    const extensionMatch = String(filename || "").match(/\.([a-z0-9]{1,8})$/i);
+    const extension = extensionMatch ? extensionMatch[1].toLowerCase() : mimeType === "application/pdf" ? "pdf" : "bin";
     if (cloudEnabled && supabase) {
       const rawProjectSegment = String(currentProject?.id || "project");
       const projectSegment = rawProjectSegment.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "project";
       const storageFilename = String(filename || "document.pdf")
-        .replace(/\.pdf$/i, "")
+        .replace(/\.[a-z0-9]{1,8}$/i, "")
         .replace(/[^a-zA-Z0-9_-]/g, "_")
         .replace(/_+/g, "_")
         .slice(0, 80) || "document";
-      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-${storageFilename}.pdf`;
+      const storagePath = `email-exports/${projectSegment}/${Date.now()}-${crypto.randomUUID()}-${storageFilename}.${extension}`;
       const uploadResult = await supabase.storage
         .from("attachments")
         .upload(storagePath, blob, {
           upsert: false,
           cacheControl: "31536000",
-          contentType: "application/pdf",
+          contentType: mimeType,
         });
       if (uploadResult.error) throw uploadResult.error;
       const { data } = supabase.storage.from("attachments").getPublicUrl(storagePath);
       if (!data.publicUrl) throw new Error("לא התקבלה כתובת לקובץ ה-PDF הקבוצתי");
-      return { filename, mimeType: "application/pdf", url: data.publicUrl };
+      return { filename, mimeType, url: data.publicUrl };
     }
 
     const dataUrl = await blobToDataUrl(blob);
-    const attachment = dataUrlToEmailAttachment(filename, dataUrl, "application/pdf");
+    const attachment = dataUrlToEmailAttachment(filename, dataUrl, mimeType);
     if (!attachment) throw new Error("הכנת קובץ ה-PDF לשליחה נכשלה");
     return attachment;
+  };
+
+  // קבצים שלא שולבו ב-PDF (למשל Word) נשלחים כקבצים מצורפים נפרדים באותו מייל
+  const leftoverMailAttachments = async (leftovers: OutgoingEmailAttachment[]): Promise<MailAttachment[]> => {
+    const documents: MailAttachment[] = [];
+    for (const attachment of leftovers) {
+      const filename = attachment.filename || "קובץ מצורף";
+      const mimeType = attachment.mimeType || "application/octet-stream";
+      let ready: OutgoingEmailAttachment | null = null;
+      const src = String(attachment.url || "");
+      if (attachment.contentBase64 || src.startsWith("data:")) {
+        const bytesInfo = attachment.contentBase64
+          ? { mimeType, bytes: Uint8Array.from(atob(attachment.contentBase64.replace(/\s/g, "")), (c) => c.charCodeAt(0)) }
+          : dataUrlToBytes(src);
+        if (!bytesInfo) throw new Error(`הכנת הקובץ ${filename} לשליחה נכשלה`);
+        const type = attachment.mimeType || bytesInfo.mimeType || "application/octet-stream";
+        ready = await pdfBlobToEmailAttachment(filename, new Blob([bytesInfo.bytes], { type }), type);
+      } else if (/^https?:\/\//i.test(src)) {
+        ready = { filename, mimeType, url: src };
+      }
+      if (!ready) throw new Error(`הכנת הקובץ ${filename} לשליחה נכשלה`);
+      documents.push({
+        id: crypto.randomUUID(),
+        filename: ready.filename,
+        mimeType: ready.mimeType || mimeType,
+        ...(ready.url ? { url: ready.url } : {}),
+        ...(ready.contentBase64 ? { contentBase64: ready.contentBase64 } : {}),
+      });
+    }
+    return documents;
   };
 
   const [centralMailContext, setCentralMailContext] = useState<MailContext | null>(null);
@@ -28478,6 +28548,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             id: crypto.randomUUID(),
             ...(await pdfBlobToEmailAttachment(`${documentTitle}.pdf`, result.blob)),
           });
+          documents.push(...(await leftoverMailAttachments(result.leftovers)));
         }
         return documents;
       },
@@ -28613,9 +28684,9 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       title,
       html ? async () => {
         if (!consolidate) return [await documentForEmail(html, title)];
-        const blob = await buildMergedPdfBlob(title, html, archiveRecordPdfAppendices(record));
+        const { blob, leftovers } = await buildMergedPdfWithLeftovers(title, html, archiveRecordPdfAppendices(record));
         const attachment = await pdfBlobToEmailAttachment(`${title} - כולל נספחים.pdf`, blob);
-        return [{id:crypto.randomUUID(), filename:attachment.filename, mimeType:attachment.mimeType || "application/pdf", ...(attachment.url ? {url:attachment.url} : {}), ...(attachment.contentBase64 ? {contentBase64:attachment.contentBase64} : {})}];
+        return [{id:crypto.randomUUID(), filename:attachment.filename, mimeType:attachment.mimeType || "application/pdf", ...(attachment.url ? {url:attachment.url} : {}), ...(attachment.contentBase64 ? {contentBase64:attachment.contentBase64} : {})}, ...(await leftoverMailAttachments(leftovers))];
       } : undefined,
       consolidate,
     );
@@ -29471,13 +29542,14 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       ${exportCompanyFooter(recordDateForBranding(record))}</div></body></html>`;
   };
 
-  const buildRfiMergedPdfBlob = (record: RfiRecord) =>
-    buildMergedPdfBlob(rfiExportTitle(record), rfiExportHtml(record), archiveRecordPdfAppendices(record));
+  const buildRfiMergedPdf = (record: RfiRecord) =>
+    buildMergedPdfWithLeftovers(rfiExportTitle(record), rfiExportHtml(record), archiveRecordPdfAppendices(record));
+  const buildRfiMergedPdfBlob = async (record: RfiRecord) => (await buildRfiMergedPdf(record)).blob;
 
   const downloadRfiPdf = async (record: RfiRecord) => {
     try {
       record = await hydrateRfiRecord(record);
-      const blob = await buildRfiMergedPdfBlob(record);
+      const { blob, leftovers } = await buildRfiMergedPdf(record);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -29486,6 +29558,8 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      const notice = leftoverFilesNotice(leftovers);
+      if (notice) window.setTimeout(() => alert(notice), 300);
     } catch (error) {
       alert(error instanceof Error ? error.message : "יצירת PDF עבור RFI נכשלה");
     }
@@ -29523,7 +29597,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
     record = await hydrateRfiRecord(record);
     const title = rfiExportTitle(record);
     openRecordEmail("rfi", record, record.id, title, async () => {
-      const blob = await buildRfiMergedPdfBlob(record);
+      const { blob, leftovers } = await buildRfiMergedPdf(record);
       const attachment = await pdfBlobToEmailAttachment(`${title} - כולל נספחים.pdf`, blob);
       return [{
         id: crypto.randomUUID(),
@@ -29531,7 +29605,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
         mimeType: attachment.mimeType || "application/pdf",
         ...(attachment.url ? { url: attachment.url } : {}),
         ...(attachment.contentBase64 ? { contentBase64: attachment.contentBase64 } : {}),
-      }];
+      }, ...(await leftoverMailAttachments(leftovers))];
     }, true);
   };
 
@@ -29607,10 +29681,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   };
 
   // אותו טופס PDF כמו בשליחה של רשומה בודדת, כולל הנספחים שצורפו לרשומה
-  const batchRecordPdfBlob = async (module: BatchModule, record: any, title: string, index: number) => {
-    if (module === "rfi") return buildRfiMergedPdfBlob(record);
+  const batchRecordPdf = async (module: BatchModule, record: any, title: string, index: number) => {
+    if (module === "rfi") return buildRfiMergedPdf(record);
     const appendices = archiveRecordPdfAppendices(record);
-    if (module === "supervisionReports") return buildMergedPdfBlob(title, supervisionReportHtml(record), appendices);
+    if (module === "supervisionReports") return buildMergedPdfWithLeftovers(title, supervisionReportHtml(record), appendices);
     const body =
       module === "nonconformances"
         ? nonconformanceExportHtml(record)
@@ -29619,8 +29693,10 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
           : module === "checklists"
             ? checklistExportHtml(getChecklistDisplayNumber(record, index), record)
             : controlProcessRecordArchiveBody(record);
-    return buildMergedPdfBlob(title, archivePrintableHtml(title, body), appendices);
+    return buildMergedPdfWithLeftovers(title, archivePrintableHtml(title, body), appendices);
   };
+  const batchRecordPdfBlob = async (module: BatchModule, record: any, title: string, index: number) =>
+    (await batchRecordPdf(module, record, title, index)).blob;
 
   const sendRecordsBatchEmail = async (module: BatchModule, recordsToSend: any[], useCurrentDraft = false) => {
     const selected = (recordsToSend ?? []).filter(Boolean);
@@ -29648,7 +29724,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       generateDocuments: async () => {
         const documents: MailAttachment[] = [];
         for (const [index, record] of records.entries()) {
-          const blob = await batchRecordPdfBlob(module, record, titles[index], index);
+          const { blob, leftovers } = await batchRecordPdf(module, record, titles[index], index);
           const attachment = await pdfBlobToEmailAttachment(`${titles[index]} - כולל נספחים.pdf`, blob);
           documents.push({
             id: crypto.randomUUID(),
@@ -29657,6 +29733,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
             ...(attachment.url ? { url: attachment.url } : {}),
             ...(attachment.contentBase64 ? { contentBase64: attachment.contentBase64 } : {}),
           });
+          documents.push(...(await leftoverMailAttachments(leftovers)));
         }
         return documents;
       },
@@ -29971,7 +30048,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
   const unreachableBuildMergedPreliminaryRecordsPdfBlob = async (records: any[], sectionTitle: string) => {
     const { PDFDocument } = await loadPdfTools();
     const mergedPdf = await PDFDocument.create();
-    const failedAppendices: string[] = [];
+    const leftovers: OutgoingEmailAttachment[] = [];
     let appendedAppendixCount = 0;
 
     for (const record of records) {
@@ -29983,14 +30060,11 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       recordPages.forEach((page: any) => mergedPdf.addPage(page));
 
       for (const attachment of archiveRecordPdfAppendices(record)) {
-        if (await appendAttachmentToPdf(mergedPdf, attachment)) appendedAppendixCount += 1;
-        else failedAppendices.push(attachment.filename || "קובץ מצורף");
+        if (isPdfMergeableAttachment(attachment) && (await appendAttachmentToPdf(mergedPdf, attachment))) appendedAppendixCount += 1;
+        else leftovers.push(attachment);
       }
     }
 
-    if (failedAppendices.length) {
-      throw new Error(`לא ניתן לצרף ל-PDF את הקבצים הבאים: ${failedAppendices.join(", ")}. המייל לא נשלח כדי למנוע הודעת הצלחה שגויה.`);
-    }
     if (mergedPdf.getPageCount() < records.length) {
       throw new Error("יצירת הקובץ המרוכז נכשלה: לא נוצר עמוד נפרד לכל אישור. המייל לא נשלח.");
     }
@@ -30001,6 +30075,7 @@ const loadExternalScript = async (src: string, test: () => boolean, label: strin
       appendixCount: appendedAppendixCount,
       pageCount: mergedPdf.getPageCount(),
       title: sectionTitle,
+      leftovers,
     };
   };
   }

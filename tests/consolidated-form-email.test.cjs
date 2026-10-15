@@ -7,7 +7,10 @@ const source = fs.readFileSync(path.join(__dirname,'..','app/page.tsx'),'utf8');
 
 test('NCR and trial section email generate one merged PDF and suppress loose attachments',()=>{
   assert.match(source,/\["nonconformances", "trialSections"\]\.includes\(section\)/);
-  assert.match(source,/buildMergedPdfBlob\(title, html, archiveRecordPdfAppendices\(record\)\)/);
+  assert.match(source,/buildMergedPdfWithLeftovers\(title, html, archiveRecordPdfAppendices\(record\)\)/);
+  // Word/Excel etc. cannot be embedded in a PDF: they are sent as separate files instead of blocking the e-mail
+  assert.match(source,/\.\.\.\(await leftoverMailAttachments\(leftovers\)\)\]/);
+  assert.doesNotMatch(source,/לא ניתן לצרף ל-PDF את הקבצים הבאים/);
   assert.match(source,/attachments: consolidated \? \[\] : collectMailAttachments\(snapshot\)/);
   assert.match(source,/`\$\{title\} - כולל נספחים\.pdf`/);
 });

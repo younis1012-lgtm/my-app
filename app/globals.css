@@ -45,6 +45,8 @@ body {
 }
 
 button, input, select, textarea { font-family: inherit; }
+/* הסרגל העליון קבוע – מבטיח ששורת ההקלדה לא תוסתר מתחתיו בזמן כתיבה */
+html { scroll-padding-top: 130px; }
 
 .project-navigation { position:fixed; top:96px; right:12px; bottom:12px; z-index:100; width:260px; overflow-y:auto; overflow-x:hidden; display:grid; align-content:start; gap:16px; padding:16px 12px; border:0; border-radius:16px; background:var(--yk-navy); box-shadow:0 12px 32px rgba(11,31,58,.18); scrollbar-width:thin; scrollbar-color:#3b5580 transparent; }
 .project-navigation-group { display:grid; gap:2px; }
