@@ -201,7 +201,7 @@ export async function postMail(request: Request) {
     if (/\{\{[\w.]+\}\}/.test(subject + text)) throw new MailError('יש להשלים את השדות החסרים בתבנית');
     if (!Array.isArray(body.attachments) || body.attachments.length > 30) throw new MailError('ניתן לצרף עד 30 קבצים');
     let total = 0;
-    const attachments = [];
+    const attachments: Array<{filename: string; content: Buffer; contentType: string}> = [];
     // עותקים זמניים של טפסים שהוכנו לשליחה – נמחקים מהאחסון אחרי שהמייל יצא (המייל נשמר בתיבת השולח)
     const temporaryExportPaths: string[] = [];
     // נתיב האחסון של כל קובץ (אם הגיע מהאחסון) – לשימוש בקישור הורדה אם Gmail חוסם את הקובץ
@@ -277,7 +277,8 @@ export async function postMail(request: Request) {
       const operatorEmail = String(operator.email || '').trim().toLowerCase();
       const alreadyIncluded = [...to, ...cc, ...bcc].some((address: string) => String(address).trim().toLowerCase() === operatorEmail);
       const finalCc = usingSystemMailbox && operatorEmail && validMailAddress(operatorEmail) && !alreadyIncluded ? [...cc, operatorEmail] : cc;
-      const sendWith = (files: typeof attachments, bodyText: string) => transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc: finalCc, bcc, subject, text: bodyText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(bodyText)}</div>`, attachments: files});
+      const senderAddress = sender.data.email;
+      const sendWith = (files: typeof attachments, bodyText: string) => transport.sendMail({from: qualityAssuranceNcr ? senderAddress : {name: senderName, address: senderAddress}, replyTo: operator.email || undefined, to, cc: finalCc, bcc, subject, text: bodyText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(bodyText)}</div>`, attachments: files});
       let result;
       try {
         result = await sendWith(attachments, outgoingText);
