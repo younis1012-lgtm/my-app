@@ -204,11 +204,14 @@ export async function postMail(request: Request) {
     const attachments = [];
     // עותקים זמניים של טפסים שהוכנו לשליחה – נמחקים מהאחסון אחרי שהמייל יצא (המייל נשמר בתיבת השולח)
     const temporaryExportPaths: string[] = [];
+    // נתיב האחסון של כל קובץ (אם הגיע מהאחסון) – לשימוש בקישור הורדה אם Gmail חוסם את הקובץ
+    const attachmentStoragePaths: Array<string | null> = [];
     for (const item of body.attachments as Array<{filename?: unknown; mimeType?: unknown; contentBase64?: unknown; url?: unknown}>) {
       if (!item) throw new MailError('קובץ מצורף לא הוכן לשליחה');
       const filename = field(item.filename, 240).replace(/[\\/\r\n\x00]/g, '_');
       let buffer: Buffer;
       let responseType = '';
+      let sourceStoragePath: string | null = null;
       if (typeof item.contentBase64 === 'string') {
         const content = item.contentBase64.replace(/\s/g, '');
         if (!content || content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new MailError('תוכן קובץ אינו תקין');
@@ -220,6 +223,7 @@ export async function postMail(request: Request) {
         if (attachmentUrl.protocol !== 'https:' || attachmentUrl.origin !== storageUrl.origin || !attachmentUrl.pathname.startsWith('/storage/v1/object/public/attachments/')) throw new MailError('ניתן לצרף קישור רק מאחסון הקבצים של המערכת');
         const storagePath = decodeURIComponent(attachmentUrl.pathname.slice('/storage/v1/object/public/attachments/'.length));
         if (storagePath.startsWith('email-exports/') && !storagePath.includes('..')) temporaryExportPaths.push(storagePath);
+        if (!storagePath.includes('..')) sourceStoragePath = storagePath;
         let response: Response;
         try { response = await fetch(attachmentUrl, {redirect:'error',signal:AbortSignal.timeout(30000)}); }
         catch { throw new MailError(`טעינת הקובץ ${filename} נכשלה`, 502); }
@@ -237,6 +241,7 @@ export async function postMail(request: Request) {
       } else throw new MailError('קובץ מצורף לא הוכן לשליחה');
       total += buffer.length;
       if (total > MAIL_MAX_BYTES) throw new MailError('ניתן לצרף עד 20MB בסך הכול', 413);
+      attachmentStoragePaths.push(sourceStoragePath);
       attachments.push({ filename, content: buffer, contentType: typeof item.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(item.mimeType) ? item.mimeType : responseType || 'application/octet-stream' });
     }
     const senderEmail = field(body.senderEmail, 254).toLowerCase();
@@ -260,6 +265,8 @@ export async function postMail(request: Request) {
     }
     let status = 'failed', messageId: string | null = null, failure: string | null = null;
     let accepted: string[] = [], rejected: string[] = [];
+    const keptStoragePaths = new Set<string>();
+    let linkedFileNames: string[] = [];
     const transport = nodemailer.createTransport({service: 'gmail', auth: {user: sender.data.email, pass: sender.data.smtp_app_password}, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000, disableFileAccess: true, disableUrlAccess: true});
     try {
       const usingSystemMailbox = sender.data.email.trim().toLowerCase() === String(process.env.EMAIL_USER || '').trim().toLowerCase();
@@ -270,7 +277,35 @@ export async function postMail(request: Request) {
       const operatorEmail = String(operator.email || '').trim().toLowerCase();
       const alreadyIncluded = [...to, ...cc, ...bcc].some((address: string) => String(address).trim().toLowerCase() === operatorEmail);
       const finalCc = usingSystemMailbox && operatorEmail && validMailAddress(operatorEmail) && !alreadyIncluded ? [...cc, operatorEmail] : cc;
-      const result = await transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc: finalCc, bcc, subject, text: outgoingText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(outgoingText)}</div>`, attachments});
+      const sendWith = (files: typeof attachments, bodyText: string) => transport.sendMail({from: qualityAssuranceNcr ? sender.data.email : {name: senderName, address: sender.data.email}, replyTo: operator.email || undefined, to, cc: finalCc, bcc, subject, text: bodyText, html: `<div dir="rtl" style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeMailHtml(bodyText)}</div>`, attachments: files});
+      let result;
+      try {
+        result = await sendWith(attachments, outgoingText);
+      } catch (firstError) {
+        // Gmail חוסם לעיתים קובצי Word/Excel ("potential security issue"). במקום להיכשל –
+        // שולחים שוב בלי הקבצים שנחסמו, ומוסיפים לגוף המייל קישור הורדה אליהם.
+        const smtp = firstError as {responseCode?: number; response?: string};
+        const blockedByPolicy = Number(smtp.responseCode) >= 550 && /5\.7\.\d|security|blocked|virus|policy/i.test(String(smtp.response || ''));
+        const isEmbeddable = (type: string, name: string) => /pdf|^image\//i.test(type) || /\.(pdf|png|jpe?g)$/i.test(name);
+        const linkIndexes = attachments.map((file, index) => (isEmbeddable(String(file.contentType || ''), file.filename) ? -1 : index)).filter(index => index >= 0);
+        if (!blockedByPolicy || !linkIndexes.length) throw firstError;
+        const links: string[] = [];
+        for (const index of linkIndexes) {
+          const file = attachments[index];
+          let path = attachmentStoragePaths[index];
+          if (!path) {
+            const extension = (file.filename.match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'bin').toLowerCase();
+            path = `email-links/${projectId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'project'}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+            const uploaded = await db.storage.from('attachments').upload(path, file.content, {contentType: String(file.contentType || 'application/octet-stream'), upsert: false});
+            if (uploaded.error) throw firstError;
+          }
+          keptStoragePaths.add(path);
+          links.push(`${file.filename}:\n${db.storage.from('attachments').getPublicUrl(path).data.publicUrl}`);
+        }
+        linkedFileNames = linkIndexes.map(index => attachments[index].filename);
+        const linkNotice = `\n\nהקבצים הבאים לא צורפו ישירות כי שרת הדואר חסם אותם, וניתן להוריד אותם בקישור:\n${links.join('\n')}`;
+        result = await sendWith(attachments.filter((_, index) => !linkIndexes.includes(index)), text + qualityAssuranceNotice + linkNotice + MAIL_SIGNATURE);
+      }
       messageId = result.messageId;
       accepted = (result.accepted || []).map(String); rejected = (result.rejected || []).map(String);
       status = accepted.length ? (rejected.length ? 'partial' : 'sent') : 'failed';
@@ -278,12 +313,21 @@ export async function postMail(request: Request) {
     } catch (error) {
       const code = (error as {code?: string}).code;
       status = ['ETIMEDOUT', 'ECONNECTION', 'ESOCKET'].includes(code || '') ? 'unknown' : 'failed';
-      failure = status === 'unknown' ? 'החיבור נותק; ייתכן שהמייל נשלח. יש לבדוק בתיבת הדואר לפני ניסיון נוסף' : 'שרת הדואר דחה את השליחה. יש לבדוק את הגדרות החשבון';
+      const smtp = error as {responseCode?: number; response?: string; message?: string};
+      const detail = String(smtp.response || smtp.message || '').replace(/\s+/g, ' ').slice(0, 220);
+      console.error('send-email SMTP failure', code, smtp.responseCode, detail);
+      const authFailure = code === 'EAUTH' || smtp.responseCode === 535 || smtp.responseCode === 534;
+      failure = status === 'unknown'
+        ? 'החיבור נותק; ייתכן שהמייל נשלח. יש לבדוק בתיבת הדואר לפני ניסיון נוסף'
+        : authFailure
+          ? 'שרת הדואר דחה את פרטי ההתחברות של חשבון השולח (סיסמת אפליקציה). יש לבדוק את הגדרות החשבון'
+          : `שרת הדואר דחה את השליחה${detail ? ` — ${detail}` : ''}`;
     } finally { transport.close(); }
     const updated = await db.from('email_history').update({status, message_id: messageId, error: failure, accepted, rejected, finished_at: new Date().toISOString()}).eq('id', requestId);
     if ((status === 'sent' || status === 'partial') && temporaryExportPaths.length) {
-      await db.storage.from('attachments').remove(temporaryExportPaths).catch(() => null);
+      const removable = temporaryExportPaths.filter(path => !keptStoragePaths.has(path));
+      if (removable.length) await db.storage.from('attachments').remove(removable).catch(() => null);
     }
-    return Response.json({success: status === 'sent' || status === 'partial', status, messageId, accepted, rejected, error: failure, historyId: requestId, warning: updated.error ? 'לא ניתן לעדכן את ההיסטוריה; אין לשלוח שוב לפני בדיקה בתיבת הדואר' : undefined});
+    return Response.json({success: status === 'sent' || status === 'partial', status, messageId, accepted, rejected, error: failure, historyId: requestId, warning: [updated.error ? 'לא ניתן לעדכן את ההיסטוריה; אין לשלוח שוב לפני בדיקה בתיבת הדואר' : '', linkedFileNames.length ? `שרת הדואר חסם את הקבצים ${linkedFileNames.join(', ')} – הם נשלחו במייל כקישור להורדה` : ''].filter(Boolean).join(' · ') || undefined});
   } catch (error) { return errorResponse(error); }
 }
